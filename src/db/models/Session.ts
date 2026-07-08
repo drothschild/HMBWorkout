@@ -12,6 +12,7 @@ export default class Session extends Model {
   @field('routine_id') routineId!: string;
   @readonly @date('started_at') startedAt!: Date;
   @readonly @date('ended_at') endedAt?: Date;
+  @text('engine_state') engineState?: string;
   @text('sync_status') customSyncStatus!: string;
   @readonly @date('created_at') createdAt!: Date;
 

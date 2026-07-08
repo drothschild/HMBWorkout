@@ -43,6 +43,7 @@ export const databaseSchema = appSchema({
         { name: 'routine_id', type: 'string', isIndexed: true },
         { name: 'started_at', type: 'number' },
         { name: 'ended_at', type: 'number', isOptional: true },
+        { name: 'engine_state', type: 'string', isOptional: true },
         { name: 'sync_status', type: 'string' },
         { name: 'created_at', type: 'number' },
       ],
