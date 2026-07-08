@@ -399,4 +399,43 @@ tags: []
       expect((result.exercises[0] as any).supersetLabel).toBe('A');
     });
   });
+
+  describe('I1: unknown flags fail loud', () => {
+    test('an unrecognized key=value flag throws ContractError', () => {
+      const markdown = `---
+type: workout-routine
+id: typo-01
+updated: 2026-07-08
+---
+\`\`\`workout
+- bench-press-db: 4x6 resr=90
+\`\`\`
+`;
+      expect(() => parseRoutine(markdown)).toThrow(ContractError);
+    });
+  });
+
+  describe('M1: block-style YAML tags list (vault convention)', () => {
+    test('tags as a block list parse, and following keys still parse', () => {
+      const markdown = `---
+type: workout-routine
+id: block-tags-01
+tags:
+  - project
+  - react-native
+created: 2026-07-08
+updated: 2026-07-08
+---
+\`\`\`workout
+- bench-press-db: 4x6 rest=90
+\`\`\`
+`;
+      const result = parseRoutine(markdown);
+      expect(result.frontmatter.tags).toContain('project');
+      expect(result.frontmatter.tags).toContain('react-native');
+      expect(result.frontmatter.created).toBe('2026-07-08');
+      expect(result.frontmatter.id).toBe('block-tags-01');
+      expect(result.exercises).toHaveLength(1);
+    });
+  });
 });

@@ -761,4 +761,59 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set1.rpe).toBeUndefined();
     });
   });
+
+  describe('AC3.1: bodyweight sets (weight 0) round-trip', () => {
+    test('a logged set with weightKg 0 survives serialize → parse', () => {
+      const sessionRow = {
+        id: 'sess-bw-001',
+        routineId: 'pull-06-01',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+      const sets = [
+        {
+          routineExerciseId: 're-bw-001',
+          setType: 'working' as const,
+          reps: 10,
+          weightKg: 0,
+          durationSeconds: undefined,
+          rpe: 7,
+          position: 0,
+        },
+      ];
+      const routineExercises = [
+        {
+          id: 're-bw-001',
+          exerciseId: 'pull-up',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: 3,
+          targetReps: 10,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+      ];
+      const exercises = [{ id: 'pull-up', title: 'Pull-up', kind: 'strength' as const }];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+      const parsed = parseSession(markdown);
+
+      expect(parsed.exercises).toHaveLength(1);
+      const set0 = parsed.exercises[0] as WorkoutLine;
+      expect(set0.exerciseId).toBe('pull-up');
+      expect(set0.weight).toBe(0);
+      expect(set0.targetReps).toBe(10);
+      expect(set0.rpe).toBe(7);
+      expect(set0.setType).toBe('working');
+    });
+  });
 });

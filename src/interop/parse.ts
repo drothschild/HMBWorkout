@@ -264,6 +264,22 @@ export function parseRoutine(markdown: string): ParsedDoc {
  * Parse session markdown.
  */
 export function parseSession(markdown: string): ParsedDoc {
-  // Sessions are parsed the same way as routines
-  return parseRoutine(markdown);
+  // Sessions share the routine line grammar, but the sets×reps slot carries
+  // LOGGED values ("1x<logged reps>"), not routine targets (see format.ts).
+  // Surface them under honest names so consumers (e.g. the Phase 7 sync
+  // client) never read a logged rep count out of `targetReps`.
+  const doc = parseRoutine(markdown);
+  const withLoggedFields = (line: WorkoutLine): WorkoutLine => ({
+    ...line,
+    loggedReps: line.targetReps,
+    loggedDurationSeconds: line.targetDurationSeconds,
+  });
+  return {
+    ...doc,
+    exercises: doc.exercises.map((entry) =>
+      'exercises' in entry
+        ? { ...entry, exercises: entry.exercises.map(withLoggedFields) }
+        : withLoggedFields(entry)
+    ),
+  };
 }

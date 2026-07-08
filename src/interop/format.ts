@@ -35,6 +35,11 @@ export interface WorkoutLine {
   distance?: number; // logged distance in m, session sets only (cardio)
   // Logged session: actual set type
   setType?: SetType;
+  // Session lines only: honest aliases populated by parseSession — the
+  // sets×reps slot in a session line carries LOGGED values ("1x<logged reps>"),
+  // so consumers should read these instead of the target* fields.
+  loggedReps?: number;
+  loggedDurationSeconds?: number;
 }
 
 /**
@@ -185,13 +190,14 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
     }
 
     case 'weight': {
+      // 0 is valid: bodyweight sets persist weight_kg = 0 (db validation rejects only < 0)
       const kg = parseFloat(valueStr);
-      return !isNaN(kg) && kg > 0 ? ['weight', kg] : null;
+      return !isNaN(kg) && kg >= 0 ? ['weight', kg] : null;
     }
 
     case 'distance': {
       const m = parseFloat(valueStr);
-      return !isNaN(m) && m > 0 ? ['distance', m] : null;
+      return !isNaN(m) && m >= 0 ? ['distance', m] : null;
     }
 
     default:
