@@ -156,6 +156,23 @@ export function createActiveSessionStore(
           console.error('Failed to initialize sync:', error);
         }
       }
+
+      // Write to HealthKit (isolated; errors must not affect DB or sync)
+      try {
+        const { saveWorkout } = await import('@/health/saveWorkout');
+        const { ensureAuthorized } = await import('@/health/healthkit');
+        const HealthKit = await import('@kingstinct/react-native-healthkit');
+
+        const healthKitDeps = {
+          ensureAuthorized,
+          saveWorkoutSample: HealthKit.saveWorkoutSample,
+        };
+
+        await saveWorkout(summary as any, healthKitDeps);
+      } catch (error) {
+        // HealthKit is write-only; errors must not affect session state
+        console.error('HealthKit write failed:', error);
+      }
     },
 
     ...overrideExecutors,
