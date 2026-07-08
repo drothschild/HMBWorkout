@@ -5,6 +5,8 @@ import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
 import { saveEngineState, clearEngineState } from '@/db/engineState';
 import { database } from '@/db';
+import { createRestTimerExecutor } from '@/engine/executors/restTimer';
+import { createRealNotificationApis, getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
 
 /**
  * Active session store state
@@ -72,17 +74,17 @@ export function createActiveSessionStore(
       });
     },
 
-    async onScheduleRest(deadlineMs: number) {
-      // No-op for now; implemented in Task 4
-    },
-
-    async onCancelRest() {
-      // No-op for now; implemented in Task 4
-    },
-
-    async onNotify(message: string) {
-      // No-op for now; implemented in Task 4
-    },
+    // Real rest timer executors (wired from restTimer.ts)
+    ...(overrideExecutors?.onScheduleRest || overrideExecutors?.onCancelRest ? {} : (() => {
+      // Create real executor only if not overridden
+      const notificationApis = createRealNotificationApis();
+      const restTimerExecutor = createRestTimerExecutor(notificationApis);
+      return {
+        onScheduleRest: restTimerExecutor.onScheduleRest,
+        onCancelRest: restTimerExecutor.onCancelRest,
+        onNotify: restTimerExecutor.onNotify,
+      };
+    })()),
 
     async onCompleteSession(summary: unknown) {
       if (!currentSessionState) return;

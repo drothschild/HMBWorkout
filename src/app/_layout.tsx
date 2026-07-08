@@ -10,6 +10,8 @@ import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
 import { loadActiveEngineState } from '@/db/engineState';
 import { activeSessionStore } from '@/state/activeSession';
+import { getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
+import * as Notifications from 'expo-notifications';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 
@@ -34,6 +36,9 @@ export default function RootLayout() {
   useEffect(() => {
     (async () => {
       try {
+        // Set up notification handler for foreground presentation
+        Notifications.setNotificationHandler(getDefaultNotificationHandler());
+
         // Load and validate rules
         loadRules();
 
