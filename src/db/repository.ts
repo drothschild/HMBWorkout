@@ -56,9 +56,9 @@ export async function createSession(
     const sessionsTable = database.get('sessions');
     const session = await sessionsTable.create((session: any) => {
       session._raw.id = sessionId;
-      session._raw.routine_id = routineId;
+      session.routineId = routineId;
       session._raw.started_at = startedAtMs;
-      session._raw.sync_status = 'local';
+      session.customSyncStatus = 'local';
       session._raw.created_at = Date.now();
     });
 
@@ -116,15 +116,15 @@ export async function appendSet(
     const nextPosition = maxPosition + 1;
 
     await sessionSetsTable.create((set: any) => {
-      set._raw.session_id = sessionId;
-      set._raw.routine_exercise_id = routineExerciseId;
-      set._raw.set_type = setType;
-      if (reps !== undefined) set._raw.reps = reps;
-      if (weightKg !== undefined) set._raw.weight_kg = weightKg;
-      if (durationSeconds !== undefined) set._raw.duration_seconds = durationSeconds;
-      if (distanceM !== undefined) set._raw.distance_m = distanceM;
-      if (rpe !== undefined) set._raw.rpe = rpe;
-      set._raw.position = nextPosition;
+      set.sessionId = sessionId;
+      set.routineExerciseId = routineExerciseId;
+      set.setType = setType;
+      if (reps !== undefined) set.reps = reps;
+      if (weightKg !== undefined) set.weightKg = weightKg;
+      if (durationSeconds !== undefined) set.durationSeconds = durationSeconds;
+      if (distanceM !== undefined) set.distanceM = distanceM;
+      if (rpe !== undefined) set.rpe = rpe;
+      set.position = nextPosition;
       set._raw.created_at = Date.now();
     });
   });
@@ -229,16 +229,16 @@ export async function upsertRoutineExercise(
     } else {
       // Create new record
       const created = await routineExercisesTable.create((re: any) => {
-        re._raw.routine_id = routineId;
-        re._raw.exercise_id = exerciseId;
-        re._raw.order = order;
-        if (supersetGroup !== undefined) re._raw.superset_group = supersetGroup;
-        re._raw.warmup_sets = warmupSets;
-        if (targetSets !== undefined) re._raw.target_sets = targetSets;
-        if (targetReps !== undefined) re._raw.target_reps = targetReps;
+        re.routineId = routineId;
+        re.exerciseId = exerciseId;
+        re.order = order;
+        if (supersetGroup !== undefined) re.supersetGroup = supersetGroup;
+        re.warmupSets = warmupSets;
+        if (targetSets !== undefined) re.targetSets = targetSets;
+        if (targetReps !== undefined) re.targetReps = targetReps;
         if (targetDurationSeconds !== undefined)
-          re._raw.target_duration_seconds = targetDurationSeconds;
-        if (restSeconds !== undefined) re._raw.rest_seconds = restSeconds;
+          re.targetDurationSeconds = targetDurationSeconds;
+        if (restSeconds !== undefined) re.restSeconds = restSeconds;
       });
       return created as RoutineExercise;
     }

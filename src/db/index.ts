@@ -1,6 +1,5 @@
 import { Database } from '@nozbe/watermelondb';
-import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
-import { databaseSchema } from './schema';
+import { createAdapter } from './adapter';
 import Routine from './models/Routine';
 import Exercise from './models/Exercise';
 import RoutineExercise from './models/RoutineExercise';
@@ -9,14 +8,7 @@ import SessionSet from './models/SessionSet';
 
 export { Routine, Exercise, RoutineExercise, Session, SessionSet };
 
-const adapter = new SQLiteAdapter({
-  dbName: 'hmbworkout',
-  schema: databaseSchema,
-  jsi: true,
-  onSetUpError: (error) => {
-    console.error('Database setup error:', error);
-  },
-});
+const adapter = createAdapter();
 
 export const database = new Database({
   adapter,
