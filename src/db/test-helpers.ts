@@ -16,9 +16,9 @@ export function createTestDatabase(): Database {
     schema: databaseSchema,
     useWebWorker: false,
     useIncrementalIndexedDB: false,
-    // Disable autosave to prevent background timers/handles from blocking Jest exit
-    autosave: false,
-    autosaveInterval: false,
+    // WatermelonDB defaults loki to autosave:true/500ms, which leaves a live
+    // timer that keeps Jest's process alive; only extraLokiOptions overrides it.
+    extraLokiOptions: { autosave: false },
   } as any);
 
   return new Database({
@@ -34,15 +34,11 @@ export function createTestDatabase(): Database {
  * @param database The database instance to close
  */
 export async function closeTestDatabase(database: Database): Promise<void> {
-  try {
-    // Access the underlying LokiJS driver and close its handles
-    const adapter = (database as any).adapter as any;
-    if (adapter && adapter._driver && adapter._driver.loki) {
-      // Close the Loki instance - this releases IndexedDB handles
-      adapter._driver.loki.close();
-    }
-  } catch (error) {
-    // Ignore errors during cleanup
-    console.debug('Error closing Loki adapter:', error);
+  // database.adapter is a DatabaseAdapterCompat wrapper; the LokiJSAdapter
+  // (and its _driver.loki instance) lives on underlyingAdapter.
+  const loki = (database.adapter as any).underlyingAdapter?._driver?.loki;
+  if (!loki) {
+    throw new Error('closeTestDatabase: could not reach loki instance — adapter internals changed?');
   }
+  await new Promise<void>((resolve) => loki.close(() => resolve()));
 }
