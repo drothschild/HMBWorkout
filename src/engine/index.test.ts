@@ -17,11 +17,34 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     phase: 'idle',
     exerciseIndex: 0,
     setIndex: 0,
+    supersetPosition: 0,
+    restDeadlineMs: 0,
     loggedSets: [],
     startedAtMs: 1000,
     entries: [],
     ...overrides,
   };
+}
+
+/**
+ * Helper: build a routine with entries structure for testing
+ */
+function makeRoutine(exerciseCount = 1, overrides?: any): any {
+  const entries: any[] = [];
+  for (let i = 0; i < exerciseCount; i++) {
+    entries.push({
+      exerciseId: `exercise-${i}`,
+      kind: 'strength',
+      warmupSets: i === 0 ? 1 : 0,
+      targetSets: 1,
+      targetReps: 8,
+      targetDurationSeconds: 0,
+      restSeconds: 60,
+      supersetGroup: '',
+      ...overrides?.[i],
+    });
+  }
+  return { id: 'routine-test', entries };
 }
 
 describe('engine: dispatch loop with effect executors', () => {
@@ -43,7 +66,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', has_warmups: true } as any,
+        routine: makeRoutine(1) as any,
       };
 
       const newState = await engine.dispatch(event);
@@ -75,7 +98,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'test-session',
         nowMs: 1000,
-        routine: { id: 'routine-1', has_warmups: true } as any,
+        routine: makeRoutine(1) as any,
       };
 
       await engine.dispatch(event);
@@ -228,7 +251,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', has_warmups: true } as any,
+        routine: makeRoutine(1) as any,
       };
 
       // Dispatch should not throw, even though executor does
@@ -266,7 +289,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', has_warmups: true } as any,
+        routine: makeRoutine(1) as any,
       };
 
       await engine.dispatch(event);

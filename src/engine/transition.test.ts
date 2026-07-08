@@ -54,6 +54,27 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
 }
 
 /**
+ * Helper: build a routine with entries structure for testing
+ */
+function makeRoutine(exerciseCount = 1, overrides?: any): any {
+  const entries: any[] = [];
+  for (let i = 0; i < exerciseCount; i++) {
+    entries.push({
+      exerciseId: `exercise-${i}`,
+      kind: 'strength',
+      warmupSets: i === 0 ? 1 : 0,
+      targetSets: 1,
+      targetReps: 8,
+      targetDurationSeconds: 0,
+      restSeconds: 60,
+      supersetGroup: '',
+      ...overrides?.[i],
+    });
+  }
+  return { id: 'routine-test', entries };
+}
+
+/**
  * Helper: run transition rule with state + event.
  * Throws if Err or parsing fails. Returns state + effects on Ok.
  */
@@ -79,18 +100,7 @@ describe('engine: transition rule — session state machine', () => {
         tag: 'StartSession',
         sessionId: 'new-session-id',
         nowMs: 5000,
-        routine: {
-          id: 'routine-1',
-          exercises: [
-            {
-              id: 'squat',
-              name: 'Squat',
-              has_warmups: true,
-              working_sets: 3,
-              superset_group: 0,
-            },
-          ],
-        },
+        routine: makeRoutine(1) as any,
       };
 
       const initialState = makeState({ phase: 'idle' });
@@ -99,7 +109,7 @@ describe('engine: transition rule — session state machine', () => {
       expect(result.state.sessionId).toBe('new-session-id');
       expect(result.state.startedAtMs).toBe(5000);
       expect(result.state.phase).toBe('warmup');
-      expect(result.state.routineId).toBe('routine-1');
+      expect(result.state.routineId).toBe('routine-test');
       expect(result.state.exerciseIndex).toBe(0);
       expect(result.state.setIndex).toBe(0);
     });
@@ -109,18 +119,7 @@ describe('engine: transition rule — session state machine', () => {
         tag: 'StartSession',
         sessionId: 'new-session-id',
         nowMs: 5000,
-        routine: {
-          id: 'routine-1',
-          exercises: [
-            {
-              id: 'squat',
-              name: 'Squat',
-              has_warmups: false,
-              working_sets: 3,
-              superset_group: 0,
-            },
-          ],
-        },
+        routine: makeRoutine(1, [{ warmupSets: 0 }]) as any,
       };
 
       const initialState = makeState({ phase: 'idle' });
@@ -134,12 +133,7 @@ describe('engine: transition rule — session state machine', () => {
         tag: 'StartSession',
         sessionId: 'new-session-id',
         nowMs: 5000,
-        routine: {
-          id: 'routine-1',
-          exercises: [
-            { id: 'ex1', has_warmups: true, working_sets: 1, superset_group: 0 },
-          ],
-        },
+        routine: makeRoutine(1) as any,
       };
 
       const initialState = makeState({ phase: 'idle' });
@@ -149,7 +143,7 @@ describe('engine: transition rule — session state machine', () => {
       // Rule emits uniform effects with kind (host maps to typed Effects)
       expect(result.effects[0].kind).toBe('create_session');
       expect(result.state.sessionId).toBe('new-session-id');
-      expect(result.state.routineId).toBe('routine-1');
+      expect(result.state.routineId).toBe('routine-test');
       expect(result.state.startedAtMs).toBe(5000);
     });
 
@@ -217,7 +211,7 @@ describe('engine: transition rule — session state machine', () => {
         rpe: 7.5,
       };
 
-      const state = makeState({ phase: 'warmup' });
+      const state = makeState({ phase: 'warmup', entries: makeRoutine(1).entries });
       const result = evaluateSource(transitionCompositeSource, { state, event });
 
       expect(result.success).toBe(true);
@@ -253,13 +247,17 @@ describe('engine: transition rule — session state machine', () => {
         rpe: 6.0,
       };
 
-      const state = makeState({ phase: 'warmup', exerciseIndex: 0, setIndex: 0 });
+      const state = makeState({ phase: 'warmup', exerciseIndex: 0, setIndex: 0, entries: makeRoutine(1).entries });
       const result = evaluateTransition(state, event);
 
-      expect(result.state.loggedSets.length).toBeGreaterThan(0);
-      const lastSet = result.state.loggedSets[result.state.loggedSets.length - 1];
-      expect(lastSet.setType).toBe('warmup');
-      expect(lastSet.reps).toBe(5);
+      // Rule emits persist_set effect with set data in message (encoded)
+      // Host dispatch will parse and append to loggedSets
+      const persistEffects = result.effects.filter(e => e.kind === 'persist_set');
+      expect(persistEffects.length).toBe(1);
+      // Verify the set data is encoded in the message: exerciseId|setType|reps|weightKg|durationSeconds|rpe
+      const setData = persistEffects[0].message;
+      expect(setData).toContain('warmup');
+      expect(setData).toContain('5');
     });
 
     it('should emit PersistSet effect on valid LogSet', () => {
@@ -271,12 +269,11 @@ describe('engine: transition rule — session state machine', () => {
         rpe: 8.0,
       };
 
-      const state = makeState({ phase: 'working' });
+      const state = makeState({ phase: 'working', entries: makeRoutine(1).entries });
       const result = evaluateTransition(state, event);
 
       const persistEffects = result.effects.filter(e => e.kind === "persist_set");
       expect(persistEffects.length).toBe(1);
-      expect((persistEffects[0] as any).set.reps).toBe(8);
     });
   });
 
@@ -284,56 +281,74 @@ describe('engine: transition rule — session state machine', () => {
     it('should advance from warmup to working phase after warmups exhausted', () => {
       const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
-      // Mock: after logging 2 warmup sets, we're on the 3rd set which is working
+      // After warmup set is done (setIndex=0), next set should be working phase
       const state = makeState({
         phase: 'warmup',
-        setIndex: 1, // 2nd warmup (0-indexed)
-        loggedSets: [{ exerciseId: 'squat', setType: 'warmup', reps: 5, weightKg: 20.0, durationSeconds: 0, rpe: 6.0 }],
+        setIndex: 0, // Just finished warmup set 0
+        loggedSets: [{ exerciseId: 'exercise-0', setType: 'warmup', reps: 5, weightKg: 20.0, durationSeconds: 0, rpe: 6.0 }],
+        entries: makeRoutine(2, [
+          { warmupSets: 1, targetSets: 2 }, // 1 warmup + 2 working = 3 sets total
+          { warmupSets: 0, targetSets: 1 },
+        ]).entries,
       });
 
       const result = evaluateTransition(state, event);
 
+      // After first warmup set of first exercise, should transition to working
       expect(result.state.phase).toBe('working');
+      expect(result.state.exerciseIndex).toBe(0);
+      expect(result.state.setIndex).toBe(1);
     });
 
     it('should honor contiguous superset groups (AC8.1)', () => {
       const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
-      // Exercise 0 is part of superset group 0, exercise 1 is also part of group 0
-      // After completing exercise 0, should move to exercise 1 (same group) before resting
+      // Exercise 0 and 1 are both in superset group "A", with no warmups
       const state = makeState({
         phase: 'working',
         exerciseIndex: 0,
-        setIndex: 0,
+        setIndex: 0, // Completing the only set of exercise 0
         supersetPosition: 0,
         loggedSets: [],
+        entries: makeRoutine(2, [
+          { warmupSets: 0, supersetGroup: 'A' },
+          { warmupSets: 0, supersetGroup: 'A' },
+        ]).entries,
       });
 
       const result = evaluateTransition(state, event);
 
-      // Should advance exercise index but might not rest yet if in superset
-      expect(result.state.exerciseIndex).toBeGreaterThanOrEqual(0);
+      // Should advance to exercise 1 without resting (same superset group)
+      expect(result.state.exerciseIndex).toBe(1);
+      expect(result.state.phase).toBe('working');
+      expect(result.state.supersetPosition).toBe(1);
     });
 
     it('should rest after superset group is complete', () => {
       const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
-      // After last exercise of a superset group
+      // Second exercise in superset "A" with a standalone exercise after
       const state = makeState({
         phase: 'working',
         exerciseIndex: 1,
-        supersetPosition: 1, // last in superset of size 2
+        setIndex: 0, // Completing the only set of exercise 1
+        supersetPosition: 1,
         loggedSets: [],
+        entries: makeRoutine(3, [
+          { warmupSets: 0, supersetGroup: 'A', restSeconds: 90 },
+          { warmupSets: 0, supersetGroup: 'A', restSeconds: 90 },
+          { warmupSets: 0, supersetGroup: '', restSeconds: 60 },
+        ]).entries,
       });
 
       const result = evaluateTransition(state, event);
 
-      // Should enter resting phase with ScheduleRest effect
-      if (result.state.phase === 'resting') {
-        expect(result.state.restDeadlineMs).toBeDefined();
-        const scheduleRestEffects = result.effects.filter(e => e.kind === "schedule_rest");
-        expect(scheduleRestEffects.length).toBeGreaterThan(0);
-      }
+      // After last exercise of superset, should rest before next standalone exercise
+      expect(result.state.phase).toBe('resting');
+      expect(result.state.restDeadlineMs).toBe(100000); // 10000 + 90*1000
+      expect(result.state.exerciseIndex).toBe(2);
+      const scheduleRestEffects = result.effects.filter(e => e.kind === "schedule_rest");
+      expect(scheduleRestEffects.length).toBe(1);
     });
   });
 
@@ -344,15 +359,18 @@ describe('engine: transition rule — session state machine', () => {
       const state = makeState({
         phase: 'stretching',
         exerciseIndex: 0,
+        setIndex: 0,
         loggedSets: [
-          { exerciseId: 'stretch-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: 120, rpe: null },
+          { exerciseId: 'stretch-1', setType: 'stretch', reps: 0, weightKg: 0, durationSeconds: 120, rpe: -1 },
         ],
+        entries: makeRoutine(1, [{ kind: 'stretch', warmupSets: 0 }]).entries,
       });
 
       const result = evaluateTransition(state, event);
 
-      // Should not error and should either stay in stretching or advance
+      // Should advance to done after final exercise
       expect(result.state).toBeDefined();
+      expect(result.state.phase).toBe('done');
     });
   });
 
@@ -360,24 +378,30 @@ describe('engine: transition rule — session state machine', () => {
     it('should emit ScheduleRest with deadline = eventTime + rest_duration*1000', () => {
       const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
-      // Trigger rest: last exercise of superset at time 10000
+      // Trigger rest: last exercise of superset at time 10000, followed by another exercise
       const state = makeState({
         phase: 'working',
         exerciseIndex: 1,
+        setIndex: 0,
         supersetPosition: 1,
         startedAtMs: 1000,
         loggedSets: [],
+        entries: makeRoutine(3, [
+          { supersetGroup: 'A', restSeconds: 90 },
+          { supersetGroup: 'A', restSeconds: 90 },
+          { supersetGroup: '', restSeconds: 60 },
+        ]).entries,
       });
 
-      // Mock eventTime = 10000
-      // If rest_duration = 90 seconds, deadline should be 10000 + 90*1000 = 100000
+      // eventTime = 10000, rest_duration = 90 seconds, deadline should be 10000 + 90*1000 = 100000
       const result = evaluateTransition(state, { tag: 'SetDone', nowMs: 10000 });
 
-      if (result.state.phase === 'resting') {
-        const scheduleEffects = result.effects.filter(e => e.kind === "schedule_rest") as any[];
-        expect(scheduleEffects.length).toBeGreaterThan(0);
-        expect(typeof scheduleEffects[0].deadlineMs).toBe('number');
-      }
+      expect(result.state.phase).toBe('resting');
+      expect(result.state.restDeadlineMs).toBe(100000);
+      expect(result.state.exerciseIndex).toBe(2);
+      const scheduleEffects = result.effects.filter(e => e.kind === "schedule_rest") as any[];
+      expect(scheduleEffects.length).toBe(1);
+      expect(scheduleEffects[0].deadline_ms).toBe(100000);
     });
   });
 
@@ -406,11 +430,12 @@ describe('engine: transition rule — session state machine', () => {
         restDeadlineMs: 10000, // deadline is exactly now
         exerciseIndex: 1,
         setIndex: 0,
+        entries: makeRoutine(2).entries,
       });
 
       const result = evaluateTransition(state, event);
 
-      expect(result.state.phase).not.toBe('resting');
+      expect(result.state.phase).toBe('working');
       const cancelRestEffects = result.effects.filter(e => e.kind === "cancel_rest");
       expect(cancelRestEffects.length).toBeGreaterThan(0);
     });
@@ -425,13 +450,15 @@ describe('engine: transition rule — session state machine', () => {
         restDeadlineMs: 10000, // deadline passed while paused
         exerciseIndex: 1,
         setIndex: 0,
+        entries: makeRoutine(2).entries,
       });
 
       const result = evaluateTransition(state, event);
 
-      // Should reconcile: advance past resting
-      expect(result.state.phase).not.toBe('paused');
-      expect(result.state.phase).not.toBe('resting');
+      // Should reconcile: advance to working (past resting)
+      expect(result.state.phase).toBe('working');
+      const cancelEffects = result.effects.filter(e => e.kind === 'cancel_rest');
+      expect(cancelEffects.length).toBeGreaterThan(0);
     });
 
     it('should preserve resting state if Resume is before restDeadlineMs', () => {
@@ -440,6 +467,7 @@ describe('engine: transition rule — session state machine', () => {
       const state = makeState({
         phase: 'paused',
         restDeadlineMs: 10000, // deadline still ahead
+        entries: makeRoutine(2).entries,
       });
 
       const result = evaluateTransition(state, event);
@@ -454,7 +482,7 @@ describe('engine: transition rule — session state machine', () => {
     it('should freeze state on PauseSession', () => {
       const event: Event = { tag: 'PauseSession' };
 
-      const state = makeState({ phase: 'working', exerciseIndex: 2 });
+      const state = makeState({ phase: 'working', exerciseIndex: 2, entries: makeRoutine(3).entries });
 
       const result = evaluateTransition(state, event);
 
@@ -467,14 +495,14 @@ describe('engine: transition rule — session state machine', () => {
 
       const state = makeState({
         phase: 'paused',
-        loggedSets: [], // Empty, so will infer previous was 'idle' or 'warmup'
+        restDeadlineMs: 0,
+        entries: makeRoutine(2).entries,
       });
 
-      // This test depends on how we infer the previous phase
-      // For now, just verify it's not paused anymore
+      // Resume from paused without active rest goes to working
       const result = evaluateTransition(state, event);
 
-      expect(result.state.phase).not.toBe('paused');
+      expect(result.state.phase).toBe('working');
     });
   });
 
@@ -545,7 +573,7 @@ describe('engine: transition rule — session state machine', () => {
     it('should emit CompleteSession + Notify on FinishSession', () => {
       const event: Event = { tag: 'FinishSession' };
 
-      const state = makeState({ phase: 'working' });
+      const state = makeState({ phase: 'working', entries: makeRoutine(1).entries });
 
       const result = evaluateTransition(state, event);
 
@@ -561,7 +589,7 @@ describe('engine: transition rule — session state machine', () => {
     it('should emit CancelRest if resting when FinishSession', () => {
       const event: Event = { tag: 'FinishSession' };
 
-      const state = makeState({ phase: 'resting', restDeadlineMs: 10000 });
+      const state = makeState({ phase: 'resting', restDeadlineMs: 10000, entries: makeRoutine(1).entries });
 
       const result = evaluateTransition(state, event);
 

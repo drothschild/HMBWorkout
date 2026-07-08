@@ -89,6 +89,26 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     // Swap state first, then run executors
     state = newState;
 
+    // Process persist_set effects: append the new set to loggedSets
+    // (Rill can't concatenate lists, so set data is encoded in the effect message)
+    for (const ue of uniformEffects) {
+      if (ue.kind === 'persist_set' && ue.message) {
+        // Parse set data: exerciseId|setType|reps|weightKg|durationSeconds|rpe
+        const parts = ue.message.split('|');
+        if (parts.length === 6) {
+          const newSet: LoggedSet = {
+            exerciseId: parts[0],
+            setType: parts[1] as any,
+            reps: parseInt(parts[2], 10),
+            weightKg: parseFloat(parts[3]),
+            durationSeconds: parseInt(parts[4], 10),
+            rpe: parseFloat(parts[5]),
+          };
+          state.loggedSets = [...state.loggedSets, newSet];
+        }
+      }
+    }
+
     // Map uniform effects from Rill to typed Effects, then run executors
     const typedEffects: Effect[] = uniformEffects.map((ue) => mapUniformEffect(ue, state));
 

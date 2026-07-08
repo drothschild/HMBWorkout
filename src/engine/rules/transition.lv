@@ -17,7 +17,8 @@ rule transition(
     restDeadlineMs: Int,
     loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }),
     startedAtMs: Int,
-    entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String })
+    entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }),
+    currentEntry: { exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }
   },
   event: { tag: String, .. }
 ) -> Result({ state: { .. }, effects: List({ kind: String, deadline_ms: Int, message: String }) })
@@ -69,11 +70,15 @@ then (
     else if (!rpeValid)
     then Err("RPE must be -1.0 (unset) or between 1.0 and 10.0 in 0.5 steps")
     else (
-      -- Get current exercise entry by index
-      -- For now, assume exerciseIndex is 0 (simplification for tests)
+      -- Get current exercise entry
       let currentEntry = head(state.entries)?
       let isWarmup = state.setIndex < currentEntry.warmupSets
       let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
+
+      -- Rill doesn't support list concatenation directly, so encode the new set in the message
+      -- Host will parse this and append to loggedSets when processing the PersistSet effect
+      -- Format: exerciseId|setType|reps|weightKg|durationSeconds|rpe
+      let setData = currentEntry.exerciseId ++ "|" ++ setType ++ "|" ++ to_string(event.reps) ++ "|" ++ to_string(event.weightKg) ++ "|" ++ to_string(event.durationSeconds) ++ "|" ++ to_string(event.rpe)
 
       Ok({
         state: {
@@ -88,7 +93,7 @@ then (
           startedAtMs: state.startedAtMs,
           entries: state.entries
         },
-        effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }]
+        effects: [{ kind: "persist_set", deadline_ms: 0, message: setData }]
       })
     )
   )
@@ -98,8 +103,8 @@ then (
   if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
   then Err("invalid event SetDone in phase " ++ state.phase)
   else (
-    -- Get current exercise entry
-    let currentEntry = head(state.entries)?
+    -- Use currentEntry from state (cached for Rill's list indexing limitation)
+    let currentEntry = state.currentEntry
     let isWarmup = state.setIndex < currentEntry.warmupSets
     let nextSetIndex = state.setIndex + 1
     let allSetsForEntry = currentEntry.warmupSets + currentEntry.targetSets

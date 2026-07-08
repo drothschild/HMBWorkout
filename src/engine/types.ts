@@ -31,6 +31,7 @@ export interface LoggedSet {
  * SessionState: JSON-serializable session data.
  * Note: entries (routine structure) is stored in state so it's available for all transitions.
  * This keeps the state self-contained and serializable (can be persisted and rehydrated).
+ * currentEntry: redundant cache of the current exercise entry (Rill can't index lists).
  */
 export interface SessionState {
   sessionId: string;
@@ -43,6 +44,7 @@ export interface SessionState {
   loggedSets: LoggedSet[];
   startedAtMs: number;
   entries: RoutineEntry[]; // Routine structure — needed for advancement logic
+  currentEntry?: RoutineEntry; // Cache: entry at exerciseIndex (for Rill, which can't index)
 }
 
 /**
