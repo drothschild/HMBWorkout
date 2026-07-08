@@ -1,6 +1,7 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
+import { createSessionPresenter } from './sessionPresenter';
 import { SessionState } from '@/engine/types';
 import { getSession, getSessionSets, upsertRoutineExercise } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
@@ -626,12 +627,12 @@ describe('activeSession store', () => {
       expect(currentState?.entries[1].exerciseId).toBe('ex-second');
       expect(currentState?.loggedSets[0].exerciseId).toBe('ex-first');
 
-      // The test itself verifies the issue by asserting:
-      // currentExerciseId should be entries[exerciseIndex].exerciseId (ex-second),
-      // NOT loggedSets[last].exerciseId (ex-first)
+      // Exercise the presenter itself: it must show entries[exerciseIndex]
+      // (ex-second), not loggedSets[last] (ex-first).
       if (currentState) {
-        expect(currentState.entries[currentState.exerciseIndex].exerciseId).toBe('ex-second');
-        expect(currentState.entries[currentState.exerciseIndex].exerciseId).not.toBe(
+        const presenter = createSessionPresenter(currentState, store.getState().dispatch);
+        expect(presenter.currentExerciseId).toBe('ex-second');
+        expect(presenter.currentExerciseId).not.toBe(
           currentState.loggedSets[currentState.loggedSets.length - 1].exerciseId
         );
       }
