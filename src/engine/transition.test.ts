@@ -595,7 +595,7 @@ describe('engine: transition rule — session state machine', () => {
 
   describe('FinishSession completion (AC10.1, AC10.3)', () => {
     it('should emit CompleteSession + Notify on FinishSession', () => {
-      const event: Event = { tag: 'FinishSession' };
+      const event: Event = { tag: 'FinishSession', nowMs: 10000 };
 
       const state = makeState({ phase: 'working', entries: makeRoutine(1).entries });
 
@@ -611,7 +611,7 @@ describe('engine: transition rule — session state machine', () => {
     });
 
     it('should emit CancelRest if resting when FinishSession', () => {
-      const event: Event = { tag: 'FinishSession' };
+      const event: Event = { tag: 'FinishSession', nowMs: 10000 };
 
       const state = makeState({ phase: 'resting', restDeadlineMs: 10000, entries: makeRoutine(1).entries });
 

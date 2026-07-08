@@ -16,6 +16,7 @@ export interface SessionCompleteSummary {
 
 export interface HealthKitSaveDeps {
   ensureAuthorized(deps: { requestAuthorization: (options: any) => Promise<boolean> }): Promise<'authorized' | 'denied'>;
+  requestAuthorization: (options: { toShare?: any }) => Promise<boolean>;
   saveWorkoutSample(
     activityType: number,
     quantities: readonly any[],
@@ -32,9 +33,9 @@ export interface HealthKitSaveDeps {
  */
 export async function saveWorkout(summary: SessionCompleteSummary, deps: HealthKitSaveDeps): Promise<void> {
   try {
-    // Ensure authorization first
+    // Ensure authorization first using the real requestAuthorization from deps
     const authStatus = await deps.ensureAuthorized({
-      requestAuthorization: async () => true, // Placeholder; will be injected in real usage
+      requestAuthorization: deps.requestAuthorization,
     });
 
     if (authStatus === 'denied') {
@@ -61,7 +62,6 @@ export async function saveWorkout(summary: SessionCompleteSummary, deps: HealthK
     );
   } catch (error) {
     // Log and swallow all errors
-    const message = error instanceof Error ? error.message : String(error);
     console.error('HealthKit workout write failed:', error);
   }
 }

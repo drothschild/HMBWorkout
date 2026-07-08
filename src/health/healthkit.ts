@@ -3,10 +3,12 @@
  * Handles requesting write access to workout data.
  */
 
+import type { SampleTypeIdentifierWriteable } from '@kingstinct/react-native-healthkit';
+
 export type AuthStatus = 'authorized' | 'denied';
 
 export interface HealthKitDeps {
-  requestAuthorization(options: { toShare?: readonly string[] }): Promise<boolean>;
+  requestAuthorization(options: { toShare?: readonly SampleTypeIdentifierWriteable[] }): Promise<boolean>;
 }
 
 /**

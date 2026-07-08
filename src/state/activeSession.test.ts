@@ -707,6 +707,7 @@ describe('activeSession store', () => {
         // The injected syncFn will reject, but this must be caught
         const dispatchResult = await store.getState().dispatch({
           tag: 'FinishSession',
+          nowMs: Date.now(),
         });
 
         // (b) Verify dispatch RESOLVED (didn't throw)

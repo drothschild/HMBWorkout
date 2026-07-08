@@ -140,9 +140,12 @@ describe('createSessionPresenter', () => {
 
     presenter.onFinishSession();
 
-    expect(mockDispatch).toHaveBeenCalledWith({
-      tag: 'FinishSession',
-    });
+    expect(mockDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tag: 'FinishSession',
+        nowMs: expect.any(Number),
+      })
+    );
   });
 
   test('returns current entry for exerciseIndex', () => {

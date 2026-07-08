@@ -62,7 +62,7 @@ export type Event =
   | { tag: 'SkipExercise' }
   | { tag: 'PauseSession' }
   | { tag: 'Resume'; nowMs: number }
-  | { tag: 'FinishSession' };
+  | { tag: 'FinishSession'; nowMs: number };
 
 /**
  * Effect (discriminated union) — all side effects emitted by the engine.

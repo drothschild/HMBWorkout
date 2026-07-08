@@ -165,6 +165,7 @@ export function createActiveSessionStore(
 
         const healthKitDeps = {
           ensureAuthorized,
+          requestAuthorization: HealthKit.requestAuthorization,
           saveWorkoutSample: HealthKit.saveWorkoutSample,
         };
 

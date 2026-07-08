@@ -176,7 +176,7 @@ describe('engine: dispatch loop with effect executors', () => {
       const state = makeState({ phase: 'working' });
       engine.setState(state);
 
-      const event: Event = { tag: 'FinishSession' };
+      const event: Event = { tag: 'FinishSession', nowMs: 10000 };
       await engine.dispatch(event);
 
       expect(executors.onCompleteSession).toHaveBeenCalled();

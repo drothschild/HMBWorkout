@@ -3,6 +3,7 @@ import { saveWorkout, SessionCompleteSummary } from './saveWorkout';
 describe('saveWorkout', () => {
   const mockHealthKit = {
     ensureAuthorized: jest.fn().mockResolvedValue('authorized'),
+    requestAuthorization: jest.fn().mockResolvedValue(true),
     saveWorkoutSample: jest.fn().mockResolvedValue({}),
   };
 

@@ -90,6 +90,7 @@ export function createSessionPresenter(
     onFinishSession: () => {
       dispatch({
         tag: 'FinishSession',
+        nowMs: Date.now(),
       });
     },
   };

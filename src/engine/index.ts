@@ -123,7 +123,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     }
 
     // Map uniform effects from Rill to typed Effects, then run executors
-    const typedEffects: Effect[] = uniformEffects.map((ue) => mapUniformEffect(ue, state));
+    const typedEffects: Effect[] = uniformEffects.map((ue) => mapUniformEffect(ue, state, processedEvent));
 
     for (const effect of typedEffects) {
       try {
@@ -147,7 +147,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
  * Rill returns { kind: string, deadline_ms: number, message: string } (uniform schema).
  * Host converts to the full typed Effect with payloads extracted from state or effect fields.
  */
-function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; message: string }, state: SessionState): Effect {
+function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; message: string }, state: SessionState, event?: Event): Effect {
   switch (uniformEffect.kind) {
     case 'create_session':
       return { tag: 'CreateSession', sessionId: state.sessionId, routineId: state.routineId, startedAtMs: state.startedAtMs };
@@ -163,11 +163,19 @@ function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; me
       return { tag: 'PersistSet', set: lastSet };
     case 'complete_session':
       // Summary: includes start/end times and logged sets for HealthKit write
+      // Use endMs from event.nowMs (FinishSession), or compute from state for other completion paths
+      let endMs = state.startedAtMs; // fallback
+      if (event?.tag === 'FinishSession') {
+        endMs = (event as any).nowMs;
+      } else {
+        // For other completion paths (e.g., SetDone leads to done phase), use current time
+        endMs = Date.now();
+      }
       return {
         tag: 'CompleteSession',
         summary: {
           startMs: state.startedAtMs,
-          endMs: Date.now(),
+          endMs,
           exercisesCompleted: state.exerciseIndex,
           setsLogged: state.loggedSets.length,
           loggedSets: state.loggedSets,
