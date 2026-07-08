@@ -1,6 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
+import RoutineExercise from './models/RoutineExercise';
 import { validateSet } from './validation';
 
 /**
@@ -22,6 +23,20 @@ interface AppendSetOptions {
   durationSeconds?: number;
   distanceM?: number;
   rpe?: number;
+}
+
+/**
+ * Routine exercise options for upsertRoutineExercise
+ */
+interface UpsertRoutineExerciseOptions {
+  exerciseId: string;
+  order: number;
+  supersetGroup?: string;
+  warmupSets?: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  restSeconds?: number;
 }
 
 /**
@@ -119,19 +134,143 @@ export async function getSession(
 }
 
 /**
- * Get all sets for a session.
+ * Get all sets for a session, ordered by creation time.
  *
  * @param database The database instance
  * @param sessionId The session ID
- * @returns Array of session sets
+ * @returns Array of session sets sorted by creation time
  */
 export async function getSessionSets(
   database: Database,
   sessionId: string
 ): Promise<SessionSet[]> {
   const sessionSetsTable = database.get('session_sets');
-  const sets = await sessionSetsTable
+  const sets = (await sessionSetsTable
     .query(Q.where('session_id', sessionId))
+    .fetch()) as SessionSet[];
+
+  // Sort by creation time to maintain order
+  sets.sort((a, b) => {
+    const aTime = (a as any)._raw.created_at;
+    const bTime = (b as any)._raw.created_at;
+    return aTime - bTime;
+  });
+
+  return sets;
+}
+
+/**
+ * Upsert a routine exercise with structured properties (superset, warmup sets, duration target, etc).
+ * Creates a new RoutineExercise or updates an existing one if already present for this routine+exercise.
+ *
+ * @param database The database instance
+ * @param routineId The routine ID
+ * @param options The routine exercise options
+ */
+export async function upsertRoutineExercise(
+  database: Database,
+  routineId: string,
+  options: UpsertRoutineExerciseOptions
+): Promise<RoutineExercise> {
+  const {
+    exerciseId,
+    order,
+    supersetGroup,
+    warmupSets = 0,
+    targetSets,
+    targetReps,
+    targetDurationSeconds,
+    restSeconds,
+  } = options;
+
+  const routineExercisesTable = database.get('routine_exercises');
+
+  // Check if this routine+exercise combo already exists
+  const existing = await routineExercisesTable
+    .query(
+      Q.and(
+        Q.where('routine_id', routineId),
+        Q.where('exercise_id', exerciseId)
+      )
+    )
     .fetch();
-  return sets as SessionSet[];
+
+  if (existing.length > 0) {
+    // Update existing record
+    const re = existing[0] as RoutineExercise;
+    await re.update((record: any) => {
+      record.order = order;
+      if (supersetGroup !== undefined) record.superset_group = supersetGroup;
+      record.warmup_sets = warmupSets;
+      if (targetSets !== undefined) record.target_sets = targetSets;
+      if (targetReps !== undefined) record.target_reps = targetReps;
+      if (targetDurationSeconds !== undefined)
+        record.target_duration_seconds = targetDurationSeconds;
+      if (restSeconds !== undefined) record.rest_seconds = restSeconds;
+    });
+    return re;
+  } else {
+    // Create new record
+    const created = await routineExercisesTable.create((re: any) => {
+      re._raw.routine_id = routineId;
+      re._raw.exercise_id = exerciseId;
+      re._raw.order = order;
+      if (supersetGroup !== undefined) re._raw.superset_group = supersetGroup;
+      re._raw.warmup_sets = warmupSets;
+      if (targetSets !== undefined) re._raw.target_sets = targetSets;
+      if (targetReps !== undefined) re._raw.target_reps = targetReps;
+      if (targetDurationSeconds !== undefined)
+        re._raw.target_duration_seconds = targetDurationSeconds;
+      if (restSeconds !== undefined) re._raw.rest_seconds = restSeconds;
+    });
+    return created as RoutineExercise;
+  }
+}
+
+/**
+ * Get all routine exercises for a routine, grouped by superset_group.
+ * Non-grouped exercises (with null superset_group) are returned as individual groups.
+ * Preserves the order of exercises within each group.
+ *
+ * @param database The database instance
+ * @param routineId The routine ID
+ * @returns Array of groups, where each group is an array of RoutineExercise objects
+ */
+export async function getSupersetGroups(
+  database: Database,
+  routineId: string
+): Promise<RoutineExercise[][]> {
+  const routineExercisesTable = database.get('routine_exercises');
+
+  // Fetch all routine exercises for this routine, sorted by order
+  const allExercises = (await routineExercisesTable
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  // Sort by order to maintain sequence
+  allExercises.sort((a, b) => (a as any)._raw.order - (b as any)._raw.order);
+
+  // Group by superset_group
+  const groups: Map<string | null, RoutineExercise[]> = new Map();
+
+  for (const exercise of allExercises) {
+    const supersetGroup = (exercise as any)._raw.superset_group ?? null;
+    if (!groups.has(supersetGroup)) {
+      groups.set(supersetGroup, []);
+    }
+    groups.get(supersetGroup)!.push(exercise);
+  }
+
+  // Convert to array of groups, filtering out null-key groups that are singletons
+  // (return only exercises that share a superset_group, not individual ones)
+  const result: RoutineExercise[][] = [];
+
+  for (const [key, group] of groups) {
+    // Only include groups that have a superset_group (not null) or are multi-exercise groups
+    if (key !== null && group.length > 0) {
+      result.push(group);
+    }
+  }
+
+  return result;
 }
