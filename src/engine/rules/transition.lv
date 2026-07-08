@@ -6,59 +6,19 @@ if (event.tag == "StartSession")
 then (
   if (state.phase != "idle")
   then Err("invalid event StartSession")
-  else (
-    let has_warmups = event.routine.exercises[0].warmup_sets > 0
-    let initial_phase = if (has_warmups) then "warmup" else "working"
-    Ok({ state: {
-      sessionId: event.sessionId,
-      routineId: event.routine.id,
-      phase: initial_phase,
-      exerciseIndex: 0,
-      setIndex: 0,
-      loggedSets: [],
-      startedAtMs: event.nowMs
-    }, effects: [{ tag: "CreateSession", sessionId: event.sessionId, routineId: event.routine.id, startedAtMs: event.nowMs }] })
-  )
+  else Ok({ state: { sessionId: event.sessionId, routineId: event.routine.id, phase: if (event.routine.exercises[0].warmup_sets > 0) then "warmup" else "working", exerciseIndex: 0, setIndex: 0, loggedSets: [], startedAtMs: event.nowMs }, effects: [{ tag: "CreateSession", sessionId: event.sessionId, routineId: event.routine.id, startedAtMs: event.nowMs }] })
 )
 else if (event.tag == "LogSet")
 then (
   if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
   then Err("invalid event LogSet")
   else (
-    let valid_reps = event.reps >= 0
-    let valid_weight = event.weightKg >= 0.0
-    let valid_duration = event.durationSeconds >= 0
-    let valid_rpe_check = (event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0))
-
-    if (valid_reps && valid_weight && valid_duration && valid_rpe_check)
-    then (
-      let new_set = {
-        exerciseId: "",
-        setType: if (state.phase == "warmup") then "warmup" else "working",
-        reps: event.reps,
-        weightKg: event.weightKg,
-        durationSeconds: event.durationSeconds,
-        rpe: event.rpe
-      }
-      Ok({ state: {
-        sessionId: state.sessionId,
-        routineId: state.routineId,
-        phase: state.phase,
-        exerciseIndex: state.exerciseIndex,
-        setIndex: state.setIndex,
-        supersetPosition: state.supersetPosition,
-        restDeadlineMs: state.restDeadlineMs,
-        loggedSets: state.loggedSets,
-        startedAtMs: state.startedAtMs
-      }, effects: [{ tag: "PersistSet", set: new_set }] })
-    )
+    if (event.reps >= 0 && event.weightKg >= 0.0 && event.durationSeconds >= 0 && (event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)))
+    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: state.phase, exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ tag: "PersistSet", set: { exerciseId: "", setType: if (state.phase == "warmup") then "warmup" else "working", reps: event.reps, weightKg: event.weightKg, durationSeconds: event.durationSeconds, rpe: event.rpe } }] })
     else (
-      if (!valid_reps)
-      then Err("reps must be non-negative")
-      else if (!valid_weight)
-      then Err("weight_kg must be non-negative")
-      else if (!valid_duration)
-      then Err("duration_seconds must be non-negative")
+      if (event.reps < 0) then Err("reps must be non-negative")
+      else if (event.weightKg < 0.0) then Err("weight_kg must be non-negative")
+      else if (event.durationSeconds < 0) then Err("duration_seconds must be non-negative")
       else Err("RPE must be -1.0 (unset) or between 1.0 and 10.0")
     )
   )
@@ -69,17 +29,7 @@ then (
   then Err("invalid event SetDone")
   else (
     if (state.phase == "warmup")
-    then Ok({ state: {
-      sessionId: state.sessionId,
-      routineId: state.routineId,
-      phase: "working",
-      exerciseIndex: state.exerciseIndex,
-      setIndex: state.setIndex + 1,
-      supersetPosition: state.supersetPosition,
-      restDeadlineMs: state.restDeadlineMs,
-      loggedSets: state.loggedSets,
-      startedAtMs: state.startedAtMs
-    }, effects: [] })
+    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex + 1, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
     else Ok({ state: state, effects: [] })
   )
 )
@@ -90,79 +40,23 @@ then (
   else (
     if (event.nowMs < state.restDeadlineMs)
     then Err("rest not elapsed")
-    else Ok({ state: {
-      sessionId: state.sessionId,
-      routineId: state.routineId,
-      phase: "working",
-      exerciseIndex: state.exerciseIndex,
-      setIndex: state.setIndex,
-      supersetPosition: state.supersetPosition,
-      loggedSets: state.loggedSets,
-      startedAtMs: state.startedAtMs
-    }, effects: [{ tag: "CancelRest" }] })
+    else Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ tag: "CancelRest" }] })
   )
 )
 else if (event.tag == "PauseSession")
-then Ok({ state: {
-  sessionId: state.sessionId,
-  routineId: state.routineId,
-  phase: "paused",
-  exerciseIndex: state.exerciseIndex,
-  setIndex: state.setIndex,
-  supersetPosition: state.supersetPosition,
-  restDeadlineMs: state.restDeadlineMs,
-  loggedSets: state.loggedSets,
-  startedAtMs: state.startedAtMs
-}, effects: [] })
+then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "paused", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
 else if (event.tag == "Resume")
 then (
   if (state.phase != "paused")
   then Err("invalid event Resume")
   else (
     if (state.restDeadlineMs != null && event.nowMs >= state.restDeadlineMs)
-    then Ok({ state: {
-      sessionId: state.sessionId,
-      routineId: state.routineId,
-      phase: "working",
-      exerciseIndex: state.exerciseIndex,
-      setIndex: state.setIndex,
-      supersetPosition: state.supersetPosition,
-      loggedSets: state.loggedSets,
-      startedAtMs: state.startedAtMs
-    }, effects: [{ tag: "CancelRest" }] })
-    else Ok({ state: {
-      sessionId: state.sessionId,
-      routineId: state.routineId,
-      phase: "resting",
-      exerciseIndex: state.exerciseIndex,
-      setIndex: state.setIndex,
-      supersetPosition: state.supersetPosition,
-      restDeadlineMs: state.restDeadlineMs,
-      loggedSets: state.loggedSets,
-      startedAtMs: state.startedAtMs
-    }, effects: [] })
+    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ tag: "CancelRest" }] })
+    else Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "resting", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
   )
 )
 else if (event.tag == "SkipExercise")
-then Ok({ state: {
-  sessionId: state.sessionId,
-  routineId: state.routineId,
-  phase: state.phase,
-  exerciseIndex: state.exerciseIndex + 1,
-  setIndex: state.setIndex,
-  supersetPosition: state.supersetPosition,
-  loggedSets: state.loggedSets,
-  startedAtMs: state.startedAtMs
-}, effects: [] })
+then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: state.phase, exerciseIndex: state.exerciseIndex + 1, setIndex: state.setIndex, supersetPosition: state.supersetPosition, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
 else if (event.tag == "FinishSession")
-then Ok({ state: {
-  sessionId: state.sessionId,
-  routineId: state.routineId,
-  phase: "done",
-  exerciseIndex: state.exerciseIndex,
-  setIndex: state.setIndex,
-  supersetPosition: state.supersetPosition,
-  loggedSets: state.loggedSets,
-  startedAtMs: state.startedAtMs
-}, effects: [{ tag: "CompleteSession" }, { tag: "Notify", message: "Workout complete" }] })
+then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "done", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ tag: "CompleteSession" }, { tag: "Notify", message: "Workout complete" }] })
 else Ok({ state: state, effects: [] })
