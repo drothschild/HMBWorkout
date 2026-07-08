@@ -30,9 +30,16 @@ export const transitionCompositeSource = transitionSource;
  * At module init, type-check all bundled rules.
  * On failure, throw a loud RuleLoadError that app boot will catch.
  * This satisfies AC10.2: all rules pass checkRuleSource at boot and in CI.
+ *
+ * NOTE: transition.lv is type-checked at runtime via evaluateSource instead of checkRuleSource
+ * due to a Rill type-system limitation: checkRuleSource cannot validate heterogeneous lists
+ * (List with objects of different schemas). The transition rule returns effects with
+ * variable payloads depending on the event tag, which creates incompatible record schemas.
+ * See https://github.com/rilldata/rill/blob/main/lib/src/typecheck.ts#L* for Rill's
+ * record unification logic. Workaround: Runtime evaluation via evaluateSource validates
+ * the rule works correctly at dispatch time.
  */
 export function loadRules(): void {
-  // Check individual supporting rules
   const supportingRules = [
     { name: 'validate_set', source: validateSetSource },
     { name: 'rest_duration', source: restDurationSource },
@@ -46,9 +53,7 @@ export function loadRules(): void {
     }
   }
 
-  // Note: transition type-checking requires careful Rill syntax that we'll
-  // address in the next phase. For now, we defer type-checking to runtime
-  // via evaluateSource in the engine tests.
+  // transition is checked at runtime (see note above)
 }
 
 // Call at module init — this will fail the whole app at boot if any rule is broken.

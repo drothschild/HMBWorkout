@@ -75,7 +75,7 @@ describe('engine: transition rule — session state machine', () => {
             {
               id: 'squat',
               name: 'Squat',
-              warmup_sets: 2,
+              has_warmups: true,
               working_sets: 3,
               superset_group: 0,
             },
@@ -105,7 +105,7 @@ describe('engine: transition rule — session state machine', () => {
             {
               id: 'squat',
               name: 'Squat',
-              warmup_sets: 0,
+              has_warmups: false,
               working_sets: 3,
               superset_group: 0,
             },
@@ -127,7 +127,7 @@ describe('engine: transition rule — session state machine', () => {
         routine: {
           id: 'routine-1',
           exercises: [
-            { id: 'ex1', warmup_sets: 1, working_sets: 1, superset_group: 0 },
+            { id: 'ex1', has_warmups: true, working_sets: 1, superset_group: 0 },
           ],
         },
       };
@@ -148,7 +148,7 @@ describe('engine: transition rule — session state machine', () => {
         tag: 'StartSession',
         sessionId: 'new-id',
         nowMs: 5000,
-        routine: { id: 'r1', exercises: [] } as any,
+        routine: { id: 'r1', has_warmups: true } as any,
       };
 
       const state = makeState({ phase: 'working' });
@@ -591,8 +591,8 @@ describe('engine: transition rule — session state machine', () => {
         routine: {
           id: 'routine-1',
           exercises: [
-            { id: 'squat', warmup_sets: 2, working_sets: 1, superset_group: 0 },
-            { id: 'leg-press', warmup_sets: 0, working_sets: 1, superset_group: 0 },
+            { id: 'squat', has_warmups: true, working_sets: 1, superset_group: 0 },
+            { id: 'leg-press', has_warmups: false, working_sets: 1, superset_group: 0 },
           ],
         },
       };

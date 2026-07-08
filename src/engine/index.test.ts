@@ -42,7 +42,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', exercises: [] } as any,
+        routine: { id: 'routine-1', has_warmups: true } as any,
       };
 
       const newState = await engine.dispatch(event);
@@ -74,7 +74,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'test-session',
         nowMs: 1000,
-        routine: { id: 'routine-1', exercises: [] } as any,
+        routine: { id: 'routine-1', has_warmups: true } as any,
       };
 
       await engine.dispatch(event);
@@ -227,7 +227,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', exercises: [] } as any,
+        routine: { id: 'routine-1', has_warmups: true } as any,
       };
 
       // Dispatch should not throw, even though executor does
@@ -265,7 +265,7 @@ describe('engine: dispatch loop with effect executors', () => {
         tag: 'StartSession',
         sessionId: 'new-session',
         nowMs: 5000,
-        routine: { id: 'routine-1', exercises: [] } as any,
+        routine: { id: 'routine-1', has_warmups: true } as any,
       };
 
       await engine.dispatch(event);
