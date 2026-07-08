@@ -22,6 +22,7 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     loggedSets: [],
     lastLoggedSet: undefined,
     startedAtMs: 1000,
+    prePausePhase: '',
     entries: [],
     ...overrides,
   };
@@ -76,6 +77,55 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(newState.sessionId).toBe('new-session');
       expect(newState.phase).toBe('warmup');
       expect(newState.startedAtMs).toBe(5000);
+    });
+
+    it('should not mutate the input event (M2)', async () => {
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+      };
+
+      const engine = createEngine(executors);
+      engine.setState(makeState({ phase: 'idle' }));
+
+      // Create a routine WITHOUT idx in entries (simulating input from outside)
+      const routine = {
+        id: 'routine-test',
+        entries: [
+          {
+            exerciseId: 'exercise-0',
+            kind: 'strength',
+            warmupSets: 1,
+            targetSets: 1,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 60,
+            supersetGroup: '',
+            // Note: NO idx field here
+          },
+        ],
+      };
+      const originalEntries = routine.entries.map((e: any) => ({ ...e })); // Deep copy for comparison
+
+      const event: Event = {
+        tag: 'StartSession',
+        sessionId: 'test-mutation',
+        nowMs: 1000,
+        routine: routine as any,
+      };
+
+      await engine.dispatch(event);
+
+      // Verify the original routine.entries was not modified
+      expect((event.routine as any).entries).toEqual(originalEntries);
+      // Each entry should still not have an 'idx' field (dispatch creates new objects)
+      (event.routine as any).entries.forEach((entry: any) => {
+        expect(entry.idx).toBeUndefined();
+      });
     });
 
     it('should invoke effect executors in order after state swap', async () => {
@@ -342,6 +392,262 @@ describe('engine: dispatch loop with effect executors', () => {
       const retrieved = engine.getState();
       expect(retrieved.phase).toBe('working');
       expect(retrieved.exerciseIndex).toBe(2);
+    });
+  });
+
+  describe('state retention across phases: invalid events preserve state (M4)', () => {
+    const phaseTests = [
+      { phase: 'idle' as const, validEvent: (s: any) => ({ tag: 'StartSession' as const, sessionId: 's', nowMs: 1000, routine: { id: 'r', entries: [] } }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'idle' },
+      { phase: 'warmup' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
+      { phase: 'working' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
+      { phase: 'resting' as const, validEvent: (s: any) => ({ tag: 'RestElapsed' as const, nowMs: s.restDeadlineMs + 1 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'resting' },
+      { phase: 'paused' as const, validEvent: (s: any) => ({ tag: 'Resume' as const, nowMs: 5000 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'paused' },
+      { phase: 'done' as const, validEvent: (s: any) => undefined, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'done' },
+    ];
+
+    for (const tc of phaseTests) {
+      it(`should preserve state and throw TransitionError on invalid event in ${tc.description} phase (M4)`, async () => {
+        const executors = {
+          onCreateSession: jest.fn(),
+          onScheduleRest: jest.fn(),
+          onCancelRest: jest.fn(),
+          onNotify: jest.fn(),
+          onPersistSet: jest.fn(),
+          onCompleteSession: jest.fn(),
+        };
+
+        const engine = createEngine(executors);
+        const priorState = makeState({
+          phase: tc.phase,
+          exerciseIndex: 5,
+          setIndex: 3,
+          restDeadlineMs: 10000,
+          entries: makeRoutine(2).entries,
+        });
+        engine.setState(priorState);
+
+        // Deep copy for comparison
+        const stateSnapshot = JSON.stringify(priorState);
+
+        const invalidEvent = tc.invalidEvent() as any;
+
+        try {
+          await engine.dispatch(invalidEvent);
+          throw new Error('Should have thrown TransitionError');
+        } catch (err: any) {
+          expect(err.name).toBe('TransitionError');
+        }
+
+        // Verify state is unchanged
+        const currentState = engine.getState();
+        expect(JSON.stringify(currentState)).toEqual(stateSnapshot);
+        expect(currentState.exerciseIndex).toBe(5);
+        expect(currentState.setIndex).toBe(3);
+        expect(currentState.phase).toBe(tc.phase);
+      });
+    }
+  });
+
+  describe('end-to-end integration: full session dispatch flow (AC10.1)', () => {
+    it('should walk through a complete session: start → warmup → working → done', async () => {
+      const loggedSetsHistory: any[] = [];
+      const completedSessions: any[] = [];
+      const notifyMessages: string[] = [];
+
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn((msg: string) => {
+          notifyMessages.push(msg);
+        }),
+        onPersistSet: jest.fn((set: any) => {
+          loggedSetsHistory.push(set);
+        }),
+        onCompleteSession: jest.fn((summary: any) => {
+          completedSessions.push(summary);
+        }),
+      };
+
+      const engine = createEngine(executors);
+      const initialState = makeState({ phase: 'idle' });
+      engine.setState(initialState);
+
+      // Step 1: StartSession
+      const routine = makeRoutine(2, [
+        { warmupSets: 1, targetSets: 2, restSeconds: 90 },
+        { warmupSets: 0, targetSets: 1, restSeconds: 60 },
+      ]);
+
+      let state = await engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'session-test-full',
+        nowMs: 1000,
+        routine: routine as any,
+      });
+
+      expect(state.sessionId).toBe('session-test-full');
+      expect(state.phase).toBe('warmup');
+      expect(executors.onCreateSession).toHaveBeenCalled();
+      expect(state.loggedSets.length).toBe(0);
+
+      // Step 2: LogSet warmup
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 5,
+        weightKg: 20.0,
+        durationSeconds: 0,
+        rpe: 6.0,
+      });
+
+      expect(state.phase).toBe('warmup');
+      expect(state.loggedSets.length).toBe(1);
+      expect(state.loggedSets[0].setType).toBe('warmup');
+      expect(executors.onPersistSet).toHaveBeenCalledTimes(1);
+
+      // Step 3: SetDone after warmup
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: 10000,
+      });
+
+      expect(state.phase).toBe('working'); // Should advance to working after warmups
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(1);
+
+      // Step 4: LogSet working set 1
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 25.0,
+        durationSeconds: 0,
+        rpe: 7.5,
+      });
+
+      expect(state.loggedSets.length).toBe(2); // Now have warmup + working set
+      expect(state.loggedSets[1].setType).toBe('working');
+      expect(executors.onPersistSet).toHaveBeenCalledTimes(2);
+
+      // Step 5: SetDone for working set 1
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: 20000,
+      });
+
+      // Should still be in exercise 0 but on set 2 (second working set)
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(2);
+      expect(state.phase).toBe('working');
+
+      // Step 6: LogSet working set 2
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 25.0,
+        durationSeconds: 0,
+        rpe: 8.0,
+      });
+
+      expect(state.loggedSets.length).toBe(3); // warmup + 2 working
+      expect(executors.onPersistSet).toHaveBeenCalledTimes(3);
+
+      // Step 7: SetDone (completes exercise 0, moves to rest before exercise 1)
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: 30000,
+      });
+
+      expect(state.phase).toBe('resting'); // Now resting before next exercise
+      expect(state.exerciseIndex).toBe(1); // Advanced to next exercise
+      expect(state.restDeadlineMs).toBe(120000); // 30000 + 90*1000
+      expect(executors.onScheduleRest).toHaveBeenCalled();
+
+      // Step 8: RestElapsed (resume from rest)
+      state = await engine.dispatch({
+        tag: 'RestElapsed',
+        nowMs: 120000,
+      });
+
+      expect(state.phase).toBe('working'); // Back to working phase
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.setIndex).toBe(0);
+      expect(executors.onCancelRest).toHaveBeenCalled();
+
+      // Step 9: LogSet for exercise 1
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 10,
+        weightKg: 30.0,
+        durationSeconds: 0,
+        rpe: 7.0,
+      });
+
+      expect(state.loggedSets.length).toBe(4); // 3 previous + 1 new
+      expect(state.loggedSets[3].exerciseId).toBe('exercise-1');
+      expect(executors.onPersistSet).toHaveBeenCalledTimes(4);
+
+      // Step 10: SetDone for final set (completes workout)
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: 130000,
+      });
+
+      // Should be done now
+      expect(state.phase).toBe('done');
+      expect(executors.onCompleteSession).toHaveBeenCalled();
+      expect(executors.onNotify).toHaveBeenCalledWith('Workout complete');
+      expect(notifyMessages).toContain('Workout complete');
+
+      // Verify final state
+      expect(state.loggedSets.length).toBe(4); // All sets persisted
+      expect(completedSessions.length).toBe(1);
+    });
+
+    it('should maintain state isolation: each dispatch grows loggedSets', async () => {
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+      };
+
+      const engine = createEngine(executors);
+      engine.setState(makeState({ phase: 'idle' }));
+
+      const routine = makeRoutine(1, [{ warmupSets: 0, targetSets: 3 }]);
+
+      // Start session
+      let state = await engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'test-isolation',
+        nowMs: 1000,
+        routine: routine as any,
+      });
+
+      const setsPerDispatch: number[] = [];
+      setsPerDispatch.push(state.loggedSets.length); // 0
+
+      // Log 3 sets
+      for (let i = 0; i < 3; i++) {
+        state = await engine.dispatch({
+          tag: 'LogSet',
+          reps: 8,
+          weightKg: 20.0,
+          durationSeconds: 0,
+          rpe: 7.0 + i * 0.5, // 7.0, 7.5, 8.0
+        });
+        setsPerDispatch.push(state.loggedSets.length);
+
+        state = await engine.dispatch({
+          tag: 'SetDone',
+          nowMs: 2000 + i * 10000,
+        });
+      }
+
+      // Verify loggedSets grows monotonically
+      expect(setsPerDispatch).toEqual([0, 1, 2, 3]);
     });
   });
 });

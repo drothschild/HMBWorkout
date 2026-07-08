@@ -31,6 +31,12 @@ describe('engine: supporting rules', () => {
         expectErrorContains: 'RPE',
       },
       {
+        name: 'AC9.3: RPE = 7.3 (invalid non-0.5-step) rejected',
+        set: { reps: 8, weight_kg: 20.0, duration_seconds: 0, rpe: 7.3 },
+        expectOk: false,
+        expectErrorContains: '0.5-step',
+      },
+      {
         name: 'AC9.3: RPE = 7.5 (valid 0.5 step) accepted',
         set: { reps: 8, weight_kg: 20.0, duration_seconds: 0, rpe: 7.5 },
         expectOk: true,
@@ -76,20 +82,20 @@ describe('engine: supporting rules', () => {
         expectedRestSeconds: 0,
       },
       {
-        name: 'AC10.6: end of superset (last in group) → prescribed rest',
+        name: 'AC10.6: end of superset (last in group) → prescribed rest (90s)',
         exerciseId: 'ex1',
         setIndex: 1,
         supersetPos: 1,
         supersetSize: 2,
-        expectedRestSeconds: 90, // example prescribed value
+        expectedRestSeconds: 90, // prescribed default value
       },
       {
-        name: 'AC10.6: standalone exercise → prescribed rest',
+        name: 'AC10.6: standalone exercise → prescribed rest (90s)',
         exerciseId: 'ex2',
         setIndex: 0,
         supersetPos: 0,
         supersetSize: 1,
-        expectedRestSeconds: 120, // example prescribed value
+        expectedRestSeconds: 90, // prescribed default value (standalone is "last" in its group of 1)
       },
     ];
 
@@ -103,44 +109,69 @@ describe('engine: supporting rules', () => {
         });
         expect(result.success).toBe(true);
         expect(typeof result.value).toBe('number');
-        if (tc.supersetPos < tc.supersetSize - 1) {
-          expect(result.value).toBe(0);
-        } else {
-          expect(typeof result.value).toBe('number');
-        }
+        // Assert the actual expected value, not just that it's a number
+        expect(result.value).toBe(tc.expectedRestSeconds);
       });
     }
   });
 
   describe('progression_hint rule — simple heuristic', () => {
-    it('at-target low-RPE history suggests increase', () => {
+    it('all working sets with RPE ≤ 8 suggests +2.5 kg increase', () => {
       const history = [
         { reps: 10, weight_kg: 20.0, rpe: 6.5, set_type: 'working', exerciseId: 'ex1' },
+        { reps: 10, weight_kg: 20.0, rpe: 7.0, set_type: 'working', exerciseId: 'ex1' },
       ];
 
       const result = evaluateSource(progressionHintSource, { history });
       expect(result.success).toBe(true);
       expect(typeof result.value).toBe('string');
-      // Should contain a suggestion to increase
+      // Should suggest to increase by 2.5 kg
       expect((result.value as string).toLowerCase()).toContain('increase');
+      expect((result.value as string)).toContain('2.5');
     });
 
-    it('any history returns a hint string', () => {
+    it('working sets with RPE > 8 suggests hold', () => {
       const history = [
-        { reps: 5, weight_kg: 25.0, rpe: 9.5, set_type: 'working', exerciseId: 'ex1' },
+        { reps: 8, weight_kg: 25.0, rpe: 9.0, set_type: 'working', exerciseId: 'ex1' },
+        { reps: 8, weight_kg: 25.0, rpe: 9.5, set_type: 'working', exerciseId: 'ex1' },
       ];
 
       const result = evaluateSource(progressionHintSource, { history });
       expect(result.success).toBe(true);
       expect(typeof result.value).toBe('string');
-      // Should return a meaningful string
-      expect((result.value as string).length).toBeGreaterThan(0);
+      // Should suggest to hold current weight
+      expect((result.value as string).toLowerCase()).toContain('hold');
     });
 
-    it('empty history returns default hint', () => {
+    it('mixed RPE (some ≤ 8, some > 8) suggests hold', () => {
+      const history = [
+        { reps: 10, weight_kg: 20.0, rpe: 7.0, set_type: 'working', exerciseId: 'ex1' },
+        { reps: 10, weight_kg: 20.0, rpe: 9.0, set_type: 'working', exerciseId: 'ex1' },
+      ];
+
+      const result = evaluateSource(progressionHintSource, { history });
+      expect(result.success).toBe(true);
+      expect(typeof result.value).toBe('string');
+      // Should suggest to hold (not all low RPE)
+      expect((result.value as string).toLowerCase()).toContain('hold');
+    });
+
+    it('empty history returns baseline hint', () => {
       const result = evaluateSource(progressionHintSource, { history: [] });
       expect(result.success).toBe(true);
       expect(typeof result.value).toBe('string');
+      expect((result.value as string).toLowerCase()).toContain('baseline');
+    });
+
+    it('only warmup sets returns baseline hint', () => {
+      const history = [
+        { reps: 5, weight_kg: 15.0, rpe: 4.0, set_type: 'warmup', exerciseId: 'ex1' },
+      ];
+
+      const result = evaluateSource(progressionHintSource, { history });
+      expect(result.success).toBe(true);
+      expect(typeof result.value).toBe('string');
+      expect((result.value as string).toLowerCase()).toContain('baseline');
     });
   });
 });

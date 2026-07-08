@@ -21,8 +21,10 @@ import progressionHintSource from './rules/progression_hint.lv';
 import transitionSource from './rules/transition.lv';
 
 /**
- * transitionCompositeSource: transition with validation/rest logic inlined.
- * This is exported for use in tests and the engine.
+ * transitionCompositeSource: transition rule with helper rules.
+ * Note: Helper rules (validate_set, rest_duration, progression_hint) are currently
+ * duplicated inline within transition.lv rather than being composed. A future refactor
+ * could extract them as let-bindings to reduce duplication.
  */
 export const transitionCompositeSource = transitionSource;
 

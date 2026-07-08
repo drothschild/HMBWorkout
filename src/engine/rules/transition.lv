@@ -18,6 +18,7 @@ rule transition(
     loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }),
     lastLoggedSet: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float },
     startedAtMs: Int,
+    prePausePhase: String,
     entries: List({ idx: Int, exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String })
   },
   event: { tag: String, .. }
@@ -45,6 +46,7 @@ then (
         loggedSets: [],
         lastLoggedSet: { exerciseId: "", setType: "", reps: 0, weightKg: 0.0, durationSeconds: 0, rpe: -1.0 },
         startedAtMs: event.nowMs,
+        prePausePhase: "",
         entries: entries
       },
       effects: [{ kind: "create_session", deadline_ms: 0, message: "" }]
@@ -60,7 +62,12 @@ then (
     let repsOk = event.reps >= 0
     let weightOk = event.weightKg >= 0.0
     let durationOk = event.durationSeconds >= 0
-    let rpeValid = event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)
+    let rpeInRange = event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)
+    let rpeHalfStep =
+      if (event.rpe == -1.0)
+      then true
+      else ((event.rpe * 2.0) % 1.0) == 0.0
+    let rpeValid = rpeInRange && rpeHalfStep
 
     if (!repsOk)
     then Err("reps must be non-negative")
@@ -69,7 +76,7 @@ then (
     else if (!durationOk)
     then Err("duration_seconds must be non-negative")
     else if (!rpeValid)
-    then Err("RPE must be -1.0 (unset) or between 1.0 and 10.0 in 0.5 steps")
+    then Err("RPE must be -1.0 (unset) or between 1.0 and 10.0 in 0.5-step increments")
     else (
       -- Get current exercise entry via indexed lookup
       let currentEntry = head(filter(fn(e) -> e.idx == state.exerciseIndex, state.entries))?
@@ -88,6 +95,7 @@ then (
           loggedSets: state.loggedSets,
           lastLoggedSet: { exerciseId: currentEntry.exerciseId, setType: setType, reps: event.reps, weightKg: event.weightKg, durationSeconds: event.durationSeconds, rpe: event.rpe },
           startedAtMs: state.startedAtMs,
+          prePausePhase: state.prePausePhase,
           entries: state.entries
         },
         effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }]
@@ -123,6 +131,7 @@ then (
           loggedSets: state.loggedSets,
           lastLoggedSet: state.lastLoggedSet,
           startedAtMs: state.startedAtMs,
+          prePausePhase: state.prePausePhase,
           entries: state.entries
         },
         effects: []
@@ -148,6 +157,7 @@ then (
             loggedSets: state.loggedSets,
             lastLoggedSet: state.lastLoggedSet,
             startedAtMs: state.startedAtMs,
+            prePausePhase: state.prePausePhase,
             entries: state.entries
           },
           effects: [
@@ -177,6 +187,7 @@ then (
               loggedSets: state.loggedSets,
               lastLoggedSet: state.lastLoggedSet,
               startedAtMs: state.startedAtMs,
+              prePausePhase: state.prePausePhase,
               entries: state.entries
             },
             effects: []
@@ -201,6 +212,7 @@ then (
                 loggedSets: state.loggedSets,
                 lastLoggedSet: state.lastLoggedSet,
                 startedAtMs: state.startedAtMs,
+                prePausePhase: state.prePausePhase,
                 entries: state.entries
               },
               effects: [{ kind: "schedule_rest", deadline_ms: restDeadlineMs, message: "" }]
@@ -219,6 +231,7 @@ then (
                 loggedSets: state.loggedSets,
                 lastLoggedSet: state.lastLoggedSet,
                 startedAtMs: state.startedAtMs,
+                prePausePhase: state.prePausePhase,
                 entries: state.entries
               },
               effects: []
@@ -250,6 +263,7 @@ then (
           loggedSets: state.loggedSets,
           lastLoggedSet: state.lastLoggedSet,
           startedAtMs: state.startedAtMs,
+          prePausePhase: state.prePausePhase,
           entries: state.entries
         },
         effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }]
@@ -275,6 +289,7 @@ then (
         loggedSets: state.loggedSets,
         lastLoggedSet: state.lastLoggedSet,
         startedAtMs: state.startedAtMs,
+        prePausePhase: state.prePausePhase,
         entries: state.entries
       },
       effects: []
@@ -298,6 +313,7 @@ then (
         loggedSets: state.loggedSets,
         lastLoggedSet: state.lastLoggedSet,
         startedAtMs: state.startedAtMs,
+        prePausePhase: state.phase,
         entries: state.entries
       },
       effects: []
@@ -316,7 +332,7 @@ then (
         state: {
           sessionId: state.sessionId,
           routineId: state.routineId,
-          phase: "working",
+          phase: if (state.prePausePhase != "") then state.prePausePhase else "working",
           exerciseIndex: state.exerciseIndex,
           setIndex: state.setIndex,
           supersetPosition: state.supersetPosition,
@@ -324,6 +340,7 @@ then (
           loggedSets: state.loggedSets,
           lastLoggedSet: state.lastLoggedSet,
           startedAtMs: state.startedAtMs,
+          prePausePhase: "",
           entries: state.entries
         },
         effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }]
@@ -334,7 +351,7 @@ then (
         state: {
           sessionId: state.sessionId,
           routineId: state.routineId,
-          phase: if (state.restDeadlineMs > 0) then "resting" else "working",
+          phase: if (state.restDeadlineMs > 0) then "resting" else if (state.prePausePhase != "") then state.prePausePhase else "working",
           exerciseIndex: state.exerciseIndex,
           setIndex: state.setIndex,
           supersetPosition: state.supersetPosition,
@@ -342,6 +359,7 @@ then (
           loggedSets: state.loggedSets,
           lastLoggedSet: state.lastLoggedSet,
           startedAtMs: state.startedAtMs,
+          prePausePhase: "",
           entries: state.entries
         },
         effects: []
@@ -377,6 +395,7 @@ then (
         loggedSets: state.loggedSets,
         lastLoggedSet: state.lastLoggedSet,
         startedAtMs: state.startedAtMs,
+        prePausePhase: state.prePausePhase,
         entries: state.entries
       },
       effects: effects

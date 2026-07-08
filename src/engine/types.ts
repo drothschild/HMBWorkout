@@ -33,6 +33,7 @@ export interface LoggedSet {
  * Note: entries (routine structure) is stored in state so it's available for all transitions.
  * This keeps the state self-contained and serializable (can be persisted and rehydrated).
  * lastLoggedSet: host-maintained field; populated by rill LogSet handler, read by host on persist_set effect.
+ * prePausePhase: sentinel phase before PauseSession (empty string "" = no pause recorded), used by Resume.
  */
 export interface SessionState {
   sessionId: string;
@@ -45,6 +46,7 @@ export interface SessionState {
   loggedSets: LoggedSet[];
   lastLoggedSet?: LoggedSet; // Host-maintained; set by rill LogSet handler
   startedAtMs: number;
+  prePausePhase?: string; // Sentinel for Resume: "" = no pause recorded, else the phase before pause
   entries: RoutineEntry[]; // Routine structure — needed for advancement logic
 }
 

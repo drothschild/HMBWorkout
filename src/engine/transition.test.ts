@@ -49,6 +49,7 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     loggedSets: [],
     lastLoggedSet: undefined,
     startedAtMs: 1000,
+    prePausePhase: '',
     entries: [],
     ...overrides,
   };
@@ -202,6 +203,24 @@ describe('engine: transition rule — session state machine', () => {
       const value = result.value as any;
       expect(value.tag).toBe('Err');
       expect(value.value).toContain('RPE');
+    });
+
+    it('should reject LogSet with RPE = 7.3 (invalid non-0.5-step)', () => {
+      const event: Event = {
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 20.0,
+        durationSeconds: 0,
+        rpe: 7.3,
+      };
+
+      const state = makeState({ phase: 'warmup' });
+      const result = evaluateSource(transitionCompositeSource, { state, event });
+
+      expect(result.success).toBe(true);
+      const value = result.value as any;
+      expect(value.tag).toBe('Err');
+      expect(value.value).toContain('0.5');
     });
 
     it('should accept LogSet with valid RPE = 7.5 (0.5 step)', () => {
@@ -738,6 +757,102 @@ describe('engine: transition rule — session state machine', () => {
 
       // Final: State should be advanced
       expect(state.phase).not.toBe('idle');
+    });
+  });
+
+  describe('Pause/Resume with pre-pause phase preservation (M3)', () => {
+    it('should record pre-pause phase when pausing', () => {
+      const event: Event = { tag: 'PauseSession' };
+
+      const state = makeState({ phase: 'warmup', entries: makeRoutine(1).entries });
+      const result = evaluateTransition(state, event);
+
+      expect(result.state.phase).toBe('paused');
+      expect(result.state.prePausePhase).toBe('warmup');
+    });
+
+    it('should restore warmup phase after resume', () => {
+      const event: Event = { tag: 'Resume', nowMs: 5000 };
+
+      const state = makeState({
+        phase: 'paused',
+        prePausePhase: 'warmup',
+        restDeadlineMs: 0,
+        entries: makeRoutine(1).entries,
+      });
+      const result = evaluateTransition(state, event);
+
+      expect(result.state.phase).toBe('warmup');
+      expect(result.state.prePausePhase).toBe('');
+    });
+
+    it('should restore working phase after resume', () => {
+      const event: Event = { tag: 'Resume', nowMs: 5000 };
+
+      const state = makeState({
+        phase: 'paused',
+        prePausePhase: 'working',
+        restDeadlineMs: 0,
+        entries: makeRoutine(1).entries,
+      });
+      const result = evaluateTransition(state, event);
+
+      expect(result.state.phase).toBe('working');
+      expect(result.state.prePausePhase).toBe('');
+    });
+
+    it('should restore stretching phase after resume', () => {
+      const event: Event = { tag: 'Resume', nowMs: 5000 };
+
+      const state = makeState({
+        phase: 'paused',
+        prePausePhase: 'stretching',
+        restDeadlineMs: 0,
+        entries: makeRoutine(1).entries,
+      });
+      const result = evaluateTransition(state, event);
+
+      expect(result.state.phase).toBe('stretching');
+      expect(result.state.prePausePhase).toBe('');
+    });
+
+    it('should stay in resting if rest deadline not passed during pause', () => {
+      const event: Event = { tag: 'Resume', nowMs: 5000 };
+
+      // Paused during rest with deadline in future
+      const state = makeState({
+        phase: 'paused',
+        prePausePhase: 'resting',
+        restDeadlineMs: 10000, // deadline is 10000, now is 5000
+        entries: makeRoutine(1).entries,
+      });
+      const result = evaluateTransition(state, event);
+
+      // Should remain resting because deadline hasn't passed
+      expect(result.state.phase).toBe('resting');
+      expect(result.state.prePausePhase).toBe('');
+      expect(result.state.restDeadlineMs).toBe(10000); // Still has deadline
+    });
+
+    it('should restore pre-pause phase if rest deadline passed during pause', () => {
+      const event: Event = { tag: 'Resume', nowMs: 15000 };
+
+      // Paused during rest, but deadline passed while paused
+      const state = makeState({
+        phase: 'paused',
+        prePausePhase: 'working',
+        restDeadlineMs: 10000, // deadline was 10000, now is 15000 (passed)
+        entries: makeRoutine(1).entries,
+      });
+      const result = evaluateTransition(state, event);
+
+      // Should transition to working (pre-pause phase) since rest elapsed
+      expect(result.state.phase).toBe('working');
+      expect(result.state.prePausePhase).toBe('');
+      expect(result.state.restDeadlineMs).toBe(0);
+      // Should emit cancel_rest since deadline passed
+      const cancelEffects = result.effects.filter(e => e.kind === 'cancel_rest');
+      expect(cancelEffects.length).toBe(1);
     });
   });
 });

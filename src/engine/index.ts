@@ -45,6 +45,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     setIndex: 0,
     loggedSets: [],
     startedAtMs: 0,
+    prePausePhase: '',
     entries: [],
   };
 
@@ -67,16 +68,25 @@ export function createEngine(executors: Partial<EffectExecutors>) {
    */
   async function dispatch(event: Event): Promise<SessionState> {
     // Pre-index entries for StartSession events (required for Rill indexed lookups)
+    // Create a new event object to avoid mutating the caller's input
     let processedEvent = event;
     if (event.tag === 'StartSession' && event.routine) {
       const routine = event.routine as any;
       if (Array.isArray(routine.entries)) {
-        routine.entries = routine.entries.map((entry: any, idx: number) => ({
-          ...entry,
-          idx,
-        }));
+        // Create a new routine with indexed entries, don't mutate the original
+        const indexedRoutine = {
+          ...routine,
+          entries: routine.entries.map((entry: any, idx: number) => ({
+            ...entry,
+            idx,
+          })),
+        };
+        // Create a new event with the indexed routine
+        processedEvent = {
+          ...event,
+          routine: indexedRoutine,
+        };
       }
-      processedEvent = event;
     }
 
     // Run transition rule with current state + event

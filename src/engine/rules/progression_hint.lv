@@ -1,8 +1,23 @@
 -- Simple v1 progression heuristic based on recent set history
--- Returns a string hint for display (e.g., "Increase weight" or "Hold weight")
+-- Returns a string hint for display (e.g., "Increase weight by 2.5 kg" or "Hold weight")
+-- Logic: if all working sets have RPE ≤ 8, suggest increase; else hold
 rule progression_hint(history: List({ reps: Int, weight_kg: Float, rpe: Float, set_type: String, .. }))
   -> String
 
 if (length(history) == 0)
 then "No history yet - establish a baseline"
-else "Increase weight - hitting target reps with room in RPE"
+else (
+  -- Filter to working sets only
+  let working_sets = filter(fn(s) -> s.set_type == "working", history)
+
+  if (length(working_sets) == 0)
+  then "No working sets yet - establish a baseline"
+  else (
+    -- Check if any working set has RPE > 8 (any high RPE means don't increase)
+    let high_rpe_sets = filter(fn(s) -> s.rpe > 8.0, working_sets)
+
+    if (length(high_rpe_sets) == 0)
+    then "Increase weight by 2.5 kg - hitting target with room in RPE"
+    else "Hold current weight - working harder than desired"
+  )
+)
