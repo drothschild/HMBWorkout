@@ -103,9 +103,14 @@ function buildCompositeTransition(): string {
 export const transitionCompositeSource = buildCompositeTransition();
 
 /**
- * At module init, type-check all bundled rules.
+ * Type-check all bundled rules.
  * On failure, throw a loud RuleLoadError that app boot will catch.
  * This satisfies AC10.2: all rules pass checkRuleSource at boot and in CI.
+ *
+ * NOTE: This must NOT be called at module import time. It is called only from
+ * _layout.tsx's boot effect, which allows the RuleErrorScreen to render if
+ * a rule fails to load. Module-init calls would crash before the error screen
+ * could display.
  */
 export function loadRules(): void {
   // Check standalone helpers
@@ -128,6 +133,3 @@ export function loadRules(): void {
     throw new RuleLoadError('transition', result.errors[0]);
   }
 }
-
-// Call at module init — this will fail the whole app at boot if any rule is broken.
-loadRules();

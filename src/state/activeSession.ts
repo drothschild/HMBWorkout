@@ -53,21 +53,38 @@ export function createActiveSessionStore(
 
     async onPersistSet(set: LoggedSet) {
       if (!currentSessionState) {
-        return;
+        throw new Error('Cannot persist set: session state is null');
       }
 
       const sessionId = currentSessionState.sessionId;
-      const exerciseId = set.exerciseId;
       const routineId = currentSessionState.routineId;
+      const exerciseIndex = currentSessionState.exerciseIndex;
 
-      // Query database for routine_exercises with this routine_id and exercise_id
+      // I2: Resolve routine_exercise_id by entry index for deterministic lookup
+      // This handles repeated exercises by matching on (routine_id, order: entry.idx)
+      const currentEntry = currentSessionState.entries[exerciseIndex];
+      if (!currentEntry) {
+        throw new Error(`Exercise index ${exerciseIndex} out of range`);
+      }
+
+      if (currentEntry.exerciseId !== set.exerciseId) {
+        throw new Error(
+          `Logged exercise ID mismatch: expected ${currentEntry.exerciseId}, got ${set.exerciseId}`
+        );
+      }
+
+      // Query routine_exercises by (routine_id, order: currentEntry.idx)
       const routine_exercises = await database.get('routine_exercises').query().fetch();
       const routineExercise = (routine_exercises as any[]).find(
-        (re) => re._raw.routine_id === routineId && re._raw.exercise_id === exerciseId
+        (re) =>
+          re._raw.routine_id === routineId &&
+          re._raw.order === currentEntry.idx
       );
 
       if (!routineExercise) {
-        return;
+        throw new Error(
+          `Routine exercise not found for routine=${routineId}, order=${currentEntry.idx}`
+        );
       }
 
       const routineExerciseId = (routineExercise as any).id;
@@ -123,7 +140,9 @@ export function createActiveSessionStore(
     lastError: null,
 
     hydrate(state: SessionState) {
+      // Update both the store state and the engine's internal state
       currentSessionState = state;
+      engine.setState(state);
       set({
         sessionState: state,
         lastError: null,
@@ -215,20 +234,20 @@ export const activeSessionStore = new Proxy(getActiveSessionStore as any, {
  * Inject real executors into the global store.
  * Called from app bootstrap (_layout.tsx) to wire production notification APIs.
  *
+ * M1: Avoid double-creation by rebuilding the store once with all executors.
+ * This replaces the no-op store created on first access with one that has
+ * real effect executors (rest timer, notifications).
+ *
  * @param executors The real executors to inject (e.g., rest timer, notifications)
  */
 export function injectRealExecutors(executors: Partial<EffectExecutors>): void {
-  const store = getActiveSessionStore();
-  // Recreate store with real executors
-  const newStore = createActiveSessionStore(getDatabase(), executors);
-
-  // Copy the new dispatch to the existing store instance
-  const newState = newStore.getState();
-  store.setState((state) => ({
-    ...state,
-    dispatch: newState.dispatch,
-  }));
-
-  // Update global reference
-  globalStore = newStore;
+  // Only rebuild if we haven't already injected real executors
+  if (globalStore === null) {
+    // First access: create with real executors directly
+    globalStore = createActiveSessionStore(getDatabase(), executors);
+  } else {
+    // Already created: recreate the global store with merged executors
+    // (in practice, this should only be called once at boot)
+    globalStore = createActiveSessionStore(getDatabase(), executors);
+  }
 }

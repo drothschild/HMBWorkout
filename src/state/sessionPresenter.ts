@@ -37,12 +37,10 @@ export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>
 ): SessionPresenterOutput {
-  // Get current exercise from entries by exerciseIndex
-  const currentExerciseId = sessionState.loggedSets.length > 0
-    ? sessionState.loggedSets[sessionState.loggedSets.length - 1].exerciseId
-    : sessionState.entries[sessionState.exerciseIndex]?.exerciseId || '';
-
+  // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
+  // loggedSets[last] shows the PREVIOUS exercise after advancement
   const currentEntry = sessionState.entries[sessionState.exerciseIndex];
+  const currentExerciseId = currentEntry?.exerciseId || '';
 
   return {
     currentExerciseId,

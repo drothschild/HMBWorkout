@@ -14,6 +14,7 @@ interface RestCountdownProps {
  */
 export function RestCountdown({ deadlineMs, onRestElapsed }: RestCountdownProps) {
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
+  const [hasElapsed, setHasElapsed] = useState<boolean>(false);
 
   useEffect(() => {
     if (!deadlineMs) return;
@@ -25,7 +26,9 @@ export function RestCountdown({ deadlineMs, onRestElapsed }: RestCountdownProps)
 
       setSecondsRemaining(seconds);
 
-      if (seconds <= 0) {
+      // M3: Dispatch RestElapsed once when deadline passes, not every second
+      if (seconds <= 0 && !hasElapsed) {
+        setHasElapsed(true);
         onRestElapsed();
       }
     };
@@ -34,7 +37,7 @@ export function RestCountdown({ deadlineMs, onRestElapsed }: RestCountdownProps)
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, [deadlineMs, onRestElapsed]);
+  }, [deadlineMs, onRestElapsed, hasElapsed]);
 
   if (!deadlineMs) return null;
 

@@ -18,7 +18,8 @@ export async function saveEngineState(
   await database.write(async () => {
     const session = await database.get('sessions').find(sessionId);
     await session.update((record: any) => {
-      record._raw.engine_state = JSON.stringify(state);
+      // M2: Use decorated setter for engine_state (not readonly)
+      record.engineState = JSON.stringify(state);
     });
   });
 }
@@ -66,7 +67,8 @@ export async function clearEngineState(database: Database, sessionId: string): P
   await database.write(async () => {
     const session = await database.get('sessions').find(sessionId);
     await session.update((record: any) => {
-      record._raw.engine_state = null;
+      // M2: Use decorated setter for engine_state (not readonly)
+      record.engineState = null;
     });
   });
 }
