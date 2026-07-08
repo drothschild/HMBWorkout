@@ -9,11 +9,11 @@ export default class Session extends Model {
     session_sets: { type: 'has_many' as const, foreignKey: 'session_id' },
   };
 
-  @relation('routines', 'routine_id') routineId: string;
-  @readonly @date('started_at') startedAt: Date;
+  @relation('routines', 'routine_id') routineId!: string;
+  @readonly @date('started_at') startedAt!: Date;
   @readonly @date('ended_at') endedAt?: Date;
-  @text('sync_status') customSyncStatus: string;
-  @readonly @date('created_at') createdAt: Date;
+  @text('sync_status') customSyncStatus!: string;
+  @readonly @date('created_at') createdAt!: Date;
 
   @children('session_sets') sessionSets: any;
 }
