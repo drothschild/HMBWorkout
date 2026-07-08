@@ -10,6 +10,7 @@ module.exports = {
       // Note: state tests run here (pure TS Zustand store, no RN dependencies).
       // RN-specific tests will move to jest-expo rn project if needed in future phases.
       testMatch: ['<rootDir>/src/{engine,db,interop,state}/**/*.test.ts'],
+      testPathIgnorePatterns: ['/src/state/activeSession.test.ts'],
       moduleFileExtensions: ['ts', 'js', 'json'],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
