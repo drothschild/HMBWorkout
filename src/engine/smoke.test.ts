@@ -2,12 +2,13 @@ import { lex, parseProgram, evaluate, createPrelude, Value } from 'rill-lang';
 import smokeSource from './rules/smoke.lv';
 
 describe('smoke test: .lv imports and evaluation', () => {
-  it('imports smoke.lv as a string', () => {
+  it('imports smoke.lv as a string with rule header', () => {
     expect(typeof smokeSource).toBe('string');
-    expect(smokeSource.trim()).toBe('1 + 1');
+    expect(smokeSource).toContain('rule smoke_test() -> Int');
+    expect(smokeSource).toContain('1 + 1');
   });
 
-  it('evaluates smoke.lv to Int(2)', () => {
+  it('evaluates smoke.lv rule body to Int(2)', () => {
     const env = createPrelude();
     const tokens = lex(smokeSource);
     const program = parseProgram(tokens);

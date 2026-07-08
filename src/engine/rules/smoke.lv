@@ -1,1 +1,2 @@
+rule smoke_test() -> Int
 1 + 1
