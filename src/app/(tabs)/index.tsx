@@ -6,12 +6,18 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { activeSessionStore } from '@/state/activeSession';
+import { database } from '@/db';
+import { upsertRoutineExercise } from '@/db/repository';
 
 export default function TodayScreen() {
   const router = useRouter();
   const sessionState = activeSessionStore((state: any) => state.sessionState);
 
-  const handleStartSession = () => {
+  const handleStartSession = async () => {
+    // I1a: Seed routine and routine_exercises before dispatching StartSession
+    // This ensures onPersistSet can find the routine_exercises row by (routineId, order)
+    await seedDemoRoutine();
+
     // Demo routine for now (Phase 9 adds real routine import)
     const demoRoutine = {
       id: 'demo-routine',
@@ -30,7 +36,7 @@ export default function TodayScreen() {
       ],
     };
 
-    activeSessionStore.getState().dispatch({
+    await activeSessionStore.getState().dispatch({
       tag: 'StartSession',
       sessionId: `session-${Date.now()}`,
       nowMs: Date.now(),
@@ -39,6 +45,61 @@ export default function TodayScreen() {
 
     router.push('/session');
   };
+
+  /**
+   * Seed the demo routine and its exercises to the database.
+   * Ensures routine_exercises rows exist for onPersistSet to find by (routineId, order).
+   * Uses upsertRoutineExercise to idempotently create/update the routine_exercises rows.
+   */
+  async function seedDemoRoutine() {
+    try {
+      // Seed routine if it doesn't exist
+      const existingRoutine = await database.get('routines').query().fetch();
+      const demoRoutineExists = (existingRoutine as any[]).some(
+        (r: any) => r._raw.id === 'demo-routine'
+      );
+
+      if (!demoRoutineExists) {
+        await database.write(async () => {
+          await database.get('routines').create((r: any) => {
+            r._raw.id = 'demo-routine';
+            r.name = 'Demo Workout';
+            r._raw.created_at = Date.now();
+            r._raw.updated_at = Date.now();
+          });
+
+          // Create exercise if it doesn't exist
+          const exercises = await database.get('exercises').query().fetch();
+          const demoExerciseExists = (exercises as any[]).some(
+            (e: any) => e._raw.id === 'ex-1'
+          );
+          if (!demoExerciseExists) {
+            await database.get('exercises').create((e: any) => {
+              e._raw.id = 'ex-1';
+              e.title = 'Demo Exercise';
+              e.kind = 'strength';
+              e._raw.created_at = Date.now();
+            });
+          }
+        });
+      }
+
+      // Seed routine_exercises: order = idx (0-based) per engine pre-indexing
+      // Entry idx 0 maps to routine_exercises.order = 0
+      await upsertRoutineExercise(database, 'demo-routine', {
+        exerciseId: 'ex-1',
+        order: 0, // Matches entry idx
+        warmupSets: 1,
+        targetSets: 3,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 90,
+      });
+    } catch (error) {
+      // Log but don't crash — if seeding fails, let the user see the error later
+      console.error('Failed to seed demo routine:', error);
+    }
+  }
 
   return (
     <ThemedView style={styles.container}>

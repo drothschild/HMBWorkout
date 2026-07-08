@@ -21,106 +21,121 @@ describe('Session hydration and restart recovery', () => {
     await closeTestDatabase(database);
   });
 
-  test('AC2.3/AC10.4: hydrate function restores mid-session state with logged sets intact', async () => {
-    // Seed a mid-session state with logged sets and a rest deadline in the past
-    const now = Date.now();
-    const pastDeadline = now - 30000; // 30 seconds past
+  it('rehydrates a mid-session state and Resume advances past the expired rest (AC2.3/AC10.4)', async () => {
+    // 1. Build a valid engine state by driving through transitions:
+    // StartSession → LogSet → SetDone → (engine advances to resting) → Pause → serialize
+    const store = createActiveSessionStore(database, {
+      onScheduleRest: jest.fn(),
+      onCancelRest: jest.fn(),
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
 
-    const midSessionState: SessionState = {
-      sessionId: 'test-restore-1',
-      routineId: 'test-routine-1',
-      phase: 'resting',
-      exerciseIndex: 0,
-      setIndex: 2,
-      startedAtMs: now - 600000,
-      loggedSets: [
-        {
-          exerciseId: 'ex-1',
-          setType: 'warmup',
-          reps: 10,
-          weightKg: 20,
-          durationSeconds: null,
-          rpe: null,
-        },
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: 8,
-          weightKg: 25,
-          durationSeconds: null,
-          rpe: 7.5,
-        },
-      ],
-      restDeadlineMs: pastDeadline,
+    const routine = {
+      id: 'routine-test-c1',
+      name: 'Test Routine C1',
       entries: [
         {
-          idx: 0,
-          exerciseId: 'ex-1',
-          kind: 'strength',
+          exerciseId: 'ex-c1',
+          kind: 'strength' as const,
           warmupSets: 1,
-          targetSets: 3,
+          targetSets: 1,
           targetReps: 8,
           targetDurationSeconds: 0,
           restSeconds: 90,
           supersetGroup: '',
         },
       ],
-      prePausePhase: '',
     };
 
-    // 1. Create the session row in the database
-    await createSession(database, {
-      sessionId: midSessionState.sessionId,
-      routineId: midSessionState.routineId,
-      startedAtMs: midSessionState.startedAtMs,
+    const sessionId = 'test-hydrate-c1';
+    const now = Date.now();
+
+    // Drive the engine: StartSession
+    await store.getState().dispatch({
+      tag: 'StartSession',
+      sessionId,
+      nowMs: now,
+      routine,
     });
 
-    // 2. Save the engine state to the session row
-    await saveEngineState(database, midSessionState.sessionId, midSessionState);
-
-    // 3. Load the state back from the database
-    const loadedState = await loadActiveEngineState(database);
-
-    // AC2.3 & AC10.4: All logged sets intact and state structure preserved
-    expect(loadedState).toBeDefined();
-    expect(loadedState!.loggedSets).toHaveLength(2);
-    expect(loadedState!.loggedSets[0]).toEqual({
-      exerciseId: 'ex-1',
-      setType: 'warmup',
+    // LogSet to complete warmup
+    await store.getState().dispatch({
+      tag: 'LogSet',
       reps: 10,
       weightKg: 20,
-      durationSeconds: null,
-      rpe: null,
+      durationSeconds: 0,
     });
-    expect(loadedState!.loggedSets[1]).toEqual({
-      exerciseId: 'ex-1',
-      setType: 'working',
+
+    // SetDone to complete warmup set
+    await store.getState().dispatch({
+      tag: 'SetDone',
+      nowMs: now + 5000,
+    });
+
+    // LogSet for working set
+    await store.getState().dispatch({
+      tag: 'LogSet',
       reps: 8,
       weightKg: 25,
-      durationSeconds: null,
+      durationSeconds: 0,
       rpe: 7.5,
     });
 
-    // AC10.4: Rest deadline persists (in the past)
-    expect(loadedState!.restDeadlineMs).toBe(pastDeadline);
-    expect(loadedState!.restDeadlineMs).toBeLessThan(now);
+    // SetDone to complete working set and enter resting
+    await store.getState().dispatch({
+      tag: 'SetDone',
+      nowMs: now + 10000,
+    });
 
-    // Session metadata intact
-    expect(loadedState!.sessionId).toBe('test-restore-1');
-    expect(loadedState!.phase).toBe('resting');
-    expect(loadedState!.entries).toHaveLength(1);
+    // Pause while in resting (now phase should be paused)
+    await store.getState().dispatch({
+      tag: 'PauseSession',
+    });
+
+    // Get the paused state and manually set a past deadline for testing
+    let pausedState = store.getState().sessionState;
+    if (pausedState) {
+      pausedState.restDeadlineMs = now + 30000; // deadline will be in the past when we Resume
+    }
+
+    // Save the paused state to DB
+    if (pausedState) {
+      await saveEngineState(database, sessionId, pausedState);
+    }
+
+    // 2. relaunch simulation: fresh store with FAKE executors (simulating app restart)
+    const store2 = createActiveSessionStore(database, {
+      onScheduleRest: jest.fn(),
+      onCancelRest: jest.fn(),
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    const loaded = await loadActiveEngineState(database);
+    expect(loaded).not.toBeNull();
+    store2.getState().hydrate(loaded!);
+
+    // 3. Resume with nowMs PAST the deadline
+    await store2.getState().dispatch({ tag: 'Resume', nowMs: now + 100_000 });
+
+    // 4. assertions
+    const s = store2.getState().sessionState!;
+    expect(s.loggedSets.length).toBeGreaterThan(0); // sets intact after hydration
+    expect(s.phase).not.toBe('paused'); // no longer paused after Resume
+    expect(s.phase).not.toBe('resting'); // advanced past resting (engine reconciled deadline)
   });
 
-  test('AC10.4/AC10.6: mid-session state persists and rehydrates with deadline info intact', async () => {
+  it('persists and loads mid-session state with deadline info intact (AC10.4/AC10.6)', async () => {
     // AC10.4: Serialized SessionState persisted mid-session rehydrates after app restart
     // AC10.6: Rest deadline is preserved for reconciliation after rehydration
-    // This test verifies that the state-persistence pipeline works end-to-end:
-    // Serialize → Save to DB → Load from DB → Restore in memory
     const now = Date.now();
     const pastDeadline = now - 5000; // 5 seconds past deadline
 
     const midSessionState: SessionState = {
-      sessionId: 'test-resume-ready',
+      sessionId: 'test-restore-1',
       routineId: 'routine-1',
       phase: 'resting',
       exerciseIndex: 0,
@@ -166,7 +181,7 @@ describe('Session hydration and restart recovery', () => {
 
     // AC10.4 & AC10.6: State persists with all fields intact
     expect(loadedState).toBeDefined();
-    expect(loadedState!.sessionId).toBe('test-resume-ready');
+    expect(loadedState!.sessionId).toBe('test-restore-1');
     expect(loadedState!.phase).toBe('resting');
     expect(loadedState!.restDeadlineMs).toBe(pastDeadline);
     expect(loadedState!.restDeadlineMs).toBeLessThan(now); // Deadline is in the past

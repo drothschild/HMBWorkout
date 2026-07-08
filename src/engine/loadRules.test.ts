@@ -4,7 +4,7 @@ import { SessionState } from './types';
 describe('engine: loadRules', () => {
   describe('AC10.2: Boot-time rule loading and validation', () => {
     it('loads all bundled rules without errors', () => {
-      // loadRules() is called at module initialization and should not throw
+      // M2: loadRules() is called explicitly at bootstrap and should not throw
       expect(() => {
         loadRules();
       }).not.toThrow();

@@ -238,16 +238,13 @@ export const activeSessionStore = new Proxy(getActiveSessionStore as any, {
  * This replaces the no-op store created on first access with one that has
  * real effect executors (rest timer, notifications).
  *
+ * Note: Called once at bootstrap before any store access (getActiveSessionStore is not called until needed).
+ * If called after first access, rebuilds with real executors. Guard: only call once from _layout.tsx.
+ *
  * @param executors The real executors to inject (e.g., rest timer, notifications)
  */
 export function injectRealExecutors(executors: Partial<EffectExecutors>): void {
-  // Only rebuild if we haven't already injected real executors
-  if (globalStore === null) {
-    // First access: create with real executors directly
-    globalStore = createActiveSessionStore(getDatabase(), executors);
-  } else {
-    // Already created: recreate the global store with merged executors
-    // (in practice, this should only be called once at boot)
-    globalStore = createActiveSessionStore(getDatabase(), executors);
-  }
+  // Always rebuild the store with real executors, whether this is first access or not
+  // This ensures all executors (no-ops + real) are wired before any dispatch calls
+  globalStore = createActiveSessionStore(getDatabase(), executors);
 }
