@@ -736,40 +736,5 @@ describe('activeSession store', () => {
         process.removeListener('unhandledRejection', unhandledRejectionHandler);
       }
     });
-
-    it('demonstrates that removing .catch causes unhandled rejection', async () => {
-      // This test PROVES that without the .catch in onCompleteSession,
-      // the sync rejection would escape. We can't actually run this in the suite
-      // (it would fail the test), but we can document what would happen.
-      // This is a documentation test showing WHY the .catch is necessary.
-
-      // Setup: a syncFn that rejects
-      const syncFnThatRejects = async () => {
-        throw new Error('Sync intentionally failed');
-      };
-
-      // Simulate what WOULD happen without .catch:
-      // If we called: syncFnThatRejects()
-      // Without .catch, the rejection would be unhandled
-
-      // To prove this test framework catches it, we create a promise
-      // that rejects and DON'T catch it, then verify the test would fail
-      // if we didn't have protection.
-
-      // Actually, we can't easily test the "absence" of .catch in a real way
-      // without rewriting the executor. Instead, we document that:
-      // - The real onCompleteSession DOES have .catch
-      // - The previous test PROVES the .catch works
-      // - This comment serves as evidence that removing it would break
-
-      // For a real experiment, you could:
-      // 1. Temporarily remove .catch from onCompleteSession line ~165
-      // 2. Run: npm test -- src/state/activeSession.test.ts -t "handles sync rejection"
-      // 3. Observe: test fails with unhandledRejection
-      // 4. Restore .catch
-      // 5. Observe: test passes
-
-      expect(true).toBe(true); // Placeholder; see comment above
-    });
   });
 });

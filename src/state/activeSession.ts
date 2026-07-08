@@ -3,7 +3,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
-import { saveEngineState, clearEngineState } from '@/db/engineState';
+import { saveEngineState } from '@/db/engineState';
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: Database | null = null;
