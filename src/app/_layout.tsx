@@ -8,6 +8,8 @@ import { DatabaseProvider } from '@nozbe/watermelondb/react';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
+import { loadActiveEngineState } from '@/db/engineState';
+import { activeSessionStore } from '@/state/activeSession';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 
@@ -30,17 +32,32 @@ export default function RootLayout() {
   const [ruleError, setRuleError] = useState<RuleLoadError | null>(null);
 
   useEffect(() => {
-    try {
-      loadRules();
-      setRulesLoaded(true);
-      SplashScreen.hideAsync();
-    } catch (error) {
-      if (error instanceof RuleLoadError) {
-        setRuleError(error);
-      } else {
-        setRuleError(new RuleLoadError('unknown', String(error)));
+    (async () => {
+      try {
+        // Load and validate rules
+        loadRules();
+
+        // Hydrate active session if one exists (restart recovery)
+        const savedState = await loadActiveEngineState(database);
+        if (savedState) {
+          activeSessionStore.getState().hydrate(savedState);
+          // Dispatch Resume to reconcile any expired rest deadline
+          await activeSessionStore.getState().dispatch({
+            tag: 'Resume',
+            nowMs: Date.now(),
+          });
+        }
+
+        setRulesLoaded(true);
+        await SplashScreen.hideAsync();
+      } catch (error) {
+        if (error instanceof RuleLoadError) {
+          setRuleError(error);
+        } else {
+          setRuleError(new RuleLoadError('unknown', String(error)));
+        }
       }
-    }
+    })();
   }, []);
 
   if (ruleError) {

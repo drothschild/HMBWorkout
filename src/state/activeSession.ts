@@ -13,6 +13,7 @@ interface ActiveSessionState {
   sessionState: SessionState | null;
   lastError: string | null;
   dispatch(event: Event): Promise<SessionState | null>;
+  hydrate(state: SessionState): void;
 }
 
 /**
@@ -110,6 +111,14 @@ export function createActiveSessionStore(
   const store = create<ActiveSessionState>((set) => ({
     sessionState: null,
     lastError: null,
+
+    hydrate(state: SessionState) {
+      currentSessionState = state;
+      set({
+        sessionState: state,
+        lastError: null,
+      });
+    },
 
     async dispatch(event: Event) {
       try {
