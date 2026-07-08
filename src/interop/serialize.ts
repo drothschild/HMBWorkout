@@ -25,6 +25,7 @@ export function serializeSession(
     setType: SetType;
     reps?: number;
     weightKg?: number;
+    distanceM?: number;
     durationSeconds?: number;
     rpe?: number;
     position: number;
@@ -94,9 +95,24 @@ export function serializeSession(
       // Always add set_type for session sets
       flagParts.push(`set_type=${set.setType}`);
 
+      // Add kind if not strength (C2)
+      if (exerciseData.kind !== 'strength') {
+        flagParts.push(`kind=${exerciseData.kind}`);
+      }
+
       // Add rpe if present
       if (set.rpe !== undefined) {
         flagParts.push(`rpe=${set.rpe}`);
+      }
+
+      // Add weight if present (C1)
+      if (set.weightKg !== undefined) {
+        flagParts.push(`weight=${set.weightKg}`);
+      }
+
+      // Add distance if present (C1)
+      if (set.distanceM !== undefined) {
+        flagParts.push(`distance=${set.distanceM}`);
       }
 
       // Add superset if applicable
@@ -114,12 +130,14 @@ export function serializeSession(
       }
 
       // Build set description
+      // For sessions: logged sets are emitted as 1x<reps> (not target sets)
       let setDesc = '';
-      if (set.reps !== undefined && set.weightKg !== undefined) {
-        // Strength: reps x weight
+      if (set.reps !== undefined) {
+        // Strength: 1x<logged-reps>
         setDesc = `1x${set.reps}`;
       } else if (set.durationSeconds !== undefined) {
-        // Cardio/stretch: already in flags as duration
+        // Cardio/stretch: emit duration as flag (C2)
+        flagParts.push(`duration=${formatDuration(set.durationSeconds)}`);
       }
 
       const flagStr = flagParts.join(' ');

@@ -10,6 +10,7 @@ import { ExerciseKind } from '@/db/models/Exercise';
 /**
  * Extract frontmatter from markdown.
  * Returns record of key=value pairs (ignoring comments, etc).
+ * Supports both inline and block-style YAML lists for tags (M1).
  */
 function parseFrontmatter(markdown: string): Record<string, string> {
   const match = markdown.match(/^---\n([\s\S]*?)\n---/);
@@ -19,15 +20,53 @@ function parseFrontmatter(markdown: string): Record<string, string> {
 
   const lines = match[1].split('\n');
   const frontmatter: Record<string, string> = {};
+  let i = 0;
 
-  for (const line of lines) {
-    if (!line.trim()) continue;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
     const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
+    if (colonIdx === -1) {
+      i++;
+      continue;
+    }
+
     const key = line.substring(0, colonIdx).trim();
-    const value = line.substring(colonIdx + 1).trim();
-    // Simple YAML parsing: strip quotes if present
-    frontmatter[key] = value.replace(/^['"]|['"]$/g, '');
+    const valueStr = line.substring(colonIdx + 1).trim();
+
+    // Handle block-style lists (M1): key: with items on next lines
+    if (valueStr === '' && key === 'tags') {
+      const tags: string[] = [];
+      i++;
+      // Collect indented lines starting with "- "
+      while (i < lines.length) {
+        const nextLine = lines[i];
+        if (!nextLine.trim()) {
+          i++;
+          break;
+        }
+        // Check if it's an indented list item
+        if (nextLine.match(/^\s+- /)) {
+          const tag = nextLine.trim().substring(2).trim(); // Remove "- "
+          tags.push(tag);
+          i++;
+        } else {
+          // Not a list item, stop collecting
+          break;
+        }
+      }
+      // Store tags as comma-separated or array format
+      frontmatter[key] = tags.length > 0 ? tags.join(',') : '[]';
+      continue;
+    }
+
+    // Inline value: strip quotes if present
+    frontmatter[key] = valueStr.replace(/^['"]|['"]$/g, '');
+    i++;
   }
 
   return frontmatter;
@@ -144,6 +183,8 @@ function parseWorkoutLine(line: string): WorkoutLine | null {
     supersetLabel: parsedFlags.supersetLabel,
     hint: parsedFlags.hint,
     rpe: parsedFlags.rpe,
+    weight: parsedFlags.weight,
+    distance: parsedFlags.distance,
     setType: parsedFlags.setType,
   };
 

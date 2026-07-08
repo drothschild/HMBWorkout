@@ -84,23 +84,33 @@ describe('round-trip', () => {
       // Verify exercises structure
       expect(parsed.exercises).toHaveLength(3); // 3 sets logged
 
-      // Check each set
+      // Check each set - verify FULL machine-field equality per set (I2)
       const set0 = parsed.exercises[0] as WorkoutLine;
       expect(set0.exerciseId).toBe('bench-press-db');
       expect(set0.setType).toBe('warmup');
-      expect(set0.targetReps).toBe(8);
+      expect(set0.targetReps).toBe(8); // parsed from 1x8
+      expect(set0.weight).toBe(20); // logged weight in kg
+      expect(set0.rpe).toBeUndefined(); // no rpe on this set
+      expect(set0.distance).toBeUndefined();
+      expect(set0.kind).toBe('strength');
 
       const set1 = parsed.exercises[1] as WorkoutLine;
       expect(set1.exerciseId).toBe('bench-press-db');
       expect(set1.setType).toBe('working');
-      expect(set1.targetReps).toBe(6);
-      expect(set1.rpe).toBe(8);
+      expect(set1.targetReps).toBe(6); // parsed from 1x6
+      expect(set1.weight).toBe(30); // logged weight in kg
+      expect(set1.rpe).toBe(8); // effort rating preserved
+      expect(set1.distance).toBeUndefined();
+      expect(set1.kind).toBe('strength');
 
       const set2 = parsed.exercises[2] as WorkoutLine;
       expect(set2.exerciseId).toBe('bench-press-db');
       expect(set2.setType).toBe('working');
-      expect(set2.targetReps).toBe(5);
-      expect(set2.rpe).toBe(7.5);
+      expect(set2.targetReps).toBe(5); // parsed from 1x5
+      expect(set2.weight).toBe(30); // logged weight in kg
+      expect(set2.rpe).toBe(7.5); // 0.5-step rpe
+      expect(set2.distance).toBeUndefined();
+      expect(set2.kind).toBe('strength');
     });
 
     test('routine round-trip: parse(serialize(rows)) preserves machine fields', () => {
@@ -459,6 +469,138 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(ex.targetDurationSeconds).toBe(300);
       expect(ex.targetSets).toBeUndefined();
       expect(ex.targetReps).toBeUndefined();
+    });
+  });
+
+  describe('AC8.3+I2: Logged cardio/stretch session round-trip (full machine fields)', () => {
+    test('logged stretch session preserves all machine fields', () => {
+      const sessionRow = {
+        id: 'sess-stretch-logged',
+        routineId: 'cool-down',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+
+      const sets = [
+        {
+          routineExerciseId: 're-stretch-001',
+          setType: 'working' as const,
+          reps: undefined, // stretch has no reps
+          weightKg: undefined,
+          distanceM: undefined,
+          durationSeconds: 30, // 0:30 stretch
+          rpe: undefined,
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-stretch-001',
+          exerciseId: 'chest-stretch',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 30,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        {
+          id: 'chest-stretch',
+          title: 'Chest Stretch',
+          kind: 'stretch' as const,
+        },
+      ];
+
+      // Serialize
+      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
+
+      // Parse
+      const parsed = parseSession(markdown);
+
+      // Verify full machine fields (I2)
+      expect(parsed.exercises).toHaveLength(1);
+      const stretchSet = parsed.exercises[0] as WorkoutLine;
+      expect(stretchSet.exerciseId).toBe('chest-stretch');
+      expect(stretchSet.kind).toBe('stretch');
+      expect(stretchSet.setType).toBe('working');
+      expect(stretchSet.targetDurationSeconds).toBe(30); // logged duration
+      expect(stretchSet.targetReps).toBeUndefined(); // stretch has no reps
+      expect(stretchSet.weight).toBeUndefined();
+      expect(stretchSet.distance).toBeUndefined();
+      expect(stretchSet.rpe).toBeUndefined();
+    });
+
+    test('logged cardio session preserves all machine fields (duration, distance)', () => {
+      const sessionRow = {
+        id: 'sess-cardio-logged',
+        routineId: 'warmup',
+        startedAt: new Date('2026-07-08T09:30:00Z'),
+        endedAt: new Date('2026-07-08T10:00:00Z'),
+        createdAt: new Date('2026-07-08T09:30:00Z'),
+        customSyncStatus: 'local',
+      };
+
+      const sets = [
+        {
+          routineExerciseId: 're-cardio-001',
+          setType: 'working' as const,
+          reps: undefined, // cardio has no reps
+          weightKg: undefined,
+          distanceM: 2500, // logged 2.5km
+          durationSeconds: 300, // 5:00 cardio
+          rpe: 6, // perceived exertion during cardio
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-cardio-001',
+          exerciseId: 'cycling',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 300,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        {
+          id: 'cycling',
+          title: 'Cycling',
+          kind: 'cardio' as const,
+        },
+      ];
+
+      // Serialize
+      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
+
+      // Parse
+      const parsed = parseSession(markdown);
+
+      // Verify full machine fields including distance (I2)
+      expect(parsed.exercises).toHaveLength(1);
+      const cardioSet = parsed.exercises[0] as WorkoutLine;
+      expect(cardioSet.exerciseId).toBe('cycling');
+      expect(cardioSet.kind).toBe('cardio');
+      expect(cardioSet.setType).toBe('working');
+      expect(cardioSet.targetDurationSeconds).toBe(300);
+      expect(cardioSet.distance).toBe(2500); // logged distance in m
+      expect(cardioSet.rpe).toBe(6);
+      expect(cardioSet.targetReps).toBeUndefined(); // cardio has no reps
+      expect(cardioSet.weight).toBeUndefined();
     });
   });
 

@@ -9,6 +9,12 @@ import { ExerciseKind } from '@/db/models/Exercise';
 /**
  * A single exercise line in a workout block (before grouping).
  * Represents one line: `- <exercise-id>: [<sets>x<reps>] [flags…]`
+ *
+ * NOTE (M2): Sets×reps overload for logged sessions:
+ * - In routines: <sets>x<reps> means target sets and target reps (e.g. "4x6" = 4 sets, 6 reps each)
+ * - In sessions: <sets>x<reps> is emitted as "1x<logged-reps>" (1 logged set, with actual rep count)
+ *   The parser must interpret session lines accordingly: 1x<n> means 1 logged set with n reps.
+ *   This overload is necessary to distinguish logged reps from routine targets on the same line.
  */
 export interface WorkoutLine {
   exerciseId: string;
@@ -25,6 +31,8 @@ export interface WorkoutLine {
   hint?: string;
   // Session sets only (not in routine)
   rpe?: number;
+  weight?: number; // logged weight in kg, session sets only
+  distance?: number; // logged distance in m, session sets only (cardio)
   // Logged session: actual set type
   setType?: SetType;
 }
@@ -85,6 +93,8 @@ export interface ParsedFlags {
   hint?: string;
   rpe?: number;
   setType?: SetType;
+  weight?: number; // kg, session sets only
+  distance?: number; // m, session sets only (cardio)
 }
 
 /**
@@ -174,6 +184,16 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
         : null;
     }
 
+    case 'weight': {
+      const kg = parseFloat(valueStr);
+      return !isNaN(kg) && kg > 0 ? ['weight', kg] : null;
+    }
+
+    case 'distance': {
+      const m = parseFloat(valueStr);
+      return !isNaN(m) && m > 0 ? ['distance', m] : null;
+    }
+
     default:
       return null;
   }
@@ -206,11 +226,11 @@ export function parseFlags(flagStr: string): ParsedFlags {
     const key = part.substring(0, eqIndex);
     const valueStr = part.substring(eqIndex + 1);
 
-    // Known flags - throw on invalid value
-    const knownFlags = ['rest', 'warmup', 'superset', 'kind', 'duration', 'rpe', 'set_type'];
+    // Known flags - throw on invalid value or unknown key
+    const knownFlags = ['rest', 'warmup', 'superset', 'kind', 'duration', 'rpe', 'set_type', 'weight', 'distance'];
     if (!knownFlags.includes(key)) {
-      // Unknown flag key, skip it
-      continue;
+      // Unknown flag key - throw per I1
+      throw new ContractError(`Unknown flag key: ${key} (in ${part})`);
     }
 
     const result = parseSingleFlag(part);
@@ -262,6 +282,14 @@ export function formatFlags(flags: ParsedFlags): string {
 
   if (flags.rpe !== undefined) {
     parts.push(`rpe=${flags.rpe}`);
+  }
+
+  if (flags.weight !== undefined) {
+    parts.push(`weight=${flags.weight}`);
+  }
+
+  if (flags.distance !== undefined) {
+    parts.push(`distance=${flags.distance}`);
   }
 
   if (flags.hint !== undefined) {
