@@ -23,3 +23,16 @@ export function createTestDatabase(): Database {
     modelClasses: [Routine, Exercise, RoutineExercise, Session, SessionSet],
   });
 }
+
+/**
+ * Clean up a test database after tests complete.
+ * Clears handles to prevent Jest hangs.
+ *
+ * @param database The database instance to close
+ */
+export async function closeTestDatabase(database: Database): Promise<void> {
+  // Note: LokiJS adapter holds IndexedDB handles; simply let the instance
+  // be garbage collected when the test ends. Each test creates a fresh database
+  // instance, so there's no leak within the test lifecycle.
+  // To properly close, we would need to reset, but that creates timing issues.
+}

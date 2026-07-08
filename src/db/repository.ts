@@ -27,6 +27,7 @@ interface AppendSetOptions {
 /**
  * Create a new session with the given id, routine id, and start time.
  * The session is created with syncStatus = 'local' by default.
+ * Must be called within a Writer context.
  *
  * @param database The database instance
  * @param options Session creation options
@@ -34,17 +35,19 @@ interface AppendSetOptions {
 export async function createSession(
   database: Database,
   options: CreateSessionOptions
-): Promise<void> {
+): Promise<Session> {
   const { sessionId, routineId, startedAtMs } = options;
 
   const sessionsTable = database.get('sessions');
-  await sessionsTable.create((session: any) => {
+  const session = await sessionsTable.create((session: any) => {
     session._raw.id = sessionId;
-    session.routine_id = routineId;
-    session.started_at = startedAtMs;
-    session.sync_status = 'local';
-    session.created_at = Date.now();
+    session._raw.routine_id = routineId;
+    session._raw.started_at = startedAtMs;
+    session._raw.sync_status = 'local';
+    session._raw.created_at = Date.now();
   });
+
+  return session as Session;
 }
 
 /**
@@ -84,15 +87,15 @@ export async function appendSet(
 
   const sessionSetsTable = database.get('session_sets');
   await sessionSetsTable.create((set: any) => {
-    set.session_id = sessionId;
-    set.routine_exercise_id = routineExerciseId;
-    set.set_type = setType;
-    if (reps !== undefined) set.reps = reps;
-    if (weightKg !== undefined) set.weight_kg = weightKg;
-    if (durationSeconds !== undefined) set.duration_seconds = durationSeconds;
-    if (distanceM !== undefined) set.distance_m = distanceM;
-    if (rpe !== undefined) set.rpe = rpe;
-    set.created_at = Date.now();
+    set._raw.session_id = sessionId;
+    set._raw.routine_exercise_id = routineExerciseId;
+    set._raw.set_type = setType;
+    if (reps !== undefined) set._raw.reps = reps;
+    if (weightKg !== undefined) set._raw.weight_kg = weightKg;
+    if (durationSeconds !== undefined) set._raw.duration_seconds = durationSeconds;
+    if (distanceM !== undefined) set._raw.distance_m = distanceM;
+    if (rpe !== undefined) set._raw.rpe = rpe;
+    set._raw.created_at = Date.now();
   });
 }
 
