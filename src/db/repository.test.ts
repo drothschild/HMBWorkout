@@ -1,4 +1,4 @@
-import { Database } from '@nozbe/watermelondb';
+import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
 import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups } from './repository';
 import { ValidationError } from './validation';
@@ -574,5 +574,84 @@ describe('Repository: session and set helpers', () => {
       expect((sets[0] as any).reps).toBeNull();
       expect((sets[0] as any).weightKg).toBeNull();
     }, 10000);
+
+    it('Phase 2 cycle-4 (Important): upsertRoutineExercise update branch persists all field changes', async () => {
+      const routineId = 'routine-upsert-test';
+      const exerciseId = 'exercise-upsert-test';
+
+      await database.write(async () => {
+        // Create routine
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Upsert Test Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        // Create exercise
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Upsert Test Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // First upsert: create new routine exercise with initial values
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 1,
+        supersetGroup: 'initial-group',
+        warmupSets: 2,
+        targetSets: 3,
+        targetReps: 8,
+        targetDurationSeconds: 100,
+        restSeconds: 60,
+      });
+
+      // Verify initial values persisted
+      const routineExercisesTable = database.get('routine_exercises');
+      const initial = (await routineExercisesTable
+        .query(
+          Q.and(Q.where('routine_id', routineId), Q.where('exercise_id', exerciseId))
+        )
+        .fetch()) as any[];
+      expect(initial).toHaveLength(1);
+      expect(initial[0].supersetGroup).toBe('initial-group');
+      expect(initial[0].warmupSets).toBe(2);
+      expect(initial[0].targetSets).toBe(3);
+      expect(initial[0].targetReps).toBe(8);
+      expect(initial[0].targetDurationSeconds).toBe(100);
+      expect(initial[0].restSeconds).toBe(60);
+
+      // Second upsert: update the same routine+exercise with new values
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 2,
+        supersetGroup: 'updated-group',
+        warmupSets: 1,
+        targetSets: 4,
+        targetReps: 10,
+        targetDurationSeconds: 200,
+        restSeconds: 90,
+      });
+
+      // Verify updated values persisted (this tests the update branch fix)
+      const updated = (await routineExercisesTable
+        .query(
+          Q.and(Q.where('routine_id', routineId), Q.where('exercise_id', exerciseId))
+        )
+        .fetch()) as any[];
+      expect(updated).toHaveLength(1);
+      expect(updated[0].order).toBe(2);
+      expect(updated[0].supersetGroup).toBe('updated-group');
+      expect(updated[0].warmupSets).toBe(1);
+      expect(updated[0].targetSets).toBe(4);
+      expect(updated[0].targetReps).toBe(10);
+      expect(updated[0].targetDurationSeconds).toBe(200);
+      expect(updated[0].restSeconds).toBe(90);
+    }, 15000);
   });
 });

@@ -217,13 +217,13 @@ export async function upsertRoutineExercise(
       const re = existing[0] as RoutineExercise;
       await re.update((record: any) => {
         record.order = order;
-        if (supersetGroup !== undefined) record.superset_group = supersetGroup;
-        record.warmup_sets = warmupSets;
-        if (targetSets !== undefined) record.target_sets = targetSets;
-        if (targetReps !== undefined) record.target_reps = targetReps;
+        if (supersetGroup !== undefined) record.supersetGroup = supersetGroup;
+        record.warmupSets = warmupSets;
+        if (targetSets !== undefined) record.targetSets = targetSets;
+        if (targetReps !== undefined) record.targetReps = targetReps;
         if (targetDurationSeconds !== undefined)
-          record.target_duration_seconds = targetDurationSeconds;
-        if (restSeconds !== undefined) record.rest_seconds = restSeconds;
+          record.targetDurationSeconds = targetDurationSeconds;
+        if (restSeconds !== undefined) record.restSeconds = restSeconds;
       });
       return re;
     } else {
