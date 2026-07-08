@@ -307,3 +307,126 @@ export async function getSupersetGroups(
 
   return result;
 }
+
+/**
+ * Upsert an exercise (create if not exists, update if exists).
+ * Exercises are keyed by slug (id).
+ *
+ * @param database The database instance
+ * @param exerciseId The exercise slug/ID
+ * @param title Human-readable title
+ * @param kind Exercise kind (strength, cardio, stretch)
+ */
+export async function upsertExercise(
+  database: Database,
+  exerciseId: string,
+  title: string,
+  kind: string
+): Promise<any> {
+  return await database.write(async () => {
+    const exercisesTable = database.get('exercises');
+
+    try {
+      // Try to find existing
+      const exercise = await exercisesTable.find(exerciseId);
+      await exercise.update((record: any) => {
+        record.title = title;
+        record.kind = kind;
+      });
+      return exercise;
+    } catch {
+      // Not found, create new
+      const created = await exercisesTable.create((e: any) => {
+        e._raw.id = exerciseId;
+        e.title = title;
+        e.kind = kind;
+        e._raw.created_at = Date.now();
+      });
+      return created;
+    }
+  });
+}
+
+/**
+ * Upsert a routine (create if not exists, update if exists).
+ * When upserting, replaces the routine's previous routine_exercises entries
+ * (delete-then-insert) so re-import reflects edits.
+ *
+ * @param database The database instance
+ * @param routineId The routine ID
+ * @param name Routine name
+ * @param exercises Array of exercise entries (with exerciseId, order, etc)
+ * @param additionalFields Optional: notes, etc
+ */
+interface RoutineExerciseEntry {
+  exerciseId: string;
+  order: number;
+  supersetGroup?: string;
+  warmupSets?: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  restSeconds?: number;
+  notes?: string;
+}
+
+export async function upsertRoutine(
+  database: Database,
+  routineId: string,
+  name: string,
+  exercises: RoutineExerciseEntry[],
+  additionalFields?: { notes?: string }
+): Promise<any> {
+  return await database.write(async () => {
+    const routinesTable = database.get('routines');
+    const routineExercisesTable = database.get('routine_exercises');
+
+    // Upsert routine record
+    let routine: any;
+    try {
+      routine = await routinesTable.find(routineId);
+      await routine.update((record: any) => {
+        record.name = name;
+        if (additionalFields?.notes !== undefined) record.notes = additionalFields.notes;
+        record._raw.updated_at = Date.now();
+      });
+    } catch {
+      // Not found, create new
+      routine = await routinesTable.create((r: any) => {
+        r._raw.id = routineId;
+        r.name = name;
+        if (additionalFields?.notes !== undefined) r.notes = additionalFields.notes;
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+    }
+
+    // Delete all old routine_exercises for this routine
+    const oldExercises = await routineExercisesTable
+      .query(Q.where('routine_id', routineId))
+      .fetch();
+
+    for (const oldExercise of oldExercises) {
+      await oldExercise.destroyPermanently();
+    }
+
+    // Create new routine_exercises
+    for (const exerciseEntry of exercises) {
+      await routineExercisesTable.create((re: any) => {
+        re._raw.routine_id = routineId;
+        re._raw.exercise_id = exerciseEntry.exerciseId;
+        re._raw.order = exerciseEntry.order;
+        if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
+        re.warmupSets = exerciseEntry.warmupSets ?? 0;
+        if (exerciseEntry.targetSets !== undefined) re.targetSets = exerciseEntry.targetSets;
+        if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
+        if (exerciseEntry.targetDurationSeconds !== undefined)
+          re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
+        if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
+        if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
+      });
+    }
+
+    return routine;
+  });
+}

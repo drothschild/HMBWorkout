@@ -7,8 +7,10 @@
 
 import { Database, Q } from '@nozbe/watermelondb';
 import Session from '@/db/models/Session';
-import { getSession, getSessionSets } from '@/db/repository';
+import { getSession, getSessionSets, upsertExercise, upsertRoutine } from '@/db/repository';
 import { serializeSession } from '@/interop/serialize';
+import { parseRoutine } from '@/interop/parse';
+import { ContractError } from '@/interop/format';
 import { BridgeClient } from './bridgeClient';
 
 /**
@@ -117,6 +119,125 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
           console.error(`Failed to sync session ${session.id}:`, error);
           continue;
         }
+      }
+    },
+
+    /**
+     * Import routines from bridge.
+     * Pulls getRoutines(), parses each, upserts the full graph.
+     * Malformed routines are skipped + logged, not fatal.
+     */
+    async importRoutines(): Promise<void> {
+      try {
+        const routines = await bridgeClient.getRoutines();
+
+        for (const routineInfo of routines) {
+          try {
+            // Parse routine markdown
+            const parsed = parseRoutine(routineInfo.markdown);
+            const routineId = parsed.frontmatter.id || routineInfo.id;
+
+            // Extract exercises from parsed routine
+            // parsed.exercises is an array of (WorkoutLine | SupersetGroup)
+            const allExercises: Array<{
+              exerciseId: string;
+              kind: string;
+              order: number;
+              supersetGroup?: string;
+              targetSets?: number;
+              targetReps?: number;
+              targetDurationSeconds?: number;
+              restSeconds?: number;
+              warmupSets?: number;
+              notes?: string;
+            }> = [];
+
+            let order = 1;
+            for (const entry of parsed.exercises) {
+              if ('exercises' in entry) {
+                // Superset group
+                const supersetLabel = entry.supersetLabel;
+                for (const line of entry.exercises) {
+                  allExercises.push({
+                    exerciseId: line.exerciseId,
+                    kind: line.kind || 'strength',
+                    order,
+                    supersetGroup: supersetLabel,
+                    targetSets: line.targetSets,
+                    targetReps: line.targetReps,
+                    targetDurationSeconds: line.targetDurationSeconds,
+                    restSeconds: line.restSeconds,
+                    warmupSets: line.warmupSets,
+                    notes: line.hint,
+                  });
+                  order++;
+                }
+              } else {
+                // Single line
+                const line = entry;
+                allExercises.push({
+                  exerciseId: line.exerciseId,
+                  kind: line.kind || 'strength',
+                  order,
+                  targetSets: line.targetSets,
+                  targetReps: line.targetReps,
+                  targetDurationSeconds: line.targetDurationSeconds,
+                  restSeconds: line.restSeconds,
+                  warmupSets: line.warmupSets,
+                  notes: line.hint,
+                });
+                order++;
+              }
+            }
+
+            // Upsert exercises first
+            const distinctExercises = new Map<
+              string,
+              { title: string; kind: string }
+            >();
+            for (const ex of allExercises) {
+              if (!distinctExercises.has(ex.exerciseId)) {
+                distinctExercises.set(ex.exerciseId, {
+                  title: ex.exerciseId, // Use slug as title (can be improved with metadata)
+                  kind: ex.kind,
+                });
+              }
+            }
+
+            for (const [exerciseId, data] of distinctExercises.entries()) {
+              await upsertExercise(database, exerciseId, data.title, data.kind);
+            }
+
+            // Upsert routine with exercises
+            await upsertRoutine(
+              database,
+              routineId,
+              parsed.frontmatter.id || routineInfo.id,
+              allExercises.map((e) => ({
+                exerciseId: e.exerciseId,
+                order: e.order,
+                supersetGroup: e.supersetGroup,
+                warmupSets: e.warmupSets,
+                targetSets: e.targetSets,
+                targetReps: e.targetReps,
+                targetDurationSeconds: e.targetDurationSeconds,
+                restSeconds: e.restSeconds,
+                notes: e.notes,
+              }))
+            );
+          } catch (error) {
+            // Skip malformed routines; log error
+            if (error instanceof ContractError) {
+              console.error(`Failed to parse routine ${routineInfo.id}: ${error.message}`);
+            } else {
+              console.error(`Failed to import routine ${routineInfo.id}:`, error);
+            }
+            continue;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch routines for import:', error);
+        throw error;
       }
     },
   };
