@@ -1,0 +1,167 @@
+import { useState, useCallback } from 'react';
+import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { SetLogger } from '@/components/SetLogger';
+import { activeSessionStore } from '@/state/activeSession';
+import { createSessionPresenter } from '@/state/sessionPresenter';
+import { Spacing } from '@/constants/theme';
+
+/**
+ * Session screen - modal route for active workout logging.
+ * Pure rendering; all logic delegated to presenter.
+ */
+export default function SessionScreen() {
+  const router = useRouter();
+  const [currentReps, setCurrentReps] = useState<number | undefined>();
+  const [currentWeight, setCurrentWeight] = useState<number | undefined>();
+  const [currentRpe, setCurrentRpe] = useState<number | undefined>();
+  const [currentDuration, setCurrentDuration] = useState<number | undefined>();
+
+  const sessionState = activeSessionStore((state: any) => state.sessionState);
+  const lastError = activeSessionStore((state: any) => state.lastError);
+  const dispatch = activeSessionStore((state: any) => state.dispatch);
+
+  if (!sessionState) {
+    return (
+      <ThemedView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <ThemedText>No active session</ThemedText>
+          <Pressable onPress={() => router.back()}>
+            <ThemedText>Close</ThemedText>
+          </Pressable>
+        </SafeAreaView>
+      </ThemedView>
+    );
+  }
+
+  const presenter = createSessionPresenter(sessionState, dispatch);
+
+  const handleReset = () => {
+    setCurrentReps(undefined);
+    setCurrentWeight(undefined);
+    setCurrentRpe(undefined);
+    setCurrentDuration(undefined);
+  };
+
+  const handleSetDone = useCallback(async () => {
+    await presenter.onSetDone();
+    handleReset();
+  }, [presenter]);
+
+  return (
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <ThemedText type="title">Active Session</ThemedText>
+          <ThemedText type="default">{presenter.phase}</ThemedText>
+          {presenter.isPaused && (
+            <Pressable onPress={() => presenter.onResume()}>
+              <ThemedText style={styles.resumeText}>Resume</ThemedText>
+            </Pressable>
+          )}
+          {!presenter.isPaused && presenter.phase !== 'done' && (
+            <Pressable onPress={() => presenter.onPause()}>
+              <ThemedText style={styles.pauseText}>Pause</ThemedText>
+            </Pressable>
+          )}
+        </View>
+
+        {lastError && (
+          <View style={styles.errorBanner}>
+            <ThemedText style={styles.errorText}>{lastError}</ThemedText>
+          </View>
+        )}
+
+        <ScrollView style={styles.content}>
+          {presenter.phase !== 'done' && (
+            <SetLogger
+              presenter={presenter}
+              currentReps={currentReps}
+              currentWeight={currentWeight}
+              currentRpe={currentRpe}
+              currentDuration={currentDuration}
+              onRepsChange={setCurrentReps}
+              onWeightChange={setCurrentWeight}
+              onRpeChange={setCurrentRpe}
+              onDurationChange={setCurrentDuration}
+            />
+          )}
+        </ScrollView>
+
+        <View style={styles.footer}>
+          {presenter.phase === 'done' ? (
+            <Pressable
+              style={[styles.button, styles.finishButton]}
+              onPress={() => {
+                router.back();
+              }}
+            >
+              <ThemedText style={styles.buttonText}>Close</ThemedText>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.button, styles.finishButton]}
+              onPress={() => presenter.onFinishSession()}
+            >
+              <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+            </Pressable>
+          )}
+        </View>
+      </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+    paddingHorizontal: Spacing.three,
+  },
+  header: {
+    paddingVertical: Spacing.three,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  errorBanner: {
+    backgroundColor: '#FF3B30',
+    padding: Spacing.two,
+    borderRadius: 4,
+    marginVertical: Spacing.two,
+  },
+  errorText: {
+    color: 'white',
+  },
+  pauseText: {
+    color: '#FF9500',
+  },
+  resumeText: {
+    color: '#34C759',
+  },
+  content: {
+    flex: 1,
+    marginVertical: Spacing.three,
+  },
+  footer: {
+    paddingVertical: Spacing.three,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  button: {
+    paddingVertical: Spacing.two,
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  finishButton: {
+    backgroundColor: '#FF3B30',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+});

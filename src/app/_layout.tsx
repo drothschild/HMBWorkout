@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -6,11 +7,50 @@ import { DatabaseProvider } from '@nozbe/watermelondb/react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { database } from '@/db';
+import { loadRules, RuleLoadError } from '@/engine/loadRules';
+import { ThemedView } from '@/components/themed-view';
+import { ThemedText } from '@/components/themed-text';
 
 SplashScreen.preventAutoHideAsync();
 
+function RuleErrorScreen({ error }: { error: RuleLoadError }) {
+  return (
+    <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <ThemedText type="title" style={{ marginBottom: 20, color: 'red' }}>
+        Rule Load Error
+      </ThemedText>
+      <ThemedText>{error.message}</ThemedText>
+    </ThemedView>
+  );
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [rulesLoaded, setRulesLoaded] = useState(false);
+  const [ruleError, setRuleError] = useState<RuleLoadError | null>(null);
+
+  useEffect(() => {
+    try {
+      loadRules();
+      setRulesLoaded(true);
+      SplashScreen.hideAsync();
+    } catch (error) {
+      if (error instanceof RuleLoadError) {
+        setRuleError(error);
+      } else {
+        setRuleError(new RuleLoadError('unknown', String(error)));
+      }
+    }
+  }, []);
+
+  if (ruleError) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <RuleErrorScreen error={ruleError} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <DatabaseProvider database={database}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -20,6 +60,13 @@ export default function RootLayout() {
             headerShown: false,
           }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="session"
+            options={{
+              headerShown: false,
+              presentation: 'modal',
+            }}
+          />
         </Stack>
       </ThemeProvider>
     </DatabaseProvider>

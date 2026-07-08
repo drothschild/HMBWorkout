@@ -4,6 +4,7 @@ import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
 import { saveEngineState, clearEngineState } from '@/db/engineState';
+import { database } from '@/db';
 
 /**
  * Active session store state
@@ -148,3 +149,9 @@ export function createActiveSessionStore(
   // Return store interface
   return store;
 }
+
+/**
+ * Global active session store instance
+ * Created with the database singleton
+ */
+export const activeSessionStore = createActiveSessionStore(database);
