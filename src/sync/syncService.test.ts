@@ -1,0 +1,290 @@
+/**
+ * Sync service tests
+ * AC5.1: offline sessions queue and flip to synced on retry
+ * AC5.3: retrying already-synced sessions is idempotent
+ * AC4.5: unreachable health short-circuits without posts
+ */
+
+import { Database } from '@nozbe/watermelondb';
+import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createSession } from '@/db/repository';
+import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
+import { createSyncService } from './syncService';
+
+describe('Sync Service', () => {
+  let database: Database;
+
+  beforeEach(async () => {
+    database = createTestDatabase();
+  });
+
+  afterEach(async () => {
+    await closeTestDatabase(database);
+  });
+
+  describe('AC5.1: offline sessions queue and flip to synced', () => {
+    it('stores session as "local" when bridge is unreachable', async () => {
+      const mockBridgeClient = {
+        health: jest.fn().mockRejectedValueOnce(new BridgeUnreachable('Network error')),
+        postSession: jest.fn(),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Create a finished session
+      await createSession(database, {
+        sessionId: 'session-1',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+
+      // Manually mark session as finished (set ended_at)
+      const session = await database.get('sessions').find('session-1');
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      // Run sync while unreachable
+      await syncService.syncNow();
+
+      // Verify health was called
+      expect(mockBridgeClient.health).toHaveBeenCalled();
+
+      // Verify postSession was NOT called (early return)
+      expect(mockBridgeClient.postSession).not.toHaveBeenCalled();
+
+      // Verify session is still "local"
+      const updatedSession = await database.get('sessions').find('session-1');
+      expect((updatedSession as any).customSyncStatus).toBe('local');
+    });
+
+    it('transitions session to "synced" on later successful sync', async () => {
+      const postSessionCalls: any[] = [];
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValueOnce({ ok: true }),
+        postSession: jest.fn().mockImplementation(async (payload) => {
+          postSessionCalls.push(payload);
+        }),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Set up routine and exercise
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'exercise-1';
+          re._raw.order = 1;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      // Create a finished session
+      await createSession(database, {
+        sessionId: 'session-1',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+
+      // Manually mark session as finished
+      const session = await database.get('sessions').find('session-1');
+      const endedAt = Date.now();
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = endedAt;
+        });
+      });
+
+      // Run sync
+      await syncService.syncNow();
+
+      // Verify health was called
+      expect(mockBridgeClient.health).toHaveBeenCalled();
+
+      // Verify postSession was called (because health is ok and session is finished)
+      expect(mockBridgeClient.postSession).toHaveBeenCalled();
+
+      // Verify session transitioned to "synced"
+      const updatedSession = await database.get('sessions').find('session-1');
+      expect((updatedSession as any).customSyncStatus).toBe('synced');
+    });
+  });
+
+  describe('AC5.3: idempotent posting', () => {
+    it('retrying already-synced session does not re-post', async () => {
+      const postSessionCalls: any[] = [];
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValue({ ok: true }),
+        postSession: jest.fn().mockImplementation(async (payload) => {
+          postSessionCalls.push(payload);
+        }),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Create a finished session
+      await createSession(database, {
+        sessionId: 'session-1',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+
+      // Manually mark session as finished
+      const session = await database.get('sessions').find('session-1');
+      const endedAt = Date.now();
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = endedAt;
+          record._raw.sync_status = 'synced'; // Already synced
+        });
+      });
+
+      // Run sync twice
+      await syncService.syncNow();
+      await syncService.syncNow();
+
+      // Verify postSession was never called (session is already synced)
+      expect(mockBridgeClient.postSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AC4.5: unreachable health short-circuits', () => {
+    it('returns early without posting when health is unreachable', async () => {
+      const mockBridgeClient = {
+        health: jest.fn().mockRejectedValueOnce(new BridgeUnreachable('Offline')),
+        postSession: jest.fn(),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Create multiple finished sessions
+      for (let i = 1; i <= 3; i++) {
+        await createSession(database, {
+          sessionId: `session-${i}`,
+          routineId: 'routine-1',
+          startedAtMs: Date.now(),
+        });
+
+        const session = await database.get('sessions').find(`session-${i}`);
+        await database.write(async () => {
+          await (session as any).update((record: any) => {
+            record._raw.ended_at = Date.now();
+          });
+        });
+      }
+
+      // Run sync
+      await syncService.syncNow();
+
+      // Verify health was called
+      expect(mockBridgeClient.health).toHaveBeenCalled();
+
+      // Verify postSession was NOT called (zero posts attempted)
+      expect(mockBridgeClient.postSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('error handling', () => {
+    it('continues syncing other sessions if one post fails', async () => {
+      const postSessionCalls: any[] = [];
+      let postCount = 0;
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValueOnce({ ok: true }),
+        postSession: jest.fn().mockImplementation(async (payload) => {
+          postCount++;
+          if (payload.id === 'session-1' && postCount === 1) {
+            throw new BridgeHttpError(500, 'Server error');
+          }
+          postSessionCalls.push(payload);
+        }),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Set up routine and exercise
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'exercise-1';
+          re._raw.order = 1;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      // Create two finished sessions
+      for (let i = 1; i <= 2; i++) {
+        await createSession(database, {
+          sessionId: `session-${i}`,
+          routineId: 'routine-1',
+          startedAtMs: Date.now(),
+        });
+
+        const session = await database.get('sessions').find(`session-${i}`);
+        await database.write(async () => {
+          await (session as any).update((record: any) => {
+            record._raw.ended_at = Date.now();
+          });
+        });
+      }
+
+      // Run sync
+      await syncService.syncNow();
+
+      // Session 1 should fail and stay "local"
+      const session1 = await database.get('sessions').find('session-1');
+      expect((session1 as any).customSyncStatus).toBe('local');
+
+      // Session 2 should succeed and become "synced"
+      const session2 = await database.get('sessions').find('session-2');
+      expect((session2 as any).customSyncStatus).toBe('synced');
+    });
+  });
+});

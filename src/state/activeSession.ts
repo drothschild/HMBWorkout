@@ -126,6 +126,27 @@ export function createActiveSessionStore(
 
       // Clear the engine state
       await clearEngineState(database, sessionId);
+
+      // Attempt sync (fire-and-forget; sync failures must not affect session state)
+      // Enqueue by attempting sync immediately; if sync fails, session stays local
+      // and will be retried on next sync attempt
+      try {
+        const { createSyncService } = await import('@/sync/syncService');
+        const { createBridgeClient } = await import('@/sync/bridgeClient');
+        const { getSettings } = await import('@/state/settings');
+
+        const settings = getSettings();
+        const bridgeClient = createBridgeClient(settings);
+        const syncService = createSyncService(database, bridgeClient);
+
+        // Fire-and-forget: don't await or propagate errors
+        syncService.syncNow().catch((error) => {
+          console.error('Sync failed after session completion:', error);
+        });
+      } catch (error) {
+        // Ignore import or initialization errors
+        console.error('Failed to initialize sync:', error);
+      }
     },
 
     ...overrideExecutors,
