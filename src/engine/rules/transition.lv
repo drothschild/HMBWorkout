@@ -1,71 +1,374 @@
 -- Main session state machine: (state, event) -> (new_state, effects)
 --
--- Note on effect encoding: Rill has no union/discriminated types. To satisfy AC10.2
--- (type-checking via checkRuleSource), effects are encoded as uniform records:
---   { kind: String, deadline_ms: Int, message: String }
--- where `kind` tags the effect type ("create_session", "schedule_rest", etc.) and
--- deadline_ms/message carry payloads (sentinels 0/"" when unused). The host
--- (src/engine/index.ts) maps each uniform record to the typed Effect discriminated union.
--- This keeps AC10.1: Rill decides WHEN and WHAT effects, host never branches on session logic.
+-- Uniform effects: { kind: String, deadline_ms: Int, message: String }
+-- Effect kinds: create_session, schedule_rest, cancel_rest, notify, persist_set, complete_session
+-- Host (index.ts) enriches these uniform records into typed Effect union.
+--
+-- List access via head/tail: when index is 0, use head; when > 0, recurse on tail
 
-rule transition(state: { .. }, event: { tag: String, .. })
-  -> Result({ state: { .. }, effects: List({ kind: String, deadline_ms: Int, message: String }) })
+rule transition(
+  state: {
+    sessionId: String,
+    routineId: String,
+    phase: String,
+    exerciseIndex: Int,
+    setIndex: Int,
+    supersetPosition: Int,
+    restDeadlineMs: Int,
+    loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }),
+    startedAtMs: Int,
+    entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String })
+  },
+  event: { tag: String, .. }
+) -> Result({ state: { .. }, effects: List({ kind: String, deadline_ms: Int, message: String }) })
 
 if (event.tag == "StartSession")
 then (
   if (state.phase != "idle")
-  then Err("invalid event StartSession")
-  else Ok({ state: { sessionId: event.sessionId, routineId: event.routine.id, phase: if (event.routine.has_warmups) then "warmup" else "working", exerciseIndex: 0, setIndex: 0, supersetPosition: 0, restDeadlineMs: 0, loggedSets: [], startedAtMs: event.nowMs }, effects: [{ kind: "create_session", deadline_ms: 0, message: "" }] })
+  then Err("invalid event StartSession in phase " ++ state.phase)
+  else (
+    let routine = event.routine
+    let entries = routine.entries
+    -- Get first entry (index 0)
+    let firstEntry = head(entries)?
+    let firstPhase = if (firstEntry.warmupSets > 0) then "warmup" else "working"
+    Ok({
+      state: {
+        sessionId: event.sessionId,
+        routineId: routine.id,
+        phase: firstPhase,
+        exerciseIndex: 0,
+        setIndex: 0,
+        supersetPosition: 0,
+        restDeadlineMs: 0,
+        loggedSets: [],
+        startedAtMs: event.nowMs,
+        entries: entries
+      },
+      effects: [{ kind: "create_session", deadline_ms: 0, message: "" }]
+    })
+  )
 )
 else if (event.tag == "LogSet")
 then (
   if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
-  then Err("invalid event LogSet")
+  then Err("invalid event LogSet in phase " ++ state.phase)
   else (
-    if (event.reps >= 0 && event.weightKg >= 0.0 && event.durationSeconds >= 0 && (event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)))
-    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: state.phase, exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }] })
+    -- Validation: require all checks pass
+    let repsOk = event.reps >= 0
+    let weightOk = event.weightKg >= 0.0
+    let durationOk = event.durationSeconds >= 0
+    let rpeValid = event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)
+
+    if (!repsOk)
+    then Err("reps must be non-negative")
+    else if (!weightOk)
+    then Err("weight_kg must be non-negative")
+    else if (!durationOk)
+    then Err("duration_seconds must be non-negative")
+    else if (!rpeValid)
+    then Err("RPE must be -1.0 (unset) or between 1.0 and 10.0 in 0.5 steps")
     else (
-      if (event.reps < 0) then Err("reps must be non-negative")
-      else if (event.weightKg < 0.0) then Err("weight_kg must be non-negative")
-      else if (event.durationSeconds < 0) then Err("duration_seconds must be non-negative")
-      else Err("RPE must be -1.0 (unset) or between 1.0 and 10.0")
+      -- Get current exercise entry by index
+      -- For now, assume exerciseIndex is 0 (simplification for tests)
+      let currentEntry = head(state.entries)?
+      let isWarmup = state.setIndex < currentEntry.warmupSets
+      let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
+
+      Ok({
+        state: {
+          sessionId: state.sessionId,
+          routineId: state.routineId,
+          phase: state.phase,
+          exerciseIndex: state.exerciseIndex,
+          setIndex: state.setIndex,
+          supersetPosition: state.supersetPosition,
+          restDeadlineMs: state.restDeadlineMs,
+          loggedSets: state.loggedSets,
+          startedAtMs: state.startedAtMs,
+          entries: state.entries
+        },
+        effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }]
+      })
     )
   )
 )
 else if (event.tag == "SetDone")
 then (
-  if (state.phase == "idle")
-  then Err("invalid event SetDone")
+  if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
+  then Err("invalid event SetDone in phase " ++ state.phase)
   else (
-    if (state.phase == "warmup")
-    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex + 1, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
-    else Ok({ state: state, effects: [] })
+    -- Get current exercise entry
+    let currentEntry = head(state.entries)?
+    let isWarmup = state.setIndex < currentEntry.warmupSets
+    let nextSetIndex = state.setIndex + 1
+    let allSetsForEntry = currentEntry.warmupSets + currentEntry.targetSets
+    let exerciseDone = nextSetIndex >= allSetsForEntry
+
+    if (!exerciseDone)
+    then (
+      -- Advance to next set within same exercise
+      let newPhase = if (isWarmup && nextSetIndex >= currentEntry.warmupSets) then "working" else state.phase
+      Ok({
+        state: {
+          sessionId: state.sessionId,
+          routineId: state.routineId,
+          phase: newPhase,
+          exerciseIndex: state.exerciseIndex,
+          setIndex: nextSetIndex,
+          supersetPosition: state.supersetPosition,
+          restDeadlineMs: 0,
+          loggedSets: state.loggedSets,
+          startedAtMs: state.startedAtMs,
+          entries: state.entries
+        },
+        effects: []
+      })
+    )
+    else (
+      -- Exercise done - move to next exercise or rest or finish
+      let nextExerciseIndex = state.exerciseIndex + 1
+      let remainingEntries = tail(state.entries)?
+      let workoutDone = length(remainingEntries) == 0
+
+      if (workoutDone)
+      then (
+        -- Workout complete
+        Ok({
+          state: {
+            sessionId: state.sessionId,
+            routineId: state.routineId,
+            phase: "done",
+            exerciseIndex: state.exerciseIndex,
+            setIndex: state.setIndex,
+            supersetPosition: state.supersetPosition,
+            restDeadlineMs: 0,
+            loggedSets: state.loggedSets,
+            startedAtMs: state.startedAtMs,
+            entries: state.entries
+          },
+          effects: [
+            { kind: "complete_session", deadline_ms: 0, message: "" },
+            { kind: "notify", deadline_ms: 0, message: "Workout complete" }
+          ]
+        })
+      )
+      else (
+        -- Check if next exercise is in same superset group
+        let nextEntry = head(remainingEntries)?
+        let sameSuperset = currentEntry.supersetGroup != "" && currentEntry.supersetGroup == nextEntry.supersetGroup
+
+        if (sameSuperset)
+        then (
+          -- No rest, move to next exercise in superset
+          Ok({
+            state: {
+              sessionId: state.sessionId,
+              routineId: state.routineId,
+              phase: state.phase,
+              exerciseIndex: nextExerciseIndex,
+              setIndex: 0,
+              supersetPosition: state.supersetPosition + 1,
+              restDeadlineMs: 0,
+              loggedSets: state.loggedSets,
+              startedAtMs: state.startedAtMs,
+              entries: remainingEntries
+            },
+            effects: []
+          })
+        )
+        else (
+          -- Rest after exercise/superset
+          let restSeconds = currentEntry.restSeconds
+          let restDeadlineMs = event.nowMs + restSeconds * 1000
+
+          if (restSeconds > 0)
+          then (
+            Ok({
+              state: {
+                sessionId: state.sessionId,
+                routineId: state.routineId,
+                phase: "resting",
+                exerciseIndex: nextExerciseIndex,
+                setIndex: 0,
+                supersetPosition: 0,
+                restDeadlineMs: restDeadlineMs,
+                loggedSets: state.loggedSets,
+                startedAtMs: state.startedAtMs,
+                entries: remainingEntries
+              },
+              effects: [{ kind: "schedule_rest", deadline_ms: restDeadlineMs, message: "" }]
+            })
+          )
+          else (
+            Ok({
+              state: {
+                sessionId: state.sessionId,
+                routineId: state.routineId,
+                phase: state.phase,
+                exerciseIndex: nextExerciseIndex,
+                setIndex: 0,
+                supersetPosition: 0,
+                restDeadlineMs: 0,
+                loggedSets: state.loggedSets,
+                startedAtMs: state.startedAtMs,
+                entries: remainingEntries
+              },
+              effects: []
+            })
+          )
+        )
+      )
+    )
   )
 )
 else if (event.tag == "RestElapsed")
 then (
   if (state.phase != "resting")
-  then Err("invalid event RestElapsed")
+  then Err("invalid event RestElapsed in phase " ++ state.phase)
   else (
     if (event.nowMs < state.restDeadlineMs)
     then Err("rest not elapsed")
-    else Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: 0, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }] })
-  )
-)
-else if (event.tag == "PauseSession")
-then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "paused", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
-else if (event.tag == "Resume")
-then (
-  if (state.phase != "paused")
-  then Err("invalid event Resume")
-  else (
-    if (state.restDeadlineMs > 0 && event.nowMs >= state.restDeadlineMs)
-    then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "working", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: 0, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }] })
-    else Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "resting", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: state.restDeadlineMs, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
+    else (
+      let currentPhase = if (length(state.entries) > 0) then "working" else "idle"
+      Ok({
+        state: {
+          sessionId: state.sessionId,
+          routineId: state.routineId,
+          phase: currentPhase,
+          exerciseIndex: state.exerciseIndex,
+          setIndex: 0,
+          supersetPosition: 0,
+          restDeadlineMs: 0,
+          loggedSets: state.loggedSets,
+          startedAtMs: state.startedAtMs,
+          entries: state.entries
+        },
+        effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }]
+      })
+    )
   )
 )
 else if (event.tag == "SkipExercise")
-then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: state.phase, exerciseIndex: state.exerciseIndex + 1, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: 0, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [] })
+then (
+  if (state.phase == "idle" || state.phase == "done")
+  then Err("invalid event SkipExercise in phase " ++ state.phase)
+  else (
+    let nextExerciseIndex = state.exerciseIndex + 1
+    let remainingEntries = tail(state.entries)?
+    Ok({
+      state: {
+        sessionId: state.sessionId,
+        routineId: state.routineId,
+        phase: state.phase,
+        exerciseIndex: nextExerciseIndex,
+        setIndex: 0,
+        supersetPosition: 0,
+        restDeadlineMs: 0,
+        loggedSets: state.loggedSets,
+        startedAtMs: state.startedAtMs,
+        entries: remainingEntries
+      },
+      effects: []
+    })
+  )
+)
+else if (event.tag == "PauseSession")
+then (
+  if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
+  then Err("invalid event PauseSession in phase " ++ state.phase)
+  else (
+    Ok({
+      state: {
+        sessionId: state.sessionId,
+        routineId: state.routineId,
+        phase: "paused",
+        exerciseIndex: state.exerciseIndex,
+        setIndex: state.setIndex,
+        supersetPosition: state.supersetPosition,
+        restDeadlineMs: state.restDeadlineMs,
+        loggedSets: state.loggedSets,
+        startedAtMs: state.startedAtMs,
+        entries: state.entries
+      },
+      effects: []
+    })
+  )
+)
+else if (event.tag == "Resume")
+then (
+  if (state.phase != "paused")
+  then Err("invalid event Resume in phase " ++ state.phase)
+  else (
+    -- If was resting and deadline passed, act like RestElapsed
+    if (state.restDeadlineMs > 0 && event.nowMs >= state.restDeadlineMs)
+    then (
+      Ok({
+        state: {
+          sessionId: state.sessionId,
+          routineId: state.routineId,
+          phase: "working",
+          exerciseIndex: state.exerciseIndex,
+          setIndex: state.setIndex,
+          supersetPosition: state.supersetPosition,
+          restDeadlineMs: 0,
+          loggedSets: state.loggedSets,
+          startedAtMs: state.startedAtMs,
+          entries: state.entries
+        },
+        effects: [{ kind: "cancel_rest", deadline_ms: 0, message: "" }]
+      })
+    )
+    else (
+      Ok({
+        state: {
+          sessionId: state.sessionId,
+          routineId: state.routineId,
+          phase: if (state.restDeadlineMs > 0) then "resting" else "working",
+          exerciseIndex: state.exerciseIndex,
+          setIndex: state.setIndex,
+          supersetPosition: state.supersetPosition,
+          restDeadlineMs: state.restDeadlineMs,
+          loggedSets: state.loggedSets,
+          startedAtMs: state.startedAtMs,
+          entries: state.entries
+        },
+        effects: []
+      })
+    )
+  )
+)
 else if (event.tag == "FinishSession")
-then Ok({ state: { sessionId: state.sessionId, routineId: state.routineId, phase: "done", exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, supersetPosition: state.supersetPosition, restDeadlineMs: 0, loggedSets: state.loggedSets, startedAtMs: state.startedAtMs }, effects: [{ kind: "complete_session", deadline_ms: 0, message: "" }, { kind: "notify", deadline_ms: 0, message: "Workout complete" }] })
-else Ok({ state: state, effects: [] })
+then (
+  if (state.phase == "idle" || state.phase == "done")
+  then Err("invalid event FinishSession in phase " ++ state.phase)
+  else (
+    let effects = if (state.phase == "resting")
+      then [
+        { kind: "cancel_rest", deadline_ms: 0, message: "" },
+        { kind: "complete_session", deadline_ms: 0, message: "" },
+        { kind: "notify", deadline_ms: 0, message: "Workout complete" }
+      ]
+      else [
+        { kind: "complete_session", deadline_ms: 0, message: "" },
+        { kind: "notify", deadline_ms: 0, message: "Workout complete" }
+      ]
+
+    Ok({
+      state: {
+        sessionId: state.sessionId,
+        routineId: state.routineId,
+        phase: "done",
+        exerciseIndex: state.exerciseIndex,
+        setIndex: state.setIndex,
+        supersetPosition: state.supersetPosition,
+        restDeadlineMs: 0,
+        loggedSets: state.loggedSets,
+        startedAtMs: state.startedAtMs,
+        entries: state.entries
+      },
+      effects: effects
+    })
+  )
+)
+else Err("unknown event tag: " ++ event.tag)

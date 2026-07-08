@@ -45,6 +45,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     setIndex: 0,
     loggedSets: [],
     startedAtMs: 0,
+    entries: [],
   };
 
   /**

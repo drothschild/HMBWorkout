@@ -75,6 +75,7 @@ describe('engine: loadRules', () => {
           },
         ],
         startedAtMs: 1687900000000,
+        entries: [],
       };
 
       // Serialize and deserialize

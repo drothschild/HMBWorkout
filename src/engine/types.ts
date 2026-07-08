@@ -5,6 +5,18 @@
 
 export type SessionPhase = 'idle' | 'warmup' | 'working' | 'resting' | 'stretching' | 'paused' | 'done';
 export type SetType = 'warmup' | 'working' | 'stretch' | 'cardio';
+export type ExerciseKind = 'strength' | 'cardio' | 'stretch';
+
+export interface RoutineEntry {
+  exerciseId: string;
+  kind: ExerciseKind;
+  warmupSets: number;
+  targetSets: number;
+  targetReps: number;
+  targetDurationSeconds: number;
+  restSeconds: number;
+  supersetGroup: string; // "" means no superset
+}
 
 export interface LoggedSet {
   exerciseId: string;
@@ -15,6 +27,11 @@ export interface LoggedSet {
   rpe: number | null;
 }
 
+/**
+ * SessionState: JSON-serializable session data.
+ * Note: entries (routine structure) is stored in state so it's available for all transitions.
+ * This keeps the state self-contained and serializable (can be persisted and rehydrated).
+ */
 export interface SessionState {
   sessionId: string;
   routineId: string;
@@ -25,6 +42,7 @@ export interface SessionState {
   restDeadlineMs?: number;
   loggedSets: LoggedSet[];
   startedAtMs: number;
+  entries: RoutineEntry[]; // Routine structure — needed for advancement logic
 }
 
 /**
@@ -34,7 +52,7 @@ export interface SessionState {
 export type Event =
   | { tag: 'StartSession'; sessionId: string; nowMs: number; routine: unknown }
   | { tag: 'LogSet'; reps?: number; weightKg?: number; durationSeconds?: number; rpe?: number }
-  | { tag: 'SetDone' }
+  | { tag: 'SetDone'; nowMs: number }
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipExercise' }
   | { tag: 'PauseSession' }

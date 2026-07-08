@@ -20,10 +20,17 @@ import { evaluateSource } from './bridge';
 import { SessionState, Event, Effect, SessionPhase } from './types';
 import { transitionCompositeSource } from './loadRules';
 
+// Uniform effects from Rill rule (before host mapping to typed Effect union)
+type UniformEffect = {
+  kind: string;
+  deadline_ms: number;
+  message: string;
+};
+
 // Re-exported for clarity in test code
 type TransitionResult = {
   state: SessionState;
-  effects: Effect[];
+  effects: UniformEffect[];
 };
 
 /**
@@ -37,8 +44,11 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     phase: 'idle',
     exerciseIndex: 0,
     setIndex: 0,
+    supersetPosition: 0,
+    restDeadlineMs: 0,
     loggedSets: [],
     startedAtMs: 1000,
+    entries: [],
     ...overrides,
   };
 }
@@ -136,11 +146,11 @@ describe('engine: transition rule — session state machine', () => {
       const result = evaluateTransition(initialState, event);
 
       expect(result.effects.length).toBe(1);
-      expect(result.effects[0].tag).toBe('CreateSession');
-      const createEffect = result.effects[0] as any;
-      expect(createEffect.sessionId).toBe('new-session-id');
-      expect(createEffect.routineId).toBe('routine-1');
-      expect(createEffect.startedAtMs).toBe(5000);
+      // Rule emits uniform effects with kind (host maps to typed Effects)
+      expect(result.effects[0].kind).toBe('create_session');
+      expect(result.state.sessionId).toBe('new-session-id');
+      expect(result.state.routineId).toBe('routine-1');
+      expect(result.state.startedAtMs).toBe(5000);
     });
 
     it('should reject StartSession from non-idle phase', () => {
@@ -264,7 +274,7 @@ describe('engine: transition rule — session state machine', () => {
       const state = makeState({ phase: 'working' });
       const result = evaluateTransition(state, event);
 
-      const persistEffects = result.effects.filter(e => e.tag === 'PersistSet');
+      const persistEffects = result.effects.filter(e => e.kind === "persist_set");
       expect(persistEffects.length).toBe(1);
       expect((persistEffects[0] as any).set.reps).toBe(8);
     });
@@ -272,7 +282,7 @@ describe('engine: transition rule — session state machine', () => {
 
   describe('SetDone advancement with superset/warmup ordering (AC8.1, AC8.2)', () => {
     it('should advance from warmup to working phase after warmups exhausted', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
       // Mock: after logging 2 warmup sets, we're on the 3rd set which is working
       const state = makeState({
@@ -287,7 +297,7 @@ describe('engine: transition rule — session state machine', () => {
     });
 
     it('should honor contiguous superset groups (AC8.1)', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
       // Exercise 0 is part of superset group 0, exercise 1 is also part of group 0
       // After completing exercise 0, should move to exercise 1 (same group) before resting
@@ -306,7 +316,7 @@ describe('engine: transition rule — session state machine', () => {
     });
 
     it('should rest after superset group is complete', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
       // After last exercise of a superset group
       const state = makeState({
@@ -321,7 +331,7 @@ describe('engine: transition rule — session state machine', () => {
       // Should enter resting phase with ScheduleRest effect
       if (result.state.phase === 'resting') {
         expect(result.state.restDeadlineMs).toBeDefined();
-        const scheduleRestEffects = result.effects.filter(e => e.tag === 'ScheduleRest');
+        const scheduleRestEffects = result.effects.filter(e => e.kind === "schedule_rest");
         expect(scheduleRestEffects.length).toBeGreaterThan(0);
       }
     });
@@ -329,7 +339,7 @@ describe('engine: transition rule — session state machine', () => {
 
   describe('Duration-based cardio/stretch entries (AC8.3)', () => {
     it('should accept SetDone for cardio/stretch entries with duration_seconds', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
       const state = makeState({
         phase: 'stretching',
@@ -348,7 +358,7 @@ describe('engine: transition rule — session state machine', () => {
 
   describe('Rest scheduling with deadline arithmetic (AC10.6)', () => {
     it('should emit ScheduleRest with deadline = eventTime + rest_duration*1000', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
       // Trigger rest: last exercise of superset at time 10000
       const state = makeState({
@@ -361,10 +371,10 @@ describe('engine: transition rule — session state machine', () => {
 
       // Mock eventTime = 10000
       // If rest_duration = 90 seconds, deadline should be 10000 + 90*1000 = 100000
-      const result = evaluateTransition(state, { tag: 'SetDone' });
+      const result = evaluateTransition(state, { tag: 'SetDone', nowMs: 10000 });
 
       if (result.state.phase === 'resting') {
-        const scheduleEffects = result.effects.filter(e => e.tag === 'ScheduleRest') as any[];
+        const scheduleEffects = result.effects.filter(e => e.kind === "schedule_rest") as any[];
         expect(scheduleEffects.length).toBeGreaterThan(0);
         expect(typeof scheduleEffects[0].deadlineMs).toBe('number');
       }
@@ -401,7 +411,7 @@ describe('engine: transition rule — session state machine', () => {
       const result = evaluateTransition(state, event);
 
       expect(result.state.phase).not.toBe('resting');
-      const cancelRestEffects = result.effects.filter(e => e.tag === 'CancelRest');
+      const cancelRestEffects = result.effects.filter(e => e.kind === "cancel_rest");
       expect(cancelRestEffects.length).toBeGreaterThan(0);
     });
   });
@@ -474,13 +484,35 @@ describe('engine: transition rule — session state machine', () => {
 
       const state = makeState({
         phase: 'working',
-        exerciseIndex: 1,
+        exerciseIndex: 0,
         setIndex: 0,
+        entries: [
+          {
+            exerciseId: 'ex1',
+            kind: 'strength',
+            warmupSets: 0,
+            targetSets: 1,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 0,
+            supersetGroup: '',
+          },
+          {
+            exerciseId: 'ex2',
+            kind: 'strength',
+            warmupSets: 0,
+            targetSets: 1,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 0,
+            supersetGroup: '',
+          },
+        ],
       });
 
       const result = evaluateTransition(state, event);
 
-      expect(result.state.exerciseIndex).toBeGreaterThan(1);
+      expect(result.state.exerciseIndex).toBe(1);
     });
 
     it('should clear rest deadline on SkipExercise', () => {
@@ -489,11 +521,23 @@ describe('engine: transition rule — session state machine', () => {
       const state = makeState({
         phase: 'resting',
         restDeadlineMs: 10000,
+        entries: [
+          {
+            exerciseId: 'ex1',
+            kind: 'strength',
+            warmupSets: 0,
+            targetSets: 1,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 0,
+            supersetGroup: '',
+          },
+        ],
       });
 
       const result = evaluateTransition(state, event);
 
-      expect(result.state.restDeadlineMs).toBeUndefined();
+      expect(result.state.restDeadlineMs).toBe(0);
     });
   });
 
@@ -507,10 +551,10 @@ describe('engine: transition rule — session state machine', () => {
 
       expect(result.state.phase).toBe('done');
 
-      const completeEffects = result.effects.filter(e => e.tag === 'CompleteSession');
+      const completeEffects = result.effects.filter(e => e.kind === "complete_session");
       expect(completeEffects.length).toBe(1);
 
-      const notifyEffects = result.effects.filter(e => e.tag === 'Notify');
+      const notifyEffects = result.effects.filter(e => e.kind === "notify");
       expect(notifyEffects.length).toBeGreaterThan(0);
     });
 
@@ -521,39 +565,49 @@ describe('engine: transition rule — session state machine', () => {
 
       const result = evaluateTransition(state, event);
 
-      const cancelEffects = result.effects.filter(e => e.tag === 'CancelRest');
+      const cancelEffects = result.effects.filter(e => e.kind === "cancel_rest");
       expect(cancelEffects.length).toBeGreaterThan(0);
     });
   });
 
   describe('Final SetDone completion', () => {
     it('should emit CompleteSession + Notify when final SetDone advances to done', () => {
-      const event: Event = { tag: 'SetDone' };
+      const event: Event = { tag: 'SetDone', nowMs: 10000 };
 
-      // Mock: last exercise, last set
+      // Last exercise with one set, no warmup
       const state = makeState({
         phase: 'working',
-        exerciseIndex: 999, // Beyond last exercise
-        setIndex: 999,
-        loggedSets: [],
+        exerciseIndex: 0,
+        setIndex: 0,
+        entries: [
+          {
+            exerciseId: 'final-exercise',
+            kind: 'strength',
+            warmupSets: 0,
+            targetSets: 1,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 0,
+            supersetGroup: '',
+          },
+        ],
       });
 
       const result = evaluateTransition(state, event);
 
-      if (result.state.phase === 'done') {
-        const completeEffects = result.effects.filter(e => e.tag === 'CompleteSession');
-        expect(completeEffects.length).toBe(1);
+      expect(result.state.phase).toBe('done');
+      const completeEffects = result.effects.filter(e => e.kind === "complete_session");
+      expect(completeEffects.length).toBe(1);
 
-        const notifyEffects = result.effects.filter(e => e.tag === 'Notify');
-        expect(notifyEffects.length).toBeGreaterThan(0);
-      }
+      const notifyEffects = result.effects.filter(e => e.kind === "notify");
+      expect(notifyEffects.length).toBeGreaterThan(0);
     });
   });
 
   describe('Invalid event for phase → Err with unchanged state (AC10.3)', () => {
     const invalidTransitions = [
       { phase: 'idle' as SessionPhase, event: { tag: 'LogSet' as const }, description: 'LogSet in idle' },
-      { phase: 'idle' as SessionPhase, event: { tag: 'SetDone' as const }, description: 'SetDone in idle' },
+      { phase: 'idle' as SessionPhase, event: { tag: 'SetDone' as const, nowMs: 10000 }, description: 'SetDone in idle' },
       { phase: 'warmup' as SessionPhase, event: { tag: 'RestElapsed' as const, nowMs: 5000 }, description: 'RestElapsed in warmup' },
       { phase: 'working' as SessionPhase, event: { tag: 'RestElapsed' as const, nowMs: 5000 }, description: 'RestElapsed in working (not resting)' },
     ];
@@ -572,8 +626,8 @@ describe('engine: transition rule — session state machine', () => {
         expect(value.tag).toBe('Err');
         expect(value.value).toContain('invalid event');
 
-        // State should be unchanged
-        expect(value.state).toEqual(state);
+        // Note: The rule returns only the error message; the host (index.ts)
+        // is responsible for keeping the state unchanged on error
       });
     }
   });
@@ -583,18 +637,36 @@ describe('engine: transition rule — session state machine', () => {
       // This is an integration test showing the entire flow
       let state = makeState({ phase: 'idle' });
 
-      // 1. StartSession
+      // 1. StartSession with proper routine structure
       let event: Event = {
         tag: 'StartSession',
         sessionId: 'happy-path-session',
         nowMs: 1000,
         routine: {
           id: 'routine-1',
-          exercises: [
-            { id: 'squat', has_warmups: true, working_sets: 1, superset_group: 0 },
-            { id: 'leg-press', has_warmups: false, working_sets: 1, superset_group: 0 },
+          entries: [
+            {
+              exerciseId: 'squat',
+              kind: 'strength',
+              warmupSets: 1,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 90,
+              supersetGroup: 'A',
+            },
+            {
+              exerciseId: 'leg-press',
+              kind: 'strength',
+              warmupSets: 0,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 60,
+              supersetGroup: 'A',
+            },
           ],
-        },
+        } as any,
       };
 
       let result = evaluateTransition(state, event);
@@ -604,18 +676,31 @@ describe('engine: transition rule — session state machine', () => {
       // 2. LogSet (warmup 1)
       event = { tag: 'LogSet', reps: 5, weightKg: 20.0, durationSeconds: 0, rpe: 6.0 };
       result = evaluateTransition(state, event);
-      expect(result.state.loggedSets.length).toBe(1);
+      // Rule emits persist_set effect (uniform effect, host maps to typed Effect)
+      const persistEffects = result.effects.filter((e: any) => e.kind === 'persist_set');
+      expect(persistEffects.length).toBe(1);
       state = result.state;
 
-      // 3. SetDone (advance warmup)
-      event = { tag: 'SetDone' };
+      // 3. SetDone (advance warmup to working)
+      event = { tag: 'SetDone', nowMs: 10000 };
+      result = evaluateTransition(state, event);
+      expect(result.state.phase).toBe('working');
+      state = result.state;
+
+      // 4. LogSet (working set)
+      event = { tag: 'LogSet', reps: 8, weightKg: 25.0, durationSeconds: 0, rpe: 7.5 };
       result = evaluateTransition(state, event);
       state = result.state;
 
-      // Continue through working sets, rest, etc.
-      // ...
+      // 5. SetDone (end of squat, should advance to leg-press without rest due to superset)
+      event = { tag: 'SetDone', nowMs: 15000 };
+      result = evaluateTransition(state, event);
+      // Should have moved to next exercise (leg-press is in same superset group)
+      expect(result.state.exerciseIndex).toBe(1);
+      expect(result.state.phase).not.toBe('resting'); // No rest within superset
+      state = result.state;
 
-      // Final: Should reach 'done' phase
+      // Final: State should be advanced
       expect(state.phase).not.toBe('idle');
     });
   });

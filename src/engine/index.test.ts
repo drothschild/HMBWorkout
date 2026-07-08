@@ -19,6 +19,7 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     setIndex: 0,
     loggedSets: [],
     startedAtMs: 1000,
+    entries: [],
     ...overrides,
   };
 }
