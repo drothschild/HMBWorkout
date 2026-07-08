@@ -1,0 +1,159 @@
+import { createTestDatabase } from '@/db/test-helpers';
+import { routineDetailPresenter } from './routineDetailPresenter';
+
+describe('routineDetailPresenter', () => {
+  it('returns null when routine does not exist', async () => {
+    const db = await createTestDatabase();
+
+    const detail = await routineDetailPresenter(db, 'nonexistent');
+
+    expect(detail).toBeNull();
+  });
+
+  it('returns routine detail with exercises and superset grouping', async () => {
+    const db = await createTestDatabase();
+
+    // Create routine with exercises including superset
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-1';
+        r.name = 'Push Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'bench-press';
+        e.title = 'Bench Press';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'db-fly';
+        e.title = 'Dumbbell Fly';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'tricep-dip';
+        e.title = 'Tricep Dip';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      // Superset: bench + fly
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-1';
+        re._raw.exercise_id = 'bench-press';
+        re._raw.order = 0;
+        re._raw.superset_group = 'ss1';
+        re._raw.warmup_sets = 2;
+        re._raw.target_sets = 4;
+        re._raw.target_reps = 6;
+        re._raw.rest_seconds = 120;
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-1';
+        re._raw.exercise_id = 'db-fly';
+        re._raw.order = 1;
+        re._raw.superset_group = 'ss1';
+        re._raw.warmup_sets = 0;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 10;
+        re._raw.rest_seconds = 90;
+      });
+
+      // Standalone
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-1';
+        re._raw.exercise_id = 'tricep-dip';
+        re._raw.order = 2;
+        re._raw.warmup_sets = 1;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 8;
+        re._raw.rest_seconds = 60;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-1');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.id).toBe('routine-1');
+    expect(detail!.name).toBe('Push Day');
+    expect(detail!.supersetGroups).toHaveLength(1);
+    expect(detail!.supersetGroups[0].label).toBe('ss1');
+    expect(detail!.supersetGroups[0].exercises).toHaveLength(2);
+    expect(detail!.supersetGroups[0].exercises[0]).toMatchObject({
+      exerciseId: 'bench-press',
+      title: 'Bench Press',
+      order: 0,
+      warmupSets: 2,
+      targetSets: 4,
+      targetReps: 6,
+      restSeconds: 120,
+      kind: 'strength',
+    });
+    expect(detail!.supersetGroups[0].exercises[1]).toMatchObject({
+      exerciseId: 'db-fly',
+      title: 'Dumbbell Fly',
+      order: 1,
+      warmupSets: 0,
+      targetSets: 3,
+      targetReps: 10,
+      restSeconds: 90,
+      kind: 'strength',
+    });
+
+    expect(detail!.standaloneExercises).toHaveLength(1);
+    expect(detail!.standaloneExercises[0]).toMatchObject({
+      exerciseId: 'tricep-dip',
+      title: 'Tricep Dip',
+      order: 2,
+      warmupSets: 1,
+      targetSets: 3,
+      targetReps: 8,
+      restSeconds: 60,
+      kind: 'strength',
+    });
+  });
+
+  it('handles cardio exercises with duration instead of reps', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-2';
+        r.name = 'Cardio';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'rowing';
+        e.title = 'Rowing Machine';
+        e._raw.kind = 'cardio';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-2';
+        re._raw.exercise_id = 'rowing';
+        re._raw.order = 0;
+        re._raw.target_duration_seconds = 300;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-2');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.standaloneExercises).toHaveLength(1);
+    expect(detail!.standaloneExercises[0]).toMatchObject({
+      exerciseId: 'rowing',
+      kind: 'cardio',
+      targetDurationSeconds: 300,
+    });
+  });
+});
