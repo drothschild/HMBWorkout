@@ -79,14 +79,19 @@ export function createEngine(executors: Partial<EffectExecutors>) {
       throw new TransitionError(`Transition error: ${value.value}`);
     }
 
-    // Ok result: extract new state + effects
-    const { state: newState, effects } = value.value as { state: SessionState; effects: Effect[] };
+    // Ok result: extract new state + uniform effects from Rill
+    const { state: newState, effects: uniformEffects } = value.value as {
+      state: SessionState;
+      effects: Array<{ kind: string; deadline_ms: number; message: string }>
+    };
 
     // Swap state first, then run executors
     state = newState;
 
-    // Run each effect handler, isolating failures
-    for (const effect of effects) {
+    // Map uniform effects from Rill to typed Effects, then run executors
+    const typedEffects: Effect[] = uniformEffects.map((ue) => mapUniformEffect(ue, state));
+
+    for (const effect of typedEffects) {
       try {
         await runEffect(effect, executors);
       } catch (err: unknown) {
@@ -101,6 +106,34 @@ export function createEngine(executors: Partial<EffectExecutors>) {
   }
 
   return { dispatch, getState, setState };
+}
+
+/**
+ * Map uniform effect from Rill to typed Effect discriminated union.
+ * Rill returns { kind: string, deadline_ms: number, message: string } (uniform schema).
+ * Host converts to the full typed Effect with payloads extracted from state or effect fields.
+ */
+function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; message: string }, state: SessionState): Effect {
+  switch (uniformEffect.kind) {
+    case 'create_session':
+      return { tag: 'CreateSession', sessionId: state.sessionId, routineId: state.routineId, startedAtMs: state.startedAtMs };
+    case 'schedule_rest':
+      return { tag: 'ScheduleRest', deadlineMs: uniformEffect.deadline_ms };
+    case 'cancel_rest':
+      return { tag: 'CancelRest' };
+    case 'notify':
+      return { tag: 'Notify', message: uniformEffect.message };
+    case 'persist_set':
+      // Extract the last logged set (the one just added)
+      const lastSet = state.loggedSets[state.loggedSets.length - 1];
+      return { tag: 'PersistSet', set: lastSet };
+    case 'complete_session':
+      // Summary: basic summary of the session
+      return { tag: 'CompleteSession', summary: { exercisesCompleted: state.exerciseIndex, setsLogged: state.loggedSets.length } };
+    default:
+      // Fallback for unknown kinds
+      return { tag: 'Notify', message: 'unknown effect' };
+  }
 }
 
 /**
