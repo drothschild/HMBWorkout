@@ -448,6 +448,114 @@ describe('engine: dispatch loop with effect executors', () => {
     }
   });
 
+  describe('effect mapping: deterministic endMs from event.nowMs (I1)', () => {
+    it('SetDone auto-complete path uses event.nowMs for endMs (deterministic)', async () => {
+      const completeSessions: any[] = [];
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn((summary: any) => {
+          completeSessions.push(summary);
+        }),
+      };
+
+      const engine = createEngine(executors);
+      const testStartMs = 5000;
+      const testEndMs = 15000; // SetDone nowMs
+
+      engine.setState(makeState({ phase: 'idle' }));
+
+      // Start session with one exercise: 1 warmup set, 1 target set
+      const routine = makeRoutine(1, [{ warmupSets: 1, targetSets: 1 }]);
+      let state = await engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'test-set-done-endms',
+        nowMs: testStartMs,
+        routine: routine as any,
+      });
+
+      expect(state.phase).toBe('warmup');
+
+      // Log warmup set
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 5,
+        weightKg: 20.0,
+        durationSeconds: 0,
+        rpe: 6.0,
+      });
+
+      // SetDone warmup
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: testStartMs + 5000,
+      });
+
+      expect(state.phase).toBe('working');
+
+      // Log the only working set
+      state = await engine.dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 25.0,
+        durationSeconds: 0,
+        rpe: 7.5,
+      });
+
+      // SetDone with specific nowMs (this should trigger complete_session effect since it's the last set)
+      state = await engine.dispatch({
+        tag: 'SetDone',
+        nowMs: testEndMs,
+      });
+
+      // Verify session is done
+      expect(state.phase).toBe('done');
+
+      // Verify onCompleteSession was called with endMs from SetDone event
+      expect(executors.onCompleteSession).toHaveBeenCalled();
+      expect(completeSessions).toHaveLength(1);
+      expect(completeSessions[0].startMs).toBe(testStartMs);
+      expect(completeSessions[0].endMs).toBe(testEndMs); // Should be from SetDone.nowMs, not Date.now()
+    });
+
+    it('FinishSession uses event.nowMs for endMs (deterministic)', async () => {
+      const completeSessions: any[] = [];
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn((summary: any) => {
+          completeSessions.push(summary);
+        }),
+      };
+
+      const engine = createEngine(executors);
+      const testStartMs = 1000;
+      const testEndMs = 20000; // FinishSession nowMs
+
+      engine.setState(makeState({ phase: 'working', startedAtMs: testStartMs }));
+
+      // FinishSession with specific nowMs
+      const state = await engine.dispatch({
+        tag: 'FinishSession',
+        nowMs: testEndMs,
+      });
+
+      // Verify session is done
+      expect(state.phase).toBe('done');
+
+      // Verify endMs from FinishSession.nowMs
+      expect(executors.onCompleteSession).toHaveBeenCalled();
+      expect(completeSessions).toHaveLength(1);
+      expect(completeSessions[0].endMs).toBe(testEndMs);
+    });
+  });
+
   describe('end-to-end integration: full session dispatch flow (AC10.1)', () => {
     it('should walk through a complete session: start → warmup → working → done', async () => {
       const loggedSetsHistory: any[] = [];

@@ -163,13 +163,10 @@ function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; me
       return { tag: 'PersistSet', set: lastSet };
     case 'complete_session':
       // Summary: includes start/end times and logged sets for HealthKit write
-      // Use endMs from event.nowMs (FinishSession), or compute from state for other completion paths
-      let endMs = state.startedAtMs; // fallback
-      if (event?.tag === 'FinishSession') {
+      // Use endMs from event.nowMs whenever available (all completion events carry nowMs)
+      let endMs = state.startedAtMs; // fallback (should not reach here)
+      if (event && 'nowMs' in event) {
         endMs = (event as any).nowMs;
-      } else {
-        // For other completion paths (e.g., SetDone leads to done phase), use current time
-        endMs = Date.now();
       }
       return {
         tag: 'CompleteSession',

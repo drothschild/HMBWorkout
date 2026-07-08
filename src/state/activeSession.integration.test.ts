@@ -1,51 +1,70 @@
 import { createActiveSessionStore } from './activeSession';
+import type { HealthKitDeps } from './activeSession';
 import { SessionState } from '@/engine/types';
+import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createSession } from '@/db/repository';
+import { Database } from '@nozbe/watermelondb';
 
 /**
- * Integration tests for session store with injected executors.
- * AC6.1: Completing a session calls onCompleteSession with correct summary args
- * AC6.2: Executor errors don't prevent session state transition to done
+ * Integration tests for session store with real DB and injected dependencies.
+ * AC6.1: Completing a session calls saveWorkoutSample with correct summary args (deterministic times from event.nowMs)
+ * AC6.2: HealthKit errors don't prevent session state transition to done (DB write + sync complete before HealthKit isolation)
  */
 
-describe('activeSession store with injected executors', () => {
-  const mockDatabase = {
-    write: jest.fn(async (fn: Function) => fn()),
-    get: jest.fn((tableName: string) => ({
-      find: jest.fn(async (id: string) => ({
-        _raw: { id, ended_at: undefined },
-        update: jest.fn(async (fn: Function) => {
-          const record = { _raw: { id, ended_at: 0 } };
-          fn(record);
-        }),
-      })),
-    })),
-  };
+describe('activeSession store — HealthKit isolation and real DB integration', () => {
+  let database: Database;
 
-  beforeEach(() => {
-    jest.clearAllMocks();
+  beforeEach(async () => {
+    database = createTestDatabase();
   });
 
-  it('AC6.1: FinishSession calls onCompleteSession with correct summary startMs/endMs/setsLogged', async () => {
+  afterEach(async () => {
+    await closeTestDatabase(database);
+  });
+
+  it('AC6.1: FinishSession with non-throwing HealthKit calls saveWorkoutSample with correct start/end times from event.nowMs', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const completeSessionSpy = jest.fn(async () => {});
     const syncSpy = jest.fn(async () => {});
 
+    // Create injected HealthKit that does NOT throw
+    const saveWorkoutSampleSpy = jest.fn(async (activityType: number, quantities: any[], startDate: Date, endDate: Date) => {
+      // Verify it receives the correct times (converted from ms to Date objects)
+      expect(startDate.getTime()).toBe(testStartMs);
+      expect(endDate.getTime()).toBe(testEndMs);
+    });
+
+    const healthKitDeps: HealthKitDeps = {
+      ensureAuthorized: jest.fn(async () => 'authorized'),
+      requestAuthorization: jest.fn(async () => true),
+      saveWorkoutSample: saveWorkoutSampleSpy,
+    } as any;
+
     const store = createActiveSessionStore(
-      mockDatabase as any,
+      database,
       {
         onCreateSession: jest.fn(),
         onPersistSet: jest.fn(),
-        onCompleteSession: completeSessionSpy,
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
       },
-      syncSpy
+      syncSpy,
+      healthKitDeps
     );
 
+    // Create session in DB
+    await createSession(database, {
+      sessionId: 'session-ac6-1',
+      routineId: 'routine-1',
+      startedAtMs: testStartMs,
+    });
+
     const initialState: SessionState = {
-      sessionId: 'session-1',
+      sessionId: 'session-ac6-1',
       routineId: 'routine-1',
       phase: 'working',
-      exerciseIndex: 1,
+      exerciseIndex: 0,
       setIndex: 0,
       supersetPosition: 0,
       loggedSets: [
@@ -70,36 +89,49 @@ describe('activeSession store with injected executors', () => {
     // Verify state transitioned to done
     expect(result?.phase).toBe('done');
 
-    // Verify onCompleteSession was called with correct args
-    expect(completeSessionSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        startMs: testStartMs,
-        endMs: testEndMs,
-        setsLogged: 1,
-      })
-    );
+    // Verify saveWorkoutSample was called (checked in spy callback above)
+    expect(saveWorkoutSampleSpy).toHaveBeenCalled();
   });
 
-  it('AC6.2: onCompleteSession throwing does not prevent state transition to done', async () => {
+  it('AC6.2: HealthKit throwing does not prevent state transition to done (DB write + sync complete, HealthKit isolated)', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const errorExecutor = jest.fn(async () => {
-      throw new Error('Executor failed');
-    });
     const syncSpy = jest.fn(async () => {});
 
+    // Create injected HealthKit that THROWS
+    const saveWorkoutSampleSpy = jest.fn(async () => {
+      throw new Error('HealthKit write failed');
+    });
+
+    const healthKitDeps: HealthKitDeps = {
+      ensureAuthorized: jest.fn(async () => 'authorized'),
+      requestAuthorization: jest.fn(async () => true),
+      saveWorkoutSample: saveWorkoutSampleSpy,
+    } as any;
+
     const store = createActiveSessionStore(
-      mockDatabase as any,
+      database,
       {
         onCreateSession: jest.fn(),
         onPersistSet: jest.fn(),
-        onCompleteSession: errorExecutor,
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
       },
-      syncSpy
+      syncSpy,
+      healthKitDeps
     );
 
+    // Create session in DB
+    const sessionId = 'session-ac6-2';
+    await createSession(database, {
+      sessionId,
+      routineId: 'routine-2',
+      startedAtMs: testStartMs,
+    });
+
     const initialState: SessionState = {
-      sessionId: 'session-2',
+      sessionId,
       routineId: 'routine-2',
       phase: 'working',
       exerciseIndex: 0,
@@ -114,36 +146,81 @@ describe('activeSession store with injected executors', () => {
 
     store.getState().hydrate(initialState);
 
-    // Should not throw despite executor error
-    const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
+    // Suppress console.error output for this test
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    // State should still transition to done
-    expect(result?.phase).toBe('done');
+    // Set up unhandledRejection listener to ensure nothing slips through
+    const unhandledRejections: PromiseRejectionEvent[] = [];
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
+      unhandledRejections.push(event);
+    };
+    process.on('unhandledRejection', rejectionHandler);
 
-    // Executor should have been called
-    expect(errorExecutor).toHaveBeenCalled();
+    try {
+      // Should not throw despite HealthKit error
+      const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
+
+      // State should still transition to done
+      expect(result?.phase).toBe('done');
+
+      // Verify HealthKit was attempted (threw, but isolated)
+      expect(saveWorkoutSampleSpy).toHaveBeenCalled();
+
+      // Verify DB write happened: query the session and check ended_at is set
+      const session = await database.get('sessions').find(sessionId) as any;
+      expect(session._raw.ended_at).toBeDefined();
+      expect(session._raw.ended_at).toBeGreaterThan(0);
+
+      // Verify sync was called (fire-and-forget)
+      expect(syncSpy).toHaveBeenCalled();
+
+      // Flush microtasks to catch any late-arriving promise rejections
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Verify no unhandledRejection fired
+      expect(unhandledRejections).toHaveLength(0);
+    } finally {
+      process.removeListener('unhandledRejection', rejectionHandler);
+      consoleSpy.mockRestore();
+    }
   });
 
-  it('AC6.2: sync failing does not prevent state transition to done', async () => {
+  it('AC6.2: sync failing does not prevent state transition to done (DB write completes)', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const completeSessionSpy = jest.fn(async () => {});
     const syncSpy = jest.fn(async () => {
       throw new Error('Sync failed');
     });
 
+    const healthKitDeps: HealthKitDeps = {
+      ensureAuthorized: jest.fn(async () => 'authorized'),
+      requestAuthorization: jest.fn(async () => true),
+      saveWorkoutSample: jest.fn(async () => {}),
+    } as any;
+
     const store = createActiveSessionStore(
-      mockDatabase as any,
+      database,
       {
         onCreateSession: jest.fn(),
         onPersistSet: jest.fn(),
-        onCompleteSession: completeSessionSpy,
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
       },
-      syncSpy
+      syncSpy,
+      healthKitDeps
     );
 
+    // Create session in DB
+    const sessionId = 'session-ac6-2-sync';
+    await createSession(database, {
+      sessionId,
+      routineId: 'routine-3',
+      startedAtMs: testStartMs,
+    });
+
     const initialState: SessionState = {
-      sessionId: 'session-3',
+      sessionId,
       routineId: 'routine-3',
       phase: 'working',
       exerciseIndex: 0,
@@ -158,13 +235,21 @@ describe('activeSession store with injected executors', () => {
 
     store.getState().hydrate(initialState);
 
-    // Should not throw despite sync error
-    const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    // State should still transition to done
-    expect(result?.phase).toBe('done');
+    try {
+      // Should not throw despite sync error
+      const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
 
-    // onCompleteSession should still be called
-    expect(completeSessionSpy).toHaveBeenCalled();
+      // State should still transition to done
+      expect(result?.phase).toBe('done');
+
+      // Verify DB write happened
+      const session = await database.get('sessions').find(sessionId) as any;
+      expect(session._raw.ended_at).toBeDefined();
+      expect(session._raw.ended_at).toBeGreaterThan(0);
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });

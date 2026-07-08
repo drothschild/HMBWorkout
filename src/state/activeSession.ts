@@ -4,6 +4,7 @@ import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
 import { saveEngineState } from '@/db/engineState';
+import type { HealthKitSaveDeps } from '@/health/saveWorkout';
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: Database | null = null;
@@ -27,18 +28,25 @@ interface ActiveSessionState {
 }
 
 /**
+ * Re-export HealthKit dependency type for testing convenience
+ */
+export type HealthKitDeps = HealthKitSaveDeps;
+
+/**
  * Create the active session store with real executors.
  * The store holds the current session state and errors, and provides a dispatch function.
  *
  * @param database The database instance
  * @param overrideExecutors Optional executor overrides for testing
  * @param syncFn Optional injectable sync function for testing; if provided, used instead of real sync logic in onCompleteSession
+ * @param healthKitDeps Optional injectable HealthKit dependencies for testing; if provided, used instead of real HealthKit imports in onCompleteSession
  * @returns The Zustand store with dispatch, getState
  */
 export function createActiveSessionStore(
   database: Database,
   overrideExecutors?: Partial<EffectExecutors>,
-  syncFn?: () => Promise<void>
+  syncFn?: () => Promise<void>,
+  healthKitDeps?: HealthKitDeps
 ) {
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
@@ -160,16 +168,23 @@ export function createActiveSessionStore(
       // Write to HealthKit (isolated; errors must not affect DB or sync)
       try {
         const { saveWorkout } = await import('@/health/saveWorkout');
-        const { ensureAuthorized } = await import('@/health/healthkit');
-        const HealthKit = await import('@kingstinct/react-native-healthkit');
 
-        const healthKitDeps = {
-          ensureAuthorized,
-          requestAuthorization: HealthKit.requestAuthorization,
-          saveWorkoutSample: HealthKit.saveWorkoutSample,
-        };
+        if (healthKitDeps) {
+          // Use injected HealthKit deps (for testing)
+          await saveWorkout(summary as any, healthKitDeps);
+        } else {
+          // Real HealthKit imports
+          const { ensureAuthorized } = await import('@/health/healthkit');
+          const HealthKit = await import('@kingstinct/react-native-healthkit');
 
-        await saveWorkout(summary as any, healthKitDeps);
+          const realHealthKitDeps: HealthKitDeps = {
+            ensureAuthorized: ensureAuthorized as any,
+            requestAuthorization: HealthKit.requestAuthorization,
+            saveWorkoutSample: HealthKit.saveWorkoutSample,
+          };
+
+          await saveWorkout(summary as any, realHealthKitDeps);
+        }
       } catch (error) {
         // HealthKit is write-only; errors must not affect session state
         console.error('HealthKit write failed:', error);
