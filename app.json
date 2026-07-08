@@ -36,6 +36,13 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "We use HealthKit to write your workout data to Apple Health",
+          "NSHealthUpdateUsageDescription": "We use HealthKit to write your workout data to Apple Health"
+        }
       ]
     ],
     "experiments": {

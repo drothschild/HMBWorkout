@@ -162,8 +162,17 @@ function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; me
       const lastSet = state.loggedSets[state.loggedSets.length - 1];
       return { tag: 'PersistSet', set: lastSet };
     case 'complete_session':
-      // Summary: basic summary of the session
-      return { tag: 'CompleteSession', summary: { exercisesCompleted: state.exerciseIndex, setsLogged: state.loggedSets.length } };
+      // Summary: includes start/end times and logged sets for HealthKit write
+      return {
+        tag: 'CompleteSession',
+        summary: {
+          startMs: state.startedAtMs,
+          endMs: Date.now(),
+          exercisesCompleted: state.exerciseIndex,
+          setsLogged: state.loggedSets.length,
+          loggedSets: state.loggedSets,
+        },
+      };
     default:
       // Fallback for unknown kinds
       return { tag: 'Notify', message: 'unknown effect' };
