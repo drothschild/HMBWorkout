@@ -32,11 +32,13 @@ interface ActiveSessionState {
  *
  * @param database The database instance
  * @param overrideExecutors Optional executor overrides for testing
+ * @param syncFn Optional injectable sync function for testing; if provided, used instead of real sync logic in onCompleteSession
  * @returns The Zustand store with dispatch, getState
  */
 export function createActiveSessionStore(
   database: Database,
-  overrideExecutors?: Partial<EffectExecutors>
+  overrideExecutors?: Partial<EffectExecutors>,
+  syncFn?: () => Promise<void>
 ) {
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
@@ -116,36 +118,43 @@ export function createActiveSessionStore(
 
       const sessionId = currentSessionState.sessionId;
 
-      // Set ended_at on the session
-      const session = await database.get('sessions').find(sessionId);
+      // Set ended_at and clear engine_state on the session in a single transaction
+      // (using a fresh find() inside the write to ensure latest session instance)
       await database.write(async () => {
+        const session = await database.get('sessions').find(sessionId) as any;
         await session.update((record: any) => {
           record._raw.ended_at = Date.now();
+          record._raw.engine_state = '';
         });
       });
-
-      // Clear the engine state
-      await clearEngineState(database, sessionId);
 
       // Attempt sync (fire-and-forget; sync failures must not affect session state)
       // Enqueue by attempting sync immediately; if sync fails, session stays local
       // and will be retried on next sync attempt
-      try {
-        const { createSyncService } = await import('@/sync/syncService');
-        const { createBridgeClient } = await import('@/sync/bridgeClient');
-        const { getSettings } = await import('@/state/settings');
-
-        const settings = getSettings();
-        const bridgeClient = createBridgeClient(settings);
-        const syncService = createSyncService(database, bridgeClient);
-
-        // Fire-and-forget: don't await or propagate errors
-        syncService.syncNow().catch((error) => {
+      if (syncFn) {
+        // Use injected sync function (for testing)
+        syncFn().catch((error) => {
           console.error('Sync failed after session completion:', error);
         });
-      } catch (error) {
-        // Ignore import or initialization errors
-        console.error('Failed to initialize sync:', error);
+      } else {
+        // Real sync logic
+        try {
+          const { createSyncService } = await import('@/sync/syncService');
+          const { createBridgeClient } = await import('@/sync/bridgeClient');
+          const { getSettings } = await import('@/state/settings');
+
+          const settings = getSettings();
+          const bridgeClient = createBridgeClient(settings);
+          const syncService = createSyncService(database, bridgeClient);
+
+          // Fire-and-forget: don't await or propagate errors
+          syncService.syncNow().catch((error) => {
+            console.error('Sync failed after session completion:', error);
+          });
+        } catch (error) {
+          // Ignore import or initialization errors
+          console.error('Failed to initialize sync:', error);
+        }
       }
     },
 
@@ -179,7 +188,8 @@ export function createActiveSessionStore(
         currentSessionState = newState;
 
         // After successful transition, save the engine state
-        if (newState) {
+        // (but not if session is done — onCompleteSession clears it)
+        if (newState && newState.phase !== 'done') {
           await saveEngineState(database, newState.sessionId, newState);
         }
 

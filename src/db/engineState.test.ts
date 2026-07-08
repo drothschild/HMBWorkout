@@ -170,9 +170,9 @@ describe('engineState', () => {
       // Clear it
       await clearEngineState(database, sessionId);
 
-      // Verify it's cleared
+      // Verify it's cleared (empty string represents cleared for text field)
       session = await database.get('sessions').find(sessionId);
-      expect((session as any)._raw.engine_state).toBeNull();
+      expect((session as any)._raw.engine_state).toBe('');
     });
 
     it('should not affect other sessions when clearing', async () => {
@@ -209,9 +209,9 @@ describe('engineState', () => {
       // Clear only session 1
       await clearEngineState(database, sessionId1);
 
-      // Verify session 1 is cleared
+      // Verify session 1 is cleared (empty string represents cleared for text field)
       let session1 = await database.get('sessions').find(sessionId1);
-      expect((session1 as any)._raw.engine_state).toBeNull();
+      expect((session1 as any)._raw.engine_state).toBe('');
 
       // Verify session 2 still has its state
       let session2 = await database.get('sessions').find(sessionId2);

@@ -58,7 +58,7 @@ export async function loadActiveEngineState(database: Database): Promise<Session
 
 /**
  * Clear the engine_state from a session.
- * Sets the engine_state column to null.
+ * Sets the engine_state column to empty string (cleared state for text field).
  *
  * @param database The database instance
  * @param sessionId The session ID
@@ -67,8 +67,8 @@ export async function clearEngineState(database: Database, sessionId: string): P
   await database.write(async () => {
     const session = await database.get('sessions').find(sessionId);
     await session.update((record: any) => {
-      // M2: Use decorated setter for engine_state (not readonly)
-      record.engineState = null;
+      // Clear to empty string for text field (not null, as LokiJS may not persist null properly)
+      record._raw.engine_state = '';
     });
   });
 }
