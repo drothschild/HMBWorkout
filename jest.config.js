@@ -7,8 +7,13 @@ module.exports = {
       preset: 'ts-jest',
       testEnvironment: 'node',
       roots: ['<rootDir>/src'],
-      testMatch: ['<rootDir>/src/{engine,db,interop}/**/*.test.ts'],
+      // Note: state tests run here (pure TS Zustand store, no RN dependencies).
+      // RN-specific tests will move to jest-expo rn project if needed in future phases.
+      testMatch: ['<rootDir>/src/{engine,db,interop,state}/**/*.test.ts'],
       moduleFileExtensions: ['ts', 'js', 'json'],
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/src/$1',
+      },
       collectCoverageFrom: ['src/{engine,db,interop}/**/*.ts', '!src/**/*.d.ts'],
       setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
       transform: {
