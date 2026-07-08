@@ -20,6 +20,7 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     supersetPosition: 0,
     restDeadlineMs: 0,
     loggedSets: [],
+    lastLoggedSet: undefined,
     startedAtMs: 1000,
     entries: [],
     ...overrides,
@@ -33,6 +34,7 @@ function makeRoutine(exerciseCount = 1, overrides?: any): any {
   const entries: any[] = [];
   for (let i = 0; i < exerciseCount; i++) {
     entries.push({
+      idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
       warmupSets: i === 0 ? 1 : 0,

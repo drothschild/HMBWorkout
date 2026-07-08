@@ -8,6 +8,7 @@ export type SetType = 'warmup' | 'working' | 'stretch' | 'cardio';
 export type ExerciseKind = 'strength' | 'cardio' | 'stretch';
 
 export interface RoutineEntry {
+  idx: number; // Index for Rill lookup (host pre-indexes entries)
   exerciseId: string;
   kind: ExerciseKind;
   warmupSets: number;
@@ -31,7 +32,7 @@ export interface LoggedSet {
  * SessionState: JSON-serializable session data.
  * Note: entries (routine structure) is stored in state so it's available for all transitions.
  * This keeps the state self-contained and serializable (can be persisted and rehydrated).
- * currentEntry: redundant cache of the current exercise entry (Rill can't index lists).
+ * lastLoggedSet: host-maintained field; populated by rill LogSet handler, read by host on persist_set effect.
  */
 export interface SessionState {
   sessionId: string;
@@ -42,9 +43,9 @@ export interface SessionState {
   supersetPosition?: number;
   restDeadlineMs?: number;
   loggedSets: LoggedSet[];
+  lastLoggedSet?: LoggedSet; // Host-maintained; set by rill LogSet handler
   startedAtMs: number;
   entries: RoutineEntry[]; // Routine structure — needed for advancement logic
-  currentEntry?: RoutineEntry; // Cache: entry at exerciseIndex (for Rill, which can't index)
 }
 
 /**

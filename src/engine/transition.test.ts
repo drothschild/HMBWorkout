@@ -47,6 +47,7 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     supersetPosition: 0,
     restDeadlineMs: 0,
     loggedSets: [],
+    lastLoggedSet: undefined,
     startedAtMs: 1000,
     entries: [],
     ...overrides,
@@ -60,6 +61,7 @@ function makeRoutine(exerciseCount = 1, overrides?: any): any {
   const entries: any[] = [];
   for (let i = 0; i < exerciseCount; i++) {
     entries.push({
+      idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
       warmupSets: i === 0 ? 1 : 0,
@@ -250,14 +252,14 @@ describe('engine: transition rule — session state machine', () => {
       const state = makeState({ phase: 'warmup', exerciseIndex: 0, setIndex: 0, entries: makeRoutine(1).entries });
       const result = evaluateTransition(state, event);
 
-      // Rule emits persist_set effect with set data in message (encoded)
-      // Host dispatch will parse and append to loggedSets
+      // Rule emits persist_set effect and populates lastLoggedSet in state
       const persistEffects = result.effects.filter(e => e.kind === 'persist_set');
       expect(persistEffects.length).toBe(1);
-      // Verify the set data is encoded in the message: exerciseId|setType|reps|weightKg|durationSeconds|rpe
-      const setData = persistEffects[0].message;
-      expect(setData).toContain('warmup');
-      expect(setData).toContain('5');
+      // Verify the set data is in lastLoggedSet with setType=warmup
+      expect(result.state.lastLoggedSet).toBeDefined();
+      expect(result.state.lastLoggedSet?.setType).toBe('warmup');
+      expect(result.state.lastLoggedSet?.reps).toBe(5);
+      expect(result.state.lastLoggedSet?.weightKg).toBe(20.0);
     });
 
     it('should emit PersistSet effect on valid LogSet', () => {
@@ -516,6 +518,7 @@ describe('engine: transition rule — session state machine', () => {
         setIndex: 0,
         entries: [
           {
+            idx: 0,
             exerciseId: 'ex1',
             kind: 'strength',
             warmupSets: 0,
@@ -526,6 +529,7 @@ describe('engine: transition rule — session state machine', () => {
             supersetGroup: '',
           },
           {
+            idx: 1,
             exerciseId: 'ex2',
             kind: 'strength',
             warmupSets: 0,
@@ -551,6 +555,7 @@ describe('engine: transition rule — session state machine', () => {
         restDeadlineMs: 10000,
         entries: [
           {
+            idx: 0,
             exerciseId: 'ex1',
             kind: 'strength',
             warmupSets: 0,
@@ -609,6 +614,7 @@ describe('engine: transition rule — session state machine', () => {
         setIndex: 0,
         entries: [
           {
+            idx: 0,
             exerciseId: 'final-exercise',
             kind: 'strength',
             warmupSets: 0,
@@ -674,6 +680,7 @@ describe('engine: transition rule — session state machine', () => {
           id: 'routine-1',
           entries: [
             {
+              idx: 0,
               exerciseId: 'squat',
               kind: 'strength',
               warmupSets: 1,
@@ -684,6 +691,7 @@ describe('engine: transition rule — session state machine', () => {
               supersetGroup: 'A',
             },
             {
+              idx: 1,
               exerciseId: 'leg-press',
               kind: 'strength',
               warmupSets: 0,

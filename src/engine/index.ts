@@ -66,8 +66,21 @@ export function createEngine(executors: Partial<EffectExecutors>) {
    * Dispatch: run transition, swap state on Ok, preserve on Err, run executors.
    */
   async function dispatch(event: Event): Promise<SessionState> {
+    // Pre-index entries for StartSession events (required for Rill indexed lookups)
+    let processedEvent = event;
+    if (event.tag === 'StartSession' && event.routine) {
+      const routine = event.routine as any;
+      if (Array.isArray(routine.entries)) {
+        routine.entries = routine.entries.map((entry: any, idx: number) => ({
+          ...entry,
+          idx,
+        }));
+      }
+      processedEvent = event;
+    }
+
     // Run transition rule with current state + event
-    const result = evaluateSource(transitionCompositeSource, { state, event });
+    const result = evaluateSource(transitionCompositeSource, { state, event: processedEvent });
 
     // On evaluation failure or Err, keep prior state and throw TransitionError
     if (!result.success) {
@@ -89,22 +102,12 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     // Swap state first, then run executors
     state = newState;
 
-    // Process persist_set effects: append the new set to loggedSets
-    // (Rill can't concatenate lists, so set data is encoded in the effect message)
-    for (const ue of uniformEffects) {
-      if (ue.kind === 'persist_set' && ue.message) {
-        // Parse set data: exerciseId|setType|reps|weightKg|durationSeconds|rpe
-        const parts = ue.message.split('|');
-        if (parts.length === 6) {
-          const newSet: LoggedSet = {
-            exerciseId: parts[0],
-            setType: parts[1] as any,
-            reps: parseInt(parts[2], 10),
-            weightKg: parseFloat(parts[3]),
-            durationSeconds: parseInt(parts[4], 10),
-            rpe: parseFloat(parts[5]),
-          };
-          state.loggedSets = [...state.loggedSets, newSet];
+    // Process persist_set effects: append lastLoggedSet to loggedSets
+    if (newState.lastLoggedSet) {
+      for (const ue of uniformEffects) {
+        if (ue.kind === 'persist_set') {
+          state.loggedSets = [...state.loggedSets, newState.lastLoggedSet];
+          break;
         }
       }
     }
