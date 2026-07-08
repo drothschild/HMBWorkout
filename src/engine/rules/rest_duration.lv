@@ -1,9 +1,14 @@
--- Compute prescribed rest duration based on superset position
--- Mid-superset (not the last exercise in group) → 0 rest
--- End of superset or standalone → prescribed seconds (default ~90-120s for resistance)
-rule rest_duration(exercise_id: String, set_index: Int, superset_pos: Int, superset_size: Int)
-  -> Int
+-- Compute prescribed rest duration based on superset groups
+-- If next exercise is in same superset group → 0 rest (mid-superset)
+-- Otherwise or if last exercise → prescribed seconds from currentEntry.restSeconds
+rule rest_duration(
+  currentEntry: { supersetGroup: String, restSeconds: Int, .. },
+  nextEntry: { supersetGroup: String, .. },
+  isLastExercise: Bool
+) -> Int
 
-if (superset_pos < superset_size - 1)
+if (isLastExercise)
 then 0
-else 90
+else if (currentEntry.supersetGroup != "" && currentEntry.supersetGroup == nextEntry.supersetGroup)
+then 0
+else currentEntry.restSeconds

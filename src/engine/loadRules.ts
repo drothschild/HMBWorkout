@@ -21,12 +21,86 @@ import progressionHintSource from './rules/progression_hint.lv';
 import transitionSource from './rules/transition.lv';
 
 /**
- * transitionCompositeSource: transition rule with helper rules.
- * Note: Helper rules (validate_set, rest_duration, progression_hint) are currently
- * duplicated inline within transition.lv rather than being composed. A future refactor
- * could extract them as let-bindings to reduce duplication.
+ * Extract rule implementation body from a rule source (everything after the -> line).
+ * Skips comments, rule header, and type declarations.
  */
-export const transitionCompositeSource = transitionSource;
+function extractRuleBody(source: string): string {
+  const lines = source.split('\n');
+  let arrowLine = -1;
+  // Find the line with ->
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('->')) {
+      arrowLine = i;
+      break;
+    }
+  }
+  if (arrowLine === -1) throw new Error('No -> found in rule');
+  // Body starts after -> line and first blank line
+  let bodyStart = arrowLine + 1;
+  while (bodyStart < lines.length && lines[bodyStart].trim() === '') {
+    bodyStart++;
+  }
+  return lines.slice(bodyStart).join('\n').trim();
+}
+
+/**
+ * Build composite transition source with helpers inlined.
+ * Wraps each helper's body as a let-binding so transition can call them.
+ *
+ * Format:
+ * rule transition(...) -> ...
+ *   let validate_set = fn(...) -> (\n  <body>\n)
+ *   let rest_duration = fn(...) -> (\n  <body>\n)
+ *   <transition body>
+ */
+function buildCompositeTransition(): string {
+  const transitionLines = transitionSource.split('\n');
+
+  // Find the rule line and arrow line
+  let ruleLine = -1;
+  let arrowLine = -1;
+  for (let i = 0; i < transitionLines.length; i++) {
+    if (transitionLines[i].trim().startsWith('rule transition')) {
+      ruleLine = i;
+    }
+    if (transitionLines[i].includes('->') && ruleLine !== -1 && arrowLine === -1) {
+      arrowLine = i;
+      break;
+    }
+  }
+
+  // Split transition into header (from rule keyword) + body (after ->)
+  const headerLines = transitionLines.slice(ruleLine, arrowLine + 1);
+  const bodyLines = transitionLines.slice(arrowLine + 1);
+
+  // Extract helper bodies
+  const validateSetBody = extractRuleBody(validateSetSource);
+  const restDurationBody = extractRuleBody(restDurationSource);
+
+  // Build composite: header + let-bindings + body
+  // Note: we use inline let bindings so validate_set and rest_duration are in scope
+  const composite = [
+    ...headerLines,
+    '',
+    'let validate_set = fn(set) -> (',
+    '  ' + validateSetBody.split('\n').join('\n  '),
+    ')',
+    '',
+    'let rest_duration = fn(currentEntry, nextEntry, isLastExercise) -> (',
+    '  ' + restDurationBody.split('\n').join('\n  '),
+    ')',
+    '',
+    ...bodyLines,
+  ].join('\n');
+
+  return composite;
+}
+
+/**
+ * transitionCompositeSource: transition rule with validate_set and rest_duration helpers inlined.
+ * This eliminates duplication while keeping each helper's logic in one place (their own .lv file).
+ */
+export const transitionCompositeSource = buildCompositeTransition();
 
 /**
  * At module init, type-check all bundled rules.
@@ -34,18 +108,24 @@ export const transitionCompositeSource = transitionSource;
  * This satisfies AC10.2: all rules pass checkRuleSource at boot and in CI.
  */
 export function loadRules(): void {
-  const rules = [
+  // Check standalone helpers
+  const helpers = [
     { name: 'validate_set', source: validateSetSource },
     { name: 'rest_duration', source: restDurationSource },
     { name: 'progression_hint', source: progressionHintSource },
-    { name: 'transition', source: transitionSource },
   ];
 
-  for (const rule of rules) {
-    const result = checkRuleSource(rule.source);
+  for (const helper of helpers) {
+    const result = checkRuleSource(helper.source);
     if (!result.ok) {
-      throw new RuleLoadError(rule.name, result.errors[0]);
+      throw new RuleLoadError(helper.name, result.errors[0]);
     }
+  }
+
+  // Check composite transition (uses helpers inlined)
+  const result = checkRuleSource(transitionCompositeSource);
+  if (!result.ok) {
+    throw new RuleLoadError('transition', result.errors[0]);
   }
 }
 

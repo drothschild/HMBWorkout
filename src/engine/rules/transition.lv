@@ -58,49 +58,32 @@ then (
   if (state.phase == "idle" || state.phase == "done" || state.phase == "paused")
   then Err("invalid event LogSet in phase " ++ state.phase)
   else (
-    -- Validation: require all checks pass
-    let repsOk = event.reps >= 0
-    let weightOk = event.weightKg >= 0.0
-    let durationOk = event.durationSeconds >= 0
-    let rpeInRange = event.rpe == -1.0 || (event.rpe >= 1.0 && event.rpe <= 10.0)
-    let rpeHalfStep =
-      if (event.rpe == -1.0)
-      then true
-      else ((event.rpe * 2.0) % 1.0) == 0.0
-    let rpeValid = rpeInRange && rpeHalfStep
+    -- Validate set input using helper rule (adapts field names)
+    let setInput = { reps: event.reps, weight_kg: event.weightKg, duration_seconds: event.durationSeconds, rpe: event.rpe }
+    let _ = validate_set(setInput)?
 
-    if (!repsOk)
-    then Err("reps must be non-negative")
-    else if (!weightOk)
-    then Err("weight_kg must be non-negative")
-    else if (!durationOk)
-    then Err("duration_seconds must be non-negative")
-    else if (!rpeValid)
-    then Err("RPE must be -1.0 (unset) or between 1.0 and 10.0 in 0.5-step increments")
-    else (
-      -- Get current exercise entry via indexed lookup
-      let currentEntry = head(filter(fn(e) -> e.idx == state.exerciseIndex, state.entries))?
-      let isWarmup = state.setIndex < currentEntry.warmupSets
-      let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
+    -- Get current exercise entry via indexed lookup
+    let currentEntry = head(filter(fn(e) -> e.idx == state.exerciseIndex, state.entries))?
+    let isWarmup = state.setIndex < currentEntry.warmupSets
+    let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
 
-      Ok({
-        state: {
-          sessionId: state.sessionId,
-          routineId: state.routineId,
-          phase: state.phase,
-          exerciseIndex: state.exerciseIndex,
-          setIndex: state.setIndex,
-          supersetPosition: state.supersetPosition,
-          restDeadlineMs: state.restDeadlineMs,
-          loggedSets: state.loggedSets,
-          lastLoggedSet: { exerciseId: currentEntry.exerciseId, setType: setType, reps: event.reps, weightKg: event.weightKg, durationSeconds: event.durationSeconds, rpe: event.rpe },
-          startedAtMs: state.startedAtMs,
-          prePausePhase: state.prePausePhase,
-          entries: state.entries
-        },
-        effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }]
-      })
-    )
+    Ok({
+      state: {
+        sessionId: state.sessionId,
+        routineId: state.routineId,
+        phase: state.phase,
+        exerciseIndex: state.exerciseIndex,
+        setIndex: state.setIndex,
+        supersetPosition: state.supersetPosition,
+        restDeadlineMs: state.restDeadlineMs,
+        loggedSets: state.loggedSets,
+        lastLoggedSet: { exerciseId: currentEntry.exerciseId, setType: setType, reps: event.reps, weightKg: event.weightKg, durationSeconds: event.durationSeconds, rpe: event.rpe },
+        startedAtMs: state.startedAtMs,
+        prePausePhase: state.prePausePhase,
+        entries: state.entries
+      },
+      effects: [{ kind: "persist_set", deadline_ms: 0, message: "" }]
+    })
   )
 )
 else if (event.tag == "SetDone")
@@ -194,8 +177,8 @@ then (
           })
         )
         else (
-          -- Rest after exercise/superset
-          let restSeconds = currentEntry.restSeconds
+          -- Rest after exercise/superset: compute via helper function
+          let restSeconds = rest_duration(currentEntry, nextEntry, false)
           let restDeadlineMs = event.nowMs + restSeconds * 1000
 
           if (restSeconds > 0)

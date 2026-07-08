@@ -74,42 +74,45 @@ describe('engine: supporting rules', () => {
   describe('rest_duration rule — superset handling', () => {
     const testCases = [
       {
-        name: 'AC10.6: mid-superset (not last) → 0 rest',
-        exerciseId: 'ex1',
-        setIndex: 0,
-        supersetPos: 0,
-        supersetSize: 2,
+        name: 'AC10.6: mid-superset (next in same group) → 0 rest',
+        currentEntry: { supersetGroup: 'A', restSeconds: 90 },
+        nextEntry: { supersetGroup: 'A' },
+        isLastExercise: false,
         expectedRestSeconds: 0,
       },
       {
-        name: 'AC10.6: end of superset (last in group) → prescribed rest (90s)',
-        exerciseId: 'ex1',
-        setIndex: 1,
-        supersetPos: 1,
-        supersetSize: 2,
-        expectedRestSeconds: 90, // prescribed default value
+        name: 'AC10.6: end of superset (different group) → prescribed rest (90s)',
+        currentEntry: { supersetGroup: 'A', restSeconds: 90 },
+        nextEntry: { supersetGroup: 'B' },
+        isLastExercise: false,
+        expectedRestSeconds: 90,
       },
       {
-        name: 'AC10.6: standalone exercise → prescribed rest (90s)',
-        exerciseId: 'ex2',
-        setIndex: 0,
-        supersetPos: 0,
-        supersetSize: 1,
-        expectedRestSeconds: 90, // prescribed default value (standalone is "last" in its group of 1)
+        name: 'AC10.6: standalone exercise (no superset) → prescribed rest (60s)',
+        currentEntry: { supersetGroup: '', restSeconds: 60 },
+        nextEntry: { supersetGroup: '' },
+        isLastExercise: false,
+        expectedRestSeconds: 60,
+      },
+      {
+        name: 'AC10.6: last exercise → 0 rest',
+        currentEntry: { supersetGroup: '', restSeconds: 90 },
+        nextEntry: { supersetGroup: '' },
+        isLastExercise: true,
+        expectedRestSeconds: 0,
       },
     ];
 
     for (const tc of testCases) {
       it(tc.name, () => {
         const result = evaluateSource(restDurationSource, {
-          exercise_id: tc.exerciseId,
-          set_index: tc.setIndex,
-          superset_pos: tc.supersetPos,
-          superset_size: tc.supersetSize,
+          currentEntry: tc.currentEntry,
+          nextEntry: tc.nextEntry,
+          isLastExercise: tc.isLastExercise,
         });
         expect(result.success).toBe(true);
         expect(typeof result.value).toBe('number');
-        // Assert the actual expected value, not just that it's a number
+        // Assert the actual expected value
         expect(result.value).toBe(tc.expectedRestSeconds);
       });
     }
