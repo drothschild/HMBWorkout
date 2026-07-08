@@ -8,15 +8,19 @@ module.exports = {
   moduleFileExtensions: ['ts', 'js', 'json'],
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
-  globals: {
-    'ts-jest': {
-      tsconfig: {
-        jsx: 'react-jsx',
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-        experimentalDecorators: true,
-        emitDecoratorMetadata: true,
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          jsx: 'react-jsx',
+          esModuleInterop: true,
+          allowSyntheticDefaultImports: true,
+          experimentalDecorators: true,
+          emitDecoratorMetadata: true,
+          useDefineForClassFields: false,
+        },
       },
-    },
+    ],
   },
 };

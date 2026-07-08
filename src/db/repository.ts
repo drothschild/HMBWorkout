@@ -42,7 +42,6 @@ interface UpsertRoutineExerciseOptions {
 /**
  * Create a new session with the given id, routine id, and start time.
  * The session is created with syncStatus = 'local' by default.
- * Must be called within a Writer context.
  *
  * @param database The database instance
  * @param options Session creation options
@@ -53,22 +52,25 @@ export async function createSession(
 ): Promise<Session> {
   const { sessionId, routineId, startedAtMs } = options;
 
-  const sessionsTable = database.get('sessions');
-  const session = await sessionsTable.create((session: any) => {
-    session._raw.id = sessionId;
-    session._raw.routine_id = routineId;
-    session._raw.started_at = startedAtMs;
-    session._raw.sync_status = 'local';
-    session._raw.created_at = Date.now();
-  });
+  return await database.write(async () => {
+    const sessionsTable = database.get('sessions');
+    const session = await sessionsTable.create((session: any) => {
+      session._raw.id = sessionId;
+      session._raw.routine_id = routineId;
+      session._raw.started_at = startedAtMs;
+      session._raw.sync_status = 'local';
+      session._raw.created_at = Date.now();
+    });
 
-  return session as Session;
+    return session as Session;
+  });
 }
 
 /**
  * Append a set to a session.
  * Defaults setType to 'working' if not provided.
  * Validates input before writing to database.
+ * Assigns a monotonic position for deterministic ordering.
  *
  * @param database The database instance
  * @param sessionId The session ID
@@ -100,17 +102,31 @@ export async function appendSet(
     rpe,
   });
 
-  const sessionSetsTable = database.get('session_sets');
-  await sessionSetsTable.create((set: any) => {
-    set._raw.session_id = sessionId;
-    set._raw.routine_exercise_id = routineExerciseId;
-    set._raw.set_type = setType;
-    if (reps !== undefined) set._raw.reps = reps;
-    if (weightKg !== undefined) set._raw.weight_kg = weightKg;
-    if (durationSeconds !== undefined) set._raw.duration_seconds = durationSeconds;
-    if (distanceM !== undefined) set._raw.distance_m = distanceM;
-    if (rpe !== undefined) set._raw.rpe = rpe;
-    set._raw.created_at = Date.now();
+  await database.write(async () => {
+    const sessionSetsTable = database.get('session_sets');
+
+    // Get current max position for this session
+    const existingSets = (await sessionSetsTable
+      .query(Q.where('session_id', sessionId))
+      .fetch()) as SessionSet[];
+
+    const maxPosition = existingSets.length > 0
+      ? Math.max(...existingSets.map((s) => (s as any)._raw.position || 0))
+      : -1;
+    const nextPosition = maxPosition + 1;
+
+    await sessionSetsTable.create((set: any) => {
+      set._raw.session_id = sessionId;
+      set._raw.routine_exercise_id = routineExerciseId;
+      set._raw.set_type = setType;
+      if (reps !== undefined) set._raw.reps = reps;
+      if (weightKg !== undefined) set._raw.weight_kg = weightKg;
+      if (durationSeconds !== undefined) set._raw.duration_seconds = durationSeconds;
+      if (distanceM !== undefined) set._raw.distance_m = distanceM;
+      if (rpe !== undefined) set._raw.rpe = rpe;
+      set._raw.position = nextPosition;
+      set._raw.created_at = Date.now();
+    });
   });
 }
 
@@ -134,11 +150,11 @@ export async function getSession(
 }
 
 /**
- * Get all sets for a session, ordered by creation time.
+ * Get all sets for a session, ordered by position (deterministic).
  *
  * @param database The database instance
  * @param sessionId The session ID
- * @returns Array of session sets sorted by creation time
+ * @returns Array of session sets sorted by position
  */
 export async function getSessionSets(
   database: Database,
@@ -149,11 +165,11 @@ export async function getSessionSets(
     .query(Q.where('session_id', sessionId))
     .fetch()) as SessionSet[];
 
-  // Sort by creation time to maintain order
+  // Sort by position to maintain deterministic order
   sets.sort((a, b) => {
-    const aTime = (a as any)._raw.created_at;
-    const bTime = (b as any)._raw.created_at;
-    return aTime - bTime;
+    const aPos = (a as any)._raw.position;
+    const bPos = (b as any)._raw.position;
+    return aPos - bPos;
   });
 
   return sets;
@@ -183,54 +199,57 @@ export async function upsertRoutineExercise(
     restSeconds,
   } = options;
 
-  const routineExercisesTable = database.get('routine_exercises');
+  return await database.write(async () => {
+    const routineExercisesTable = database.get('routine_exercises');
 
-  // Check if this routine+exercise combo already exists
-  const existing = await routineExercisesTable
-    .query(
-      Q.and(
-        Q.where('routine_id', routineId),
-        Q.where('exercise_id', exerciseId)
+    // Check if this routine+exercise combo already exists
+    const existing = await routineExercisesTable
+      .query(
+        Q.and(
+          Q.where('routine_id', routineId),
+          Q.where('exercise_id', exerciseId)
+        )
       )
-    )
-    .fetch();
+      .fetch();
 
-  if (existing.length > 0) {
-    // Update existing record
-    const re = existing[0] as RoutineExercise;
-    await re.update((record: any) => {
-      record.order = order;
-      if (supersetGroup !== undefined) record.superset_group = supersetGroup;
-      record.warmup_sets = warmupSets;
-      if (targetSets !== undefined) record.target_sets = targetSets;
-      if (targetReps !== undefined) record.target_reps = targetReps;
-      if (targetDurationSeconds !== undefined)
-        record.target_duration_seconds = targetDurationSeconds;
-      if (restSeconds !== undefined) record.rest_seconds = restSeconds;
-    });
-    return re;
-  } else {
-    // Create new record
-    const created = await routineExercisesTable.create((re: any) => {
-      re._raw.routine_id = routineId;
-      re._raw.exercise_id = exerciseId;
-      re._raw.order = order;
-      if (supersetGroup !== undefined) re._raw.superset_group = supersetGroup;
-      re._raw.warmup_sets = warmupSets;
-      if (targetSets !== undefined) re._raw.target_sets = targetSets;
-      if (targetReps !== undefined) re._raw.target_reps = targetReps;
-      if (targetDurationSeconds !== undefined)
-        re._raw.target_duration_seconds = targetDurationSeconds;
-      if (restSeconds !== undefined) re._raw.rest_seconds = restSeconds;
-    });
-    return created as RoutineExercise;
-  }
+    if (existing.length > 0) {
+      // Update existing record
+      const re = existing[0] as RoutineExercise;
+      await re.update((record: any) => {
+        record.order = order;
+        if (supersetGroup !== undefined) record.superset_group = supersetGroup;
+        record.warmup_sets = warmupSets;
+        if (targetSets !== undefined) record.target_sets = targetSets;
+        if (targetReps !== undefined) record.target_reps = targetReps;
+        if (targetDurationSeconds !== undefined)
+          record.target_duration_seconds = targetDurationSeconds;
+        if (restSeconds !== undefined) record.rest_seconds = restSeconds;
+      });
+      return re;
+    } else {
+      // Create new record
+      const created = await routineExercisesTable.create((re: any) => {
+        re._raw.routine_id = routineId;
+        re._raw.exercise_id = exerciseId;
+        re._raw.order = order;
+        if (supersetGroup !== undefined) re._raw.superset_group = supersetGroup;
+        re._raw.warmup_sets = warmupSets;
+        if (targetSets !== undefined) re._raw.target_sets = targetSets;
+        if (targetReps !== undefined) re._raw.target_reps = targetReps;
+        if (targetDurationSeconds !== undefined)
+          re._raw.target_duration_seconds = targetDurationSeconds;
+        if (restSeconds !== undefined) re._raw.rest_seconds = restSeconds;
+      });
+      return created as RoutineExercise;
+    }
+  });
 }
 
 /**
  * Get all routine exercises for a routine, grouped by superset_group.
- * Non-grouped exercises (with null superset_group) are returned as individual groups.
- * Preserves the order of exercises within each group.
+ * Non-grouped exercises (with null superset_group) are returned as individual singleton groups.
+ * Same superset_group labels that are non-contiguous are split into separate groups.
+ * Preserves the order of exercises overall.
  *
  * @param database The database instance
  * @param routineId The routine ID
@@ -250,26 +269,40 @@ export async function getSupersetGroups(
   // Sort by order to maintain sequence
   allExercises.sort((a, b) => (a as any)._raw.order - (b as any)._raw.order);
 
-  // Group by superset_group
-  const groups: Map<string | null, RoutineExercise[]> = new Map();
+  // Group exercises respecting overall order: break groups when superset_group changes
+  // Each standalone exercise (superset_group=null) is its own singleton group
+  const result: RoutineExercise[][] = [];
+  let currentGroup: RoutineExercise[] = [];
+  let currentGroupKey: string | null | undefined = undefined;
 
   for (const exercise of allExercises) {
-    const supersetGroup = (exercise as any)._raw.superset_group ?? null;
-    if (!groups.has(supersetGroup)) {
-      groups.set(supersetGroup, []);
+    const supersetGroup = (exercise as any)._raw.superset_group;
+    const isStandalone = supersetGroup === null || supersetGroup === undefined;
+
+    if (isStandalone) {
+      // Standalone exercises: each is its own singleton group
+      if (currentGroup.length > 0) {
+        result.push(currentGroup);
+        currentGroup = [];
+        currentGroupKey = undefined;
+      }
+      result.push([exercise]);
+    } else if (supersetGroup !== currentGroupKey) {
+      // Non-standalone group key changed, start a new group
+      if (currentGroup.length > 0) {
+        result.push(currentGroup);
+      }
+      currentGroup = [exercise];
+      currentGroupKey = supersetGroup;
+    } else {
+      // Same group key, add to current group
+      currentGroup.push(exercise);
     }
-    groups.get(supersetGroup)!.push(exercise);
   }
 
-  // Convert to array of groups, filtering out null-key groups that are singletons
-  // (return only exercises that share a superset_group, not individual ones)
-  const result: RoutineExercise[][] = [];
-
-  for (const [key, group] of groups) {
-    // Only include groups that have a superset_group (not null) or are multi-exercise groups
-    if (key !== null && group.length > 0) {
-      result.push(group);
-    }
+  // Don't forget the last group
+  if (currentGroup.length > 0) {
+    result.push(currentGroup);
   }
 
   return result;

@@ -1,24 +1,7 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
 import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups } from './repository';
-
-/**
- * Helper to access model fields that may have undefined instance properties
- * shadowing the getters. This works around a WatermelonDB quirk with optional fields.
- */
-function getField(model: any, fieldName: string): any {
-  // First try the descriptor chain to find the getter
-  let obj = model;
-  while (obj) {
-    const desc = Object.getOwnPropertyDescriptor(obj, fieldName);
-    if (desc && desc.get) {
-      return desc.get.call(model);
-    }
-    obj = Object.getPrototypeOf(obj);
-  }
-  // Fallback to direct property access
-  return model[fieldName];
-}
+import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
   let database: Database;
@@ -38,10 +21,8 @@ describe('Repository: session and set helpers', () => {
       const routineId = 'routine-1';
       const startedAtMs = Date.now();
 
-      // Create session
-      await database.write(async () => {
-        await createSession(database, { sessionId, routineId, startedAtMs });
-      });
+      // Create session (helpers wrap database.write() internally)
+      await createSession(database, { sessionId, routineId, startedAtMs });
 
       // Verify session exists
       const session = await getSession(database, sessionId);
@@ -54,19 +35,17 @@ describe('Repository: session and set helpers', () => {
       const routineId = 'routine-2';
       const startedAtMs = Date.now();
 
-      await database.write(async () => {
-        await createSession(database, { sessionId, routineId, startedAtMs });
-      });
+      await createSession(database, { sessionId, routineId, startedAtMs });
 
       const session = await getSession(database, sessionId);
-      expect(getField(session, 'customSyncStatus')).toBe('local');
+      expect((session as any).customSyncStatus).toBe('local');
     }, 10000);
   });
 
   describe('appendSet', () => {
     beforeEach(async () => {
+      // Create a routine
       await database.write(async () => {
-        // Create a routine
         const routinesTable = database.get('routines');
         await routinesTable.create((r: any) => {
           r._raw.id = 'routine-3';
@@ -93,75 +72,110 @@ describe('Repository: session and set helpers', () => {
           re.order = 1;
           re.warmup_sets = 0;
         });
+      });
 
-        // Create a session
-        await createSession(database, {
-          sessionId: 'session-3',
-          routineId: 'routine-3',
-          startedAtMs: Date.now(),
-        });
+      // Create a session (helper wraps database.write() internally)
+      await createSession(database, {
+        sessionId: 'session-3',
+        routineId: 'routine-3',
+        startedAtMs: Date.now(),
       });
     });
 
     it('AC9.1: a working set with optional rpe persists and reads back', async () => {
-      await database.write(async () => {
-        await appendSet(database, 'session-3', 'routine-exercise-3', {
-          setType: 'working',
-          reps: 8,
-          weightKg: 60,
-          rpe: 7.5,
-        });
+      await appendSet(database, 'session-3', 'routine-exercise-3', {
+        setType: 'working',
+        reps: 8,
+        weightKg: 60,
+        rpe: 7.5,
       });
 
       const sets = await getSessionSets(database, 'session-3');
       expect(sets).toHaveLength(1);
       const set = sets[0];
-      expect(getField(set, 'rpe')).toBe(7.5);
-      expect(getField(set, 'reps')).toBe(8);
-      expect(getField(set, 'weightKg')).toBe(60);
+      expect((set as any).rpe).toBe(7.5);
+      expect((set as any).reps).toBe(8);
+      expect((set as any).weightKg).toBe(60);
     }, 10000);
 
     it('can append a set with only durationSeconds (for cardio/stretch)', async () => {
-      await database.write(async () => {
-        await appendSet(database, 'session-3', 'routine-exercise-3', {
-          setType: 'working',
-          durationSeconds: 300,
-        });
+      await appendSet(database, 'session-3', 'routine-exercise-3', {
+        setType: 'working',
+        durationSeconds: 300,
       });
 
       const sets = await getSessionSets(database, 'session-3');
       expect(sets).toHaveLength(1);
       const set = sets[0];
-      expect(getField(set, 'durationSeconds')).toBe(300);
-      expect(getField(set, 'reps')).toBeNull();
-      expect(getField(set, 'weightKg')).toBeNull();
+      expect((set as any).durationSeconds).toBe(300);
+      expect((set as any).reps).toBeNull();
+      expect((set as any).weightKg).toBeNull();
     }, 10000);
 
     it('can append a set with setType "warmup"', async () => {
-      await database.write(async () => {
-        await appendSet(database, 'session-3', 'routine-exercise-3', {
-          setType: 'warmup',
-          reps: 15,
-          weightKg: 30,
-        });
+      await appendSet(database, 'session-3', 'routine-exercise-3', {
+        setType: 'warmup',
+        reps: 15,
+        weightKg: 30,
       });
 
       const sets = await getSessionSets(database, 'session-3');
       expect(sets).toHaveLength(1);
-      expect(getField(sets[0], 'setType')).toBe('warmup');
+      expect((sets[0] as any).setType).toBe('warmup');
     }, 10000);
 
     it('defaults setType to "working" if not provided', async () => {
-      await database.write(async () => {
-        await appendSet(database, 'session-3', 'routine-exercise-3', {
-          reps: 5,
-          weightKg: 70,
-        });
+      await appendSet(database, 'session-3', 'routine-exercise-3', {
+        reps: 5,
+        weightKg: 70,
       });
 
       const sets = await getSessionSets(database, 'session-3');
       expect(sets).toHaveLength(1);
-      expect(getField(sets[0], 'setType')).toBe('working');
+      expect((sets[0] as any).setType).toBe('working');
+    }, 10000);
+
+    // AC1.4: appendSet with negative reps throws ValidationError and doesn't persist
+    it('AC1.4: appendSet with negative reps throws ValidationError', async () => {
+      await expect(
+        appendSet(database, 'session-3', 'routine-exercise-3', {
+          reps: -5,
+          weightKg: 60,
+        })
+      ).rejects.toThrow(ValidationError);
+
+      // Verify set was not persisted
+      const sets = await getSessionSets(database, 'session-3');
+      expect(sets).toHaveLength(0);
+    }, 10000);
+
+    // AC9.3: appendSet with invalid rpe (11 or 7.3) throws ValidationError and doesn't persist
+    it('AC9.3: appendSet with rpe=11 (out of range) throws ValidationError', async () => {
+      await expect(
+        appendSet(database, 'session-3', 'routine-exercise-3', {
+          reps: 8,
+          weightKg: 60,
+          rpe: 11,
+        })
+      ).rejects.toThrow(ValidationError);
+
+      // Verify set was not persisted
+      const sets = await getSessionSets(database, 'session-3');
+      expect(sets).toHaveLength(0);
+    }, 10000);
+
+    it('AC9.3: appendSet with rpe=7.3 (invalid increment) throws ValidationError', async () => {
+      await expect(
+        appendSet(database, 'session-3', 'routine-exercise-3', {
+          reps: 8,
+          weightKg: 60,
+          rpe: 7.3,
+        })
+      ).rejects.toThrow(ValidationError);
+
+      // Verify set was not persisted
+      const sets = await getSessionSets(database, 'session-3');
+      expect(sets).toHaveLength(0);
     }, 10000);
   });
 
@@ -172,12 +186,10 @@ describe('Repository: session and set helpers', () => {
     }, 10000);
 
     it('returns empty array if session has no sets', async () => {
-      await database.write(async () => {
-        await createSession(database, {
-          sessionId: 'session-4',
-          routineId: 'routine-4',
-          startedAtMs: Date.now(),
-        });
+      await createSession(database, {
+        sessionId: 'session-4',
+        routineId: 'routine-4',
+        startedAtMs: Date.now(),
       });
 
       const sets = await getSessionSets(database, 'session-4');
@@ -216,18 +228,18 @@ describe('Repository: session and set helpers', () => {
           e.kind = 'strength';
           e.created_at = Date.now();
         });
+      });
 
-        // Upsert routine exercises in superset
-        await upsertRoutineExercise(database, routineId, {
-          exerciseId: exerciseId1,
-          order: 1,
-          supersetGroup,
-        });
-        await upsertRoutineExercise(database, routineId, {
-          exerciseId: exerciseId2,
-          order: 2,
-          supersetGroup,
-        });
+      // Upsert routine exercises in superset (helpers wrap database.write() internally)
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId1,
+        order: 1,
+        supersetGroup,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId2,
+        order: 2,
+        supersetGroup,
       });
 
       // Get superset groups and verify grouping
@@ -237,10 +249,125 @@ describe('Repository: session and set helpers', () => {
 
       // Verify exercises are grouped together and contiguous by order
       const group = groups[0];
-      expect(getField(group[0], 'order')).toBe(1);
-      expect(getField(group[1], 'order')).toBe(2);
-      expect(getField(group[0], 'supersetGroup')).toBe(supersetGroup);
-      expect(getField(group[1], 'supersetGroup')).toBe(supersetGroup);
+      expect((group[0] as any).order).toBe(1);
+      expect((group[1] as any).order).toBe(2);
+      expect((group[0] as any).supersetGroup).toBe(supersetGroup);
+      expect((group[1] as any).supersetGroup).toBe(supersetGroup);
+    }, 10000);
+
+    it('I2: getSupersetGroups returns standalone (null) exercises as singleton groups', async () => {
+      const routineId = 'routine-standalone';
+      const exerciseId1 = 'exercise-standalone-1';
+      const exerciseId2 = 'exercise-standalone-2';
+
+      await database.write(async () => {
+        // Create routine
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Solo Exercises';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        // Create exercises
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId1;
+          e.title = 'Exercise 1';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId2;
+          e.title = 'Exercise 2';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Upsert standalone exercises (no superset_group)
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId1,
+        order: 1,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId2,
+        order: 2,
+      });
+
+      // Get superset groups - should return 2 singleton groups
+      const groups = await getSupersetGroups(database, routineId);
+      expect(groups).toHaveLength(2);
+      expect(groups[0]).toHaveLength(1);
+      expect(groups[1]).toHaveLength(1);
+      expect((groups[0][0] as any).order).toBe(1);
+      expect((groups[1][0] as any).order).toBe(2);
+    }, 10000);
+
+    it('I2: getSupersetGroups splits non-contiguous same-label groups', async () => {
+      const routineId = 'routine-noncontiguous';
+      const exerciseId1 = 'exercise-nc-1';
+      const exerciseId2 = 'exercise-nc-2';
+      const exerciseId3 = 'exercise-nc-3';
+      const exerciseId4 = 'exercise-nc-4';
+      const supersetGroup = 'chest-superset';
+
+      await database.write(async () => {
+        // Create routine
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Non-Contiguous Superset';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        // Create exercises
+        const exercisesTable = database.get('exercises');
+        for (let i = 1; i <= 4; i++) {
+          await exercisesTable.create((e: any) => {
+            e._raw.id = `exercise-nc-${i}`;
+            e.title = `Exercise ${i}`;
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        }
+      });
+
+      // Upsert exercises: superset, standalone, superset, standalone
+      // This creates: [superset, standalone, superset, standalone]
+      // After grouping by contiguity: [superset], [standalone], [superset], [standalone]
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId1,
+        order: 1,
+        supersetGroup,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId2,
+        order: 2,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId3,
+        order: 3,
+        supersetGroup,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: exerciseId4,
+        order: 4,
+      });
+
+      // Get superset groups - should split into 4 groups due to non-contiguity
+      const groups = await getSupersetGroups(database, routineId);
+      expect(groups).toHaveLength(4);
+      expect(groups[0]).toHaveLength(1);
+      expect(groups[1]).toHaveLength(1);
+      expect(groups[2]).toHaveLength(1);
+      expect(groups[3]).toHaveLength(1);
+      expect((groups[0][0] as any).supersetGroup).toBe(supersetGroup);
+      expect((groups[1][0] as any).supersetGroup).toBeNull();
+      expect((groups[2][0] as any).supersetGroup).toBe(supersetGroup);
+      expect((groups[3][0] as any).supersetGroup).toBeNull();
     }, 10000);
 
     it('AC8.2: a routine exercise with warmupSets=2 persists; appending sets with setType warmup vs working are distinguishable', async () => {
@@ -268,20 +395,6 @@ describe('Repository: session and set helpers', () => {
           e.created_at = Date.now();
         });
 
-        // Upsert routine exercise with warmupSets=2
-        await upsertRoutineExercise(database, routineId, {
-          exerciseId,
-          order: 1,
-          warmupSets: 2,
-        });
-
-        // Create session
-        await createSession(database, {
-          sessionId,
-          routineId,
-          startedAtMs: Date.now(),
-        });
-
         // Manually create routine exercise record to link session sets
         const routineExercisesTable = database.get('routine_exercises');
         await routineExercisesTable.create((re: any) => {
@@ -293,34 +406,41 @@ describe('Repository: session and set helpers', () => {
         });
       });
 
-      // Append warmup set first
-      await database.write(async () => {
-        await appendSet(database, sessionId, routineExerciseId, {
-          setType: 'warmup',
-          reps: 15,
-          weightKg: 20,
-        });
+      // Upsert routine exercise with warmupSets=2 (helper wraps database.write() internally)
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 1,
+        warmupSets: 2,
       });
 
-      // Small delay to ensure different timestamps
-      await new Promise((r) => setTimeout(r, 10));
-
-      // Append working set second
-      await database.write(async () => {
-        await appendSet(database, sessionId, routineExerciseId, {
-          setType: 'working',
-          reps: 8,
-          weightKg: 60,
-        });
+      // Create session (helper wraps database.write() internally)
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now(),
       });
 
-      // Verify sets are distinguishable by setType
+      // Append warmup set first (helper wraps database.write() internally)
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'warmup',
+        reps: 15,
+        weightKg: 20,
+      });
+
+      // Append working set second (deterministic ordering by position, no sleep needed)
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 60,
+      });
+
+      // Verify sets are distinguishable by setType and in correct order
       const sets = await getSessionSets(database, sessionId);
       expect(sets).toHaveLength(2);
-      expect(getField(sets[0], 'setType')).toBe('warmup');
-      expect(getField(sets[1], 'setType')).toBe('working');
-      expect(getField(sets[0], 'reps')).toBe(15);
-      expect(getField(sets[1], 'reps')).toBe(8);
+      expect((sets[0] as any).setType).toBe('warmup');
+      expect((sets[1] as any).setType).toBe('working');
+      expect((sets[0] as any).reps).toBe(15);
+      expect((sets[1] as any).reps).toBe(8);
     }, 10000);
 
     it('AC8.3: a kind=stretch exercise logs a set via durationSeconds with null reps/weight', async () => {
@@ -348,20 +468,6 @@ describe('Repository: session and set helpers', () => {
           e.created_at = Date.now();
         });
 
-        // Upsert routine exercise with duration
-        await upsertRoutineExercise(database, routineId, {
-          exerciseId,
-          order: 1,
-          targetDurationSeconds: 30,
-        });
-
-        // Create session
-        await createSession(database, {
-          sessionId,
-          routineId,
-          startedAtMs: Date.now(),
-        });
-
         // Manually create routine exercise record
         const routineExercisesTable = database.get('routine_exercises');
         await routineExercisesTable.create((re: any) => {
@@ -374,20 +480,32 @@ describe('Repository: session and set helpers', () => {
         });
       });
 
-      // Log stretch via durationSeconds
-      await database.write(async () => {
-        await appendSet(database, sessionId, routineExerciseId, {
-          setType: 'working',
-          durationSeconds: 30,
-        });
+      // Upsert routine exercise with duration (helper wraps database.write() internally)
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 1,
+        targetDurationSeconds: 30,
+      });
+
+      // Create session (helper wraps database.write() internally)
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now(),
+      });
+
+      // Log stretch via durationSeconds (helper wraps database.write() internally)
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'working',
+        durationSeconds: 30,
       });
 
       // Verify set has duration but null reps/weight
       const sets = await getSessionSets(database, sessionId);
       expect(sets).toHaveLength(1);
-      expect(getField(sets[0], 'durationSeconds')).toBe(30);
-      expect(getField(sets[0], 'reps')).toBeNull();
-      expect(getField(sets[0], 'weightKg')).toBeNull();
+      expect((sets[0] as any).durationSeconds).toBe(30);
+      expect((sets[0] as any).reps).toBeNull();
+      expect((sets[0] as any).weightKg).toBeNull();
     }, 10000);
 
     it('AC8.3: a kind=cardio warm-up logs a set via durationSeconds with null reps/weight', async () => {
@@ -415,21 +533,6 @@ describe('Repository: session and set helpers', () => {
           e.created_at = Date.now();
         });
 
-        // Upsert routine exercise with duration
-        await upsertRoutineExercise(database, routineId, {
-          exerciseId,
-          order: 1,
-          targetDurationSeconds: 300,
-          warmupSets: 1,
-        });
-
-        // Create session
-        await createSession(database, {
-          sessionId,
-          routineId,
-          startedAtMs: Date.now(),
-        });
-
         // Manually create routine exercise record
         const routineExercisesTable = database.get('routine_exercises');
         await routineExercisesTable.create((re: any) => {
@@ -442,21 +545,34 @@ describe('Repository: session and set helpers', () => {
         });
       });
 
-      // Log cardio warm-up via durationSeconds
-      await database.write(async () => {
-        await appendSet(database, sessionId, routineExerciseId, {
-          setType: 'warmup',
-          durationSeconds: 300,
-        });
+      // Upsert routine exercise with duration (helper wraps database.write() internally)
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 1,
+        targetDurationSeconds: 300,
+        warmupSets: 1,
+      });
+
+      // Create session (helper wraps database.write() internally)
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now(),
+      });
+
+      // Log cardio warm-up via durationSeconds (helper wraps database.write() internally)
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'warmup',
+        durationSeconds: 300,
       });
 
       // Verify set has duration but null reps/weight
       const sets = await getSessionSets(database, sessionId);
       expect(sets).toHaveLength(1);
-      expect(getField(sets[0], 'durationSeconds')).toBe(300);
-      expect(getField(sets[0], 'setType')).toBe('warmup');
-      expect(getField(sets[0], 'reps')).toBeNull();
-      expect(getField(sets[0], 'weightKg')).toBeNull();
+      expect((sets[0] as any).durationSeconds).toBe(300);
+      expect((sets[0] as any).setType).toBe('warmup');
+      expect((sets[0] as any).reps).toBeNull();
+      expect((sets[0] as any).weightKg).toBeNull();
     }, 10000);
   });
 });

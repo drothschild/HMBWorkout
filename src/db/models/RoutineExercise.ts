@@ -9,8 +9,8 @@ export default class RoutineExercise extends Model {
     exercises: { type: 'belongs_to' as const, key: 'exercise_id' },
   };
 
-  @relation('routines', 'routine_id') routineId!: string;
-  @relation('exercises', 'exercise_id') exerciseId!: string;
+  @field('routine_id') routineId!: string;
+  @field('exercise_id') exerciseId!: string;
   @field('order') order!: number;
   @text('superset_group') supersetGroup?: string;
   @field('warmup_sets') warmupSets!: number;

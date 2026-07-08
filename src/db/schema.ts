@@ -58,6 +58,7 @@ export const databaseSchema = appSchema({
         { name: 'duration_seconds', type: 'number', isOptional: true },
         { name: 'distance_m', type: 'number', isOptional: true },
         { name: 'rpe', type: 'number', isOptional: true },
+        { name: 'position', type: 'number' }, // Monotonic ordering per session (deterministic)
         { name: 'created_at', type: 'number' },
       ],
     }),
