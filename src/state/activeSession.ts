@@ -84,6 +84,8 @@ export function createActiveSessionStore(
       }
 
       // Query routine_exercises by (routine_id, order: currentEntry.idx)
+      // CRITICAL: idx uses canonical 0-based order (matches routine_exercises.order from syncService import).
+      // This is resilient to repeated exercises and superset structures where many exercises share exerciseId.
       const routine_exercises = await database.get('routine_exercises').query().fetch();
       const routineExercise = (routine_exercises as any[]).find(
         (re) =>

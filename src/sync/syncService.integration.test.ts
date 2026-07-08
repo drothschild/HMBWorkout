@@ -73,16 +73,16 @@ created: 2026-07-08
 
       expect(routineExercises).toHaveLength(2);
 
-      // Verify bench press
-      const order1 = routineExercises.find((re) => re._raw.order === 1);
-      expect(order1._raw.exercise_id).toBe('bench-press-db');
-      expect(order1._raw.warmup_sets).toBe(1);
-      expect(order1._raw.rest_seconds).toBe(90);
+      // Verify bench press (order 0: first exercise, canonical 0-based)
+      const order0 = routineExercises.find((re) => re._raw.order === 0);
+      expect(order0._raw.exercise_id).toBe('bench-press-db');
+      expect(order0._raw.warmup_sets).toBe(1);
+      expect(order0._raw.rest_seconds).toBe(90);
 
-      // Verify stretch
-      const order2 = routineExercises.find((re) => re._raw.order === 2);
-      expect(order2._raw.exercise_id).toBe('tricep-stretch');
-      expect(order2._raw.target_duration_seconds).toBe(30);
+      // Verify stretch (order 1: second exercise)
+      const order1 = routineExercises.find((re) => re._raw.order === 1);
+      expect(order1._raw.exercise_id).toBe('tricep-stretch');
+      expect(order1._raw.target_duration_seconds).toBe(30);
     });
 
     it('updates routine on re-import without duplicating entries', async () => {

@@ -69,7 +69,7 @@ describe('Repository: session and set helpers', () => {
           re._raw.id = 'routine-exercise-3';
           re.routine_id = 'routine-3';
           re.exercise_id = 'exercise-3';
-          re.order = 1;
+          re.order = 0;
           re.warmup_sets = 0;
         });
       });

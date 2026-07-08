@@ -152,7 +152,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               notes?: string;
             }> = [];
 
-            let order = 1;
+            let order = 0; // Canonical base: 0-based (matches entry idx from startSessionFromRoutine)
             for (const entry of parsed.exercises) {
               if ('exercises' in entry) {
                 // Superset group

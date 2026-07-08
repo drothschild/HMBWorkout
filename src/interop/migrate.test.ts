@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseRoutine } from './parse';
 import { ContractError } from './format';
+import { Database, Q } from '@nozbe/watermelondb';
+import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { upsertExercise, upsertRoutine } from '@/db/repository';
 
 /**
  * Test that migrated routine files parse correctly without ContractError.
@@ -62,5 +65,169 @@ describe('Migrated routines (AC7.2)', () => {
       });
       expect(hasCardioOrStretch).toBe(true);
     });
+  }
+});
+
+/**
+ * Extended migration test: AC7.2 (I1)
+ * Tests the full import path: parse -> upsert exercises -> upsert routine -> verify DB structure
+ * Ensures superset grouping, warmup_sets, cardio/stretch targetDurationSeconds, and order sequence are preserved.
+ */
+describe('Migrated routines full import path (AC7.2 I1)', () => {
+  const vaultSyncDir = path.resolve(
+    '/Users/davidrothschild/Documents/Obsidian/Organizer/2-Areas/Exercise/_sync'
+  );
+
+  const routines = ['Push.md', 'Pull.md', 'Legs.md'];
+
+  for (const routineFile of routines) {
+    const routinePath = path.join(vaultSyncDir, routineFile);
+
+    it(`imports and upserts ${routineFile} through full DB path with correct structure`, async () => {
+      if (!fs.existsSync(routinePath)) {
+        throw new Error(`Routine file not found: ${routinePath}`);
+      }
+
+      const database = createTestDatabase();
+
+      try {
+        const markdown = fs.readFileSync(routinePath, 'utf-8');
+        const parsed = parseRoutine(markdown);
+
+        // Build allExercises list from parsed exercises (mimics syncService import)
+        const allExercises: Array<{
+          exerciseId: string;
+          kind: string;
+          order: number;
+          supersetGroup?: string;
+          targetSets?: number;
+          targetReps?: number;
+          targetDurationSeconds?: number;
+          restSeconds?: number;
+          warmupSets?: number;
+          notes?: string;
+        }> = [];
+
+        let order = 0; // Canonical 0-based
+        for (const entry of parsed.exercises) {
+          if ('exercises' in entry) {
+            // Superset group
+            const supersetLabel = entry.supersetLabel;
+            for (const line of entry.exercises) {
+              allExercises.push({
+                exerciseId: line.exerciseId,
+                kind: line.kind || 'strength',
+                order,
+                supersetGroup: supersetLabel,
+                targetSets: line.targetSets,
+                targetReps: line.targetReps,
+                targetDurationSeconds: line.targetDurationSeconds,
+                restSeconds: line.restSeconds,
+                warmupSets: line.warmupSets,
+                notes: line.hint,
+              });
+              order++;
+            }
+          } else {
+            // Single line
+            const line = entry;
+            allExercises.push({
+              exerciseId: line.exerciseId,
+              kind: line.kind || 'strength',
+              order,
+              targetSets: line.targetSets,
+              targetReps: line.targetReps,
+              targetDurationSeconds: line.targetDurationSeconds,
+              restSeconds: line.restSeconds,
+              warmupSets: line.warmupSets,
+              notes: line.hint,
+            });
+            order++;
+          }
+        }
+
+        // Upsert exercises
+        const distinctExercises = new Map<
+          string,
+          { title: string; kind: string }
+        >();
+        for (const ex of allExercises) {
+          if (!distinctExercises.has(ex.exerciseId)) {
+            distinctExercises.set(ex.exerciseId, {
+              title: ex.exerciseId,
+              kind: ex.kind,
+            });
+          }
+        }
+
+        for (const [exerciseId, data] of distinctExercises.entries()) {
+          await upsertExercise(database, exerciseId, data.title, data.kind);
+        }
+
+        // Upsert routine
+        const routineId = parsed.frontmatter.id || routineFile.replace('.md', '');
+        await upsertRoutine(
+          database,
+          routineId,
+          parsed.frontmatter.id || routineFile.replace('.md', ''),
+          allExercises.map((e) => ({
+            exerciseId: e.exerciseId,
+            order: e.order,
+            supersetGroup: e.supersetGroup,
+            warmupSets: e.warmupSets,
+            targetSets: e.targetSets,
+            targetReps: e.targetReps,
+            targetDurationSeconds: e.targetDurationSeconds,
+            restSeconds: e.restSeconds,
+            notes: e.notes,
+          }))
+        );
+
+        // Verify routine was created
+        const routine = await database.get('routines').find(routineId) as any;
+        expect(routine).toBeDefined();
+        expect((routine as any).name).toBeDefined();
+
+        // Verify routine_exercises with correct structure
+        const routineExercises = (await database
+          .get('routine_exercises')
+          .query(Q.where('routine_id', routineId))
+          .fetch()) as any[];
+
+        expect(routineExercises.length).toBe(allExercises.length);
+
+        // Verify order sequence is correct and contiguous
+        const orders = routineExercises.map((re) => re._raw.order).sort((a, b) => a - b);
+        expect(orders[0]).toBe(0); // Starts at 0
+        for (let i = 0; i < orders.length; i++) {
+          expect(orders[i]).toBe(i); // Contiguous 0-based sequence
+        }
+
+        // Verify superset grouping is preserved
+        const supersetGrouping = new Map<string | null, number>();
+        for (const re of routineExercises) {
+          const group = re._raw.superset_group || null;
+          supersetGrouping.set(group, (supersetGrouping.get(group) || 0) + 1);
+        }
+        expect(supersetGrouping.size).toBeGreaterThan(1); // At least superset + standalone
+
+        // Verify warmup_sets are intact (at least one exercise should have warmupSets > 0)
+        const hasWarmup = routineExercises.some((re) => re._raw.warmup_sets > 0);
+        expect(hasWarmup).toBe(true);
+
+        // Verify cardio/stretch targetDurationSeconds are set
+        const cardioOrStretch = routineExercises.filter(
+          (re) => re._raw.kind === 'cardio' || re._raw.kind === 'stretch'
+        );
+        if (cardioOrStretch.length > 0) {
+          const hasTargetDuration = cardioOrStretch.some(
+            (re) => re._raw.target_duration_seconds && re._raw.target_duration_seconds > 0
+          );
+          expect(hasTargetDuration).toBe(true);
+        }
+      } finally {
+        await closeTestDatabase(database);
+      }
+    }, 30000);
   }
 });

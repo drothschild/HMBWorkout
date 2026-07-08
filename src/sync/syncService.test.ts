@@ -98,7 +98,7 @@ describe('Sync Service', () => {
           re._raw.id = 'routine-exercise-1';
           re._raw.routine_id = 'routine-1';
           re._raw.exercise_id = 'exercise-1';
-          re._raw.order = 1;
+          re._raw.order = 0; // Canonical 0-based order
           re._raw.warmup_sets = 0;
         });
       });

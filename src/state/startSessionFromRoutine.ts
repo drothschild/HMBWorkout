@@ -30,18 +30,18 @@ export async function startSessionFromRoutine(
   routineExercises.sort((a, b) => a._raw.order - b._raw.order);
 
   // Build entries with idx field
+  // CRITICAL: idx MUST match re._raw.order from database (canonical 0-based)
+  // for onPersistSet to find the routine_exercise row by (routine_id, order: entry.idx)
   const entries: RoutineEntry[] = [];
 
-  for (let idx = 0; idx < routineExercises.length; idx++) {
-    const re = routineExercises[idx];
-
+  for (const re of routineExercises) {
     // Load exercise to get kind
     const exercise = await db.get('exercises').find(re._raw.exercise_id);
 
     const kind = (exercise as any)._raw.kind as ExerciseKind;
 
     entries.push({
-      idx,
+      idx: re._raw.order, // Use DB order directly, NOT loop counter
       exerciseId: re._raw.exercise_id,
       kind,
       warmupSets: re._raw.warmup_sets || 0,

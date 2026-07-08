@@ -91,15 +91,15 @@ export default function RoutineDetailScreen() {
                         {exercise.title}
                       </ThemedText>
                       <ThemedText type="default" style={styles.exerciseDetails}>
-                        {exercise.targetSets &&
-                          exercise.targetReps &&
+                        {exercise.targetSets != null &&
+                          exercise.targetReps != null &&
                           `${exercise.targetSets}x${exercise.targetReps}`}
-                        {exercise.targetDurationSeconds &&
+                        {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
                           `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
                             exercise.targetDurationSeconds % 60
                           ).padStart(2, '0')}`}
                         {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                        {exercise.restSeconds && ` | Rest: ${exercise.restSeconds}s`}
+                        {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
                       </ThemedText>
                     </View>
                   ))}
@@ -119,15 +119,15 @@ export default function RoutineDetailScreen() {
                     {exercise.title}
                   </ThemedText>
                   <ThemedText type="default" style={styles.exerciseDetails}>
-                    {exercise.targetSets &&
-                      exercise.targetReps &&
+                    {exercise.targetSets != null &&
+                      exercise.targetReps != null &&
                       `${exercise.targetSets}x${exercise.targetReps}`}
-                    {exercise.targetDurationSeconds &&
+                    {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
                       `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
                         exercise.targetDurationSeconds % 60
                       ).padStart(2, '0')}`}
                     {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                    {exercise.restSeconds && ` | Rest: ${exercise.restSeconds}s`}
+                    {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
                   </ThemedText>
                 </View>
               ))}
