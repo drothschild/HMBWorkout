@@ -16,7 +16,10 @@ export function createTestDatabase(): Database {
     schema: databaseSchema,
     useWebWorker: false,
     useIncrementalIndexedDB: false,
-  });
+    // Disable autosave to prevent background timers/handles from blocking Jest exit
+    autosave: false,
+    autosaveInterval: false,
+  } as any);
 
   return new Database({
     adapter,
@@ -26,13 +29,20 @@ export function createTestDatabase(): Database {
 
 /**
  * Clean up a test database after tests complete.
- * Clears handles to prevent Jest hangs.
+ * Closes the LokiJS adapter to release IndexedDB handles and prevent Jest hang.
  *
  * @param database The database instance to close
  */
 export async function closeTestDatabase(database: Database): Promise<void> {
-  // Note: LokiJS adapter holds IndexedDB handles; simply let the instance
-  // be garbage collected when the test ends. Each test creates a fresh database
-  // instance, so there's no leak within the test lifecycle.
-  // To properly close, we would need to reset, but that creates timing issues.
+  try {
+    // Access the underlying LokiJS driver and close its handles
+    const adapter = (database as any).adapter as any;
+    if (adapter && adapter._driver && adapter._driver.loki) {
+      // Close the Loki instance - this releases IndexedDB handles
+      adapter._driver.loki.close();
+    }
+  } catch (error) {
+    // Ignore errors during cleanup
+    console.debug('Error closing Loki adapter:', error);
+  }
 }
