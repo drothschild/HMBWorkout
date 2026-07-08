@@ -15,7 +15,9 @@ export class RuleLoadError extends Error {
  * Import every bundled .lv rule source.
  * These are imported as strings via babel-plugin-inline-import.
  */
-import smokeRuleSource from './rules/smoke.lv';
+import validateSetSource from './rules/validate_set.lv';
+import restDurationSource from './rules/rest_duration.lv';
+import progressionHintSource from './rules/progression_hint.lv';
 
 /**
  * At module init, type-check all bundled rules.
@@ -24,8 +26,9 @@ import smokeRuleSource from './rules/smoke.lv';
  */
 export function loadRules(): void {
   const rules = [
-    { name: 'smoke', source: smokeRuleSource },
-    // Task 4 will add: validate_set, rest_duration, progression_hint
+    { name: 'validate_set', source: validateSetSource },
+    { name: 'rest_duration', source: restDurationSource },
+    { name: 'progression_hint', source: progressionHintSource },
   ];
 
   for (const rule of rules) {

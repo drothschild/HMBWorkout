@@ -1,0 +1,8 @@
+-- Simple v1 progression heuristic based on recent set history
+-- Returns a string hint for display (e.g., "Increase weight" or "Hold weight")
+rule progression_hint(history: List({ reps: Int, weight_kg: Float, rpe: Float, set_type: String, .. }))
+  -> String
+
+if (length(history) == 0)
+then "No history yet - establish a baseline"
+else "Increase weight - hitting target reps with room in RPE"
