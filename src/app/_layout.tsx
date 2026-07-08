@@ -9,9 +9,10 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
 import { loadActiveEngineState } from '@/db/engineState';
-import { activeSessionStore } from '@/state/activeSession';
-import { getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
+import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
 import * as Notifications from 'expo-notifications';
+import { createRestTimerExecutor } from '@/engine/executors/restTimer';
+import { createRealNotificationApis, getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 
@@ -39,15 +40,24 @@ export default function RootLayout() {
         // Set up notification handler for foreground presentation
         Notifications.setNotificationHandler(getDefaultNotificationHandler());
 
+        // Inject real executors into the store
+        const notificationApis = createRealNotificationApis();
+        const restTimerExecutor = createRestTimerExecutor(notificationApis);
+        injectRealExecutors({
+          onScheduleRest: restTimerExecutor.onScheduleRest,
+          onCancelRest: restTimerExecutor.onCancelRest,
+          onNotify: restTimerExecutor.onNotify,
+        });
+
         // Load and validate rules
         loadRules();
 
         // Hydrate active session if one exists (restart recovery)
         const savedState = await loadActiveEngineState(database);
         if (savedState) {
-          activeSessionStore.getState().hydrate(savedState);
+          getActiveSessionStore().getState().hydrate(savedState);
           // Dispatch Resume to reconcile any expired rest deadline
-          await activeSessionStore.getState().dispatch({
+          await getActiveSessionStore().getState().dispatch({
             tag: 'Resume',
             nowMs: Date.now(),
           });

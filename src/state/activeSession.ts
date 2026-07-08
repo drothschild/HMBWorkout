@@ -4,9 +4,17 @@ import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
 import { saveEngineState, clearEngineState } from '@/db/engineState';
-import { database } from '@/db';
-import { createRestTimerExecutor } from '@/engine/executors/restTimer';
-import { createRealNotificationApis, getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
+
+// Defer import until needed to avoid loading database singleton at module load time
+let database: Database | null = null;
+
+function getDatabase(): Database {
+  if (!database) {
+    const mod = require('@/db');
+    database = mod.database as Database;
+  }
+  return database as Database;
+}
 
 /**
  * Active session store state
@@ -74,17 +82,17 @@ export function createActiveSessionStore(
       });
     },
 
-    // Real rest timer executors (wired from restTimer.ts)
-    ...(overrideExecutors?.onScheduleRest || overrideExecutors?.onCancelRest ? {} : (() => {
-      // Create real executor only if not overridden
-      const notificationApis = createRealNotificationApis();
-      const restTimerExecutor = createRestTimerExecutor(notificationApis);
-      return {
-        onScheduleRest: restTimerExecutor.onScheduleRest,
-        onCancelRest: restTimerExecutor.onCancelRest,
-        onNotify: restTimerExecutor.onNotify,
-      };
-    })()),
+    async onScheduleRest(deadlineMs: number) {
+      // No-op by default; wired with real executor in app bootstrap
+    },
+
+    async onCancelRest() {
+      // No-op by default; wired with real executor in app bootstrap
+    },
+
+    async onNotify(message: string) {
+      // No-op by default; wired with real executor in app bootstrap
+    },
 
     async onCompleteSession(summary: unknown) {
       if (!currentSessionState) return;
@@ -162,7 +170,65 @@ export function createActiveSessionStore(
 }
 
 /**
- * Global active session store instance
- * Created with the database singleton
+ * Global active session store instance.
+ * Initialized lazily on first use to avoid importing database at module load time.
+ * This allows tests to import and use the factory without triggering SQLiteAdapter.
  */
-export const activeSessionStore = createActiveSessionStore(database);
+let globalStore: ReturnType<typeof createActiveSessionStore> | null = null;
+
+/**
+ * Get or create the global active session store.
+ * On first call, creates the store with the database singleton.
+ * Subsequent calls return the same instance.
+ */
+export function getActiveSessionStore(): ReturnType<typeof createActiveSessionStore> {
+  if (!globalStore) {
+    globalStore = createActiveSessionStore(getDatabase());
+  }
+  return globalStore;
+}
+
+/**
+ * Proxy for the global active session store.
+ * Supports both function calls (with selectors) and property/method access.
+ *
+ * Usage:
+ *   activeSessionStore((state) => state.sessionState)  // selector call
+ *   activeSessionStore.getState()                       // method access
+ *   activeSessionStore.dispatch({tag: 'LogSet'})        // method access
+ */
+export const activeSessionStore = new Proxy(getActiveSessionStore as any, {
+  apply(target, thisArg, args: any[]) {
+    // When called as a function with a selector
+    return getActiveSessionStore()(args[0]);
+  },
+  get(target, prop: string | symbol) {
+    // When accessing properties/methods
+    if (prop === 'getState' || prop === 'setState' || prop === 'subscribe' || prop === 'hydrate' || prop === 'dispatch') {
+      return (getActiveSessionStore() as any)[prop];
+    }
+    return undefined;
+  },
+}) as any as ReturnType<typeof createActiveSessionStore>;
+
+/**
+ * Inject real executors into the global store.
+ * Called from app bootstrap (_layout.tsx) to wire production notification APIs.
+ *
+ * @param executors The real executors to inject (e.g., rest timer, notifications)
+ */
+export function injectRealExecutors(executors: Partial<EffectExecutors>): void {
+  const store = getActiveSessionStore();
+  // Recreate store with real executors
+  const newStore = createActiveSessionStore(getDatabase(), executors);
+
+  // Copy the new dispatch to the existing store instance
+  const newState = newStore.getState();
+  store.setState((state) => ({
+    ...state,
+    dispatch: newState.dispatch,
+  }));
+
+  // Update global reference
+  globalStore = newStore;
+}
