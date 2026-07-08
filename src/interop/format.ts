@@ -1,6 +1,10 @@
 /**
  * Interop format contract: types and shared parsing/formatting for serializer/parser.
  * Single source of truth to prevent drift between serializer and parser.
+ *
+ * SCOPE: Line-level flag parsing (rest, warmup, superset, kind, duration, rpe, set_type, weight, distance).
+ * Document-level frontmatter/block validation is in workout-bridge/src/contract.ts.
+ * Both files share parseDuration() and ContractError — keep identical.
  */
 
 import { SetType } from '@/db/models/SessionSet';

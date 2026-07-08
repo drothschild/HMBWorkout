@@ -32,10 +32,14 @@ export interface SessionPresenterOutput {
 /**
  * Create a session presenter from state and dispatch.
  * Pure function - no hooks, no side effects, fully testable.
+ *
+ * @param progressionHint Optional progression hint (computed by store via progression_hint rule).
+ *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 2.5 kg").
  */
 export function createSessionPresenter(
   sessionState: SessionState,
-  dispatch: (event: Event) => Promise<SessionState | null>
+  dispatch: (event: Event) => Promise<SessionState | null>,
+  progressionHint?: string
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -48,7 +52,7 @@ export function createSessionPresenter(
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
     loggedSets: sessionState.loggedSets,
-    progressionHint: undefined, // TODO: fetch from DB in Phase 4 finalization
+    progressionHint,
 
     // Handlers dispatch events to the engine
     onLogSet: (values: SetInputValues) => {

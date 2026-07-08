@@ -483,5 +483,142 @@ describe('serialize', () => {
       expect(markdown).toContain('kind=stretch');
       expect(markdown).toContain('duration=0:30');
     });
+
+    test('serializeSession duration-only lines have no double space', () => {
+      const sessionRow = {
+        id: 'sess-006',
+        routineId: 'cardio-stretch',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+
+      const sets = [
+        {
+          routineExerciseId: 're-001',
+          setType: 'working' as const,
+          reps: undefined,
+          weightKg: undefined,
+          durationSeconds: 300,
+          rpe: undefined,
+          position: 0,
+        },
+        {
+          routineExerciseId: 're-002',
+          setType: 'working' as const,
+          reps: undefined,
+          weightKg: undefined,
+          durationSeconds: 30,
+          rpe: undefined,
+          position: 1,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-001',
+          exerciseId: 'cycling',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: undefined,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+        {
+          id: 're-002',
+          exerciseId: 'chest-stretch',
+          order: 1,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: undefined,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        { id: 'cycling', title: 'Cycling', kind: 'cardio' as const },
+        { id: 'chest-stretch', title: 'Chest Stretch', kind: 'stretch' as const },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+
+      // Extract workout lines
+      const lines = markdown.split('\n');
+      const workoutLines = lines.filter(l => l.startsWith('- '));
+
+      // Check that duration-only lines do not have double space (e.g., ": " not ":  ")
+      for (const line of workoutLines) {
+        expect(line).not.toMatch(/:\s{2,}/);
+      }
+    });
+
+    test('serializeRoutine duration-only lines have no double space', () => {
+      const routineRow = {
+        id: 'cardio-routine',
+        name: 'Cardio',
+        notes: undefined,
+        createdAt: new Date('2026-06-01T00:00:00Z'),
+        updatedAt: new Date('2026-07-07T12:00:00Z'),
+      };
+
+      const exercises = [
+        {
+          id: 're-001',
+          exerciseId: 'cycling',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 300,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+        {
+          id: 're-002',
+          exerciseId: 'chest-stretch',
+          order: 1,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 30,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exerciseData = [
+        { id: 'cycling', title: 'Cycling', kind: 'cardio' as const },
+        { id: 'chest-stretch', title: 'Chest Stretch', kind: 'stretch' as const },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        exercises as any,
+        exerciseData as any
+      );
+
+      // Extract workout lines
+      const lines = markdown.split('\n');
+      const workoutLines = lines.filter(l => l.startsWith('- '));
+
+      // Check that duration-only lines do not have double space (e.g., ": " not ":  ")
+      for (const line of workoutLines) {
+        expect(line).not.toMatch(/:\s{2,}/);
+      }
+    });
   });
 });

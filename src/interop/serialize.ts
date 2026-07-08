@@ -141,7 +141,9 @@ export function serializeSession(
       }
 
       const flagStr = flagParts.join(' ');
-      const line = `- ${re.exerciseId}: ${setDesc} ${flagStr}`.trim();
+      // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
+      const parts = [setDesc, flagStr].filter(p => p);
+      const line = `- ${re.exerciseId}: ${parts.join(' ')}`;
       workoutLines.push(line);
     }
   }
@@ -246,7 +248,9 @@ export function serializeRoutine(
     }
 
     const flagStr = formatFlags(flags);
-    const line = `- ${re.exerciseId}: ${setDesc} ${flagStr}`.trim();
+    // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
+    const parts = [setDesc, flagStr].filter(p => p);
+    const line = `- ${re.exerciseId}: ${parts.join(' ')}`;
     workoutLines.push(line);
   }
 
