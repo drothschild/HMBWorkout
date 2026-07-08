@@ -176,6 +176,64 @@ export async function getSessionSets(
 }
 
 /**
+ * Get all working-type sets for an exercise across all sessions (prior history).
+ * Used for progression hint evaluation: rules compute hints based on prior working sets,
+ * not current-session sets.
+ *
+ * Phase 4 Task 3: Query prior working sets by exercise ID, excluding warmups and other set types.
+ * Returns sets ordered by session_id descending (most recent sessions first) then by position.
+ *
+ * @param database The database instance
+ * @param exerciseId The exercise ID to query
+ * @returns Array of working-type session sets for this exercise, from all prior sessions
+ */
+export async function getExerciseWorkingSetHistory(
+  database: Database,
+  exerciseId: string
+): Promise<SessionSet[]> {
+  const sessionSetsTable = database.get('session_sets');
+  const routineExercisesTable = database.get('routine_exercises');
+
+  // Query all routine_exercises with this exerciseId
+  const routineExercises = (await routineExercisesTable
+    .query(Q.where('exercise_id', exerciseId))
+    .fetch()) as RoutineExercise[];
+
+  const routineExerciseIds = routineExercises.map((re) => (re as any).id);
+
+  if (routineExerciseIds.length === 0) {
+    // No routine_exercises for this exercise = no prior sets
+    return [];
+  }
+
+  // Query all sets for these routine_exercises, filtered to working type
+  const allSets = (await sessionSetsTable
+    .query(
+      Q.and(
+        Q.where('set_type', 'working'),
+        Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
+      )
+    )
+    .fetch()) as SessionSet[];
+
+  // Sort by session_id descending (most recent sessions first), then by position within session
+  allSets.sort((a, b) => {
+    const sessionIdA = (a as any)._raw.session_id || '';
+    const sessionIdB = (b as any)._raw.session_id || '';
+
+    if (sessionIdB !== sessionIdA) {
+      return sessionIdB.localeCompare(sessionIdA); // Most recent UUIDs first (reverse order)
+    }
+
+    const aPos = (a as any)._raw.position ?? 0;
+    const bPos = (b as any)._raw.position ?? 0;
+    return aPos - bPos;
+  });
+
+  return allSets;
+}
+
+/**
  * Upsert a routine exercise with structured properties (superset, warmup sets, duration target, etc).
  * Creates a new RoutineExercise or updates an existing one if already present for this routine+exercise.
  *

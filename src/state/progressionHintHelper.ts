@@ -1,6 +1,6 @@
 import { LoggedSet } from '@/engine/types';
 import { evaluateSource } from '@/engine/bridge';
-import progressionHintSource from '@/engine/rules/progression_hint.lv';
+import progressionHintSource from '../engine/rules/progression_hint.lv';
 
 /**
  * Compute progression hint for a strength exercise based on logged sets.

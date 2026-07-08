@@ -35,6 +35,12 @@ export function SetLogger({
         {presenter.currentEntry?.exerciseId || 'Exercise'}
       </ThemedText>
 
+      {!isDurationBased && presenter.progressionHint && (
+        <View style={styles.hintContainer}>
+          <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
+        </View>
+      )}
+
       {isDurationBased ? (
         <View style={styles.inputGroup}>
           <ThemedText>Duration (sec)</ThemedText>
@@ -141,6 +147,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: Spacing.three,
+  },
+  hintContainer: {
+    backgroundColor: '#E3F2FD',
+    borderLeftWidth: 4,
+    borderLeftColor: '#1976D2',
+    padding: Spacing.two,
+    marginVertical: Spacing.two,
+    borderRadius: 4,
+  },
+  hintText: {
+    color: '#1565C0',
+    fontWeight: '500',
   },
   inputGroup: {
     marginVertical: Spacing.two,
