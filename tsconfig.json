@@ -3,7 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "experimentalDecorators": true,
-    "useDefineForClassFields": false,
+    "skipLibCheck": true,
     "paths": {
       "@/*": [
         "./src/*"
@@ -18,5 +18,10 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
-  ]
+  ],
+  "ts-node": {
+    "compilerOptions": {
+      "strictPropertyInitialization": false
+    }
+  }
 }

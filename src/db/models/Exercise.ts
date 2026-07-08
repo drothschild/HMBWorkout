@@ -6,9 +6,9 @@ export type ExerciseKind = 'strength' | 'cardio' | 'stretch';
 export default class Exercise extends Model {
   static table = 'exercises';
 
-  @text('title') title!: string;
-  @text('kind') kind!: ExerciseKind;
+  @text('title') title: string;
+  @text('kind') kind: ExerciseKind;
   @text('muscle_group') muscleGroup?: string;
   @text('equipment') equipment?: string;
-  @readonly @date('created_at') createdAt!: Date;
+  @readonly @date('created_at') createdAt: Date;
 }
