@@ -46,7 +46,7 @@ export default function SessionScreen() {
         return;
       }
 
-      const currentEntry = sessionState.entries[sessionState.exerciseIndex];
+      const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
       if (!currentEntry || currentEntry.kind !== 'strength') {
         setProgressionHint(undefined);
         return;
@@ -77,7 +77,10 @@ export default function SessionScreen() {
     };
 
     computeHint();
-  }, [sessionState?.exerciseIndex, sessionState?.entries]);
+    // Recompute only when the current exercise changes (primitive dep — the
+    // hint is per-exercise; depending on the entries array reference re-ran it
+    // on every dispatch).
+  }, [sessionState?.exerciseIndex]);
 
   if (!sessionState) {
     return (

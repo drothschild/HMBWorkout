@@ -43,7 +43,7 @@ export function createSessionPresenter(
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
-  const currentEntry = sessionState.entries[sessionState.exerciseIndex];
+  const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
   const currentExerciseId = currentEntry?.exerciseId || '';
 
   return {
@@ -51,7 +51,7 @@ export function createSessionPresenter(
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
-    loggedSets: sessionState.loggedSets,
+    loggedSets: sessionState.loggedSets ?? [],
     progressionHint,
 
     // Handlers dispatch events to the engine
