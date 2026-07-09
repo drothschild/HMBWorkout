@@ -236,7 +236,9 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
           }
         }
       } catch (error) {
-        console.error('Failed to fetch routines for import:', error);
+        // Surfaced to the caller (and the Settings UI) via the thrown error;
+        // warn rather than error so a handled failure doesn't red-screen LogBox.
+        console.warn('Failed to fetch routines for import:', error);
         throw error;
       }
     },
