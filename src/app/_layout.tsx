@@ -10,6 +10,8 @@ import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
 import { loadActiveEngineState } from '@/db/engineState';
 import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
+import { loadSettings, injectSettingsStorage } from '@/state/settings';
+import { secureStorageBackend } from '@/storage/secureStorage';
 import * as Notifications from 'expo-notifications';
 import { createRestTimerExecutor } from '@/engine/executors/restTimer';
 import { createRealNotificationApis, getDefaultNotificationHandler } from '@/engine/executors/notificationApis';
@@ -48,6 +50,10 @@ export default function RootLayout() {
           onCancelRest: restTimerExecutor.onCancelRest,
           onNotify: restTimerExecutor.onNotify,
         });
+
+        // Inject storage backend and load settings (non-blocking)
+        injectSettingsStorage(secureStorageBackend);
+        await loadSettings();
 
         // Load and validate rules
         loadRules();
