@@ -104,7 +104,11 @@ export default function SettingsScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <ThemedText type="title" style={styles.title}>
             Settings
           </ThemedText>
@@ -262,12 +266,17 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
   },
+  scroll: {
+    width: '100%',
+  },
   content: {
+    // Child-layout props (alignItems/justifyContent/gap) must live on the
+    // ScrollView's contentContainerStyle, not its style.
     alignItems: 'stretch',
     justifyContent: 'flex-start',
-    width: '100%',
     gap: Spacing.four,
     paddingTop: Spacing.four,
+    paddingBottom: Spacing.four,
   },
   title: {
     textAlign: 'center',
