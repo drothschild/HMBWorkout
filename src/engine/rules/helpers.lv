@@ -3,13 +3,13 @@ import "types" as t
 -- Convert Phase to string for error messages
 rule phase_to_string(phase: Phase) -> String
 match phase {
-  | Idle -> "idle"
-  | Warmup -> "warmup"
-  | Working -> "working"
-  | Resting -> "resting"
-  | Stretching -> "stretching"
-  | Paused -> "paused"
-  | Done -> "done"
+  Idle -> "idle",
+  Warmup -> "warmup",
+  Working -> "working",
+  Resting -> "resting",
+  Stretching -> "stretching",
+  Paused -> "paused",
+  Done -> "done"
 }
 
 -- Validate set input: reps, weight, duration, RPE
@@ -18,16 +18,16 @@ rule validate_set(set: { reps: Option(Int), weightKg: Option(Float), durationSec
   -> Result(String)
 
 let valid_reps = match set.reps {
-  | None -> true
-  | Some(r) -> r >= 0
+  None -> true,
+  Some(r) -> r >= 0
 }
 let valid_weight = match set.weightKg {
-  | None -> true
-  | Some(w) -> w >= 0.0
+  None -> true,
+  Some(w) -> w >= 0.0
 }
 let valid_duration = match set.durationSeconds {
-  | None -> true
-  | Some(d) -> d >= 0
+  None -> true,
+  Some(d) -> d >= 0
 }
 
 let _ = require(valid_reps, "reps must be non-negative")?
@@ -36,8 +36,8 @@ let _ = require(valid_duration, "durationSeconds must be non-negative")?
 
 -- RPE validation: None (unset) or 1-10 in 0.5 steps
 let valid_rpe = match set.rpe {
-  | None -> true
-  | Some(r) -> (r >= 1.0 && r <= 10.0) && ((r * 2.0) % 1.0) == 0.0
+  None -> true,
+  Some(r) -> (r >= 1.0 && r <= 10.0) && ((r * 2.0) % 1.0) == 0.0
 }
 
 let _ = require(valid_rpe, "RPE must be unset or between 1.0 and 10.0 in 0.5-step increments")?
@@ -55,8 +55,8 @@ if (isLastExercise)
 then 0
 else (
   let sameSuperset = match (currentEntry.supersetGroup, nextEntry.supersetGroup) {
-    | (Some(curr), Some(next)) -> curr == next
-    | _ -> false
+    (Some(curr), Some(next)) -> curr == next,
+    _ -> false
   }
   if (sameSuperset)
   then 0
@@ -76,8 +76,8 @@ else (
   then "No working sets yet - establish a baseline"
   else (
     let high_rpe_sets = filter(fn(s) -> match s.rpe {
-      | Some(r) -> r > 8.0
-      | None -> false
+      Some(r) -> r > 8.0,
+      None -> false
     }, working_sets)
 
     if (length(high_rpe_sets) == 0)
