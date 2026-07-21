@@ -759,3 +759,57 @@ describe('engine: dispatch loop with effect executors', () => {
     });
   });
 });
+
+describe('engine: Stretching phase via StartStretching', () => {
+  it('enters stretching from working', async () => {
+    const executors = { onCancelRest: jest.fn() };
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({ phase: 'working', entries: makeRoutine(1).entries })
+    );
+
+    const newState = await engine.dispatch({ tag: 'StartStretching' } as Event);
+    expect(newState.phase).toBe('stretching');
+    expect(executors.onCancelRest).not.toHaveBeenCalled();
+  });
+
+  it('enters stretching from resting, cancels the pending rest', async () => {
+    const executors = { onCancelRest: jest.fn() };
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 99999,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    const newState = await engine.dispatch({ tag: 'StartStretching' } as Event);
+    expect(newState.phase).toBe('stretching');
+    expect(newState.restDeadlineMs).toBe(0); // sentinel for cleared deadline
+    expect(executors.onCancelRest).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects StartStretching from idle with the rule error', async () => {
+    const engine = createEngine({});
+    engine.setState(makeState({ phase: 'idle' }));
+
+    await expect(
+      engine.dispatch({ tag: 'StartStretching' } as Event)
+    ).rejects.toThrow(/invalid event StartStretching in phase idle/);
+  });
+
+  it('finishes the session from stretching', async () => {
+    const executors = { onCompleteSession: jest.fn(), onNotify: jest.fn() };
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({ phase: 'stretching', entries: makeRoutine(1).entries })
+    );
+
+    const newState = await engine.dispatch({
+      tag: 'FinishSession',
+      nowMs: 5000,
+    } as Event);
+    expect(newState.phase).toBe('done');
+  });
+});

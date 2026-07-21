@@ -26,6 +26,7 @@ export interface SessionPresenterOutput {
   onPause(): void;
   onResume(): void;
   onSkipExercise(): void;
+  onStartStretching(): void;
   onFinishSession(): void;
 }
 
@@ -88,6 +89,12 @@ export function createSessionPresenter(
     onSkipExercise: () => {
       dispatch({
         tag: 'SkipExercise',
+      });
+    },
+
+    onStartStretching: () => {
+      dispatch({
+        tag: 'StartStretching',
       });
     },
 

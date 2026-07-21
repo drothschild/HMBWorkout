@@ -138,6 +138,12 @@ export function SetLogger({
         <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipExercise()}>
           <ThemedText style={styles.buttonText}>Skip Exercise</ThemedText>
         </Pressable>
+
+        {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+          <Pressable style={[styles.button, styles.successButton]} onPress={() => presenter.onStartStretching()}>
+            <ThemedText style={styles.buttonText}>Stretch</ThemedText>
+          </Pressable>
+        )}
       </View>
     </ThemedView>
   );
