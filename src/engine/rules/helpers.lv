@@ -1,7 +1,7 @@
 import "types" as t
 
 -- Convert Phase to string for error messages
-rule phase_to_string(phase: t.Phase) -> String
+rule phase_to_string(phase: Phase) -> String
 match phase {
   | Idle -> "idle"
   | Warmup -> "warmup"
@@ -46,8 +46,8 @@ Ok("valid")
 
 -- Compute prescribed rest duration based on superset groups
 rule rest_duration(
-  currentEntry: t.RoutineEntry,
-  nextEntry: t.RoutineEntry,
+  currentEntry: RoutineEntry,
+  nextEntry: RoutineEntry,
   isLastExercise: Bool
 ) -> Int
 
@@ -85,3 +85,5 @@ else (
     else "Hold current weight - working harder than desired"
   )
 )
+
+0

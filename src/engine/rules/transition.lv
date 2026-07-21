@@ -1,10 +1,10 @@
 import "types" as t
 import "helpers" as h
 
-rule transition(state: t.SessionState, event: t.Event) -> Result(t.TransitionResult)
+rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 
-match event {
-  | StartSession(p) if state.phase == Idle -> (
+(match event {
+  StartSession(p) if state.phase == Idle -> (
       let entries = p.routine.entries
       let firstEntry = at(0, entries)?
       let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working
@@ -25,11 +25,9 @@ match event {
         },
         effects: [CreateSession({ sessionId: p.sessionId, routineId: p.routine.id, startedAtMs: p.nowMs })]
       })
-    )
-
-  | StartSession(p) -> Err("invalid event StartSession in phase " ++ h.phase_to_string(state.phase))
-
-  | LogSet(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+    ),
+  StartSession(p) -> Err("invalid event StartSession in phase " ++ h.phase_to_string(state.phase)),
+  LogSet(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
       let setInput = { reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe }
       let _ = h.validate_set(setInput)?
       let currentEntry = at(state.exerciseIndex, state.entries)?
@@ -42,11 +40,9 @@ match event {
         },
         effects: [PersistSet({ set: { exerciseId: currentEntry.exerciseId, setType: setType, reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe } })]
       })
-    )
-
-  | LogSet(p) -> Err("invalid event LogSet in phase " ++ h.phase_to_string(state.phase))
-
-  | SetDone(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+    ),
+  LogSet(p) -> Err("invalid event LogSet in phase " ++ h.phase_to_string(state.phase)),
+  SetDone(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
       let currentEntry = at(state.exerciseIndex, state.entries)?
       let isWarmup = state.setIndex < currentEntry.warmupSets
       let nextSetIndex = state.setIndex + 1
@@ -73,8 +69,8 @@ match event {
         else (
           let nextEntry = at(nextExerciseIndex, state.entries)?
           let sameSuperset = match (currentEntry.supersetGroup, nextEntry.supersetGroup) {
-            | (Some(c), Some(n)) -> c == n
-            | _ -> false
+            (Some(c), Some(n)) -> c == n,
+            _ -> false
           }
 
           if (sameSuperset)
@@ -98,12 +94,10 @@ match event {
           )
         )
       )
-    )
-
-  | SetDone(p) -> Err("invalid event SetDone in phase " ++ h.phase_to_string(state.phase))
-
-  | RestElapsed(p) if state.phase == Resting -> (
-      if (p.nowMs < match state.restDeadlineMs { | Some(d) -> d | None -> 0 })
+    ),
+  SetDone(p) -> Err("invalid event SetDone in phase " ++ h.phase_to_string(state.phase)),
+  RestElapsed(p) if state.phase == Resting -> (
+      if (p.nowMs < match state.restDeadlineMs { Some(d) -> d, None -> 0 })
       then Err("rest not elapsed")
       else (
         let currentPhase = if (length(state.entries) > 0) then Working else Idle
@@ -112,47 +106,39 @@ match event {
           effects: [CancelRest]
         })
       )
-    )
-
-  | RestElapsed(p) -> Err("invalid event RestElapsed in phase " ++ h.phase_to_string(state.phase))
-
-  | SkipExercise if state.phase != Idle && state.phase != Done -> (
+    ),
+  RestElapsed(p) -> Err("invalid event RestElapsed in phase " ++ h.phase_to_string(state.phase)),
+  SkipExercise if state.phase != Idle && state.phase != Done -> (
       Ok({
         state: { state | exerciseIndex: state.exerciseIndex + 1, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
         effects: []
       })
-    )
-
-  | SkipExercise -> Err("invalid event SkipExercise in phase " ++ h.phase_to_string(state.phase))
-
-  | PauseSession if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+    ),
+  SkipExercise -> Err("invalid event SkipExercise in phase " ++ h.phase_to_string(state.phase)),
+  PauseSession if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
       Ok({
         state: { state | phase: Paused, prePausePhase: Some(state.phase) },
         effects: []
       })
-    )
-
-  | PauseSession -> Err("invalid event PauseSession in phase " ++ h.phase_to_string(state.phase))
-
-  | Resume(p) if state.phase == Paused -> (
-      let deadline = match state.restDeadlineMs { | Some(d) -> d | None -> 0 }
+    ),
+  PauseSession -> Err("invalid event PauseSession in phase " ++ h.phase_to_string(state.phase)),
+  Resume(p) if state.phase == Paused -> (
+      let deadline = match state.restDeadlineMs { Some(d) -> d, None -> 0 }
       if (state.restDeadlineMs != None && p.nowMs >= deadline)
       then Ok({
-        state: { state | phase: (match state.prePausePhase { | Some(ph) -> ph | None -> Working }), restDeadlineMs: None, prePausePhase: None },
+        state: { state | phase: (match state.prePausePhase { Some(ph) -> ph, None -> Working }), restDeadlineMs: None, prePausePhase: None },
         effects: [CancelRest]
       })
       else (
-        let nextPhase = if (state.restDeadlineMs != None) then Resting else (match state.prePausePhase { | Some(ph) -> ph | None -> Working })
+        let nextPhase = if (state.restDeadlineMs != None) then Resting else (match state.prePausePhase { Some(ph) -> ph, None -> Working })
         Ok({
           state: { state | phase: nextPhase, prePausePhase: None },
           effects: []
         })
       )
-    )
-
-  | Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase))
-
-  | FinishSession(p) if state.phase != Idle && state.phase != Done -> (
+    ),
+  Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase)),
+  FinishSession(p) if state.phase != Idle && state.phase != Done -> (
       let effects = if (state.phase == Resting)
         then [CancelRest, CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: state.exerciseIndex, setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
         else [CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: state.exerciseIndex, setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
@@ -161,7 +147,6 @@ match event {
         state: { state | phase: Done, restDeadlineMs: None },
         effects: effects
       })
-    )
-
-  | FinishSession(p) -> Err("invalid event FinishSession in phase " ++ h.phase_to_string(state.phase))
-}
+    ),
+  FinishSession(p) -> Err("invalid event FinishSession in phase " ++ h.phase_to_string(state.phase))
+})
