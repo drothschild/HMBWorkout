@@ -1,7 +1,7 @@
 import "types" as t
 import "helpers" as h
 
-rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
+rule transition(state: SessionState, event: Event) -> Result({ state: SessionState, effects: List(Effect) })
 
 (match event {
   StartSession(p) if state.phase == Idle -> (

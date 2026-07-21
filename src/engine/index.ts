@@ -1,23 +1,21 @@
 /**
- * Engine host: dispatch loop with effect executors.
- * Runs the Rill transition rule, swaps state on Ok, preserves state on Err,
+ * Engine host: wraps rill-lang createEngine with HMBWorkout-specific executors.
+ * Runs the transition rule, swaps state on Ok, preserves state on Err,
  * handles executor failures in isolation.
  */
 
+import { createEngine as rillCreateEngine, TransitionError as RillTransitionError } from 'rill-lang';
 import { SessionState, Event, Effect, LoggedSet } from './types';
-import { evaluateSource } from './bridge';
-import { transitionCompositeSource } from './loadRules';
+
+// Import rule sources via Jest .lv transformer
+import typesSource from './rules/types.lv';
+import helpersSource from './rules/helpers.lv';
+import transitionSource from './rules/transition.lv';
 
 /**
- * TransitionError: typed error for transition failures.
- * Raised when transition rule returns Err or Rill evaluation fails.
+ * TransitionError: re-export from rill-lang for compatibility
  */
-export class TransitionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TransitionError';
-  }
-}
+export { TransitionError } from 'rill-lang';
 
 /**
  * Effect executors: one handler per Effect tag.
@@ -33,181 +31,235 @@ export interface EffectExecutors {
 }
 
 /**
+ * Convert TypeScript RoutineEntry to Rill format (removing idx, handling supersetGroup as Option).
+ */
+function toRillRoutineEntry(entry: any): any {
+  return {
+    exerciseId: entry.exerciseId,
+    kind: entry.kind,
+    warmupSets: entry.warmupSets,
+    targetSets: entry.targetSets,
+    targetReps: entry.targetReps,
+    targetDurationSeconds: entry.targetDurationSeconds,
+    restSeconds: entry.restSeconds,
+    supersetGroup: entry.supersetGroup === '' || !entry.supersetGroup ? undefined : entry.supersetGroup,
+  };
+}
+
+/**
+ * Convert TypeScript SessionState (with string phase) to Rill format (with tag-based phase).
+ */
+function toRillState(tsState: SessionState): any {
+  return {
+    sessionId: tsState.sessionId,
+    routineId: tsState.routineId,
+    phase: { tag: tsState.phase.charAt(0).toUpperCase() + tsState.phase.slice(1) },
+    exerciseIndex: tsState.exerciseIndex,
+    setIndex: tsState.setIndex,
+    supersetPosition: tsState.supersetPosition || 0,
+    prePausePhase:
+      tsState.prePausePhase === undefined || tsState.prePausePhase === ''
+        ? undefined
+        : { tag: tsState.prePausePhase.charAt(0).toUpperCase() + tsState.prePausePhase.slice(1) },
+    restDeadlineMs: (tsState.restDeadlineMs === undefined || tsState.restDeadlineMs === 0) ? undefined : tsState.restDeadlineMs,
+    loggedSets: tsState.loggedSets.map(set => ({
+      ...set,
+      rpe: set.rpe === -1.0 || set.rpe === undefined ? undefined : set.rpe,
+    })),
+    lastLoggedSet: tsState.lastLoggedSet ? {
+      ...tsState.lastLoggedSet,
+      rpe: tsState.lastLoggedSet.rpe === -1.0 || tsState.lastLoggedSet.rpe === undefined ? undefined : tsState.lastLoggedSet.rpe,
+    } : undefined,
+    startedAtMs: tsState.startedAtMs,
+    entries: tsState.entries.map(toRillRoutineEntry),
+  };
+}
+
+/**
+ * Convert Rill SessionState back to TypeScript format.
+ */
+function fromRillState(rillState: any): SessionState {
+  return {
+    sessionId: rillState.sessionId,
+    routineId: rillState.routineId,
+    phase: rillState.phase.tag.toLowerCase(),
+    exerciseIndex: rillState.exerciseIndex,
+    setIndex: rillState.setIndex,
+    supersetPosition: rillState.supersetPosition,
+    prePausePhase:
+      rillState.prePausePhase === undefined
+        ? undefined
+        : rillState.prePausePhase.tag.toLowerCase(),
+    restDeadlineMs: rillState.restDeadlineMs === undefined ? 0 : rillState.restDeadlineMs,
+    loggedSets: rillState.loggedSets.map((set: any) => ({
+      ...set,
+      rpe: set.rpe === undefined ? -1.0 : set.rpe,
+    })),
+    lastLoggedSet: rillState.lastLoggedSet ? {
+      ...rillState.lastLoggedSet,
+      rpe: rillState.lastLoggedSet.rpe === undefined ? -1.0 : rillState.lastLoggedSet.rpe,
+    } : undefined,
+    startedAtMs: rillState.startedAtMs,
+    entries: rillState.entries.map((entry: any, idx: number) => ({
+      idx,
+      exerciseId: entry.exerciseId,
+      kind: entry.kind,
+      warmupSets: entry.warmupSets,
+      targetSets: entry.targetSets,
+      targetReps: entry.targetReps,
+      targetDurationSeconds: entry.targetDurationSeconds,
+      restSeconds: entry.restSeconds,
+      supersetGroup: entry.supersetGroup === undefined ? '' : entry.supersetGroup,
+    })),
+  };
+}
+
+/**
  * Engine: dispatch-driven state machine.
  * createEngine(executors) -> { dispatch, getState, setState }
  */
 export function createEngine(executors: Partial<EffectExecutors>) {
-  let state: SessionState = {
+  let localState: SessionState | null = null;
+
+  // Create the resolver for the three bundled .lv sources
+  const resolver = (modulePath: string): string => {
+    if (modulePath === 'types') {
+      return typesSource;
+    } else if (modulePath === 'helpers') {
+      return helpersSource;
+    } else if (modulePath === 'transition') {
+      return transitionSource;
+    }
+    throw new Error(`Module not found: ${modulePath}`);
+  };
+
+  // Map executors from the old interface (onCreateSession, etc.) to rill-lang's
+  // executor keying (CreateSession, ScheduleRest, etc.)
+  const rillExecutors: Record<string, (payload: unknown) => void | Promise<void>> = {
+    CreateSession: (payload: unknown) => {
+      const p = payload as any;
+      return executors.onCreateSession?.({
+        sessionId: p.sessionId,
+        routineId: p.routineId,
+        startedAtMs: p.startedAtMs,
+      });
+    },
+    ScheduleRest: (payload: unknown) => {
+      return executors.onScheduleRest?.(payload as number);
+    },
+    CancelRest: () => {
+      return executors.onCancelRest?.();
+    },
+    Notify: (payload: unknown) => {
+      const p = payload as any;
+      return executors.onNotify?.(p.message);
+    },
+    PersistSet: (payload: unknown) => {
+      const p = payload as any;
+      return executors.onPersistSet?.(p.set);
+    },
+    CompleteSession: (payload: unknown) => {
+      const p = payload as any;
+      return executors.onCompleteSession?.(p.summary);
+    },
+  };
+
+  // Create the initial state in Rill format
+  const initialTsState: SessionState = {
     sessionId: '',
     routineId: '',
     phase: 'idle',
     exerciseIndex: 0,
     setIndex: 0,
+    supersetPosition: 0,
+    restDeadlineMs: undefined,
+    prePausePhase: undefined,
     loggedSets: [],
+    lastLoggedSet: undefined,
     startedAtMs: 0,
-    prePausePhase: '',
     entries: [],
   };
 
+  const initialRillState = toRillState(initialTsState);
+
+  // Create the rill engine
+  let rillEngine = rillCreateEngine({
+    resolve: resolver,
+    entry: 'transition',
+    initialState: initialRillState,
+    executors: rillExecutors,
+    onExecutorError: (err: unknown, effectTag: string) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Effect executor failed for ${effectTag}: ${message}`);
+    },
+  });
+
   /**
    * Set state: used for initialization before dispatch.
+   * Recreates the rill engine with the new state.
    */
   function setState(newState: SessionState) {
-    state = newState;
+    localState = newState;
+    const rillState = toRillState(newState);
+    // Recreate the rill engine with the new state
+    rillEngine = rillCreateEngine({
+      resolve: resolver,
+      entry: 'transition',
+      initialState: rillState,
+      executors: rillExecutors,
+      onExecutorError: (err: unknown, effectTag: string) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for ${effectTag}: ${message}`);
+      },
+    });
   }
 
   /**
    * Get state: returns current state.
    */
   function getState(): SessionState {
-    return state;
+    return localState || initialTsState;
   }
 
   /**
    * Dispatch: run transition, swap state on Ok, preserve on Err, run executors.
    */
-  async function dispatch(event: Event): Promise<SessionState> {
-    // Pre-index entries for StartSession events (required for Rill indexed lookups)
-    // Create a new event object to avoid mutating the caller's input
-    let processedEvent = event;
-    if (event.tag === 'StartSession' && event.routine) {
-      const routine = event.routine as any;
-      if (Array.isArray(routine.entries)) {
-        // Create a new routine with indexed entries, don't mutate the original
-        const indexedRoutine = {
-          ...routine,
-          entries: routine.entries.map((entry: any, idx: number) => ({
-            ...entry,
-            idx,
-          })),
+  function dispatch(event: Event): SessionState {
+    try {
+      // Convert event to Rill format
+      let rillEvent: any = event;
+
+      if (event.tag === 'LogSet') {
+        rillEvent = {
+          tag: 'LogSet',
+          reps: event.reps !== undefined ? event.reps : 0,
+          weightKg: event.weightKg !== undefined ? event.weightKg : 0.0,
+          durationSeconds: event.durationSeconds !== undefined ? event.durationSeconds : 0,
+          rpe: event.rpe !== undefined ? event.rpe : -1.0,
         };
-        // Create a new event with the indexed routine
-        processedEvent = {
-          ...event,
-          routine: indexedRoutine,
+      } else if (event.tag === 'StartSession') {
+        const routine = event.routine as any;
+        rillEvent = {
+          tag: 'StartSession',
+          sessionId: event.sessionId,
+          nowMs: event.nowMs,
+          routine: {
+            id: routine.id,
+            entries: routine.entries.map(toRillRoutineEntry),
+          },
         };
       }
+
+      // Dispatch with rill engine (which manages its own state internally)
+      const newRillState = rillEngine.dispatch(rillEvent);
+      const newTsState = fromRillState(newRillState);
+      localState = newTsState;
+      return newTsState;
+    } catch (err) {
+      // Re-throw as is; rill-lang already throws TransitionError
+      throw err;
     }
-
-    // Run transition rule with current state + event
-    const result = evaluateSource(transitionCompositeSource, { state, event: processedEvent });
-
-    // On evaluation failure or Err, keep prior state and throw TransitionError
-    if (!result.success) {
-      throw new TransitionError(`Transition evaluation failed: ${result.error}`);
-    }
-
-    const value = result.value as any;
-    if (value.tag === 'Err') {
-      // Err result: preserve state, throw error, zero executors
-      throw new TransitionError(`Transition error: ${value.value}`);
-    }
-
-    // Ok result: extract new state + uniform effects from Rill
-    const { state: newState, effects: uniformEffects } = value.value as {
-      state: SessionState;
-      effects: Array<{ kind: string; deadline_ms: number; message: string }>
-    };
-
-    // Swap state first, then run executors
-    state = newState;
-
-    // Process persist_set effects: append lastLoggedSet to loggedSets
-    if (newState.lastLoggedSet) {
-      for (const ue of uniformEffects) {
-        if (ue.kind === 'persist_set') {
-          state.loggedSets = [...state.loggedSets, newState.lastLoggedSet];
-          break;
-        }
-      }
-    }
-
-    // Map uniform effects from Rill to typed Effects, then run executors
-    const typedEffects: Effect[] = uniformEffects.map((ue) => mapUniformEffect(ue, state, processedEvent));
-
-    for (const effect of typedEffects) {
-      try {
-        await runEffect(effect, executors);
-      } catch (err: unknown) {
-        // Log and isolate executor failure; state stays swapped
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`Effect executor failed for ${effect.tag}: ${message}`);
-        // Continue to next executor
-      }
-    }
-
-    return state;
   }
 
   return { dispatch, getState, setState };
-}
-
-/**
- * Map uniform effect from Rill to typed Effect discriminated union.
- * Rill returns { kind: string, deadline_ms: number, message: string } (uniform schema).
- * Host converts to the full typed Effect with payloads extracted from state or effect fields.
- */
-function mapUniformEffect(uniformEffect: { kind: string; deadline_ms: number; message: string }, state: SessionState, event?: Event): Effect {
-  switch (uniformEffect.kind) {
-    case 'create_session':
-      return { tag: 'CreateSession', sessionId: state.sessionId, routineId: state.routineId, startedAtMs: state.startedAtMs };
-    case 'schedule_rest':
-      return { tag: 'ScheduleRest', deadlineMs: uniformEffect.deadline_ms };
-    case 'cancel_rest':
-      return { tag: 'CancelRest' };
-    case 'notify':
-      return { tag: 'Notify', message: uniformEffect.message };
-    case 'persist_set':
-      // Extract the last logged set (the one just added)
-      const lastSet = state.loggedSets[state.loggedSets.length - 1];
-      return { tag: 'PersistSet', set: lastSet };
-    case 'complete_session':
-      // Summary: includes start/end times and logged sets for HealthKit write
-      // Use endMs from event.nowMs whenever available (all completion events carry nowMs)
-      let endMs = state.startedAtMs; // fallback (should not reach here)
-      if (event && 'nowMs' in event) {
-        endMs = (event as any).nowMs;
-      }
-      return {
-        tag: 'CompleteSession',
-        summary: {
-          startMs: state.startedAtMs,
-          endMs,
-          exercisesCompleted: state.exerciseIndex,
-          setsLogged: state.loggedSets.length,
-          loggedSets: state.loggedSets,
-        },
-      };
-    default:
-      // Fallback for unknown kinds
-      return { tag: 'Notify', message: 'unknown effect' };
-  }
-}
-
-/**
- * Run a single effect by dispatching to the appropriate executor.
- */
-async function runEffect(effect: Effect, executors: Partial<EffectExecutors>) {
-  if (effect.tag === 'CreateSession') {
-    const payload = effect as any;
-    await executors.onCreateSession?.({
-      sessionId: payload.sessionId,
-      routineId: payload.routineId,
-      startedAtMs: payload.startedAtMs,
-    });
-  } else if (effect.tag === 'ScheduleRest') {
-    const payload = effect as any;
-    await executors.onScheduleRest?.(payload.deadlineMs);
-  } else if (effect.tag === 'CancelRest') {
-    await executors.onCancelRest?.();
-  } else if (effect.tag === 'Notify') {
-    const payload = effect as any;
-    await executors.onNotify?.(payload.message);
-  } else if (effect.tag === 'PersistSet') {
-    const payload = effect as any;
-    await executors.onPersistSet?.(payload.set);
-  } else if (effect.tag === 'CompleteSession') {
-    const payload = effect as any;
-    await executors.onCompleteSession?.(payload.summary);
-  }
 }
