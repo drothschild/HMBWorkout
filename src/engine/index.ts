@@ -88,7 +88,7 @@ function fromRillState(rillState: any): SessionState {
     supersetPosition: rillState.supersetPosition,
     prePausePhase:
       rillState.prePausePhase === undefined
-        ? undefined
+        ? ''
         : rillState.prePausePhase.tag.toLowerCase(),
     restDeadlineMs: rillState.restDeadlineMs === undefined ? 0 : rillState.restDeadlineMs,
     loggedSets: rillState.loggedSets.map((set: any) => ({
@@ -148,7 +148,8 @@ export function createEngine(executors: Partial<EffectExecutors>) {
       });
     },
     ScheduleRest: (payload: unknown) => {
-      return executors.onScheduleRest?.(payload as number);
+      const p = payload as any;
+      return executors.onScheduleRest?.(p.deadlineMs);
     },
     CancelRest: () => {
       return executors.onCancelRest?.();
@@ -228,7 +229,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
    * Dispatch: run transition, swap state on Ok, preserve on Err, run executors.
    * Converts events and state to/from Rill format transparently.
    */
-  function dispatch(event: Event): SessionState {
+  async function dispatch(event: Event): Promise<SessionState> {
     try {
       // Convert event to Rill format
       const e = event as any;
@@ -238,29 +239,33 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'StartSession':
           rillEvent = {
             tag: 'StartSession',
-            sessionId: e.sessionId,
-            nowMs: e.nowMs,
-            routine: {
-              id: e.routine.id,
-              entries: e.routine.entries.map(toRillRoutineEntry),
+            value: {
+              sessionId: e.sessionId,
+              nowMs: e.nowMs,
+              routine: {
+                id: e.routine.id,
+                entries: e.routine.entries.map(toRillRoutineEntry),
+              },
             },
           };
           break;
         case 'LogSet':
-          // LogSet: pass through Option fields as-is (undefined for None)
+          // LogSet: convert sentinels to undefined for Rill Option types
           rillEvent = {
             tag: 'LogSet',
-            reps: e.reps,
-            weightKg: e.weightKg,
-            durationSeconds: e.durationSeconds,
-            rpe: e.rpe,
+            value: {
+              reps: e.reps === 0 ? undefined : e.reps,
+              weightKg: e.weightKg === 0.0 ? undefined : e.weightKg,
+              durationSeconds: e.durationSeconds === 0 ? undefined : e.durationSeconds,
+              rpe: e.rpe === -1.0 ? undefined : e.rpe,
+            },
           };
           break;
         case 'SetDone':
-          rillEvent = { tag: 'SetDone', nowMs: e.nowMs };
+          rillEvent = { tag: 'SetDone', value: { nowMs: e.nowMs } };
           break;
         case 'RestElapsed':
-          rillEvent = { tag: 'RestElapsed', nowMs: e.nowMs };
+          rillEvent = { tag: 'RestElapsed', value: { nowMs: e.nowMs } };
           break;
         case 'SkipExercise':
           rillEvent = { tag: 'SkipExercise' };
@@ -269,10 +274,10 @@ export function createEngine(executors: Partial<EffectExecutors>) {
           rillEvent = { tag: 'PauseSession' };
           break;
         case 'Resume':
-          rillEvent = { tag: 'Resume', nowMs: e.nowMs };
+          rillEvent = { tag: 'Resume', value: { nowMs: e.nowMs } };
           break;
         case 'FinishSession':
-          rillEvent = { tag: 'FinishSession', nowMs: e.nowMs };
+          rillEvent = { tag: 'FinishSession', value: { nowMs: e.nowMs } };
           break;
         default:
           throw new Error(`Unknown event tag: ${e.tag}`);

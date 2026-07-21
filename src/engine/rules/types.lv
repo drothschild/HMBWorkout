@@ -10,7 +10,7 @@ alias RoutineEntry = { exerciseId: String, kind: String, warmupSets: Int, target
 alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List(LoggedSet) }
 
 -- Now define types that depend on the above aliases
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List(RoutineEntry), id: String } }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: Option(String) }), id: String } }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
 
 type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: LoggedSet }) | CompleteSession({ summary: SessionSummary })
 
