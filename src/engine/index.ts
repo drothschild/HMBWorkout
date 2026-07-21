@@ -121,9 +121,12 @@ function fromRillState(rillState: any): SessionState {
 export function createEngine(executors: Partial<EffectExecutors>) {
   let localState: SessionState | null = null;
 
-  // Create the resolver for the three bundled .lv sources
+  // Create the resolver for the bundled .lv sources
+  // Note: transition.lv inlines type definitions; helpers.lv is used for utility functions
   const resolver = (modulePath: string): string => {
     if (modulePath === 'types') {
+      // types.lv is NOT imported by transition.lv anymore (types are inlined)
+      // but we keep this for potential future use
       return typesSource;
     } else if (modulePath === 'helpers') {
       return helpersSource;
@@ -223,31 +226,56 @@ export function createEngine(executors: Partial<EffectExecutors>) {
 
   /**
    * Dispatch: run transition, swap state on Ok, preserve on Err, run executors.
+   * Converts events and state to/from Rill format transparently.
    */
   function dispatch(event: Event): SessionState {
     try {
       // Convert event to Rill format
-      let rillEvent: any = event;
+      const e = event as any;
+      let rillEvent: any;
 
-      if (event.tag === 'LogSet') {
-        rillEvent = {
-          tag: 'LogSet',
-          reps: event.reps !== undefined ? event.reps : 0,
-          weightKg: event.weightKg !== undefined ? event.weightKg : 0.0,
-          durationSeconds: event.durationSeconds !== undefined ? event.durationSeconds : 0,
-          rpe: event.rpe !== undefined ? event.rpe : -1.0,
-        };
-      } else if (event.tag === 'StartSession') {
-        const routine = event.routine as any;
-        rillEvent = {
-          tag: 'StartSession',
-          sessionId: event.sessionId,
-          nowMs: event.nowMs,
-          routine: {
-            id: routine.id,
-            entries: routine.entries.map(toRillRoutineEntry),
-          },
-        };
+      switch (e.tag) {
+        case 'StartSession':
+          rillEvent = {
+            tag: 'StartSession',
+            sessionId: e.sessionId,
+            nowMs: e.nowMs,
+            routine: {
+              id: e.routine.id,
+              entries: e.routine.entries.map(toRillRoutineEntry),
+            },
+          };
+          break;
+        case 'LogSet':
+          // LogSet: pass through Option fields as-is (undefined for None)
+          rillEvent = {
+            tag: 'LogSet',
+            reps: e.reps,
+            weightKg: e.weightKg,
+            durationSeconds: e.durationSeconds,
+            rpe: e.rpe,
+          };
+          break;
+        case 'SetDone':
+          rillEvent = { tag: 'SetDone', nowMs: e.nowMs };
+          break;
+        case 'RestElapsed':
+          rillEvent = { tag: 'RestElapsed', nowMs: e.nowMs };
+          break;
+        case 'SkipExercise':
+          rillEvent = { tag: 'SkipExercise' };
+          break;
+        case 'PauseSession':
+          rillEvent = { tag: 'PauseSession' };
+          break;
+        case 'Resume':
+          rillEvent = { tag: 'Resume', nowMs: e.nowMs };
+          break;
+        case 'FinishSession':
+          rillEvent = { tag: 'FinishSession', nowMs: e.nowMs };
+          break;
+        default:
+          throw new Error(`Unknown event tag: ${e.tag}`);
       }
 
       // Dispatch with rill engine (which manages its own state internally)

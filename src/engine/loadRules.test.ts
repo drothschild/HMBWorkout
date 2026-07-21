@@ -1,4 +1,5 @@
 import { loadRules, RuleLoadError } from './loadRules';
+import { checkRuleSource } from 'rill-lang';
 import { SessionState } from './types';
 
 describe('engine: loadRules', () => {
@@ -18,8 +19,7 @@ describe('engine: loadRules', () => {
       `;
 
       expect(() => {
-        const check = require('rill-lang').checkRuleSource;
-        const result = check(brokenSource);
+        const result = checkRuleSource(brokenSource);
         if (!result.ok) {
           throw new RuleLoadError('broken_rule', result.errors[0]);
         }
@@ -32,17 +32,49 @@ describe('engine: loadRules', () => {
         x + 1
       `;
 
-      try {
-        const check = require('rill-lang').checkRuleSource;
-        const result = check(brokenSource);
+      expect(() => {
+        const result = checkRuleSource(brokenSource);
         if (!result.ok) {
           throw new RuleLoadError('my_broken_rule', result.errors[0]);
         }
-      } catch (e) {
-        if (e instanceof RuleLoadError) {
-          expect(e.message).toContain('my_broken_rule');
+      }).toThrow(RuleLoadError);
+    });
+  });
+
+  describe('AC7.3: Exhaustiveness boot gate', () => {
+    it('rejects non-exhaustive match over Event union', () => {
+      // Doctored transition rule missing one Event constructor
+      const nonExhaustiveSource = `
+        import "types" as t
+
+        rule transition(state: SessionState, event: Event) -> Result({ state: SessionState, effects: List(Effect) })
+        match event {
+          StartSession(p) -> Ok({ state: state, effects: [] }),
+          LogSet(p) -> Ok({ state: state, effects: [] }),
+          SetDone(p) -> Ok({ state: state, effects: [] }),
+          RestElapsed(p) -> Ok({ state: state, effects: [] }),
+          SkipExercise -> Ok({ state: state, effects: [] }),
+          PauseSession -> Ok({ state: state, effects: [] }),
+          Resume(p) -> Ok({ state: state, effects: [] })
+          -- FinishSession intentionally omitted
         }
-      }
+      `;
+
+      const result = checkRuleSource(nonExhaustiveSource, {
+        resolve: (modulePath: string) => {
+          if (modulePath === 'types') {
+            return `type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }), id: String } }) | LogSet({ reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float } }) | CompleteSession({ summary: { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) } })
+alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Int, prePausePhase: String, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }), lastLoggedSet: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }, startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }) }
+true`;
+          }
+          throw new Error(`Module not found: ${modulePath}`);
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors[0]).toMatch(/missing|exhaustive|FinishSession/i);
     });
   });
 
