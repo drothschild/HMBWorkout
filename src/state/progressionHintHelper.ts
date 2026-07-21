@@ -1,6 +1,6 @@
 import { LoggedSet } from '@/engine/types';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+// Rule source inlined at build time via babel-plugin-inline-import (same as loadRules.ts)
+import progressionHintSource from '../rill/progressionHint.lv';
 import { lex, parseProgram, evaluate, createPrelude, checkRuleSource, rillToJs, Value, RuleHeader } from 'rill-lang';
 
 // Cache for the progression hint rule header
@@ -94,8 +94,7 @@ export function computeProgressionHint(currentExerciseId: string, loggedSets: Lo
   }
 
   try {
-    const ruleFilePath = join(__dirname, '..', 'rill', 'progressionHint.lv');
-    const source = readFileSync(ruleFilePath, 'utf-8');
+    const source = progressionHintSource;
 
     // Cache the rule header (checkRuleSource once at load time)
     if (progressionHintHeader === undefined) {
