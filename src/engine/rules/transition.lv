@@ -126,6 +126,17 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
       })
     ),
   PauseSession -> Err("invalid event PauseSession in phase " ++ h.phase_to_string(state.phase)),
+  StartStretching if state.phase == Working || state.phase == Resting -> (
+      let effects = match state.restDeadlineMs {
+        Some(d) -> [CancelRest],
+        None -> []
+      }
+      Ok({
+        state: { state | phase: Stretching, restDeadlineMs: None },
+        effects: effects
+      })
+    ),
+  StartStretching -> Err("invalid event StartStretching in phase " ++ h.phase_to_string(state.phase)),
   Resume(p) if state.phase == Paused -> (
       let deadline = match state.restDeadlineMs { Some(d) -> d, None -> 0 }
       if (state.restDeadlineMs != None && p.nowMs >= deadline)

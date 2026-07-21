@@ -7,6 +7,7 @@ let phase_to_string = fn(phase) -> (
     Warmup -> "warmup",
     Working -> "working",
     Resting -> "resting",
+  Stretching -> "stretching",
     Paused -> "paused",
     Done -> "done"
   }
