@@ -89,6 +89,9 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     // Verify state transitioned to done
     expect(result?.phase).toBe('done');
 
+    // Flush microtasks to allow async HealthKit write to complete
+    await new Promise((resolve) => setImmediate(resolve));
+
     // Verify saveWorkoutSample was called (checked in spy callback above)
     expect(saveWorkoutSampleSpy).toHaveBeenCalled();
   });
@@ -163,6 +166,9 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       // State should still transition to done
       expect(result?.phase).toBe('done');
 
+      // Flush microtasks to allow async HealthKit write to complete
+      await new Promise((resolve) => setImmediate(resolve));
+
       // Verify HealthKit was attempted (threw, but isolated)
       expect(saveWorkoutSampleSpy).toHaveBeenCalled();
 
@@ -174,7 +180,7 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       // Verify sync was called (fire-and-forget)
       expect(syncSpy).toHaveBeenCalled();
 
-      // Flush microtasks to catch any late-arriving promise rejections
+      // Flush microtasks again to catch any late-arriving promise rejections
       await new Promise((resolve) => setImmediate(resolve));
 
       // Verify no unhandledRejection fired

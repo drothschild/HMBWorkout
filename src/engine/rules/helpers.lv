@@ -1,0 +1,61 @@
+import "types" as t
+
+-- Convert Phase to string for error messages
+let phase_to_string = fn(phase) -> (
+  match phase {
+    Idle -> "idle",
+    Warmup -> "warmup",
+    Working -> "working",
+    Resting -> "resting",
+    Paused -> "paused",
+    Done -> "done"
+  }
+)
+
+-- Validate set input: reps, weight, duration, RPE
+-- Returns Ok("valid") or Err(reason)
+let validate_set = fn(set) -> (
+  let valid_reps = match set.reps {
+    None -> true,
+    Some(r) -> r >= 0
+  }
+  let valid_weight = match set.weightKg {
+    None -> true,
+    Some(w) -> w >= 0.0
+  }
+  let valid_duration = match set.durationSeconds {
+    None -> true,
+    Some(d) -> d >= 0
+  }
+
+  let _ = require(valid_reps, "reps must be non-negative")?
+  let _ = require(valid_weight, "weightKg must be non-negative")?
+  let _ = require(valid_duration, "durationSeconds must be non-negative")?
+
+  -- RPE validation: None (unset) or 1-10 in 0.5 steps
+  let valid_rpe = match set.rpe {
+    None -> true,
+    Some(r) -> (r >= 1.0 && r <= 10.0) && ((r * 2.0) % 1.0) == 0.0
+  }
+
+  let _ = require(valid_rpe, "RPE must be unset or between 1.0 and 10.0 in 0.5-step increments")?
+
+  Ok("valid")
+)
+
+-- Compute prescribed rest duration based on superset groups (curried for 3 args)
+let rest_duration = fn(currentEntry) -> fn(nextEntry) -> fn(isLastExercise) -> (
+  if (isLastExercise)
+  then 0
+  else (
+    let sameSuperset = match (currentEntry.supersetGroup, nextEntry.supersetGroup) {
+      (Some(curr), Some(next)) -> curr == next,
+      _ -> false
+    }
+    if (sameSuperset)
+    then 0
+    else currentEntry.restSeconds
+  )
+)
+
+0

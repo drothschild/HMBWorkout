@@ -22,10 +22,10 @@ export interface RoutineEntry {
 export interface LoggedSet {
   exerciseId: string;
   setType: SetType;
-  reps: number | null;
-  weightKg: number | null;
-  durationSeconds: number | null;
-  rpe: number | null;
+  reps: number | null | undefined;
+  weightKg: number | null | undefined;
+  durationSeconds: number | null | undefined;
+  rpe: number | null | undefined;
 }
 
 /**
