@@ -52,7 +52,6 @@ describe('Rules load gate', () => {
     expect(helpersSource).toContain('let phase_to_string = fn');
     expect(helpersSource).toContain('let validate_set = fn');
     expect(helpersSource).toContain('let rest_duration = fn');
-    expect(helpersSource).toContain('let progression_hint = fn');
 
     // Should end with trailing expression
     expect(helpersSource.trim()).toMatch(/\n0\s*$/);

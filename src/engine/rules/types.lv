@@ -1,6 +1,6 @@
 -- HMBWorkout engine types: phases, events, effects, and state structure
 
-type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
+type Phase = Idle | Warmup | Working | Resting | Paused | Done
 
 -- Aliases with dependencies must be defined before types that use them
 alias LoggedSet = { exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }

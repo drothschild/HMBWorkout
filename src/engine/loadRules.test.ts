@@ -11,6 +11,26 @@ describe('engine: loadRules', () => {
       }).not.toThrow();
     });
 
+    it('loadRules() throws RuleLoadError on broken bundled source', () => {
+      // Spy on checkRuleSource and mock it to return an error for transition rule
+      const mockCheckRuleSource = jest.spyOn(require('rill-lang'), 'checkRuleSource');
+      mockCheckRuleSource.mockReturnValue({
+        ok: false,
+        errors: ['Transition rule has a type error: missing match arm'],
+      });
+
+      // Verify loadRules() throws RuleLoadError with 'transition' in message
+      expect(() => {
+        loadRules();
+      }).toThrow(RuleLoadError);
+
+      expect(() => {
+        loadRules();
+      }).toThrow(/transition/);
+
+      mockCheckRuleSource.mockRestore();
+    });
+
     it('throws RuleLoadError when a rule has a type error', () => {
       // Test with a deliberately broken rule source
       const brokenSource = `
@@ -74,7 +94,8 @@ true`;
       });
 
       expect(result.ok).toBe(false);
-      expect(result.errors[0]).toMatch(/missing|exhaustive|FinishSession/i);
+      expect(result.errors[0]).toMatch(/missing/i);
+      expect(result.errors[0]).toMatch(/FinishSession/);
     });
   });
 

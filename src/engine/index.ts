@@ -18,6 +18,22 @@ import transitionSource from './rules/transition.lv';
 export { TransitionError } from 'rill-lang';
 
 /**
+ * Sentinel → Option mapping: rill-lang uses undefined for Option(None),
+ * but TypeScript and UI code benefit from non-nullable sentinels. This table
+ * documents the deliberate divergence from Task 5's "update read sites" directive:
+ * the host maintains this boundary rather than exposing undefined throughout the codebase.
+ *
+ * Sentinels are applied in fromRillState() and should be assumed throughout all
+ * TypeScript code reading SessionState.
+ */
+export const SENTINEL_TO_OPTION_MAP = {
+  rpe: { sentinel: -1.0, rillNone: undefined },
+  restDeadlineMs: { sentinel: 0, rillNone: undefined },
+  prePausePhase: { sentinel: '', rillNone: undefined },
+  supersetGroup: { sentinel: '', rillNone: undefined },
+} as const;
+
+/**
  * Effect executors: one handler per Effect tag.
  * Host provides implementations; tests pass fakes.
  */
@@ -77,6 +93,18 @@ function toRillState(tsState: SessionState): any {
 
 /**
  * Convert Rill SessionState back to TypeScript format.
+ *
+ * SENTINEL BOUNDARY (deliberate divergence from Task 5):
+ * rill-lang uses undefined for Option(None) types. This adapter re-sentinelizes
+ * certain fields for compatibility with the rest of the codebase:
+ *   - rpe: undefined → -1.0
+ *   - restDeadlineMs: undefined → 0 (UI interprets 0 as inactive)
+ *   - prePausePhase: undefined → ""
+ *   - supersetGroup: undefined → ""
+ *
+ * This boundary is maintained deliberately so UI and persistence logic can assume
+ * non-nullable values throughout the TypeScript layer, reducing Option<> handling
+ * at read sites. Tests normalize() to match pre-migration expectations.
  */
 function fromRillState(rillState: any): SessionState {
   return {

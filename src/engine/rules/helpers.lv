@@ -7,7 +7,6 @@ let phase_to_string = fn(phase) -> (
     Warmup -> "warmup",
     Working -> "working",
     Resting -> "resting",
-    Stretching -> "stretching",
     Paused -> "paused",
     Done -> "done"
   }
@@ -56,28 +55,6 @@ let rest_duration = fn(currentEntry) -> fn(nextEntry) -> fn(isLastExercise) -> (
     if (sameSuperset)
     then 0
     else currentEntry.restSeconds
-  )
-)
-
--- Simple v1 progression heuristic based on recent set history
-let progression_hint = fn(history) -> (
-  if (length(history) == 0)
-  then "No history yet - establish a baseline"
-  else (
-    let working_sets = filter(fn(s) -> s.setType == "working", history)
-
-    if (length(working_sets) == 0)
-    then "No working sets yet - establish a baseline"
-    else (
-      let high_rpe_sets = filter(fn(s) -> match s.rpe {
-        Some(r) -> r > 8.0,
-        None -> false
-      }, working_sets)
-
-      if (length(high_rpe_sets) == 0)
-      then "Increase weight by 2.5 kg - hitting target with room in RPE"
-      else "Hold current weight - working harder than desired"
-    )
   )
 )
 
