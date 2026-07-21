@@ -79,7 +79,7 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
             effects: []
           })
           else (
-            let restSeconds = h.rest_duration(currentEntry, nextEntry, false)
+            let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
             let restDeadlineMs = p.nowMs + restSeconds * 1000
 
             if (restSeconds > 0)
