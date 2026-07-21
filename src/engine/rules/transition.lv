@@ -35,12 +35,14 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
       let currentEntry = at(state.exerciseIndex, state.entries)?
       let isWarmup = state.setIndex < currentEntry.warmupSets
       let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
+      let theSet = { exerciseId: currentEntry.exerciseId, setType: setType, reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe }
 
       Ok({
         state: { state |
-          lastLoggedSet: Some({ exerciseId: currentEntry.exerciseId, setType: setType, reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe })
+          loggedSets: append(state.loggedSets, [theSet]),
+          lastLoggedSet: Some(theSet)
         },
-        effects: [PersistSet({ set: { exerciseId: currentEntry.exerciseId, setType: setType, reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe } })]
+        effects: [PersistSet({ set: theSet })]
       })
     ),
   LogSet(p) -> Err("invalid event LogSet in phase " ++ h.phase_to_string(state.phase)),
