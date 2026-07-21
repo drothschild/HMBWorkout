@@ -89,6 +89,17 @@ export default function RootLayout() {
     );
   }
 
+  // Gate children on the rules check: screens (and the session store's engine
+  // construction) must not mount until loadRules() has passed, or a broken rule
+  // throws from engine construction before RuleErrorScreen can render.
+  if (!rulesLoaded) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AnimatedSplashOverlay />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <DatabaseProvider database={database}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
