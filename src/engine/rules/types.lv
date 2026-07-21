@@ -1,0 +1,8 @@
+type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
+
+type Event = StartSession | LogSet | SetDone | RestElapsed | SkipExercise | PauseSession | Resume | FinishSession
+
+type Effect = CreateSession | ScheduleRest | CancelRest | Notify | PersistSet | CompleteSession
+
+rule types_module() -> Bool
+true

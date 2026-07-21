@@ -1,0 +1,87 @@
+import "types" as t
+
+-- Convert Phase to string for error messages
+rule phase_to_string(phase: t.Phase) -> String
+match phase {
+  | Idle -> "idle"
+  | Warmup -> "warmup"
+  | Working -> "working"
+  | Resting -> "resting"
+  | Stretching -> "stretching"
+  | Paused -> "paused"
+  | Done -> "done"
+}
+
+-- Validate set input: reps, weight, duration, RPE
+-- Returns Ok("valid") or Err(reason)
+rule validate_set(set: { reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) })
+  -> Result(String)
+
+let valid_reps = match set.reps {
+  | None -> true
+  | Some(r) -> r >= 0
+}
+let valid_weight = match set.weightKg {
+  | None -> true
+  | Some(w) -> w >= 0.0
+}
+let valid_duration = match set.durationSeconds {
+  | None -> true
+  | Some(d) -> d >= 0
+}
+
+let _ = require(valid_reps, "reps must be non-negative")?
+let _ = require(valid_weight, "weightKg must be non-negative")?
+let _ = require(valid_duration, "durationSeconds must be non-negative")?
+
+-- RPE validation: None (unset) or 1-10 in 0.5 steps
+let valid_rpe = match set.rpe {
+  | None -> true
+  | Some(r) -> (r >= 1.0 && r <= 10.0) && ((r * 2.0) % 1.0) == 0.0
+}
+
+let _ = require(valid_rpe, "RPE must be unset or between 1.0 and 10.0 in 0.5-step increments")?
+
+Ok("valid")
+
+-- Compute prescribed rest duration based on superset groups
+rule rest_duration(
+  currentEntry: t.RoutineEntry,
+  nextEntry: t.RoutineEntry,
+  isLastExercise: Bool
+) -> Int
+
+if (isLastExercise)
+then 0
+else (
+  let sameSuperset = match (currentEntry.supersetGroup, nextEntry.supersetGroup) {
+    | (Some(curr), Some(next)) -> curr == next
+    | _ -> false
+  }
+  if (sameSuperset)
+  then 0
+  else currentEntry.restSeconds
+)
+
+-- Simple v1 progression heuristic based on recent set history
+rule progression_hint(history: List({ reps: Option(Int), weightKg: Option(Float), rpe: Option(Float), setType: String, .. }))
+  -> String
+
+if (length(history) == 0)
+then "No history yet - establish a baseline"
+else (
+  let working_sets = filter(fn(s) -> s.setType == "working", history)
+
+  if (length(working_sets) == 0)
+  then "No working sets yet - establish a baseline"
+  else (
+    let high_rpe_sets = filter(fn(s) -> match s.rpe {
+      | Some(r) -> r > 8.0
+      | None -> false
+    }, working_sets)
+
+    if (length(high_rpe_sets) == 0)
+    then "Increase weight by 2.5 kg - hitting target with room in RPE"
+    else "Hold current weight - working harder than desired"
+  )
+)
