@@ -486,7 +486,7 @@ describe('characterization: session engine pre-migration behavior', () => {
         durationSeconds: 0,
       };
 
-      await expect(engine.dispatch(fillEventDefaults(event))).rejects.toThrow(TransitionError);
+      await expect(engine.dispatch(fillEventDefaults(event))).rejects.toThrow(/reps must be non-negative/);
       const stateAfterError = engine.getState();
       expect(stateAfterError.phase).toBe(initialState.phase);
       expect(stateAfterError.exerciseIndex).toBe(initialState.exerciseIndex);
