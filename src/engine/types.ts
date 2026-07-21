@@ -61,6 +61,7 @@ export type Event =
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipExercise' }
   | { tag: 'PauseSession' }
+  | { tag: 'StartStretching' }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'FinishSession'; nowMs: number };
 
