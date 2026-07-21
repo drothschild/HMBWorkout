@@ -138,33 +138,64 @@ export function createEngine(executors: Partial<EffectExecutors>) {
 
   // Map executors from the old interface (onCreateSession, etc.) to rill-lang's
   // executor keying (CreateSession, ScheduleRest, etc.)
+  // Wrap executors to catch and log errors gracefully
   const rillExecutors: Record<string, (payload: unknown) => void | Promise<void>> = {
     CreateSession: (payload: unknown) => {
-      const p = payload as any;
-      return executors.onCreateSession?.({
-        sessionId: p.sessionId,
-        routineId: p.routineId,
-        startedAtMs: p.startedAtMs,
-      });
+      try {
+        const p = payload as any;
+        return executors.onCreateSession?.({
+          sessionId: p.sessionId,
+          routineId: p.routineId,
+          startedAtMs: p.startedAtMs,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for CreateSession: ${message}`);
+      }
     },
     ScheduleRest: (payload: unknown) => {
-      const p = payload as any;
-      return executors.onScheduleRest?.(p.deadlineMs);
+      try {
+        const p = payload as any;
+        return executors.onScheduleRest?.(p.deadlineMs);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for ScheduleRest: ${message}`);
+      }
     },
     CancelRest: () => {
-      return executors.onCancelRest?.();
+      try {
+        return executors.onCancelRest?.();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for CancelRest: ${message}`);
+      }
     },
     Notify: (payload: unknown) => {
-      const p = payload as any;
-      return executors.onNotify?.(p.message);
+      try {
+        const p = payload as any;
+        return executors.onNotify?.(p.message);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for Notify: ${message}`);
+      }
     },
     PersistSet: (payload: unknown) => {
-      const p = payload as any;
-      return executors.onPersistSet?.(p.set);
+      try {
+        const p = payload as any;
+        return executors.onPersistSet?.(p.set);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for PersistSet: ${message}`);
+      }
     },
     CompleteSession: (payload: unknown) => {
-      const p = payload as any;
-      return executors.onCompleteSession?.(p.summary);
+      try {
+        const p = payload as any;
+        return executors.onCompleteSession?.(p.summary);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for CompleteSession: ${message}`);
+      }
     },
   };
 
@@ -284,12 +315,13 @@ export function createEngine(executors: Partial<EffectExecutors>) {
       }
 
       // Dispatch with rill engine (which manages its own state internally)
+      // Executors are wrapped to catch errors gracefully
       const newRillState = rillEngine.dispatch(rillEvent);
       const newTsState = fromRillState(newRillState);
       localState = newTsState;
       return newTsState;
     } catch (err) {
-      // Re-throw as is; rill-lang already throws TransitionError
+      // Re-throw as is; rill-lang throws TransitionError for rule failures
       throw err;
     }
   }

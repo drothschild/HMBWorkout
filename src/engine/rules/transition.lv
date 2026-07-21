@@ -1,11 +1,9 @@
--- Import helpers (which transitively imports types)
+-- Import types and helpers
+import "types" as types
 import "helpers" as h
 
--- Note: Types (Phase, Event, Effect, SessionState, etc.) are defined in types.lv
--- which is imported by helpers.lv. We cannot re-declare them here without creating
--- duplicates. Instead, we inline them in the rule signature directly.
-
-rule transition(state: { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Option(Int), prePausePhase: Option(Phase), loggedSets: List({ exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }), lastLoggedSet: Option({ exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }), startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: Option(String) }) }, event: Event) -> Result({ state: { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Option(Int), prePausePhase: Option(Phase), loggedSets: List({ exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }), lastLoggedSet: Option({ exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }), startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: Option(String) }) }, effects: List(Effect) })
+-- Rule signature uses unqualified type names from types module scope
+rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 
 (match event {
   StartSession(p) if state.phase == Idle -> (
