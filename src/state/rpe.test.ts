@@ -1,4 +1,4 @@
-import { snapRpe } from './rpe';
+import { snapRpe, rpeHint } from './rpe';
 
 /**
  * snapRpe guards the slider → engine boundary: the native slider can emit
@@ -28,5 +28,37 @@ describe('snapRpe', () => {
     expect(snapRpe(0)).toBe(1);
     expect(snapRpe(0.4)).toBe(1);
     expect(snapRpe(11)).toBe(10);
+  });
+});
+
+/**
+ * rpeHint maps each 0.5-step RPE value to a short reps-in-reserve
+ * description shown under the slider while the user picks a value.
+ */
+describe('rpeHint', () => {
+  test('every valid 0.5 step from 1 to 10 has a non-empty hint', () => {
+    for (let v = 1; v <= 10; v += 0.5) {
+      expect(rpeHint(v).length).toBeGreaterThan(0);
+    }
+  });
+
+  test('top of the scale reads as max effort', () => {
+    expect(rpeHint(10)).toMatch(/max/i);
+  });
+
+  test('upper-middle values describe reps in reserve', () => {
+    expect(rpeHint(9)).toMatch(/1 rep/i);
+    expect(rpeHint(8)).toMatch(/2 reps/i);
+    expect(rpeHint(7)).toMatch(/3 reps/i);
+  });
+
+  test('half-steps between named anchors read as ranges', () => {
+    expect(rpeHint(8.5)).toMatch(/1.*2 reps/i);
+    expect(rpeHint(7.5)).toMatch(/2.*3 reps/i);
+  });
+
+  test('bottom of the scale reads as warm-up territory', () => {
+    expect(rpeHint(1)).toMatch(/warm-up/i);
+    expect(rpeHint(3)).toMatch(/warm-up/i);
   });
 });
