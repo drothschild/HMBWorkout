@@ -17,6 +17,10 @@ export interface SessionPresenterOutput {
   currentEntry: RoutineEntry | undefined;
   phase: string;
   isPaused: boolean;
+  isResting: boolean;
+  isRestPaused: boolean;
+  restDeadlineMs: number | undefined;
+  restRemainingMs: number | undefined;
   loggedSets: LoggedSet[];
   progressionHint: string | undefined;
 
@@ -25,6 +29,8 @@ export interface SessionPresenterOutput {
   onSetDone(): void;
   onPause(): void;
   onResume(): void;
+  onSkipRest(): void;
+  onRestElapsed(): void;
   onSkipExercise(): void;
   onStartStretching(): void;
   onFinishSession(): void;
@@ -47,11 +53,19 @@ export function createSessionPresenter(
   const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
   const currentExerciseId = currentEntry?.exerciseId || '';
 
+  // Host sentinel boundary: 0 means "no value" for both rest fields
+  const restDeadlineMs = sessionState.restDeadlineMs || undefined;
+  const restRemainingMs = sessionState.restRemainingMs || undefined;
+
   return {
     currentExerciseId,
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
+    isResting: sessionState.phase === 'resting',
+    isRestPaused: sessionState.phase === 'paused' && restRemainingMs !== undefined,
+    restDeadlineMs,
+    restRemainingMs,
     loggedSets: sessionState.loggedSets ?? [],
     progressionHint,
 
@@ -83,6 +97,19 @@ export function createSessionPresenter(
     onResume: () => {
       dispatch({
         tag: 'Resume',
+        nowMs: Date.now(),
+      });
+    },
+
+    onSkipRest: () => {
+      dispatch({
+        tag: 'SkipRest',
+      });
+    },
+
+    onRestElapsed: () => {
+      dispatch({
+        tag: 'RestElapsed',
         nowMs: Date.now(),
       });
     },
