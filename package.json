@@ -33,7 +33,7 @@
     "react-native-screens": "4.25.2",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.0",
-    "rill-lang": "file:../rill-lang/rill-lang-1.1.0.tgz",
+    "rill-lang": "file:../rill-lang/rill-lang-1.1.1.tgz",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
