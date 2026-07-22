@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
+import { RestCountdown } from '@/components/RestCountdown';
 import { activeSessionStore } from '@/state/activeSession';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
@@ -108,6 +109,30 @@ export default function SessionScreen() {
     await presenter.onSetDone();
     handleReset();
   }, [presenter]);
+
+  // Resting takes over the whole screen: big countdown, cancel or pause only
+  if (presenter.isResting || presenter.isRestPaused) {
+    return (
+      <ThemedView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          {lastError && (
+            <View style={styles.errorBanner}>
+              <ThemedText style={styles.errorText}>{lastError}</ThemedText>
+            </View>
+          )}
+          <RestCountdown
+            deadlineMs={presenter.restDeadlineMs}
+            frozenRemainingMs={presenter.restRemainingMs}
+            isPaused={presenter.isRestPaused}
+            onRestElapsed={presenter.onRestElapsed}
+            onCancel={presenter.onSkipRest}
+            onPause={presenter.onPause}
+            onResume={presenter.onResume}
+          />
+        </SafeAreaView>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
