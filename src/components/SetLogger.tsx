@@ -1,8 +1,10 @@
 import { StyleSheet, View, TextInput, ScrollView, Pressable } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { Spacing } from '@/constants/theme';
 import { SessionPresenterOutput } from '@/state/sessionPresenter';
+import { snapRpe, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
 
 interface SetLoggerProps {
   presenter: SessionPresenterOutput;
@@ -12,7 +14,7 @@ interface SetLoggerProps {
   currentDuration?: number;
   onRepsChange: (reps: number) => void;
   onWeightChange: (weight: number) => void;
-  onRpeChange: (rpe: number) => void;
+  onRpeChange: (rpe: number | undefined) => void;
   onDurationChange: (duration: number) => void;
 }
 
@@ -88,16 +90,22 @@ export function SetLogger({
       )}
 
       <View style={styles.inputGroup}>
-        <ThemedText>RPE (1-10, 0.5 steps)</ThemedText>
-        <TextInput
-          style={styles.input}
-          placeholder="RPE (optional)"
-          keyboardType="decimal-pad"
-          value={currentRpe?.toString() || ''}
-          onChangeText={(text) => {
-            const value = text ? parseFloat(text) : 0;
-            onRpeChange(value);
-          }}
+        <View style={styles.rpeHeader}>
+          <ThemedText>{currentRpe !== undefined ? `RPE: ${currentRpe}` : 'RPE (optional)'}</ThemedText>
+          {currentRpe !== undefined && (
+            <Pressable onPress={() => onRpeChange(undefined)} hitSlop={8}>
+              <ThemedText style={styles.rpeClearText}>Clear</ThemedText>
+            </Pressable>
+          )}
+        </View>
+        <Slider
+          style={styles.rpeSlider}
+          minimumValue={RPE_MIN}
+          maximumValue={RPE_MAX}
+          step={RPE_STEP}
+          value={currentRpe ?? RPE_MIN}
+          onValueChange={(value) => onRpeChange(snapRpe(value))}
+          minimumTrackTintColor="#007AFF"
         />
       </View>
 
@@ -176,6 +184,17 @@ const styles = StyleSheet.create({
     padding: Spacing.two,
     marginTop: Spacing.one,
     color: '#000',
+  },
+  rpeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  rpeClearText: {
+    color: '#FF3B30',
+  },
+  rpeSlider: {
+    marginTop: Spacing.one,
   },
   loggedSets: {
     flex: 1,
