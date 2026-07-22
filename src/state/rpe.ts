@@ -16,3 +16,21 @@ export function snapRpe(value: number): number {
   const snapped = Math.round(value / RPE_STEP) * RPE_STEP;
   return Math.min(RPE_MAX, Math.max(RPE_MIN, snapped));
 }
+
+/**
+ * Short reps-in-reserve description for each 0.5-step RPE value,
+ * shown under the slider while the user picks a value.
+ */
+export function rpeHint(value: number): string {
+  const v = snapRpe(value);
+  if (v === 10) return 'Max effort — no reps left';
+  if (v === 9.5) return 'Near max — maybe a partial rep left';
+  if (v === 9) return '1 rep left in the tank';
+  if (v === 8.5) return '1–2 reps left';
+  if (v === 8) return '2 reps left';
+  if (v === 7.5) return '2–3 reps left';
+  if (v === 7) return '3 reps left';
+  if (v >= 6) return '4+ reps left — moderate effort';
+  if (v >= 4.5) return 'Light — could do many more reps';
+  return 'Very light — warm-up effort';
+}

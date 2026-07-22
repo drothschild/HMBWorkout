@@ -4,7 +4,7 @@ import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { Spacing } from '@/constants/theme';
 import { SessionPresenterOutput } from '@/state/sessionPresenter';
-import { snapRpe, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
+import { snapRpe, rpeHint, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
 
 interface SetLoggerProps {
   presenter: SessionPresenterOutput;
@@ -107,6 +107,9 @@ export function SetLogger({
           onValueChange={(value) => onRpeChange(snapRpe(value))}
           minimumTrackTintColor="#007AFF"
         />
+        {currentRpe !== undefined && (
+          <ThemedText style={styles.rpeHintText}>{rpeHint(currentRpe)}</ThemedText>
+        )}
       </View>
 
       <ScrollView style={styles.loggedSets}>
@@ -195,6 +198,11 @@ const styles = StyleSheet.create({
   },
   rpeSlider: {
     marginTop: Spacing.one,
+  },
+  rpeHintText: {
+    marginTop: Spacing.one,
+    fontSize: 13,
+    opacity: 0.7,
   },
   loggedSets: {
     flex: 1,
