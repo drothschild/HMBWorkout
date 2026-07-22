@@ -119,6 +119,7 @@ describe('createSessionPresenter', () => {
 
     expect(mockDispatch).toHaveBeenCalledWith({
       tag: 'PauseSession',
+      nowMs: expect.any(Number),
     });
   });
 

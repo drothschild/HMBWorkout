@@ -254,7 +254,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       engine.setState(state);
 
       // Pause from warmup
-      let currentState = await engine.dispatch({ tag: 'PauseSession' });
+      let currentState = await engine.dispatch({ tag: 'PauseSession', nowMs: 4000 });
       expect(currentState.phase).toBe('paused');
       expect(currentState.prePausePhase).toBe('warmup'); // Sentinel recorded
 
@@ -276,7 +276,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       engine.setState(state);
 
       // Pause from working
-      let currentState = await engine.dispatch({ tag: 'PauseSession' });
+      let currentState = await engine.dispatch({ tag: 'PauseSession', nowMs: 4000 });
       expect(currentState.phase).toBe('paused');
       expect(currentState.prePausePhase).toBe('working');
 
@@ -286,7 +286,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(currentState.prePausePhase).toBe('');
     });
 
-    it('should handle pause/resume with rest deadline reconciliation', async () => {
+    it('should freeze remaining rest while paused and re-arm on resume', async () => {
       const engine = createEngine({});
       const state = makeState({
         phase: 'resting',
@@ -297,24 +297,19 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(state);
 
-      // Pause from resting (deadline not passed)
-      let currentState = await engine.dispatch({ tag: 'PauseSession' });
+      // Pause from resting: remaining time is frozen, deadline stops running
+      let currentState = await engine.dispatch({ tag: 'PauseSession', nowMs: 4000 });
       expect(currentState.phase).toBe('paused');
-      expect(currentState.restDeadlineMs).toBe(10000); // Deadline preserved
+      expect(currentState.restDeadlineMs).toBe(0); // Deadline cleared while paused
+      expect(currentState.restRemainingMs).toBe(6000); // 10000 - 4000 frozen
       expect(currentState.prePausePhase).toBe('resting');
 
-      // Resume before deadline → back to resting
-      currentState = await engine.dispatch({ tag: 'Resume', nowMs: 9000 });
-      expect(currentState.phase).toBe('resting');
-      expect(currentState.restDeadlineMs).toBe(10000);
-      expect(currentState.prePausePhase).toBe('');
-
-      // Pause again and resume AFTER deadline
-      currentState = await engine.dispatch({ tag: 'PauseSession' });
+      // Resume long after the original deadline → still resting with the frozen remainder
       currentState = await engine.dispatch({ tag: 'Resume', nowMs: 15000 });
-      expect(currentState.phase).toBe('resting'); // Pre-pause was resting, but deadline passed
-      // Note: The rule logic transitions based on deadline, so this should act like RestElapsed
-      expect(currentState.restDeadlineMs).toBe(0); // Deadline cleared after reconciliation
+      expect(currentState.phase).toBe('resting');
+      expect(currentState.restDeadlineMs).toBe(21000); // 15000 + 6000 remaining
+      expect(currentState.restRemainingMs).toBe(0);
+      expect(currentState.prePausePhase).toBe('');
     });
   });
 

@@ -29,6 +29,7 @@ export { TransitionError } from 'rill-lang';
 export const SENTINEL_TO_OPTION_MAP = {
   rpe: { sentinel: -1.0, rillNone: undefined },
   restDeadlineMs: { sentinel: 0, rillNone: undefined },
+  restRemainingMs: { sentinel: 0, rillNone: undefined },
   prePausePhase: { sentinel: '', rillNone: undefined },
   supersetGroup: { sentinel: '', rillNone: undefined },
 } as const;
@@ -78,6 +79,7 @@ function toRillState(tsState: SessionState): any {
         ? undefined
         : { tag: tsState.prePausePhase.charAt(0).toUpperCase() + tsState.prePausePhase.slice(1) },
     restDeadlineMs: (tsState.restDeadlineMs === undefined || tsState.restDeadlineMs === 0) ? undefined : tsState.restDeadlineMs,
+    restRemainingMs: (tsState.restRemainingMs === undefined || tsState.restRemainingMs === 0) ? undefined : tsState.restRemainingMs,
     loggedSets: tsState.loggedSets.map(set => ({
       ...set,
       rpe: set.rpe === -1.0 || set.rpe === undefined ? undefined : set.rpe,
@@ -119,6 +121,7 @@ function fromRillState(rillState: any): SessionState {
         ? ''
         : rillState.prePausePhase.tag.toLowerCase(),
     restDeadlineMs: rillState.restDeadlineMs === undefined ? 0 : rillState.restDeadlineMs,
+    restRemainingMs: rillState.restRemainingMs === undefined ? 0 : rillState.restRemainingMs,
     loggedSets: rillState.loggedSets.map((set: any) => ({
       ...set,
       rpe: set.rpe === undefined ? -1.0 : set.rpe,
@@ -236,6 +239,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
     setIndex: 0,
     supersetPosition: 0,
     restDeadlineMs: undefined,
+    restRemainingMs: undefined,
     prePausePhase: undefined,
     loggedSets: [],
     lastLoggedSet: undefined,
@@ -326,11 +330,14 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'RestElapsed':
           rillEvent = { tag: 'RestElapsed', value: { nowMs: e.nowMs } };
           break;
+        case 'SkipRest':
+          rillEvent = { tag: 'SkipRest' };
+          break;
         case 'SkipExercise':
           rillEvent = { tag: 'SkipExercise' };
           break;
         case 'PauseSession':
-          rillEvent = { tag: 'PauseSession' };
+          rillEvent = { tag: 'PauseSession', value: { nowMs: e.nowMs } };
           break;
         case 'StartStretching':
           rillEvent = { tag: 'StartStretching' };

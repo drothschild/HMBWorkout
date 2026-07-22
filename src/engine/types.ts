@@ -43,6 +43,7 @@ export interface SessionState {
   setIndex: number;
   supersetPosition?: number;
   restDeadlineMs?: number;
+  restRemainingMs?: number; // Rest time frozen while paused mid-rest (0 = nothing frozen)
   loggedSets: LoggedSet[];
   lastLoggedSet?: LoggedSet; // Host-maintained; set by rill LogSet handler
   startedAtMs: number;
@@ -59,8 +60,9 @@ export type Event =
   | { tag: 'LogSet'; reps?: number; weightKg?: number; durationSeconds?: number; rpe?: number }
   | { tag: 'SetDone'; nowMs: number }
   | { tag: 'RestElapsed'; nowMs: number }
+  | { tag: 'SkipRest' }
   | { tag: 'SkipExercise' }
-  | { tag: 'PauseSession' }
+  | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'StartStretching' }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'FinishSession'; nowMs: number };

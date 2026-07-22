@@ -19,6 +19,7 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
           setIndex: 0,
           supersetPosition: 0,
           restDeadlineMs: None,
+          restRemainingMs: None,
           prePausePhase: None,
           loggedSets: [],
           lastLoggedSet: None,
@@ -112,20 +113,41 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
       )
     ),
   RestElapsed(p) -> Err("invalid event RestElapsed in phase " ++ h.phase_to_string(state.phase)),
+  SkipRest if state.phase == Resting -> (
+      Ok({
+        state: { state | phase: Working, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None },
+        effects: [CancelRest]
+      })
+    ),
+  SkipRest if state.phase == Paused && state.restRemainingMs != None -> (
+      Ok({
+        state: { state | phase: Working, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None, prePausePhase: None },
+        effects: []
+      })
+    ),
+  SkipRest -> Err("invalid event SkipRest in phase " ++ h.phase_to_string(state.phase)),
   SkipExercise if state.phase != Idle && state.phase != Done -> (
       Ok({
-        state: { state | exerciseIndex: state.exerciseIndex + 1, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
+        state: { state | exerciseIndex: state.exerciseIndex + 1, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None },
         effects: []
       })
     ),
   SkipExercise -> Err("invalid event SkipExercise in phase " ++ h.phase_to_string(state.phase)),
-  PauseSession if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+  PauseSession(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+      let remaining = match state.restDeadlineMs {
+        Some(d) -> Some(d - p.nowMs),
+        None -> None
+      }
+      let effects = match state.restDeadlineMs {
+        Some(d) -> [CancelRest],
+        None -> []
+      }
       Ok({
-        state: { state | phase: Paused, prePausePhase: Some(state.phase) },
-        effects: []
+        state: { state | phase: Paused, prePausePhase: Some(state.phase), restDeadlineMs: None, restRemainingMs: remaining },
+        effects: effects
       })
     ),
-  PauseSession -> Err("invalid event PauseSession in phase " ++ h.phase_to_string(state.phase)),
+  PauseSession(p) -> Err("invalid event PauseSession in phase " ++ h.phase_to_string(state.phase)),
   StartStretching if state.phase == Working || state.phase == Resting -> (
       let effects = match state.restDeadlineMs {
         Some(d) -> [CancelRest],
@@ -138,19 +160,19 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
     ),
   StartStretching -> Err("invalid event StartStretching in phase " ++ h.phase_to_string(state.phase)),
   Resume(p) if state.phase == Paused -> (
-      let deadline = match state.restDeadlineMs { Some(d) -> d, None -> 0 }
-      if (state.restDeadlineMs != None && p.nowMs >= deadline)
-      then Ok({
-        state: { state | phase: (match state.prePausePhase { Some(ph) -> ph, None -> Working }), restDeadlineMs: None, prePausePhase: None },
-        effects: [CancelRest]
-      })
-      else (
-        let nextPhase = if (state.restDeadlineMs != None) then Resting else (match state.prePausePhase { Some(ph) -> ph, None -> Working })
-        Ok({
-          state: { state | phase: nextPhase, prePausePhase: None },
+      match state.restRemainingMs {
+        Some(r) -> (
+          let deadline = p.nowMs + r
+          Ok({
+            state: { state | phase: Resting, restDeadlineMs: Some(deadline), restRemainingMs: None, prePausePhase: None },
+            effects: [ScheduleRest({ deadlineMs: deadline })]
+          })
+        ),
+        None -> Ok({
+          state: { state | phase: (match state.prePausePhase { Some(ph) -> ph, None -> Working }), prePausePhase: None },
           effects: []
         })
-      )
+      }
     ),
   Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase)),
   FinishSession(p) if state.phase != Idle && state.phase != Done -> (
@@ -159,7 +181,7 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
         else [CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: state.exerciseIndex, setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
 
       Ok({
-        state: { state | phase: Done, restDeadlineMs: None },
+        state: { state | phase: Done, restDeadlineMs: None, restRemainingMs: None },
         effects: effects
       })
     ),

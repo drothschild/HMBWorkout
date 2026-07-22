@@ -70,6 +70,21 @@ describe('SkipRest: cancel the rest timer early', () => {
     expect(executors.onCancelRest).toHaveBeenCalled();
   });
 
+  it('should cancel a paused rest timer and return to working, unpaused', async () => {
+    const executors = makeExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({ phase: 'resting', restDeadlineMs: 10000, exerciseIndex: 1 })
+    );
+
+    await engine.dispatch({ tag: 'PauseSession', nowMs: 4000 });
+    const state = await engine.dispatch({ tag: 'SkipRest' });
+
+    expect(state.phase).toBe('working');
+    expect(state.restRemainingMs).toBe(0);
+    expect(state.prePausePhase).toBe('');
+  });
+
   it('should reject SkipRest outside the resting phase', async () => {
     const engine = createEngine(makeExecutors());
     engine.setState(makeState({ phase: 'working' }));

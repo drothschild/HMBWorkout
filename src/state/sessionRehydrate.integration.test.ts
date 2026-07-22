@@ -21,7 +21,7 @@ describe('Session hydration and restart recovery', () => {
     await closeTestDatabase(database);
   });
 
-  it('rehydrates a mid-session state and Resume advances past the expired rest (AC2.3/AC10.4)', async () => {
+  it('rehydrates a paused mid-session state and Resume re-arms the frozen rest (AC2.3/AC10.4)', async () => {
     // 1. Build a valid engine state by driving through transitions:
     // StartSession → LogSet → SetDone → (engine advances to resting) → Pause → serialize
     const store = createActiveSessionStore(database, {
@@ -40,6 +40,17 @@ describe('Session hydration and restart recovery', () => {
           exerciseId: 'ex-c1',
           kind: 'strength' as const,
           warmupSets: 1,
+          targetSets: 1,
+          targetReps: 8,
+          targetDurationSeconds: 0,
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+        // Second exercise so completing ex-c1 enters resting instead of done
+        {
+          exerciseId: 'ex-c2',
+          kind: 'strength' as const,
+          warmupSets: 0,
           targetSets: 1,
           targetReps: 8,
           targetDurationSeconds: 0,
@@ -89,18 +100,14 @@ describe('Session hydration and restart recovery', () => {
       nowMs: now + 10000,
     });
 
-    // Pause while in resting (now phase should be paused)
+    // Pause while in resting (freezes the remaining rest time; deadline stops running)
     await store.getState().dispatch({
       tag: 'PauseSession',
+      nowMs: now + 20000,
     });
 
-    // Get the paused state and manually set a past deadline for testing
-    let pausedState = store.getState().sessionState;
-    if (pausedState) {
-      pausedState.restDeadlineMs = now + 30000; // deadline will be in the past when we Resume
-    }
-
     // Save the paused state to DB
+    const pausedState = store.getState().sessionState;
     if (pausedState) {
       await saveEngineState(database, sessionId, pausedState);
     }
@@ -118,14 +125,17 @@ describe('Session hydration and restart recovery', () => {
     expect(loaded).not.toBeNull();
     store2.getState().hydrate(loaded!);
 
-    // 3. Resume with nowMs PAST the deadline
+    // 3. Resume long after the original deadline would have expired
     await store2.getState().dispatch({ tag: 'Resume', nowMs: now + 100_000 });
 
-    // 4. assertions
+    // 4. assertions: the frozen remainder survives the restart and re-arms on Resume
     const s = store2.getState().sessionState!;
     expect(s.loggedSets.length).toBeGreaterThan(0); // sets intact after hydration
-    expect(s.phase).not.toBe('paused'); // no longer paused after Resume
-    expect(s.phase).not.toBe('resting'); // advanced past resting (engine reconciled deadline)
+    expect(s.phase).toBe('resting'); // paused rest resumes with the frozen remainder
+    // SetDone at now+10s started a 90s rest (deadline now+100s); paused at now+20s
+    // froze 80s, so resuming at now+100s re-arms the deadline at now+180s.
+    expect(s.restDeadlineMs).toBe(now + 180_000);
+    expect(s.restRemainingMs).toBe(0); // nothing frozen once resumed
   });
 
   it('persists and loads mid-session state with deadline info intact (AC10.4/AC10.6)', async () => {

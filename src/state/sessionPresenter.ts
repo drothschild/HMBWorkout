@@ -76,6 +76,7 @@ export function createSessionPresenter(
     onPause: () => {
       dispatch({
         tag: 'PauseSession',
+        nowMs: Date.now(),
       });
     },
 
