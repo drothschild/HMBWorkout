@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-08
+Last verified: 2026-07-21
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -16,7 +16,9 @@ on memory of older Expo/Router/Reanimated APIs.
 
 - Expo SDK ~57, React Native 0.86, React 19, expo-router (file-based, `src/app/`)
 - WatermelonDB 0.28 (SQLite on device; LokiJS on web) — data layer
-- rill-lang 1.0 (`file:../rill-lang`) — pure functional session engine
+- rill-lang 1.1.1 (`file:../rill-lang/rill-lang-1.1.1.tgz`, packed tarball) — pure
+  functional session engine. Its lib entry is platform-neutral as of 1.1.1; the
+  Node-only `createFsResolver` lives behind the `rill-lang/fs-resolver` subpath
 - Zustand 5 — active-session store (imperative shell)
 - @kingstinct/react-native-healthkit — write-only workout export
 - Jest + ts-jest (node env) — tests
