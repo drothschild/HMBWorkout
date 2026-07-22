@@ -22,7 +22,6 @@ interface AppendSetOptions {
   weightKg?: number;
   durationSeconds?: number;
   distanceM?: number;
-  rpe?: number;
 }
 
 /**
@@ -90,7 +89,6 @@ export async function appendSet(
     weightKg,
     durationSeconds,
     distanceM,
-    rpe,
   } = options;
 
   // Validate input before writing
@@ -99,7 +97,6 @@ export async function appendSet(
     weightKg,
     durationSeconds,
     distanceM,
-    rpe,
   });
 
   await database.write(async () => {
@@ -123,7 +120,6 @@ export async function appendSet(
       if (weightKg !== undefined) set.weightKg = weightKg;
       if (durationSeconds !== undefined) set.durationSeconds = durationSeconds;
       if (distanceM !== undefined) set.distanceM = distanceM;
-      if (rpe !== undefined) set.rpe = rpe;
       set.position = nextPosition;
       set._raw.created_at = Date.now();
     });
@@ -173,63 +169,6 @@ export async function getSessionSets(
   });
 
   return sets;
-}
-
-/**
- * Get all working-type sets for an exercise across all sessions (prior history).
- * Used for progression hint evaluation: rules compute hints based on prior working sets,
- * not current-session sets.
- *
- * Phase 4 Task 3: Query prior working sets by exercise ID, excluding warmups and other set types.
- * Returns sets ordered most-recent-first by set creation time (created_at desc), then by position.
- *
- * @param database The database instance
- * @param exerciseId The exercise ID to query
- * @returns Array of working-type session sets for this exercise, from all prior sessions
- */
-export async function getExerciseWorkingSetHistory(
-  database: Database,
-  exerciseId: string
-): Promise<SessionSet[]> {
-  const sessionSetsTable = database.get('session_sets');
-  const routineExercisesTable = database.get('routine_exercises');
-
-  // Query all routine_exercises with this exerciseId
-  const routineExercises = (await routineExercisesTable
-    .query(Q.where('exercise_id', exerciseId))
-    .fetch()) as RoutineExercise[];
-
-  const routineExerciseIds = routineExercises.map((re) => (re as any).id);
-
-  if (routineExerciseIds.length === 0) {
-    // No routine_exercises for this exercise = no prior sets
-    return [];
-  }
-
-  // Query all sets for these routine_exercises, filtered to working type
-  const allSets = (await sessionSetsTable
-    .query(
-      Q.and(
-        Q.where('set_type', 'working'),
-        Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
-      )
-    )
-    .fetch()) as SessionSet[];
-
-  // Sort most-recent-first by set creation time, then by position for stable ordering.
-  // (session_id is a random UUID and carries no temporal order — created_at is the real clock.)
-  allSets.sort((a, b) => {
-    const createdA = (a as any)._raw.created_at ?? 0;
-    const createdB = (b as any)._raw.created_at ?? 0;
-    if (createdB !== createdA) {
-      return createdB - createdA;
-    }
-    const aPos = (a as any)._raw.position ?? 0;
-    const bPos = (b as any)._raw.position ?? 0;
-    return aPos - bPos;
-  });
-
-  return allSets;
 }
 
 /**

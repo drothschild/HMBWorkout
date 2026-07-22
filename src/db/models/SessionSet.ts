@@ -18,7 +18,6 @@ export default class SessionSet extends Model {
   @field('weight_kg') weightKg?: number;
   @field('duration_seconds') durationSeconds?: number;
   @field('distance_m') distanceM?: number;
-  @field('rpe') rpe?: number;
   @field('position') position!: number;
   @readonly @date('created_at') createdAt!: Date;
 }

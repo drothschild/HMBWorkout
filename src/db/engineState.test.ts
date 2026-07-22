@@ -43,7 +43,6 @@ describe('engineState', () => {
             reps: 10,
             weightKg: 20,
             durationSeconds: null,
-            rpe: null,
           },
         ],
         startedAtMs,
@@ -243,7 +242,6 @@ describe('engineState', () => {
             reps: 8,
             weightKg: 50.5,
             durationSeconds: null,
-            rpe: 8.5,
           },
           {
             exerciseId: 'ex-2',
@@ -251,7 +249,6 @@ describe('engineState', () => {
             reps: 10,
             weightKg: 40,
             durationSeconds: null,
-            rpe: null,
           },
         ],
         lastLoggedSet: {
@@ -260,7 +257,6 @@ describe('engineState', () => {
           reps: 10,
           weightKg: 40,
           durationSeconds: null,
-          rpe: null,
         },
         startedAtMs: Date.now(),
         prePausePhase: 'working',

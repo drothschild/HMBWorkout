@@ -58,6 +58,8 @@ export const databaseSchema = appSchema({
         { name: 'weight_kg', type: 'number', isOptional: true },
         { name: 'duration_seconds', type: 'number', isOptional: true },
         { name: 'distance_m', type: 'number', isOptional: true },
+        // rpe is no longer read or written by the app; the column stays because
+        // WatermelonDB cannot drop columns without a destructive schema reset.
         { name: 'rpe', type: 'number', isOptional: true },
         { name: 'position', type: 'number' }, // Monotonic ordering per session (deterministic)
         { name: 'created_at', type: 'number' },

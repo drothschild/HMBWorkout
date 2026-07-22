@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -82,18 +82,16 @@ describe('Repository: session and set helpers', () => {
       });
     });
 
-    it('AC9.1: a working set with optional rpe persists and reads back', async () => {
+    it('a working set persists and reads back', async () => {
       await appendSet(database, 'session-3', 'routine-exercise-3', {
         setType: 'working',
         reps: 8,
         weightKg: 60,
-        rpe: 7.5,
       });
 
       const sets = await getSessionSets(database, 'session-3');
       expect(sets).toHaveLength(1);
       const set = sets[0];
-      expect((set as any).rpe).toBe(7.5);
       expect((set as any).reps).toBe(8);
       expect((set as any).weightKg).toBe(60);
     }, 10000);
@@ -149,34 +147,6 @@ describe('Repository: session and set helpers', () => {
       expect(sets).toHaveLength(0);
     }, 10000);
 
-    // AC9.3: appendSet with invalid rpe (11 or 7.3) throws ValidationError and doesn't persist
-    it('AC9.3: appendSet with rpe=11 (out of range) throws ValidationError', async () => {
-      await expect(
-        appendSet(database, 'session-3', 'routine-exercise-3', {
-          reps: 8,
-          weightKg: 60,
-          rpe: 11,
-        })
-      ).rejects.toThrow(ValidationError);
-
-      // Verify set was not persisted
-      const sets = await getSessionSets(database, 'session-3');
-      expect(sets).toHaveLength(0);
-    }, 10000);
-
-    it('AC9.3: appendSet with rpe=7.3 (invalid increment) throws ValidationError', async () => {
-      await expect(
-        appendSet(database, 'session-3', 'routine-exercise-3', {
-          reps: 8,
-          weightKg: 60,
-          rpe: 7.3,
-        })
-      ).rejects.toThrow(ValidationError);
-
-      // Verify set was not persisted
-      const sets = await getSessionSets(database, 'session-3');
-      expect(sets).toHaveLength(0);
-    }, 10000);
   });
 
   describe('getSession and getSessionSets', () => {
@@ -655,160 +625,4 @@ describe('Repository: session and set helpers', () => {
     }, 15000);
   });
 
-  describe('getExerciseWorkingSetHistory', () => {
-    it('returns empty array if exercise has no prior working sets', async () => {
-      const exerciseId = 'exercise-no-history';
-
-      const history = await getExerciseWorkingSetHistory(database, exerciseId);
-      expect(history).toEqual([]);
-    }, 10000);
-
-    it('returns working sets only, excluding warmups and other set types', async () => {
-      const routineId = 'routine-history';
-      const exerciseId = 'exercise-with-history';
-
-      await database.write(async () => {
-        // Create routine
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = routineId;
-          r.name = 'Test Routine';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        // Create exercise
-        const exercisesTable = database.get('exercises');
-        await exercisesTable.create((e: any) => {
-          e._raw.id = exerciseId;
-          e.title = 'Squat';
-          e.kind = 'strength';
-          e.created_at = Date.now();
-        });
-
-        // Create routine exercise
-        const routineExercisesTable = database.get('routine_exercises');
-        await routineExercisesTable.create((re: any) => {
-          re._raw.id = 'routine-exercise-1';
-          re.routineId = routineId;
-          re.exerciseId = exerciseId;
-          re.order = 0;
-          re.warmupSets = 0;
-        });
-      });
-
-      // Create a session and append sets
-      await createSession(database, {
-        sessionId: 'session-history-1',
-        routineId: routineId,
-        startedAtMs: Date.now() - 100000,
-      });
-
-      // Append a warmup set (should be excluded)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'warmup',
-        reps: 12,
-        weightKg: 50,
-      });
-
-      // Append a working set (should be included)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 8,
-      });
-
-      // Append another working set (should be included)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 8.5,
-      });
-
-      // Append a drop set (should be excluded)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'drop',
-        reps: 15,
-        weightKg: 70,
-      });
-
-      // Get history and verify only working sets returned
-      const history = await getExerciseWorkingSetHistory(database, exerciseId);
-      expect(history).toHaveLength(2);
-      expect((history[0] as any).setType).toBe('working');
-      expect((history[1] as any).setType).toBe('working');
-      expect((history[0] as any).reps).toBe(8);
-      expect((history[0] as any).weightKg).toBe(100);
-      expect((history[0] as any).rpe).toBe(8);
-      expect((history[1] as any).rpe).toBe(8.5);
-    }, 15000);
-
-    it('Phase 4 Task 3: returns prior working sets for progression hint evaluation', async () => {
-      const routineId = 'routine-progression-hint';
-      const exerciseId = 'exercise-progression-hint';
-
-      await database.write(async () => {
-        // Create routine
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = routineId;
-          r.name = 'Test Routine';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        // Create exercise
-        const exercisesTable = database.get('exercises');
-        await exercisesTable.create((e: any) => {
-          e._raw.id = exerciseId;
-          e.title = 'Bench Press';
-          e.kind = 'strength';
-          e.created_at = Date.now();
-        });
-
-        // Create routine exercise
-        const routineExercisesTable = database.get('routine_exercises');
-        await routineExercisesTable.create((re: any) => {
-          re._raw.id = 'routine-exercise-progression';
-          re.routineId = routineId;
-          re.exerciseId = exerciseId;
-          re.order = 0;
-          re.warmupSets = 0;
-        });
-      });
-
-      // Create a prior session with working sets
-      await createSession(database, {
-        sessionId: 'session-prior',
-        routineId: routineId,
-        startedAtMs: Date.now() - 1000000,
-      });
-
-      // Log some working sets in the prior session
-      await appendSet(database, 'session-prior', 'routine-exercise-progression', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 7,
-      });
-
-      await appendSet(database, 'session-prior', 'routine-exercise-progression', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 7.5,
-      });
-
-      // Query history (simulating what happens when computing progression hint)
-      const history = await getExerciseWorkingSetHistory(database, exerciseId);
-
-      // Verify the history can be used to compute a progression hint
-      expect(history).toHaveLength(2);
-      expect(history.every((set: any) => set.setType === 'working')).toBe(true);
-      expect((history[0] as any).weightKg).toBe(100);
-      expect((history[1] as any).weightKg).toBe(100);
-    }, 15000);
-  });
 });

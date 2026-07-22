@@ -16,7 +16,6 @@ export interface SetInput {
   weightKg?: number;
   durationSeconds?: number;
   distanceM?: number;
-  rpe?: number;
 }
 
 /**
@@ -52,25 +51,6 @@ export function validateSet(input: SetInput): void {
   if (input.distanceM !== undefined) {
     if (isNaN(input.distanceM) || input.distanceM < 0) {
       throw new ValidationError('distance must be a non-negative number');
-    }
-  }
-
-  // Validate RPE
-  if (input.rpe !== undefined) {
-    // RPE must be between 1 and 10 in 0.5 increments
-    // Valid values: 1, 1.5, 2, 2.5, ..., 9.5, 10
-    if (isNaN(input.rpe) || input.rpe < 1 || input.rpe > 10) {
-      throw new ValidationError(
-        'rpe must be between 1 and 10 in 0.5 step increments'
-      );
-    }
-
-    // Check if it's a valid 0.5 increment
-    const scaledRpe = input.rpe * 2; // Convert to integer scale (0.5 -> 1, 1.0 -> 2, etc.)
-    if (!Number.isInteger(scaledRpe)) {
-      throw new ValidationError(
-        'rpe must be between 1 and 10 in 0.5 step increments'
-      );
     }
   }
 }
