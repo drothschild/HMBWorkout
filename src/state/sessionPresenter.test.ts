@@ -119,6 +119,70 @@ describe('createSessionPresenter', () => {
 
     expect(mockDispatch).toHaveBeenCalledWith({
       tag: 'PauseSession',
+      nowMs: expect.any(Number),
+    });
+  });
+
+  test('exposes rest countdown state while resting', () => {
+    const state = createMockState();
+    state.phase = 'resting';
+    state.restDeadlineMs = 123456;
+
+    const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+    expect(presenter.isResting).toBe(true);
+    expect(presenter.isRestPaused).toBe(false);
+    expect(presenter.restDeadlineMs).toBe(123456);
+    expect(presenter.restRemainingMs).toBeUndefined();
+  });
+
+  test('exposes frozen remainder when rest is paused (sentinel 0 = none)', () => {
+    const state = createMockState();
+    state.phase = 'paused';
+    state.restDeadlineMs = 0; // Sentinel: deadline cleared while paused
+    state.restRemainingMs = 45000;
+
+    const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+    expect(presenter.isResting).toBe(false);
+    expect(presenter.isRestPaused).toBe(true);
+    expect(presenter.restDeadlineMs).toBeUndefined();
+    expect(presenter.restRemainingMs).toBe(45000);
+  });
+
+  test('paused without a frozen remainder is not a rest pause', () => {
+    const state = createMockState();
+    state.phase = 'paused';
+    state.restRemainingMs = 0; // Sentinel: nothing frozen
+
+    const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+    expect(presenter.isRestPaused).toBe(false);
+    expect(presenter.restRemainingMs).toBeUndefined();
+  });
+
+  test('dispatches SkipRest on cancel-rest action', () => {
+    const state = createMockState();
+    state.phase = 'resting';
+    const mockDispatch = jest.fn(async () => null);
+    const presenter = createSessionPresenter(state, mockDispatch);
+
+    presenter.onSkipRest();
+
+    expect(mockDispatch).toHaveBeenCalledWith({ tag: 'SkipRest' });
+  });
+
+  test('dispatches RestElapsed with current time on rest elapsed', () => {
+    const state = createMockState();
+    state.phase = 'resting';
+    const mockDispatch = jest.fn(async () => null);
+    const presenter = createSessionPresenter(state, mockDispatch);
+
+    presenter.onRestElapsed();
+
+    expect(mockDispatch).toHaveBeenCalledWith({
+      tag: 'RestElapsed',
+      nowMs: expect.any(Number),
     });
   });
 

@@ -75,7 +75,11 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    event to Rill. Callers pass routines *without* `idx`; never author `idx` by hand.
 
 4. **Rules are inlined, not module-loaded.** `.lv` files are imported as strings
-   (babel inline-import). `loadRules.ts` splices `validate_set`/`rest_duration` helper
+   (babel inline-import). Metro's transform cache keys on the *importing* TS file,
+   not the `.lv` content — after editing any `.lv` file, restart Metro with
+   `npx expo start --clear` or modules that inline the same rules can end up with
+   mixed old/new copies (e.g. `loadRules.ts` validating different sources than
+   `engine/index.ts` executes). `loadRules.ts` splices `validate_set`/`rest_duration` helper
    bodies into `transition` as let-bindings to build `transitionCompositeSource`.
    `loadRules()` (type-check gate) must run from the boot effect in `_layout.tsx`,
    **not** at module-init — a module-init throw crashes before the RuleErrorScreen can

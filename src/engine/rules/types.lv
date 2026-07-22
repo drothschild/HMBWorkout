@@ -12,11 +12,12 @@ alias Routine = { entries: List(RoutineEntry), id: String }
 alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List(LoggedSet) }
 
 -- Now define types that depend on the above aliases
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | SkipExercise | PauseSession({ nowMs: Int }) | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
 
 type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: LoggedSet }) | CompleteSession({ summary: SessionSummary })
 
-alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Option(Int), prePausePhase: Option(Phase), loggedSets: List(LoggedSet), lastLoggedSet: Option(LoggedSet), startedAtMs: Int, entries: List(RoutineEntry) }
+-- restRemainingMs: rest time frozen while paused mid-rest; Some only in Paused phase
+alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Option(Int), restRemainingMs: Option(Int), prePausePhase: Option(Phase), loggedSets: List(LoggedSet), lastLoggedSet: Option(LoggedSet), startedAtMs: Int, entries: List(RoutineEntry) }
 
 alias TransitionResult = { state: SessionState, effects: List(Effect) }
 
