@@ -25,7 +25,6 @@ export interface LoggedSet {
   reps: number | null | undefined;
   weightKg: number | null | undefined;
   durationSeconds: number | null | undefined;
-  rpe: number | null | undefined;
 }
 
 /**
@@ -56,7 +55,7 @@ export interface SessionState {
  */
 export type Event =
   | { tag: 'StartSession'; sessionId: string; nowMs: number; routine: unknown }
-  | { tag: 'LogSet'; reps?: number; weightKg?: number; durationSeconds?: number; rpe?: number }
+  | { tag: 'LogSet'; reps?: number; weightKg?: number; durationSeconds?: number }
   | { tag: 'SetDone'; nowMs: number }
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipExercise' }

@@ -266,7 +266,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 8,
         weightKg: 20.0,
         durationSeconds: 0,
-        rpe: 7.0,
       };
 
       try {
@@ -485,7 +484,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 5,
         weightKg: 20.0,
         durationSeconds: 0,
-        rpe: 6.0,
       });
 
       // SetDone warmup
@@ -502,7 +500,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
-        rpe: 7.5,
       });
 
       // SetDone with specific nowMs (this should trigger complete_session effect since it's the last set)
@@ -605,7 +602,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 5,
         weightKg: 20.0,
         durationSeconds: 0,
-        rpe: 6.0,
       });
 
       expect(state.phase).toBe('warmup');
@@ -629,7 +625,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
-        rpe: 7.5,
       });
 
       expect(state.loggedSets.length).toBe(2); // Now have warmup + working set
@@ -653,7 +648,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
-        rpe: 8.0,
       });
 
       expect(state.loggedSets.length).toBe(3); // warmup + 2 working
@@ -687,7 +681,6 @@ describe('engine: dispatch loop with effect executors', () => {
         reps: 10,
         weightKg: 30.0,
         durationSeconds: 0,
-        rpe: 7.0,
       });
 
       expect(state.loggedSets.length).toBe(4); // 3 previous + 1 new
@@ -744,7 +737,6 @@ describe('engine: dispatch loop with effect executors', () => {
           reps: 8,
           weightKg: 20.0,
           durationSeconds: 0,
-          rpe: 7.0 + i * 0.5, // 7.0, 7.5, 8.0
         });
         setsPerDispatch.push(state.loggedSets.length);
 

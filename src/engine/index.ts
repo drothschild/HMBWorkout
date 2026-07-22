@@ -27,7 +27,6 @@ export { TransitionError } from 'rill-lang';
  * TypeScript code reading SessionState.
  */
 export const SENTINEL_TO_OPTION_MAP = {
-  rpe: { sentinel: -1.0, rillNone: undefined },
   restDeadlineMs: { sentinel: 0, rillNone: undefined },
   prePausePhase: { sentinel: '', rillNone: undefined },
   supersetGroup: { sentinel: '', rillNone: undefined },
@@ -63,6 +62,19 @@ function toRillRoutineEntry(entry: any): any {
 }
 
 /**
+ * Convert a TypeScript LoggedSet to the Rill record shape.
+ */
+function toRillLoggedSet(set: LoggedSet): any {
+  return {
+    exerciseId: set.exerciseId,
+    setType: set.setType,
+    reps: set.reps ?? undefined,
+    weightKg: set.weightKg ?? undefined,
+    durationSeconds: set.durationSeconds ?? undefined,
+  };
+}
+
+/**
  * Convert TypeScript SessionState (with string phase) to Rill format (with tag-based phase).
  */
 function toRillState(tsState: SessionState): any {
@@ -78,14 +90,10 @@ function toRillState(tsState: SessionState): any {
         ? undefined
         : { tag: tsState.prePausePhase.charAt(0).toUpperCase() + tsState.prePausePhase.slice(1) },
     restDeadlineMs: (tsState.restDeadlineMs === undefined || tsState.restDeadlineMs === 0) ? undefined : tsState.restDeadlineMs,
-    loggedSets: tsState.loggedSets.map(set => ({
-      ...set,
-      rpe: set.rpe === -1.0 || set.rpe === undefined ? undefined : set.rpe,
-    })),
-    lastLoggedSet: tsState.lastLoggedSet ? {
-      ...tsState.lastLoggedSet,
-      rpe: tsState.lastLoggedSet.rpe === -1.0 || tsState.lastLoggedSet.rpe === undefined ? undefined : tsState.lastLoggedSet.rpe,
-    } : undefined,
+    // Construct sets field-by-field (not spread) so stale persisted fields
+    // from older engine_state snapshots (e.g. rpe) can't leak into Rill records.
+    loggedSets: tsState.loggedSets.map(toRillLoggedSet),
+    lastLoggedSet: tsState.lastLoggedSet ? toRillLoggedSet(tsState.lastLoggedSet) : undefined,
     startedAtMs: tsState.startedAtMs,
     entries: tsState.entries.map(toRillRoutineEntry),
   };
@@ -97,7 +105,6 @@ function toRillState(tsState: SessionState): any {
  * SENTINEL BOUNDARY (deliberate divergence from Task 5):
  * rill-lang uses undefined for Option(None) types. This adapter re-sentinelizes
  * certain fields for compatibility with the rest of the codebase:
- *   - rpe: undefined → -1.0
  *   - restDeadlineMs: undefined → 0 (UI interprets 0 as inactive)
  *   - prePausePhase: undefined → ""
  *   - supersetGroup: undefined → ""
@@ -119,14 +126,8 @@ function fromRillState(rillState: any): SessionState {
         ? ''
         : rillState.prePausePhase.tag.toLowerCase(),
     restDeadlineMs: rillState.restDeadlineMs === undefined ? 0 : rillState.restDeadlineMs,
-    loggedSets: rillState.loggedSets.map((set: any) => ({
-      ...set,
-      rpe: set.rpe === undefined ? -1.0 : set.rpe,
-    })),
-    lastLoggedSet: rillState.lastLoggedSet ? {
-      ...rillState.lastLoggedSet,
-      rpe: rillState.lastLoggedSet.rpe === undefined ? -1.0 : rillState.lastLoggedSet.rpe,
-    } : undefined,
+    loggedSets: rillState.loggedSets.map((set: any) => ({ ...set })),
+    lastLoggedSet: rillState.lastLoggedSet ? { ...rillState.lastLoggedSet } : undefined,
     startedAtMs: rillState.startedAtMs,
     entries: rillState.entries.map((entry: any, idx: number) => ({
       idx,
@@ -316,7 +317,6 @@ export function createEngine(executors: Partial<EffectExecutors>) {
               reps: e.reps === 0 ? undefined : e.reps,
               weightKg: e.weightKg === 0.0 ? undefined : e.weightKg,
               durationSeconds: e.durationSeconds === 0 ? undefined : e.durationSeconds,
-              rpe: e.rpe === -1.0 ? undefined : e.rpe,
             },
           };
           break;

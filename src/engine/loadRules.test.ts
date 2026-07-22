@@ -84,9 +84,9 @@ describe('engine: loadRules', () => {
         resolve: (modulePath: string) => {
           if (modulePath === 'types') {
             return `type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }), id: String } }) | LogSet({ reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
-type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float } }) | CompleteSession({ summary: { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) } })
-alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Int, prePausePhase: String, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }), lastLoggedSet: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }, startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }) }
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }), id: String } }) | LogSet({ reps: Int, weightKg: Float, durationSeconds: Int }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int } }) | CompleteSession({ summary: { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int }) } })
+alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Int, prePausePhase: String, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int }), lastLoggedSet: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int }, startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }) }
 true`;
           }
           throw new Error(`Module not found: ${modulePath}`);
@@ -116,7 +116,6 @@ true`;
             reps: 10,
             weightKg: 20.5,
             durationSeconds: null,
-            rpe: 6.5,
           },
           {
             exerciseId: 'ex1',
@@ -124,7 +123,6 @@ true`;
             reps: 8,
             weightKg: 25.0,
             durationSeconds: null,
-            rpe: 8.5,
           },
         ],
         startedAtMs: 1687900000000,
@@ -140,7 +138,7 @@ true`;
       expect(deserialized.sessionId).toBe('sess-uuid-123');
       expect(deserialized.phase).toBe('working');
       expect(deserialized.loggedSets).toHaveLength(2);
-      expect(deserialized.loggedSets[0].rpe).toBe(6.5);
+      expect(deserialized.loggedSets[0].weightKg).toBe(20.5);
     });
   });
 });

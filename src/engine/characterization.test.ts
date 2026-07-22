@@ -8,7 +8,6 @@
  * Sentinel boundary (fromRillState adapter — see index.ts SENTINEL_TO_OPTION_MAP):
  * The host deliberately maintains sentinels for Option fields, diverging from Task 5's
  * "update read sites" directive. fromRillState re-sentinelizes:
- *   rpe: undefined            → -1.0
  *   prePausePhase: undefined  → ""
  *   restDeadlineMs: undefined → 0
  *   supersetGroup: undefined  → ""
@@ -38,19 +37,14 @@ type UniformEffect = {
  * Uses SENTINEL_TO_OPTION_MAP from index.ts to keep mappings consistent.
  *
  * Sentinels removed:
- *   rpe: -1.0 → undefined
  *   prePausePhase: "" → undefined
  *   restDeadlineMs: 0 → undefined (when not actively resting)
  *   supersetGroup: "" → undefined
- *   loggedSets.rpe: -1.0 → undefined
  */
 function normalize(state: SessionState): Partial<SessionState> {
   const normalized: any = {
     ...state,
-    loggedSets: state.loggedSets.map((set: LoggedSet) => ({
-      ...set,
-      rpe: set.rpe === -1.0 ? undefined : set.rpe,
-    })),
+    loggedSets: state.loggedSets.map((set: LoggedSet) => ({ ...set })),
     entries: state.entries.map((entry: any) => ({
       ...entry,
       supersetGroup: entry.supersetGroup === '' ? undefined : entry.supersetGroup,
@@ -59,10 +53,7 @@ function normalize(state: SessionState): Partial<SessionState> {
 
   // Only include lastLoggedSet if it exists and has meaningful content
   if (state.lastLoggedSet) {
-    normalized.lastLoggedSet = {
-      ...state.lastLoggedSet,
-      rpe: state.lastLoggedSet.rpe === -1.0 ? undefined : state.lastLoggedSet.rpe,
-    };
+    normalized.lastLoggedSet = { ...state.lastLoggedSet };
   } else {
     normalized.lastLoggedSet = undefined;
   }
@@ -89,7 +80,6 @@ function fillEventDefaults(event: Event): Event {
       reps: event.reps !== undefined ? event.reps : 0,
       weightKg: event.weightKg !== undefined ? event.weightKg : 0.0,
       durationSeconds: event.durationSeconds !== undefined ? event.durationSeconds : 0,
-      rpe: event.rpe !== undefined ? event.rpe : -1.0, // Sentinel for absent RPE
     };
   }
   return event;
@@ -177,7 +167,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.startedAtMs).toBe(1000);
       expect(executors.onCreateSession).toHaveBeenCalled();
 
-      // Step 2: LogSet (warmup, no RPE specified)
+      // Step 2: LogSet (warmup)
       let logWarmupEvent: Event = {
         tag: 'LogSet',
         reps: 5,
@@ -188,7 +178,6 @@ describe('characterization: session engine pre-migration behavior', () => {
       state = await engine.dispatch(fillEventDefaults(logWarmupEvent));
       expect(state.lastLoggedSet?.setType).toBe('warmup');
       expect(state.lastLoggedSet?.reps).toBe(5);
-      expect(state.lastLoggedSet?.rpe).toBe(-1.0); // Sentinel: no RPE provided
       expect(executors.onPersistSet).toHaveBeenCalled();
 
       // Step 3: SetDone (advance warmup to next set: warmup → working within same exercise)
@@ -198,19 +187,17 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.exerciseIndex).toBe(0);
       expect(state.setIndex).toBe(1);
 
-      // Step 4: LogSet (working, with RPE)
+      // Step 4: LogSet (working)
       let logWorkingEvent: Event = {
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
-        rpe: 7.5,
       };
 
       state = await engine.dispatch(fillEventDefaults(logWorkingEvent));
       expect(state.lastLoggedSet?.setType).toBe('working');
-      expect(state.lastLoggedSet?.rpe).toBe(7.5); // RPE provided
-      expect(normalize(state).lastLoggedSet?.rpe).toBe(7.5); // Post-migration: still 7.5
+      expect(state.lastLoggedSet?.weightKg).toBe(25.0);
 
       // Step 5: SetDone (complete working set, advance to next exercise)
       setDoneEvent = { tag: 'SetDone', nowMs: 15000 };
@@ -375,10 +362,10 @@ describe('characterization: session engine pre-migration behavior', () => {
   });
 
   /**
-   * C4: LogSet with and without RPE (sentinel mapping)
+   * C4: LogSet field capture across consecutive sets
    */
-  describe('C4: LogSet RPE sentinel behavior', () => {
-    it('should accept LogSet without RPE; rpe sentinel = -1.0', async () => {
+  describe('C4: LogSet field capture', () => {
+    it('should capture logged values on lastLoggedSet', async () => {
       const engine = createEngine({ onPersistSet: jest.fn() });
       const state = makeState({
         phase: 'working',
@@ -393,38 +380,14 @@ describe('characterization: session engine pre-migration behavior', () => {
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
-        // rpe omitted
       };
 
       const currentState = await engine.dispatch(fillEventDefaults(event));
-      expect(currentState.lastLoggedSet?.rpe).toBe(-1.0); // Sentinel
-      expect(normalize(currentState).lastLoggedSet?.rpe).toBeUndefined(); // Post-migration: undefined
+      expect(currentState.lastLoggedSet?.reps).toBe(8);
+      expect(currentState.lastLoggedSet?.weightKg).toBe(25.0);
     });
 
-    it('should accept LogSet with RPE; rpe preserved', async () => {
-      const engine = createEngine({ onPersistSet: jest.fn() });
-      const state = makeState({
-        phase: 'working',
-        exerciseIndex: 0,
-        setIndex: 0,
-        entries: makeRoutine(1).entries,
-      });
-      engine.setState(state);
-
-      const event: Event = {
-        tag: 'LogSet',
-        reps: 8,
-        weightKg: 25.0,
-        durationSeconds: 0,
-        rpe: 7.5,
-      };
-
-      const currentState = await engine.dispatch(fillEventDefaults(event));
-      expect(currentState.lastLoggedSet?.rpe).toBe(7.5);
-      expect(normalize(currentState).lastLoggedSet?.rpe).toBe(7.5);
-    });
-
-    it('should append multiple LogSets with varying RPE', async () => {
+    it('should append multiple LogSets with varying values', async () => {
       const engine = createEngine({ onPersistSet: jest.fn() });
       const state = makeState({
         phase: 'warmup',
@@ -434,7 +397,6 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(state);
 
-      // First LogSet without RPE
       let currentState = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -443,22 +405,21 @@ describe('characterization: session engine pre-migration behavior', () => {
           durationSeconds: 0,
         })
       );
-      expect(currentState.lastLoggedSet?.rpe).toBe(-1.0);
+      expect(currentState.lastLoggedSet?.weightKg).toBe(20.0);
 
       // SetDone, advance
       await engine.dispatch({ tag: 'SetDone', nowMs: 10000 });
 
-      // Second LogSet with RPE
       currentState = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
           reps: 8,
           weightKg: 22.0,
           durationSeconds: 0,
-          rpe: 6.5,
         })
       );
-      expect(currentState.lastLoggedSet?.rpe).toBe(6.5);
+      expect(currentState.lastLoggedSet?.weightKg).toBe(22.0);
+      expect(currentState.loggedSets).toHaveLength(2);
     });
   });
 
@@ -490,52 +451,6 @@ describe('characterization: session engine pre-migration behavior', () => {
       const stateAfterError = engine.getState();
       expect(stateAfterError.phase).toBe(initialState.phase);
       expect(stateAfterError.exerciseIndex).toBe(initialState.exerciseIndex);
-    });
-
-    it('should reject LogSet with RPE > 10', async () => {
-      const engine = createEngine({});
-      const initialState = makeState({
-        phase: 'working',
-        exerciseIndex: 0,
-        setIndex: 0,
-        entries: makeRoutine(1).entries,
-      });
-      engine.setState(initialState);
-
-      const event: Event = {
-        tag: 'LogSet',
-        reps: 8,
-        weightKg: 20.0,
-        durationSeconds: 0,
-        rpe: 11.0,
-      };
-
-      await expect(engine.dispatch(fillEventDefaults(event))).rejects.toThrow(
-        /RPE must be unset or between 1.0 and 10.0 in 0.5-step increments/
-      );
-    });
-
-    it('should reject LogSet with invalid RPE increment (not 0.5 steps)', async () => {
-      const engine = createEngine({});
-      const initialState = makeState({
-        phase: 'working',
-        exerciseIndex: 0,
-        setIndex: 0,
-        entries: makeRoutine(1).entries,
-      });
-      engine.setState(initialState);
-
-      const event: Event = {
-        tag: 'LogSet',
-        reps: 8,
-        weightKg: 20.0,
-        durationSeconds: 0,
-        rpe: 7.3, // Not 0.5 step
-      };
-
-      await expect(engine.dispatch(fillEventDefaults(event))).rejects.toThrow(
-        /RPE must be unset or between 1.0 and 10.0 in 0.5-step increments/
-      );
     });
 
     it('should reject LogSet in idle phase', async () => {
@@ -704,7 +619,6 @@ describe('characterization: session engine pre-migration behavior', () => {
           reps: 8,
           weightKg: 25.0,
           durationSeconds: 0,
-          rpe: 7.5,
         })
       );
 
@@ -721,7 +635,6 @@ describe('characterization: session engine pre-migration behavior', () => {
           reps: 8,
           weightKg: 15.0,
           durationSeconds: 0,
-          rpe: 8.0,
         })
       );
 
@@ -793,7 +706,6 @@ describe('characterization: session engine pre-migration behavior', () => {
           reps: 8,
           weightKg: 25.0,
           durationSeconds: 0,
-          rpe: 7.5,
         })
       );
 
@@ -803,7 +715,6 @@ describe('characterization: session engine pre-migration behavior', () => {
           setType: 'working',
           reps: 8,
           weightKg: 25.0,
-          rpe: 7.5,
         })
       );
     });

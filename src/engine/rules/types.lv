@@ -3,7 +3,7 @@
 type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
 
 -- Aliases with dependencies must be defined before types that use them
-alias LoggedSet = { exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }
+alias LoggedSet = { exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int) }
 
 alias RoutineEntry = { exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: Option(String) }
 
@@ -12,7 +12,7 @@ alias Routine = { entries: List(RoutineEntry), id: String }
 alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List(LoggedSet) }
 
 -- Now define types that depend on the above aliases
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
 
 type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: LoggedSet }) | CompleteSession({ summary: SessionSummary })
 
