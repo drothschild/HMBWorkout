@@ -2,7 +2,7 @@
  * Interop format contract: types and shared parsing/formatting for serializer/parser.
  * Single source of truth to prevent drift between serializer and parser.
  *
- * SCOPE: Line-level flag parsing (rest, warmup, superset, kind, duration, rpe, set_type, weight, distance).
+ * SCOPE: Line-level flag parsing (rest, warmup, superset, kind, duration, set_type, weight, distance).
  * Document-level frontmatter/block validation is in workout-bridge/src/contract.ts.
  * Both files share parseDuration() and ContractError — keep identical.
  */
@@ -34,7 +34,6 @@ export interface WorkoutLine {
   kind: ExerciseKind;
   hint?: string;
   // Session sets only (not in routine)
-  rpe?: number;
   weight?: number; // logged weight in kg, session sets only
   distance?: number; // logged distance in m, session sets only (cardio)
   // Logged session: actual set type
@@ -100,7 +99,6 @@ export interface ParsedFlags {
   duration?: string; // m:ss format
   durationSeconds?: number;
   hint?: string;
-  rpe?: number;
   setType?: SetType;
   weight?: number; // kg, session sets only
   distance?: number; // m, session sets only (cardio)
@@ -130,7 +128,7 @@ export function formatDuration(seconds: number): string {
 
 /**
  * Parse a single flag value.
- * Handles: rest=<sec|m:ss>, warmup=<n>, superset=<label>, kind=<type>, duration=<m:ss>, rpe=<n>, @<hint>
+ * Handles: rest=<sec|m:ss>, warmup=<n>, superset=<label>, kind=<type>, duration=<m:ss>, @<hint>
  */
 function parseSingleFlag(flag: string): [key: string, value: any] | null {
   if (flag.startsWith('@')) {
@@ -175,15 +173,6 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
       return seconds !== null
         ? ['durationSeconds', seconds]
         : null;
-    }
-
-    case 'rpe': {
-      const rpe = parseFloat(valueStr);
-      // RPE must be 1-10 in 0.5 steps
-      if (isNaN(rpe) || rpe < 1 || rpe > 10) return null;
-      // Check 0.5 step
-      if ((rpe * 2) % 1 !== 0) return null;
-      return ['rpe', rpe];
     }
 
     case 'set_type': {
@@ -236,8 +225,15 @@ export function parseFlags(flagStr: string): ParsedFlags {
     const key = part.substring(0, eqIndex);
     const valueStr = part.substring(eqIndex + 1);
 
+    // Deprecated flags: accepted so historic vault files still parse, but ignored.
+    // rpe was removed from the app; sessions written before the removal carry it.
+    const deprecatedFlags = ['rpe'];
+    if (deprecatedFlags.includes(key)) {
+      continue;
+    }
+
     // Known flags - throw on invalid value or unknown key
-    const knownFlags = ['rest', 'warmup', 'superset', 'kind', 'duration', 'rpe', 'set_type', 'weight', 'distance'];
+    const knownFlags = ['rest', 'warmup', 'superset', 'kind', 'duration', 'set_type', 'weight', 'distance'];
     if (!knownFlags.includes(key)) {
       // Unknown flag key - throw per I1
       throw new ContractError(`Unknown flag key: ${key} (in ${part})`);
@@ -288,10 +284,6 @@ export function formatFlags(flags: ParsedFlags): string {
 
   if (flags.setType !== undefined && flags.setType !== 'working') {
     parts.push(`set_type=${flags.setType}`);
-  }
-
-  if (flags.rpe !== undefined) {
-    parts.push(`rpe=${flags.rpe}`);
   }
 
   if (flags.weight !== undefined) {

@@ -1,6 +1,6 @@
 /**
  * Round-trip tests (Task 4).
- * AC3.1, AC8.4, AC9.2: parse(serialize(rows)) equals original machine fields.
+ * AC3.1, AC8.4: parse(serialize(rows)) equals original machine fields.
  */
 
 import { serializeSession, serializeRoutine } from '../serialize';
@@ -26,7 +26,6 @@ describe('round-trip', () => {
           reps: 8,
           weightKg: 20,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -35,7 +34,6 @@ describe('round-trip', () => {
           reps: 6,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: 8,
           position: 1,
         },
         {
@@ -44,7 +42,6 @@ describe('round-trip', () => {
           reps: 5,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: 7.5,
           position: 2,
         },
       ];
@@ -90,7 +87,6 @@ describe('round-trip', () => {
       expect(set0.setType).toBe('warmup');
       expect(set0.targetReps).toBe(8); // parsed from 1x8
       expect(set0.weight).toBe(20); // logged weight in kg
-      expect(set0.rpe).toBeUndefined(); // no rpe on this set
       expect(set0.distance).toBeUndefined();
       expect(set0.kind).toBe('strength');
 
@@ -99,7 +95,6 @@ describe('round-trip', () => {
       expect(set1.setType).toBe('working');
       expect(set1.targetReps).toBe(6); // parsed from 1x6
       expect(set1.weight).toBe(30); // logged weight in kg
-      expect(set1.rpe).toBe(8); // effort rating preserved
       expect(set1.distance).toBeUndefined();
       expect(set1.kind).toBe('strength');
 
@@ -108,7 +103,6 @@ describe('round-trip', () => {
       expect(set2.setType).toBe('working');
       expect(set2.targetReps).toBe(5); // parsed from 1x5
       expect(set2.weight).toBe(30); // logged weight in kg
-      expect(set2.rpe).toBe(7.5); // 0.5-step rpe
       expect(set2.distance).toBeUndefined();
       expect(set2.kind).toBe('strength');
     });
@@ -192,7 +186,8 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       // Verify prose is ignored but data is preserved
       expect(parsed1.exercises).toHaveLength(2);
       expect((parsed1.exercises[0] as any).setType).toBe('warmup');
-      expect((parsed1.exercises[1] as any).rpe).toBe(8);
+      // Deprecated rpe flag in historic files is accepted but ignored
+      expect((parsed1.exercises[1] as any).rpe).toBeUndefined();
 
       // Now serialize back (creates a new markdown without the prose)
       const sessionRow = {
@@ -211,7 +206,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           reps: 8,
           weightKg: 20,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -220,7 +214,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           reps: 6,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: 8,
           position: 1,
         },
       ];
@@ -254,7 +247,7 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       // Verify machine fields survive round-trip
       expect(parsed2.exercises).toHaveLength(2);
       expect((parsed2.exercises[0] as any).setType).toBe('warmup');
-      expect((parsed2.exercises[1] as any).rpe).toBe(8);
+      expect((parsed2.exercises[1] as any).setType).toBe('working');
     });
   });
 
@@ -276,7 +269,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           reps: 6,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -285,7 +277,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           reps: 12,
           weightKg: 12,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 1,
         },
       ];
@@ -491,7 +482,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           weightKg: undefined,
           distanceM: undefined,
           durationSeconds: 30, // 0:30 stretch
-          rpe: undefined,
           position: 0,
         },
       ];
@@ -535,7 +525,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(stretchSet.targetReps).toBeUndefined(); // stretch has no reps
       expect(stretchSet.weight).toBeUndefined();
       expect(stretchSet.distance).toBeUndefined();
-      expect(stretchSet.rpe).toBeUndefined();
     });
 
     test('logged cardio session preserves all machine fields (duration, distance)', () => {
@@ -556,7 +545,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           weightKg: undefined,
           distanceM: 2500, // logged 2.5km
           durationSeconds: 300, // 5:00 cardio
-          rpe: 6, // perceived exertion during cardio
           position: 0,
         },
       ];
@@ -598,167 +586,8 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(cardioSet.setType).toBe('working');
       expect(cardioSet.targetDurationSeconds).toBe(300);
       expect(cardioSet.distance).toBe(2500); // logged distance in m
-      expect(cardioSet.rpe).toBe(6);
       expect(cardioSet.targetReps).toBeUndefined(); // cardio has no reps
       expect(cardioSet.weight).toBeUndefined();
-    });
-  });
-
-  describe('AC9.2: RPE round-trip', () => {
-    test('preserves RPE with 0.5 steps', () => {
-      const sessionRow = {
-        id: 'sess-rpe-rt',
-        routineId: 'push-06-01',
-        startedAt: new Date('2026-07-08T10:00:00Z'),
-        endedAt: new Date('2026-07-08T10:30:00Z'),
-        createdAt: new Date('2026-07-08T10:00:00Z'),
-        customSyncStatus: 'local',
-      };
-
-      const sets = [
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 6,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: 8,
-          position: 0,
-        },
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 5,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: 7.5,
-          position: 1,
-        },
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 4,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: 9.5,
-          position: 2,
-        },
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 3,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: undefined,
-          position: 3,
-        },
-      ];
-
-      const routineExercises = [
-        {
-          id: 're-001',
-          exerciseId: 'bench-press-db',
-          order: 0,
-          supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
-          restSeconds: 90,
-          notes: undefined,
-        },
-      ];
-
-      const exercises = [
-        {
-          id: 'bench-press-db',
-          title: 'Bench Press (DB)',
-          kind: 'strength' as const,
-        },
-      ];
-
-      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
-      const parsed = parseSession(markdown);
-
-      expect(parsed.exercises).toHaveLength(4);
-
-      const set0 = parsed.exercises[0] as WorkoutLine;
-      expect(set0.rpe).toBe(8);
-
-      const set1 = parsed.exercises[1] as WorkoutLine;
-      expect(set1.rpe).toBe(7.5);
-
-      const set2 = parsed.exercises[2] as WorkoutLine;
-      expect(set2.rpe).toBe(9.5);
-
-      const set3 = parsed.exercises[3] as WorkoutLine;
-      expect(set3.rpe).toBeUndefined();
-    });
-
-    test('unrated sets stay unrated', () => {
-      const sessionRow = {
-        id: 'sess-unrated-rt',
-        routineId: 'push-06-01',
-        startedAt: new Date('2026-07-08T10:00:00Z'),
-        endedAt: new Date('2026-07-08T10:30:00Z'),
-        createdAt: new Date('2026-07-08T10:00:00Z'),
-        customSyncStatus: 'local',
-      };
-
-      const sets = [
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 6,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: undefined,
-          position: 0,
-        },
-        {
-          routineExerciseId: 're-001',
-          setType: 'working' as const,
-          reps: 5,
-          weightKg: 30,
-          durationSeconds: undefined,
-          rpe: undefined,
-          position: 1,
-        },
-      ];
-
-      const routineExercises = [
-        {
-          id: 're-001',
-          exerciseId: 'bench-press-db',
-          order: 0,
-          supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
-          restSeconds: 90,
-          notes: undefined,
-        },
-      ];
-
-      const exercises = [
-        {
-          id: 'bench-press-db',
-          title: 'Bench Press (DB)',
-          kind: 'strength' as const,
-        },
-      ];
-
-      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
-      const parsed = parseSession(markdown);
-
-      expect(parsed.exercises).toHaveLength(2);
-
-      const set0 = parsed.exercises[0] as WorkoutLine;
-      expect(set0.rpe).toBeUndefined();
-
-      const set1 = parsed.exercises[1] as WorkoutLine;
-      expect(set1.rpe).toBeUndefined();
     });
   });
 
@@ -779,7 +608,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           reps: 10,
           weightKg: 0,
           durationSeconds: undefined,
-          rpe: 7,
           position: 0,
         },
       ];
@@ -812,7 +640,6 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.exerciseId).toBe('pull-up');
       expect(set0.weight).toBe(0);
       expect(set0.targetReps).toBe(10);
-      expect(set0.rpe).toBe(7);
       expect(set0.setType).toBe('working');
     });
   });

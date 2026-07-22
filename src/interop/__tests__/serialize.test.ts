@@ -27,7 +27,6 @@ describe('serialize', () => {
           reps: 8,
           weightKg: 20,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -182,7 +181,6 @@ describe('serialize', () => {
           reps: 8,
           weightKg: 20,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -228,7 +226,7 @@ describe('serialize', () => {
 
       expect(markdown).toContain('set_type=warmup');
       expect(markdown).toContain('set_type=working');
-      expect(markdown).toContain('rpe=8');
+      expect(markdown).not.toContain('rpe=');
     });
 
     test('serializeSession serializes superset grouping', () => {
@@ -248,7 +246,6 @@ describe('serialize', () => {
           reps: 6,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -257,7 +254,6 @@ describe('serialize', () => {
           reps: 12,
           weightKg: 12,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 1,
         },
       ];
@@ -312,7 +308,7 @@ describe('serialize', () => {
       expect(markdown).toContain('superset=A');
     });
 
-    test('serializeSession includes rpe for logged sets', () => {
+    test('serializeSession omits rpe even when legacy rows still carry it', () => {
       const sessionRow = {
         id: 'sess-005',
         routineId: 'push-06-01',
@@ -347,7 +343,6 @@ describe('serialize', () => {
           reps: 4,
           weightKg: 30,
           durationSeconds: undefined,
-          rpe: undefined,
           position: 2,
         },
       ];
@@ -382,12 +377,7 @@ describe('serialize', () => {
         exercises as any
       );
 
-      expect(markdown).toContain('rpe=8');
-      expect(markdown).toContain('rpe=7.5');
-      // Unrated set should not have rpe=
-      const lines = markdown.split('\n');
-      const lastSetLine = lines[lines.length - 2]; // before closing ```
-      expect(lastSetLine).not.toContain('rpe=');
+      expect(markdown).not.toContain('rpe=');
     });
 
     test('serializeRoutine includes superset and warmup flags', () => {
@@ -501,7 +491,6 @@ describe('serialize', () => {
           reps: undefined,
           weightKg: undefined,
           durationSeconds: 300,
-          rpe: undefined,
           position: 0,
         },
         {
@@ -510,7 +499,6 @@ describe('serialize', () => {
           reps: undefined,
           weightKg: undefined,
           durationSeconds: 30,
-          rpe: undefined,
           position: 1,
         },
       ];

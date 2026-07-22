@@ -27,7 +27,6 @@ export function serializeSession(
     weightKg?: number;
     distanceM?: number;
     durationSeconds?: number;
-    rpe?: number;
     position: number;
   }>,
   routineExercises: Array<{
@@ -98,11 +97,6 @@ export function serializeSession(
       // Add kind if not strength (C2)
       if (exerciseData.kind !== 'strength') {
         flagParts.push(`kind=${exerciseData.kind}`);
-      }
-
-      // Add rpe if present
-      if (set.rpe !== undefined) {
-        flagParts.push(`rpe=${set.rpe}`);
       }
 
       // Add weight if present (C1)

@@ -182,7 +182,6 @@ function parseWorkoutLine(line: string): WorkoutLine | null {
     warmupSets: parsedFlags.warmupSets,
     supersetLabel: parsedFlags.supersetLabel,
     hint: parsedFlags.hint,
-    rpe: parsedFlags.rpe,
     weight: parsedFlags.weight,
     distance: parsedFlags.distance,
     setType: parsedFlags.setType,

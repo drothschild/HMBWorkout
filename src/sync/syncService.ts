@@ -79,7 +79,6 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               weightKg: (s as any).weightKg,
               distanceM: (s as any).distanceM,
               durationSeconds: (s as any).durationSeconds,
-              rpe: (s as any).rpe,
               position: (s as any)._raw.position,
             })),
             routineExercises.map((re) => ({

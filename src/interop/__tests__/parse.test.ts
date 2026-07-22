@@ -18,7 +18,7 @@ tags: []
 ---
 
 \`\`\`workout
-- bench-press-db: 4x6 @bad rpe=invalid
+- bench-press-db: 4x6 @bad rest=invalid
 \`\`\`
 `;
 
@@ -58,7 +58,7 @@ tags: []
       expect(() => parseRoutine(markdown)).toThrow(ContractError);
     });
 
-    test('throws ContractError on invalid rpe (out of range)', () => {
+    test('ignores deprecated rpe flag (historic vault files)', () => {
       const markdown = `---
 type: workout-routine
 id: test-routine
@@ -68,11 +68,13 @@ tags: []
 ---
 
 \`\`\`workout
-- bench-press-db: 4x6 rpe=11
+- bench-press-db: 4x6 rpe=8
 \`\`\`
 `;
 
-      expect(() => parseRoutine(markdown)).toThrow(ContractError);
+      const result = parseRoutine(markdown);
+      expect(result.exercises).toHaveLength(1);
+      expect((result.exercises[0] as any).rpe).toBeUndefined();
     });
   });
 
@@ -346,7 +348,7 @@ tags: []
   });
 
   describe('Session parsing', () => {
-    test('parseSession parses session with set_type and rpe', () => {
+    test('parseSession parses session with set_type (deprecated rpe ignored)', () => {
       const markdown = `---
 type: workout-session
 id: sess-001
@@ -374,7 +376,7 @@ tags: []
       const second = result.exercises[1] as any;
       expect(second.exerciseId).toBe('bench-press-db');
       expect(second.setType).toBe('working');
-      expect(second.rpe).toBe(8);
+      expect(second.rpe).toBeUndefined();
     });
 
     test('parseSession preserves superset grouping', () => {
