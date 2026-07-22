@@ -56,11 +56,24 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 
       if (!exerciseDone)
       then (
-        let newPhase = if (isWarmup && nextSetIndex >= currentEntry.warmupSets) then Working else state.phase
-        Ok({
-          state: { state | phase: newPhase, setIndex: nextSetIndex, restDeadlineMs: None },
-          effects: []
-        })
+        -- Rest between sets of the same exercise. Only from Warmup/Working so
+        -- RestElapsed can recover the phase from setIndex vs warmupSets.
+        let restBetweenSets = currentEntry.restSeconds > 0 && (state.phase == Warmup || state.phase == Working)
+        if (restBetweenSets)
+        then (
+          let restDeadlineMs = p.nowMs + currentEntry.restSeconds * 1000
+          Ok({
+            state: { state | phase: Resting, setIndex: nextSetIndex, restDeadlineMs: Some(restDeadlineMs) },
+            effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
+          })
+        )
+        else (
+          let newPhase = if (isWarmup && nextSetIndex >= currentEntry.warmupSets) then Working else state.phase
+          Ok({
+            state: { state | phase: newPhase, setIndex: nextSetIndex, restDeadlineMs: None },
+            effects: []
+          })
+        )
       )
       else (
         let nextExerciseIndex = state.exerciseIndex + 1
@@ -105,23 +118,30 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
       if (p.nowMs < match state.restDeadlineMs { Some(d) -> d, None -> 0 })
       then Err("rest not elapsed")
       else (
-        let currentPhase = if (length(state.entries) > 0) then Working else Idle
+        -- setIndex already points at the upcoming set (SetDone advanced it),
+        -- so it must be preserved; the phase is recovered from its position.
+        let currentEntry = at(state.exerciseIndex, state.entries)?
+        let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
         Ok({
-          state: { state | phase: currentPhase, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
+          state: { state | phase: nextPhase, restDeadlineMs: None },
           effects: [CancelRest]
         })
       )
     ),
   RestElapsed(p) -> Err("invalid event RestElapsed in phase " ++ h.phase_to_string(state.phase)),
   SkipRest if state.phase == Resting -> (
+      let currentEntry = at(state.exerciseIndex, state.entries)?
+      let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
       Ok({
-        state: { state | phase: Working, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None },
+        state: { state | phase: nextPhase, restDeadlineMs: None, restRemainingMs: None },
         effects: [CancelRest]
       })
     ),
   SkipRest if state.phase == Paused && state.restRemainingMs != None -> (
+      let currentEntry = at(state.exerciseIndex, state.entries)?
+      let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
       Ok({
-        state: { state | phase: Working, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None, prePausePhase: None },
+        state: { state | phase: nextPhase, restDeadlineMs: None, restRemainingMs: None, prePausePhase: None },
         effects: []
       })
     ),

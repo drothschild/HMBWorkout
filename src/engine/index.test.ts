@@ -464,7 +464,7 @@ describe('engine: dispatch loop with effect executors', () => {
 
       const engine = createEngine(executors);
       const testStartMs = 5000;
-      const testEndMs = 15000; // SetDone nowMs
+      const testEndMs = 75000; // SetDone nowMs (after the between-sets rest elapses)
 
       engine.setState(makeState({ phase: 'idle' }));
 
@@ -488,10 +488,17 @@ describe('engine: dispatch loop with effect executors', () => {
         rpe: 6.0,
       });
 
-      // SetDone warmup
+      // SetDone warmup → rest between sets, then elapse it
       state = await engine.dispatch({
         tag: 'SetDone',
         nowMs: testStartMs + 5000,
+      });
+
+      expect(state.phase).toBe('resting');
+
+      state = await engine.dispatch({
+        tag: 'RestElapsed',
+        nowMs: testStartMs + 5000 + 60000,
       });
 
       expect(state.phase).toBe('working');
@@ -613,10 +620,18 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(state.loggedSets[0].setType).toBe('warmup');
       expect(executors.onPersistSet).toHaveBeenCalledTimes(1);
 
-      // Step 3: SetDone after warmup
+      // Step 3: SetDone after warmup → rests between sets (90s), then elapses
       state = await engine.dispatch({
         tag: 'SetDone',
         nowMs: 10000,
+      });
+
+      expect(state.phase).toBe('resting'); // Rest between sets of exercise 0
+      expect(state.restDeadlineMs).toBe(100000); // 10000 + 90*1000
+
+      state = await engine.dispatch({
+        tag: 'RestElapsed',
+        nowMs: 100000,
       });
 
       expect(state.phase).toBe('working'); // Should advance to working after warmups
@@ -636,10 +651,17 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(state.loggedSets[1].setType).toBe('working');
       expect(executors.onPersistSet).toHaveBeenCalledTimes(2);
 
-      // Step 5: SetDone for working set 1
+      // Step 5: SetDone for working set 1 → rest between sets, then elapse
       state = await engine.dispatch({
         tag: 'SetDone',
-        nowMs: 20000,
+        nowMs: 110000,
+      });
+
+      expect(state.phase).toBe('resting');
+
+      state = await engine.dispatch({
+        tag: 'RestElapsed',
+        nowMs: 200000,
       });
 
       // Should still be in exercise 0 but on set 2 (second working set)
@@ -662,18 +684,18 @@ describe('engine: dispatch loop with effect executors', () => {
       // Step 7: SetDone (completes exercise 0, moves to rest before exercise 1)
       state = await engine.dispatch({
         tag: 'SetDone',
-        nowMs: 30000,
+        nowMs: 210000,
       });
 
       expect(state.phase).toBe('resting'); // Now resting before next exercise
       expect(state.exerciseIndex).toBe(1); // Advanced to next exercise
-      expect(state.restDeadlineMs).toBe(120000); // 30000 + 90*1000
+      expect(state.restDeadlineMs).toBe(300000); // 210000 + 90*1000
       expect(executors.onScheduleRest).toHaveBeenCalled();
 
       // Step 8: RestElapsed (resume from rest)
       state = await engine.dispatch({
         tag: 'RestElapsed',
-        nowMs: 120000,
+        nowMs: 300000,
       });
 
       expect(state.phase).toBe('working'); // Back to working phase
@@ -697,7 +719,7 @@ describe('engine: dispatch loop with effect executors', () => {
       // Step 10: SetDone for final set (completes workout)
       state = await engine.dispatch({
         tag: 'SetDone',
-        nowMs: 130000,
+        nowMs: 310000,
       });
 
       // Should be done now

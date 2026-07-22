@@ -191,12 +191,16 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.lastLoggedSet?.rpe).toBe(-1.0); // Sentinel: no RPE provided
       expect(executors.onPersistSet).toHaveBeenCalled();
 
-      // Step 3: SetDone (advance warmup to next set: warmup → working within same exercise)
+      // Step 3: SetDone (warmup complete → rest between sets, then working)
       let setDoneEvent: Event = { tag: 'SetDone', nowMs: 10000 };
       state = await engine.dispatch(setDoneEvent);
+      expect(state.phase).toBe('resting'); // Rest between sets of exercise 0
+      expect(state.restDeadlineMs).toBe(10000 + 60 * 1000);
+
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 70000 });
       expect(state.phase).toBe('working');
       expect(state.exerciseIndex).toBe(0);
-      expect(state.setIndex).toBe(1);
+      expect(state.setIndex).toBe(1); // Preserved across the rest
 
       // Step 4: LogSet (working, with RPE)
       let logWorkingEvent: Event = {
@@ -213,15 +217,15 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(normalize(state).lastLoggedSet?.rpe).toBe(7.5); // Post-migration: still 7.5
 
       // Step 5: SetDone (complete working set, advance to next exercise)
-      setDoneEvent = { tag: 'SetDone', nowMs: 15000 };
+      setDoneEvent = { tag: 'SetDone', nowMs: 75000 };
       state = await engine.dispatch(setDoneEvent);
       expect(state.phase).toBe('resting'); // Now resting before exercise 1
       expect(state.exerciseIndex).toBe(1);
       expect(state.setIndex).toBe(0);
-      expect(state.restDeadlineMs).toBe(15000 + 60 * 1000); // nowMs + restSeconds*1000
+      expect(state.restDeadlineMs).toBe(75000 + 60 * 1000); // nowMs + restSeconds*1000
 
       // Step 6: RestElapsed
-      let restElapsedEvent: Event = { tag: 'RestElapsed', nowMs: 76000 };
+      let restElapsedEvent: Event = { tag: 'RestElapsed', nowMs: 135000 };
       state = await engine.dispatch(restElapsedEvent);
       expect(state.phase).toBe('working');
       expect(state.restDeadlineMs).toBe(0);
@@ -231,7 +235,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.lastLoggedSet?.exerciseId).toBe('exercise-1');
 
       // Step 8: SetDone (final exercise, completes workout)
-      setDoneEvent = { tag: 'SetDone', nowMs: 80000 };
+      setDoneEvent = { tag: 'SetDone', nowMs: 140000 };
       state = await engine.dispatch(setDoneEvent);
       expect(state.phase).toBe('done');
       expect(executors.onCompleteSession).toHaveBeenCalled();
@@ -688,8 +692,11 @@ describe('characterization: session engine pre-migration behavior', () => {
         })
       );
 
-      // SetDone warmup → working (within same exercise)
+      // SetDone warmup → rest between sets, then working (within same exercise)
       state = await engine.dispatch({ tag: 'SetDone', nowMs: 10000 });
+      expect(state.phase).toBe('resting');
+
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 100000 });
       expect(state.phase).toBe('working');
 
       // LogSet working exercise 0
@@ -704,7 +711,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       );
 
       // SetDone exercise 0 → exercise 1 (same superset, no rest)
-      state = await engine.dispatch({ tag: 'SetDone', nowMs: 15000 });
+      state = await engine.dispatch({ tag: 'SetDone', nowMs: 105000 });
       expect(state.phase).toBe('working');
       expect(state.exerciseIndex).toBe(1);
       expect(state.supersetPosition).toBe(1);
@@ -721,7 +728,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       );
 
       // SetDone exercise 1 → done (last exercise)
-      state = await engine.dispatch({ tag: 'SetDone', nowMs: 20000 });
+      state = await engine.dispatch({ tag: 'SetDone', nowMs: 110000 });
       expect(state.phase).toBe('done');
       expect(executors.onCompleteSession).toHaveBeenCalled();
     });
