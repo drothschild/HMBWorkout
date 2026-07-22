@@ -1,11 +1,10 @@
 import { createSessionPresenter } from './sessionPresenter';
-import { computeProgressionHint } from './progressionHintHelper';
 import { SessionState } from '@/engine/types';
 
 /**
  * Test: Session presenter logic
  *
- * Verifies AC2.2 (LogSet/SetDone dispatch) and AC9.1 (RPE rendering)
+ * Verifies AC2.2 (LogSet/SetDone dispatch)
  * Note: Pure function tested in node project with direct calls
  */
 
@@ -24,7 +23,6 @@ describe('createSessionPresenter', () => {
         reps: 10,
         weightKg: 20,
         durationSeconds: null,
-        rpe: null,
       },
     ],
     entries: [
@@ -43,7 +41,7 @@ describe('createSessionPresenter', () => {
     prePausePhase: '',
   });
 
-  test('renders current exercise and logged sets with RPE when present', () => {
+  test('renders current exercise and logged sets', () => {
     const state = createMockState();
     state.loggedSets = [
       {
@@ -52,7 +50,6 @@ describe('createSessionPresenter', () => {
         reps: 8,
         weightKg: 25,
         durationSeconds: null,
-        rpe: 7.5,
       },
       {
         exerciseId: 'ex-1',
@@ -60,7 +57,6 @@ describe('createSessionPresenter', () => {
         reps: 7,
         weightKg: 25,
         durationSeconds: null,
-        rpe: 8,
       },
     ];
 
@@ -70,8 +66,8 @@ describe('createSessionPresenter', () => {
     expect(presenter.currentExerciseId).toBe('ex-1');
     expect(presenter.phase).toBe('working');
     expect(presenter.loggedSets).toHaveLength(2);
-    expect(presenter.loggedSets[0].rpe).toBe(7.5);
-    expect(presenter.loggedSets[1].rpe).toBe(8);
+    expect(presenter.loggedSets[0].reps).toBe(8);
+    expect(presenter.loggedSets[1].reps).toBe(7);
   });
 
   test('dispatches SetDone on setDone action', () => {
@@ -89,7 +85,7 @@ describe('createSessionPresenter', () => {
     );
   });
 
-  test('dispatches LogSet with reps, weight, and RPE on logSet', () => {
+  test('dispatches LogSet with reps and weight on logSet', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);
     const presenter = createSessionPresenter(state, mockDispatch);
@@ -97,7 +93,6 @@ describe('createSessionPresenter', () => {
     presenter.onLogSet({
       reps: 8,
       weightKg: 25,
-      rpe: 7.5,
     });
 
     expect(mockDispatch).toHaveBeenCalledWith(
@@ -105,7 +100,6 @@ describe('createSessionPresenter', () => {
         tag: 'LogSet',
         reps: 8,
         weightKg: 25,
-        rpe: 7.5,
       })
     );
   });
@@ -184,7 +178,6 @@ describe('createSessionPresenter', () => {
         reps: null,
         weightKg: null,
         durationSeconds: 30,
-        rpe: null,
       },
     ];
 
@@ -195,108 +188,4 @@ describe('createSessionPresenter', () => {
     expect(presenter.currentEntry!.kind).toBe('stretch');
     expect(presenter.loggedSets[0].durationSeconds).toBe(30);
   });
-
-  describe('Phase 4 Task 3: Progression hint for strength exercises', () => {
-    test('surfaces increase hint when all working sets have RPE ≤ 8', () => {
-      const state = createMockState();
-      state.loggedSets = [
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: 10,
-          weightKg: 20.0,
-          durationSeconds: null,
-          rpe: 6.5,
-        },
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: 10,
-          weightKg: 20.0,
-          durationSeconds: null,
-          rpe: 7.0,
-        },
-      ];
-
-      const mockDispatch = jest.fn();
-      const hint = computeProgressionHint('ex-1', state.loggedSets, 'strength');
-      const presenter = createSessionPresenter(state, mockDispatch, hint);
-
-      expect(presenter.progressionHint).toBeDefined();
-      expect(presenter.progressionHint?.toLowerCase()).toContain('increase');
-      expect(presenter.progressionHint).toContain('2.5');
-    });
-
-    test('surfaces hold hint when any working set has RPE > 8', () => {
-      const state = createMockState();
-      state.loggedSets = [
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: 8,
-          weightKg: 25.0,
-          durationSeconds: null,
-          rpe: 9.0,
-        },
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: 8,
-          weightKg: 25.0,
-          durationSeconds: null,
-          rpe: 9.5,
-        },
-      ];
-
-      const mockDispatch = jest.fn();
-      const hint = computeProgressionHint('ex-1', state.loggedSets, 'strength');
-      const presenter = createSessionPresenter(state, mockDispatch, hint);
-
-      expect(presenter.progressionHint).toBeDefined();
-      expect(presenter.progressionHint?.toLowerCase()).toContain('hold');
-    });
-
-    test('returns undefined hint for cardio/stretch exercises', () => {
-      const state = createMockState();
-      state.entries[0].kind = 'cardio';
-      state.loggedSets = [
-        {
-          exerciseId: 'ex-1',
-          setType: 'working',
-          reps: null,
-          weightKg: null,
-          durationSeconds: 300,
-          rpe: null,
-        },
-      ];
-
-      const mockDispatch = jest.fn();
-      const hint = computeProgressionHint('ex-1', state.loggedSets, 'cardio');
-      const presenter = createSessionPresenter(state, mockDispatch, hint);
-
-      expect(presenter.progressionHint).toBeUndefined();
-    });
-
-    test('returns baseline hint when no working sets yet (warmup only)', () => {
-      const state = createMockState();
-      state.loggedSets = [
-        {
-          exerciseId: 'ex-1',
-          setType: 'warmup',
-          reps: 10,
-          weightKg: 20,
-          durationSeconds: null,
-          rpe: null,
-        },
-      ];
-
-      const mockDispatch = jest.fn();
-      const hint = computeProgressionHint('ex-1', state.loggedSets, 'strength');
-      const presenter = createSessionPresenter(state, mockDispatch, hint);
-
-      expect(presenter.progressionHint).toBeDefined();
-      expect(presenter.progressionHint).toContain('baseline');
-    });
-  });
-
 });

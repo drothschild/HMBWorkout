@@ -81,7 +81,6 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       reps: 8,
       weightKg: 60,
       durationSeconds: 0,
-      rpe: 6.5,
     });
     expect(logState).toBeDefined();
     expect(logState?.phase).toBe('warmup');
@@ -100,7 +99,6 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       reps: 8,
       weightKg: 70,
       durationSeconds: 0,
-      rpe: 7.5,
     });
     expect(logState).toBeDefined();
 
@@ -116,7 +114,6 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       reps: 8,
       weightKg: 75,
       durationSeconds: 0,
-      rpe: 8,
     });
     expect(logState).toBeDefined();
 
@@ -140,7 +137,6 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       reps: 6,
       weightKg: 65,
       durationSeconds: 0,
-      rpe: 7,
     });
     expect(logState).toBeDefined();
 

@@ -107,7 +107,6 @@ export function createActiveSessionStore(
         reps: set.reps ?? undefined,
         weightKg: set.weightKg ?? undefined,
         durationSeconds: set.durationSeconds ?? undefined,
-        rpe: set.rpe ?? undefined,
       });
     },
 

@@ -8,11 +8,9 @@ interface SetLoggerProps {
   presenter: SessionPresenterOutput;
   currentReps?: number;
   currentWeight?: number;
-  currentRpe?: number;
   currentDuration?: number;
   onRepsChange: (reps: number) => void;
   onWeightChange: (weight: number) => void;
-  onRpeChange: (rpe: number) => void;
   onDurationChange: (duration: number) => void;
 }
 
@@ -20,11 +18,9 @@ export function SetLogger({
   presenter,
   currentReps,
   currentWeight,
-  currentRpe,
   currentDuration,
   onRepsChange,
   onWeightChange,
-  onRpeChange,
   onDurationChange,
 }: SetLoggerProps) {
   const isDurationBased = presenter.currentEntry?.kind === 'stretch' || presenter.currentEntry?.kind === 'cardio';
@@ -34,12 +30,6 @@ export function SetLogger({
       <ThemedText type="subtitle">
         {presenter.currentEntry?.exerciseId || 'Exercise'}
       </ThemedText>
-
-      {!isDurationBased && presenter.progressionHint && (
-        <View style={styles.hintContainer}>
-          <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
-        </View>
-      )}
 
       {isDurationBased ? (
         <View style={styles.inputGroup}>
@@ -87,27 +77,12 @@ export function SetLogger({
         </>
       )}
 
-      <View style={styles.inputGroup}>
-        <ThemedText>RPE (1-10, 0.5 steps)</ThemedText>
-        <TextInput
-          style={styles.input}
-          placeholder="RPE (optional)"
-          keyboardType="decimal-pad"
-          value={currentRpe?.toString() || ''}
-          onChangeText={(text) => {
-            const value = text ? parseFloat(text) : 0;
-            onRpeChange(value);
-          }}
-        />
-      </View>
-
       <ScrollView style={styles.loggedSets}>
         <ThemedText type="subtitle">Logged Sets</ThemedText>
         {presenter.loggedSets.map((set, idx) => (
           <View key={idx} style={styles.setRow}>
             <ThemedText>
               {isDurationBased ? `${set.durationSeconds}s` : `${set.reps} x ${set.weightKg}kg`}
-              {set.rpe !== null && set.rpe !== undefined ? ` RPE: ${set.rpe}` : ''}
             </ThemedText>
           </View>
         ))}
@@ -124,7 +99,6 @@ export function SetLogger({
             } else {
               if (currentDuration !== undefined) values.durationSeconds = currentDuration;
             }
-            if (currentRpe !== undefined && currentRpe > 0) values.rpe = currentRpe;
             presenter.onLogSet(values);
           }}
         >
@@ -153,18 +127,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: Spacing.three,
-  },
-  hintContainer: {
-    backgroundColor: '#E3F2FD',
-    borderLeftWidth: 4,
-    borderLeftColor: '#1976D2',
-    padding: Spacing.two,
-    marginVertical: Spacing.two,
-    borderRadius: 4,
-  },
-  hintText: {
-    color: '#1565C0',
-    fontWeight: '500',
   },
   inputGroup: {
     marginVertical: Spacing.two,

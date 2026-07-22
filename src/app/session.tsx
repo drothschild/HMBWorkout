@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,19 +8,6 @@ import { SetLogger } from '@/components/SetLogger';
 import { activeSessionStore } from '@/state/activeSession';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
-import { getExerciseWorkingSetHistory } from '@/db/repository';
-import { computeProgressionHint } from '@/state/progressionHintHelper';
-
-// Defer import until needed to avoid loading database singleton at module load time
-let database: any = null;
-
-function getDatabase() {
-  if (!database) {
-    const mod = require('@/db');
-    database = mod.database;
-  }
-  return database;
-}
 
 /**
  * Session screen - modal route for active workout logging.
@@ -30,57 +17,11 @@ export default function SessionScreen() {
   const router = useRouter();
   const [currentReps, setCurrentReps] = useState<number | undefined>();
   const [currentWeight, setCurrentWeight] = useState<number | undefined>();
-  const [currentRpe, setCurrentRpe] = useState<number | undefined>();
   const [currentDuration, setCurrentDuration] = useState<number | undefined>();
-  const [progressionHint, setProgressionHint] = useState<string | undefined>();
 
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const lastError = activeSessionStore((state: any) => state.lastError);
   const dispatch = activeSessionStore((state: any) => state.dispatch);
-
-  // Compute progression hint when exercise changes
-  useEffect(() => {
-    const computeHint = async () => {
-      if (!sessionState) {
-        setProgressionHint(undefined);
-        return;
-      }
-
-      const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
-      if (!currentEntry || currentEntry.kind !== 'strength') {
-        setProgressionHint(undefined);
-        return;
-      }
-
-      try {
-        // Query DB for prior working sets for this exercise
-        const db = getDatabase();
-        const history = await getExerciseWorkingSetHistory(db, currentEntry.exerciseId);
-
-        // Convert SessionSet records to LoggedSet format for the rule
-        const loggedSets = history.map((set: any) => ({
-          exerciseId: currentEntry.exerciseId,
-          reps: set.reps ?? 0,
-          weightKg: set.weightKg ?? 0,
-          rpe: set.rpe ?? 0,
-          setType: set.setType,
-          durationSeconds: set.durationSeconds,
-        }));
-
-        // Compute the hint
-        const hint = computeProgressionHint(currentEntry.exerciseId, loggedSets, 'strength');
-        setProgressionHint(hint);
-      } catch (error) {
-        console.error('Failed to compute progression hint:', error);
-        setProgressionHint(undefined);
-      }
-    };
-
-    computeHint();
-    // Recompute only when the current exercise changes (primitive dep — the
-    // hint is per-exercise; depending on the entries array reference re-ran it
-    // on every dispatch).
-  }, [sessionState?.exerciseIndex]);
 
   if (!sessionState) {
     return (
@@ -95,12 +36,11 @@ export default function SessionScreen() {
     );
   }
 
-  const presenter = createSessionPresenter(sessionState, dispatch, progressionHint);
+  const presenter = createSessionPresenter(sessionState, dispatch);
 
   const handleReset = () => {
     setCurrentReps(undefined);
     setCurrentWeight(undefined);
-    setCurrentRpe(undefined);
     setCurrentDuration(undefined);
   };
 
@@ -139,11 +79,9 @@ export default function SessionScreen() {
               presenter={presenter}
               currentReps={currentReps}
               currentWeight={currentWeight}
-              currentRpe={currentRpe}
               currentDuration={currentDuration}
               onRepsChange={setCurrentReps}
               onWeightChange={setCurrentWeight}
-              onRpeChange={setCurrentRpe}
               onDurationChange={setCurrentDuration}
             />
           )}

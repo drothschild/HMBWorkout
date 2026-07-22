@@ -137,7 +137,6 @@ describe('activeSession store', () => {
         reps: 8,
         weightKg: 50,
         durationSeconds: 0,
-        rpe: 7,
       });
 
       // Verify appendSet (mocked) was called with the right parameters
@@ -149,7 +148,6 @@ describe('activeSession store', () => {
           setType: 'working',
           reps: 8,
           weightKg: 50,
-          rpe: 7,
         })
       );
 
@@ -158,50 +156,6 @@ describe('activeSession store', () => {
       expect(storeState.sessionState?.loggedSets.length).toBe(1);
       expect(storeState.sessionState?.loggedSets[0].reps).toBe(8);
       expect(storeState.sessionState?.loggedSets[0].weightKg).toBe(50);
-      expect(storeState.sessionState?.loggedSets[0].rpe).toBe(7);
-    });
-
-    it('should preserve RPE with 0.5 step precision', async () => {
-      const store = createActiveSessionStore(database);
-
-      const routine = {
-        id: 'routine-1',
-        name: 'Test Routine',
-        entries: [
-          {
-            exerciseId: 'ex-1',
-            kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
-            restSeconds: 60,
-            supersetGroup: '',
-          },
-        ],
-      };
-
-      const sessionId = crypto.randomUUID?.() || 'test-session-id';
-
-      // Start session
-      await store.getState().dispatch({
-        tag: 'StartSession',
-        sessionId,
-        nowMs: Date.now(),
-        routine,
-      });
-
-      // Log a set with RPE 7.5
-      await store.getState().dispatch({
-        tag: 'LogSet',
-        durationSeconds: 0,
-        reps: 8,
-        weightKg: 50,
-        rpe: 7.5,
-      });
-
-      const storeState = store.getState();
-      expect(storeState.sessionState?.loggedSets[0].rpe).toBe(7.5);
     });
 
     it('should save engine state after successful transition', async () => {
@@ -347,7 +301,7 @@ describe('activeSession store', () => {
   });
 
   describe('I1b: onPersistSet with real database (no mock)', () => {
-    it('persists set with RPE to database via real onPersistSet', async () => {
+    it('persists set to database via real onPersistSet', async () => {
       // I1b: Use REAL onPersistSet (no mock), seed routines + routine_exercises
       // Seed routine
       await database.write(async () => {
@@ -413,13 +367,12 @@ describe('activeSession store', () => {
         routine,
       });
 
-      // LogSet with RPE
+      // LogSet
       await store.getState().dispatch({
         tag: 'LogSet',
         reps: 8,
         weightKg: 50,
         durationSeconds: 0,
-        rpe: 7.5,
       });
 
       // Debug: check for errors in store
@@ -431,7 +384,6 @@ describe('activeSession store', () => {
       // Query database directly for the persisted set
       const sets = await getSessionSets(database, sessionId);
       expect(sets).toHaveLength(1);
-      expect((sets[0] as any).rpe).toBe(7.5);
       expect((sets[0] as any).reps).toBe(8);
       expect((sets[0] as any).weightKg).toBe(50);
     });
@@ -538,7 +490,6 @@ describe('activeSession store', () => {
         reps: 8,
         weightKg: 50,
         durationSeconds: 0,
-        rpe: 7,
       });
 
       // Debug: check for errors
@@ -614,7 +565,6 @@ describe('activeSession store', () => {
             reps: 8,
             weightKg: 50,
             durationSeconds: null,
-            rpe: 7,
           },
         ];
         store.getState().hydrate(state);
@@ -637,122 +587,6 @@ describe('activeSession store', () => {
         );
       }
     });
-  });
-
-  describe('Phase 4 Task 3: Progression hint with prior working sets from DB', () => {
-    it('store surfaces non-undefined hint through to presenter for strength exercise with DB history', async () => {
-      // This test verifies the store-level integration: when a strength exercise has prior working sets in the DB,
-      // the store's computed hint is available for the presenter to display.
-      // The hint is computed async and stored in component state (session.tsx), not in the store.
-
-      const store = createActiveSessionStore(database);
-
-      // First, set up prior working sets in a completed session
-      await database.write(async () => {
-        // Create routine
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = 'routine-prior';
-          r.name = 'Prior Routine';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        // Create exercise
-        const exercisesTable = database.get('exercises');
-        await exercisesTable.create((e: any) => {
-          e._raw.id = 'ex-prior-history';
-          e.title = 'Squat';
-          e.kind = 'strength';
-          e.created_at = Date.now();
-        });
-
-        // Create routine exercise
-        const routineExercisesTable = database.get('routine_exercises');
-        await routineExercisesTable.create((re: any) => {
-          re._raw.id = 'routine-exercise-prior';
-          re.routine_id = 'routine-prior';
-          re.exercise_id = 'ex-prior-history';
-          re.order = 0;
-          re.warmup_sets = 0;
-        });
-
-        // Create prior session with working sets
-        const sessionsTable = database.get('sessions');
-        await sessionsTable.create((s: any) => {
-          s._raw.id = 'session-prior-history';
-          s.routine_id = 'routine-prior';
-          s._raw.started_at = Date.now() - 1000000;
-        });
-
-        // Create working sets for the prior session
-        const sessionSetsTable = database.get('session_sets');
-        await sessionSetsTable.create((set: any) => {
-          set.session_id = 'session-prior-history';
-          set.routine_exercise_id = 'routine-exercise-prior';
-          set.set_type = 'working';
-          set.reps = 8;
-          set.weight_kg = 100;
-          set.rpe = 7;
-          set.position = 0;
-          set._raw.created_at = Date.now() - 1000000;
-        });
-
-        await sessionSetsTable.create((set: any) => {
-          set.session_id = 'session-prior-history';
-          set.routine_exercise_id = 'routine-exercise-prior';
-          set.set_type = 'working';
-          set.reps = 8;
-          set.weight_kg = 100;
-          set.rpe = 7.5;
-          set.position = 1;
-          set._raw.created_at = Date.now() - 1000000;
-        });
-      });
-
-      // Now start a new session with the same exercise
-      const routine = {
-        id: 'routine-new-session',
-        name: 'New Session',
-        entries: [
-          {
-            exerciseId: 'ex-prior-history',
-            kind: 'strength' as const,
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
-            restSeconds: 60,
-            supersetGroup: '',
-          },
-        ],
-      };
-
-      const sessionId = crypto.randomUUID?.() || 'test-new-session';
-      const nowMs = Date.now();
-
-      await store.getState().dispatch({
-        tag: 'StartSession',
-        sessionId,
-        nowMs,
-        routine,
-      });
-
-      const state = store.getState().sessionState;
-      expect(state).toBeDefined();
-      expect(state?.entries[0].exerciseId).toBe('ex-prior-history');
-      expect(state?.entries[0].kind).toBe('strength');
-
-      // Create a presenter with the store state (simulating what session.tsx would do after computing the hint)
-      // In reality, session.tsx computes the hint async via getExerciseWorkingSetHistory and computeProgressionHint
-      // For this test, we verify the presenter can carry the hint when provided
-      const mockDispatch = jest.fn(async () => null);
-      const presenter = createSessionPresenter(state!, mockDispatch, 'Increase weight by 2.5 kg');
-
-      // Verify presenter surfaces the hint
-      expect(presenter.progressionHint).toBe('Increase weight by 2.5 kg');
-      expect(presenter.currentEntry?.kind).toBe('strength');
-    }, 20000);
   });
 
 describe('Phase 7: onCompleteSession real executor with sync rejection', () => {

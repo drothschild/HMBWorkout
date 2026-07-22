@@ -2,13 +2,12 @@ import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
 
 /**
  * Session presenter - pure functions for session UI logic.
- * This satisfies AC2.2 (event dispatch on user action) and AC9.1 (RPE rendering).
+ * This satisfies AC2.2 (event dispatch on user action).
  * Testable in node project without React setup.
  */
 export interface SetInputValues {
   reps?: number;
   weightKg?: number;
-  rpe?: number;
   durationSeconds?: number;
 }
 
@@ -18,7 +17,6 @@ export interface SessionPresenterOutput {
   phase: string;
   isPaused: boolean;
   loggedSets: LoggedSet[];
-  progressionHint: string | undefined;
 
   // User action handlers
   onLogSet(values: SetInputValues): void;
@@ -33,14 +31,10 @@ export interface SessionPresenterOutput {
 /**
  * Create a session presenter from state and dispatch.
  * Pure function - no hooks, no side effects, fully testable.
- *
- * @param progressionHint Optional progression hint (computed by store via progression_hint rule).
- *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 2.5 kg").
  */
 export function createSessionPresenter(
   sessionState: SessionState,
-  dispatch: (event: Event) => Promise<SessionState | null>,
-  progressionHint?: string
+  dispatch: (event: Event) => Promise<SessionState | null>
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -53,7 +47,6 @@ export function createSessionPresenter(
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
     loggedSets: sessionState.loggedSets ?? [],
-    progressionHint,
 
     // Handlers dispatch events to the engine
     onLogSet: (values: SetInputValues) => {
@@ -61,7 +54,6 @@ export function createSessionPresenter(
         tag: 'LogSet',
         reps: values.reps,
         weightKg: values.weightKg,
-        rpe: values.rpe,
         durationSeconds: values.durationSeconds,
       });
     },

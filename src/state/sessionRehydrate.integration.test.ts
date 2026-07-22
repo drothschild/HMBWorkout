@@ -80,7 +80,6 @@ describe('Session hydration and restart recovery', () => {
       reps: 8,
       weightKg: 25,
       durationSeconds: 0,
-      rpe: 7.5,
     });
 
     // SetDone to complete working set and enter resting
@@ -148,7 +147,6 @@ describe('Session hydration and restart recovery', () => {
           reps: 6,
           weightKg: 28,
           durationSeconds: null,
-          rpe: 8.5,
         },
       ],
       restDeadlineMs: pastDeadline,
@@ -194,7 +192,6 @@ describe('Session hydration and restart recovery', () => {
       reps: 6,
       weightKg: 28,
       durationSeconds: null,
-      rpe: 8.5,
     });
 
     // Verify entries are intact for phase advancement
