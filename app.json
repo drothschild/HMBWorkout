@@ -48,7 +48,8 @@
           "NSHealthShareUsageDescription": "We use HealthKit to write your workout data to Apple Health",
           "NSHealthUpdateUsageDescription": "We use HealthKit to write your workout data to Apple Health"
         }
-      ]
+      ],
+      "./plugins/withSceneLifecycle"
     ],
     "experiments": {
       "typedRoutes": true
