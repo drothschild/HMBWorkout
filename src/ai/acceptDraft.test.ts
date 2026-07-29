@@ -54,14 +54,14 @@ describe('acceptDraft', () => {
 
       const first = entries.find((e: any) => e.order === 0);
       const second = entries.find((e: any) => e.order === 1);
-      expect((first as any).exercise_id).toBe('bench-press');
-      expect((first as any).target_sets).toBe(3);
-      expect((first as any).target_reps).toBe(8);
-      expect((first as any).rest_seconds).toBe(60);
+      expect((first as any).exerciseId).toBe('bench-press');
+      expect((first as any).targetSets).toBe(3);
+      expect((first as any).targetReps).toBe(8);
+      expect((first as any).restSeconds).toBe(60);
 
-      expect((second as any).exercise_id).toBe('incline-dumbbell');
-      expect((second as any).target_sets).toBe(3);
-      expect((second as any).target_reps).toBe(10);
+      expect((second as any).exerciseId).toBe('incline-dumbbell');
+      expect((second as any).targetSets).toBe(3);
+      expect((second as any).targetReps).toBe(10);
     });
   });
 
@@ -129,9 +129,9 @@ describe('acceptDraft', () => {
       const routineExercisesTable = database.get('routine_exercises');
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
       expect(entries).toHaveLength(3);
-      expect((entries[0] as any).exercise_id).toBe('bench-press');
-      expect((entries[1] as any).exercise_id).toBe('bench-press');
-      expect((entries[2] as any).exercise_id).toBe('bench-press');
+      expect((entries[0] as any).exerciseId).toBe('bench-press');
+      expect((entries[1] as any).exerciseId).toBe('bench-press');
+      expect((entries[2] as any).exerciseId).toBe('bench-press');
     });
 
     test('creates new exercise with free-form title', async () => {
