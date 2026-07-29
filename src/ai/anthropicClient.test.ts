@@ -127,7 +127,9 @@ describe('Anthropic Client', () => {
         .catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(AnthropicHttpError);
-      expect(error.status).toBe(401);
+      if (error instanceof AnthropicHttpError) {
+        expect(error.status).toBe(401);
+      }
     });
 
     it('throws AnthropicHttpError on non-401 HTTP error', async () => {
@@ -146,7 +148,9 @@ describe('Anthropic Client', () => {
         .catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(AnthropicHttpError);
-      expect(error.status).toBe(500);
+      if (error instanceof AnthropicHttpError) {
+        expect(error.status).toBe(500);
+      }
     });
 
     it('throws AnthropicUnreachable on network failure', async () => {
