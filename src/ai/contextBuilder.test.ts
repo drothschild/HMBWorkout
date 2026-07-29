@@ -402,6 +402,117 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).toContain('No workout history yet');
     }, 30000);
+
+    it('omits metric-less working sets from history lines', async () => {
+      const routineId = 'routine-empty-set';
+      const exerciseId = 'exercise-empty-set';
+      const routineExerciseId = 'routine-exercise-empty-set';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Cardio';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Treadmill';
+          e.kind = 'cardio';
+          e.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = routineExerciseId;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseId;
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      await createSession(database, {
+        sessionId: 'session-empty-set-1',
+        routineId: routineId,
+        startedAtMs: Date.now() - 100000,
+      });
+
+      await appendSet(database, 'session-empty-set-1', routineExerciseId, {
+        setType: 'working',
+        durationSeconds: 1200,
+        distanceM: 3000,
+        rpe: 7,
+      });
+
+      // SetLogger dispatches only the fields the user filled in, so a set
+      // logged with every input blank persists with no metrics at all
+      await appendSet(database, 'session-empty-set-1', routineExerciseId, {
+        setType: 'working',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      const treadmillLine = prompt
+        .split('\n')
+        .find((line) => line.includes('Treadmill:'));
+
+      expect(treadmillLine).toBeDefined();
+      expect(treadmillLine).not.toContain(', ,');
+      expect(treadmillLine!.trimEnd().endsWith(',')).toBe(false);
+      expect(treadmillLine).toBe('  Treadmill: 1200s 3000m RPE 7');
+    }, 30000);
+
+    it('omits exercises whose only sets have no metrics', async () => {
+      const routineId = 'routine-all-empty-sets';
+      const exerciseId = 'exercise-all-empty-sets';
+      const routineExerciseId = 'routine-exercise-all-empty-sets';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Cardio';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Treadmill';
+          e.kind = 'cardio';
+          e.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = routineExerciseId;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseId;
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      await createSession(database, {
+        sessionId: 'session-all-empty-1',
+        routineId: routineId,
+        startedAtMs: Date.now() - 100000,
+      });
+
+      await appendSet(database, 'session-all-empty-1', routineExerciseId, {
+        setType: 'working',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('No workout history yet');
+      expect(prompt).not.toContain('Treadmill:');
+    }, 30000);
   });
 
   describe('AC5.2 — history capping at 5 per exercise', () => {
