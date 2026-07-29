@@ -127,11 +127,6 @@ describe('Settings Persistence', () => {
     // Simulate fresh app start
     resetForTesting();
     injectSettingsStorage(fakeStorageBackend);
-    fakeStorage.bridge_settings = JSON.stringify({
-      anthropicKey: 'sk-test',
-      aiGoals: 'get strong',
-      aiEquipment: 'dumbbells',
-    });
 
     await loadSettings();
     const reloaded = getSettings();

@@ -118,6 +118,7 @@ export default function SettingsScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <ThemedText type="title" style={styles.title}>
             Settings
