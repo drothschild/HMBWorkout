@@ -1,7 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { acceptDraft } from './acceptDraft';
-import { DraftValidationError } from './draftSchema';
+import { DraftValidationError, validateRoutineDraft } from './draftSchema';
 
 describe('acceptDraft', () => {
   let database: Database;
@@ -12,6 +12,28 @@ describe('acceptDraft', () => {
 
   afterEach(async () => {
     await closeTestDatabase(database);
+  });
+
+  describe('AC3.1 (inert until accept)', () => {
+    test('validating a draft writes nothing; accepting the same draft writes', async () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      validateRoutineDraft(draft);
+
+      expect(await database.get('routines').query().fetchCount()).toBe(0);
+      expect(await database.get('exercises').query().fetchCount()).toBe(0);
+      expect(await database.get('routine_exercises').query().fetchCount()).toBe(0);
+
+      await acceptDraft(database, draft);
+
+      // proves the pre-accept zeros above were a real observation, not a
+      // fixture that could never write
+      expect(await database.get('routines').query().fetchCount()).toBe(1);
+      expect(await database.get('routine_exercises').query().fetchCount()).toBe(1);
+    });
   });
 
   describe('AC3.2 (new routine)', () => {
