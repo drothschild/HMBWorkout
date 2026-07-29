@@ -1,8 +1,8 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, upsertRoutineExercise } from '@/db/repository';
-import { getSettings, setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
-import { buildSystem, AiCoachMode, HISTORY_SETS_PER_EXERCISE } from './contextBuilder';
+import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
+import { buildSystem, type AiCoachMode } from './contextBuilder';
 
 describe('buildSystem: AI Coach context builder', () => {
   let database: Database;
@@ -42,6 +42,12 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain('Prefer reusing exercise titles that already exist in the user\'s data');
+    }, 30000);
+
+    it('includes persona units contract in exercise schema', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('targetDurationSeconds, restSeconds: integer seconds');
     }, 30000);
   });
 
@@ -203,6 +209,78 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain(supersetLabel);
     }, 30000);
 
+    it('preserves exercise order interleaved with superset and standalone exercises', async () => {
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-interleave';
+          r.name = 'Mixed Order Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-superset-1';
+          e.title = 'Barbell Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-standalone';
+          e.title = 'Dumbbell Flyes';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-superset-2';
+          e.title = 'Incline Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Superset member at order 0
+      const supersetLabel = 'bench-superset';
+      await upsertRoutineExercise(database, 'routine-interleave', {
+        exerciseId: 'exercise-superset-1',
+        order: 0,
+        supersetGroup: supersetLabel,
+        targetSets: 3,
+        targetReps: 6,
+      });
+
+      // Standalone exercise at order 1 (between supersets)
+      await upsertRoutineExercise(database, 'routine-interleave', {
+        exerciseId: 'exercise-standalone',
+        order: 1,
+        targetSets: 3,
+        targetReps: 12,
+      });
+
+      // Superset member at order 2
+      await upsertRoutineExercise(database, 'routine-interleave', {
+        exerciseId: 'exercise-superset-2',
+        order: 2,
+        supersetGroup: supersetLabel,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      // Verify relative positions: Barbell first, then Dumbbell Flyes, then Incline
+      const barbellIdx = prompt.indexOf('Barbell Bench Press');
+      const dumbellIdx = prompt.indexOf('Dumbbell Flyes');
+      const inclineIdx = prompt.indexOf('Incline Bench Press');
+
+      expect(barbellIdx).toBeGreaterThan(-1);
+      expect(dumbellIdx).toBeGreaterThan(-1);
+      expect(inclineIdx).toBeGreaterThan(-1);
+      expect(barbellIdx).toBeLessThan(dumbellIdx);
+      expect(dumbellIdx).toBeLessThan(inclineIdx);
+    }, 30000);
+
     it('returns a non-empty prompt when database is empty', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
@@ -307,12 +385,16 @@ describe('buildSystem: AI Coach context builder', () => {
       await appendSet(database, 'session-cardio-1', routineExerciseId, {
         setType: 'working',
         durationSeconds: 1200,
+        distanceM: 3000,
+        rpe: 7,
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain('Treadmill');
       expect(prompt).toContain('1200');
+      expect(prompt).toContain('3000m');
+      expect(prompt).toContain('RPE 7');
     }, 30000);
 
     it('returns "No workout history yet" when no sets exist', async () => {

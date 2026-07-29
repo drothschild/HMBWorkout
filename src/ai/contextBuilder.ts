@@ -1,11 +1,13 @@
 import { Database } from '@nozbe/watermelondb';
 import { getSettings } from '@/state/settings';
-import { routineListPresenter } from '@/state/routineListPresenter';
-import { routineDetailPresenter, ExerciseDetail } from '@/state/routineDetailPresenter';
+import { routineListPresenter, type RoutineListItem } from '@/state/routineListPresenter';
+import { routineDetailPresenter, type RoutineDetail, ExerciseDetail } from '@/state/routineDetailPresenter';
 import SessionSet from '@/db/models/SessionSet';
 import { getExerciseWorkingSetHistory } from '@/db/repository';
 
 export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string };
+
+type RoutineWithDetail = { routine: RoutineListItem; detail: RoutineDetail | null };
 
 export const HISTORY_SETS_PER_EXERCISE = 5;
 
@@ -30,14 +32,14 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
 
   // Build routine details once, reuse for both routines and history sections
   const routines = await routineListPresenter(db);
-  const routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }> = [];
+  const routineDetails: RoutineWithDetail[] = [];
 
   for (const routine of routines) {
     const detail = await routineDetailPresenter(db, routine.id);
     routineDetails.push({ routine, detail });
   }
 
-  sections.push(await routinesSection(routineDetails));
+  sections.push(routinesSection(routineDetails));
   sections.push(await historySection(db, routineDetails));
 
   if (mode.kind === 'edit') {
@@ -102,7 +104,7 @@ Not specified.`;
 ${equipment}`;
 }
 
-async function routinesSection(routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }>): Promise<string> {
+function routinesSection(routineDetails: RoutineWithDetail[]): string {
   if (routineDetails.length === 0) {
     return `## Existing Routines
 
@@ -139,6 +141,12 @@ No routines yet.`;
     }
   }
 
+  if (routineLines.length === 0) {
+    return `## Existing Routines
+
+No routines yet.`;
+  }
+
   return `## Existing Routines\n\n${routineLines.join('\n')}`;
 }
 
@@ -171,7 +179,7 @@ function formatExerciseLine(
   return `  - ${parts.join(' | ')}`;
 }
 
-async function historySection(db: Database, routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }>): Promise<string> {
+async function historySection(db: Database, routineDetails: RoutineWithDetail[]): Promise<string> {
   // Collect all distinct exerciseIds and titles from pre-built routine details
   const exerciseTitleMap = new Map<string, string>();
 
@@ -199,7 +207,7 @@ No workout history yet.`;
 
   const historyLines: string[] = [];
 
-  for (const exerciseId of exerciseTitleMap.keys()) {
+  for (const [exerciseId, exerciseTitle] of exerciseTitleMap) {
     const sets = await getExerciseWorkingSetHistory(db, exerciseId);
 
     if (sets.length === 0) {
@@ -236,7 +244,6 @@ No workout history yet.`;
       return parts.join(' ');
     });
 
-    const exerciseTitle = exerciseTitleMap.get(exerciseId);
     historyLines.push(`  ${exerciseTitle}: ${setDescriptions.join(', ')}`);
   }
 
