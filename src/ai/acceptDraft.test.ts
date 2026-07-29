@@ -32,6 +32,7 @@ describe('acceptDraft', () => {
       // proves the pre-accept zeros above were a real observation, not a
       // fixture that could never write
       expect(await database.get('routines').query().fetchCount()).toBe(1);
+      expect(await database.get('exercises').query().fetchCount()).toBe(1);
       expect(await database.get('routine_exercises').query().fetchCount()).toBe(1);
     });
   });
