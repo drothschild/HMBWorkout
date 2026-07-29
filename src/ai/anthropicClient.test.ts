@@ -209,11 +209,11 @@ describe('Anthropic Client', () => {
     });
 
     it.each([
-      [null, 'null'],
-      ['hello', 'JSON string'],
-      [42, 'JSON number'],
-      [true, 'JSON boolean'],
-    ])('throws DraftValidationError when response body is %s', async (body, label) => {
+      ['null', null],
+      ['JSON string', 'hello'],
+      ['JSON number', 42],
+      ['JSON boolean', true],
+    ])('throws DraftValidationError when response body is %s', async (label, body) => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: jest.fn().mockResolvedValueOnce(body),
