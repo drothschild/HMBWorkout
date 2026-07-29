@@ -310,14 +310,14 @@ describe('aiChatStore', () => {
       expect(state.pendingDraft).not.toBeNull();
 
       // Reset should clear everything
-      store.getState().reset({ kind: 'edit' });
+      store.getState().reset({ kind: 'edit', routineId: 'routine-123' });
 
       state = store.getState();
       expect(state.messages).toHaveLength(0);
       expect(state.pendingDraft).toBeNull();
       expect(state.status).toBe('idle');
       expect(state.error).toBeNull();
-      expect(state.mode).toEqual({ kind: 'edit' });
+      expect(state.mode).toEqual({ kind: 'edit', routineId: 'routine-123' });
     });
 
     it('clears cached system prompt on reset', async () => {
