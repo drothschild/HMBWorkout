@@ -60,7 +60,7 @@ export function createAnthropicClient(config: { apiKey: string }, fetchFn?: Fetc
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new AnthropicHttpError(response.status, text);
+        throw new AnthropicHttpError(response.status, `HTTP ${response.status}: ${text}`);
       }
 
       let body: unknown;
@@ -70,15 +70,26 @@ export function createAnthropicClient(config: { apiKey: string }, fetchFn?: Fetc
         throw new DraftValidationError('response body is not valid JSON');
       }
 
+      if (body === null || typeof body !== 'object') {
+        throw new DraftValidationError('response body is not a valid object');
+      }
+
       const content = (body as { content?: { type?: string; text?: string }[] }).content;
       const textBlock = Array.isArray(content)
-        ? content.find((block) => block?.type === 'text' && typeof block.text === 'string')
+        ? content.find((block) => block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0)
         : undefined;
-      if (!textBlock?.text) {
+      if (!textBlock) {
+        // Check if there's a text block but it's empty
+        const emptyTextBlock = Array.isArray(content)
+          ? content.find((block) => block?.type === 'text' && typeof block.text === 'string' && block.text.length === 0)
+          : undefined;
+        if (emptyTextBlock) {
+          throw new DraftValidationError('text block is empty');
+        }
         throw new DraftValidationError('response contains no text content block');
       }
 
-      return parseAiTurn(textBlock.text);
+      return parseAiTurn(textBlock!.text as string);
     },
   };
 }

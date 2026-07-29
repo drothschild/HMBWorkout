@@ -129,6 +129,7 @@ describe('Anthropic Client', () => {
       expect(error).toBeInstanceOf(AnthropicHttpError);
       if (error instanceof AnthropicHttpError) {
         expect(error.status).toBe(401);
+        expect(error.message).toBe('HTTP 401: Unauthorized');
       }
     });
 
@@ -150,6 +151,29 @@ describe('Anthropic Client', () => {
       expect(error).toBeInstanceOf(AnthropicHttpError);
       if (error instanceof AnthropicHttpError) {
         expect(error.status).toBe(500);
+        expect(error.message).toBe('HTTP 500: Internal Server Error');
+      }
+    });
+
+    it('includes HTTP status in error message when response body is empty', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 529,
+        text: jest.fn().mockResolvedValueOnce(''),
+      });
+
+      const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
+      const error = await client
+        .chat({
+          system: 'test',
+          messages: [{ role: 'user', content: 'test' }],
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AnthropicHttpError);
+      if (error instanceof AnthropicHttpError) {
+        expect(error.status).toBe(529);
+        expect(error.message).toBe('HTTP 529: ');
       }
     });
 
@@ -170,6 +194,24 @@ describe('Anthropic Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: jest.fn().mockRejectedValueOnce(new Error('Invalid JSON')),
+      });
+
+      const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
+
+      const error = await client
+        .chat({
+          system: 'test',
+          messages: [{ role: 'user', content: 'test' }],
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(DraftValidationError);
+    });
+
+    it('throws DraftValidationError when response body is null', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValueOnce(null),
       });
 
       const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
@@ -205,7 +247,7 @@ describe('Anthropic Client', () => {
       expect(error).toBeInstanceOf(DraftValidationError);
     });
 
-    it('throws DraftValidationError when text block is empty', async () => {
+    it('throws DraftValidationError with specific message when text block is empty', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: jest.fn().mockResolvedValueOnce({
@@ -224,6 +266,72 @@ describe('Anthropic Client', () => {
         .catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(DraftValidationError);
+      if (error instanceof DraftValidationError) {
+        expect(error.message).toContain('text block is empty');
+      }
+    });
+
+    it('distinguishes empty text block from missing text block', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValueOnce({
+          content: [{ type: 'thinking', thinking: 'some thinking' }],
+          stop_reason: 'end_turn',
+        }),
+      });
+
+      const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
+
+      const error = await client
+        .chat({
+          system: 'test',
+          messages: [{ role: 'user', content: 'test' }],
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(DraftValidationError);
+      if (error instanceof DraftValidationError) {
+        expect(error.message).toContain('no text content block');
+        expect(error.message).not.toContain('text block is empty');
+      }
+    });
+
+    it('finds non-empty text block even if preceded by empty text block', async () => {
+      const responseBody = {
+        content: [
+          { type: 'text', text: '' },
+          {
+            type: 'text',
+            text: JSON.stringify({
+              reply: 'Valid response',
+              draft: {
+                name: 'Test Routine',
+                exercises: [
+                  {
+                    title: 'Bench Press',
+                    kind: 'strength',
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+        stop_reason: 'end_turn',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValueOnce(responseBody),
+      });
+
+      const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
+      const result = await client.chat({
+        system: 'You are a coach',
+        messages: [{ role: 'user', content: 'Create a routine' }],
+      });
+
+      expect(result.reply).toBe('Valid response');
+      expect(result.draft?.name).toBe('Test Routine');
     });
 
     it('throws DraftValidationError when text is not valid JSON', async () => {
@@ -287,11 +395,33 @@ describe('Anthropic Client', () => {
   });
 
   describe('default fetch', () => {
-    it('uses global fetch when not provided', () => {
-      const client = createAnthropicClient({ apiKey: 'test-key' });
+    it('uses global fetch when not provided', async () => {
+      // Save original globalThis.fetch
+      const originalFetch = globalThis.fetch;
+      const stubFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValueOnce({
+          content: [{ type: 'text', text: JSON.stringify({ reply: 'test' }) }],
+          stop_reason: 'end_turn',
+        }),
+      });
 
-      // Verify the client was created successfully (no throw)
-      expect(client).toBeDefined();
+      // Replace globalThis.fetch with stub
+      (globalThis as any).fetch = stubFetch;
+
+      try {
+        const client = createAnthropicClient({ apiKey: 'test-key' });
+        await client.chat({
+          system: 'test',
+          messages: [{ role: 'user', content: 'test' }],
+        });
+
+        // Verify the stub was actually called
+        expect(stubFetch).toHaveBeenCalledTimes(1);
+      } finally {
+        // Restore original fetch
+        (globalThis as any).fetch = originalFetch;
+      }
     });
   });
 });
