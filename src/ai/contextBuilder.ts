@@ -105,12 +105,6 @@ ${equipment}`;
 }
 
 function routinesSection(routineDetails: RoutineWithDetail[]): string {
-  if (routineDetails.length === 0) {
-    return `## Existing Routines
-
-No routines yet.`;
-  }
-
   const routineLines: string[] = [];
 
   for (const { routine, detail } of routineDetails) {
@@ -197,12 +191,6 @@ async function historySection(db: Database, routineDetails: RoutineWithDetail[])
     for (const exercise of detail.standaloneExercises) {
       exerciseTitleMap.set(exercise.exerciseId, exercise.title);
     }
-  }
-
-  if (exerciseTitleMap.size === 0) {
-    return `## Recent Training History
-
-No workout history yet.`;
   }
 
   const historyLines: string[] = [];

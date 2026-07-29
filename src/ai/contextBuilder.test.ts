@@ -341,10 +341,10 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).toContain('Bench Press');
       expect(prompt).toContain('8 reps');
-      expect(prompt).toContain('100');
+      expect(prompt).toContain('@ 100kg');
     }, 30000);
 
-    it('handles cardio exercises with duration in history', async () => {
+    it('handles cardio exercises with duration, distance, and RPE in history', async () => {
       const routineId = 'routine-cardio';
       const exerciseId = 'exercise-treadmill';
       const routineExerciseId = 'routine-exercise-treadmill';
@@ -392,7 +392,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain('Treadmill');
-      expect(prompt).toContain('1200');
+      expect(prompt).toContain('1200s');
       expect(prompt).toContain('3000m');
       expect(prompt).toContain('RPE 7');
     }, 30000);
