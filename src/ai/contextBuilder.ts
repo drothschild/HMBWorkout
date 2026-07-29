@@ -1,7 +1,8 @@
 import { Database } from '@nozbe/watermelondb';
 import { getSettings } from '@/state/settings';
 import { routineListPresenter } from '@/state/routineListPresenter';
-import { routineDetailPresenter } from '@/state/routineDetailPresenter';
+import { routineDetailPresenter, ExerciseDetail } from '@/state/routineDetailPresenter';
+import SessionSet from '@/db/models/SessionSet';
 import { getExerciseWorkingSetHistory } from '@/db/repository';
 
 export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string };
@@ -23,22 +24,22 @@ export const HISTORY_SETS_PER_EXERCISE = 5;
 export async function buildSystem(db: Database, mode: AiCoachMode): Promise<string> {
   const sections: string[] = [];
 
-  // Section 1: Persona and rules
   sections.push(personaSection());
-
-  // Section 2: User goals
   sections.push(goalsSection());
-
-  // Section 3: Available equipment
   sections.push(equipmentSection());
 
-  // Section 4: Existing routines
-  sections.push(await routinesSection(db));
+  // Build routine details once, reuse for both routines and history sections
+  const routines = await routineListPresenter(db);
+  const routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }> = [];
 
-  // Section 5: Recent training history
-  sections.push(await historySection(db));
+  for (const routine of routines) {
+    const detail = await routineDetailPresenter(db, routine.id);
+    routineDetails.push({ routine, detail });
+  }
 
-  // Section 6: Edit-mode addendum (if applicable)
+  sections.push(await routinesSection(routineDetails));
+  sections.push(await historySection(db, routineDetails));
+
   if (mode.kind === 'edit') {
     const editAddendum = await editModeSection(db, mode.routineId);
     if (editAddendum) {
@@ -63,7 +64,8 @@ The "draft" field is included ONLY when proposing a complete new routine or a co
 Exercise schema (inside draft.exercises):
 - kind: must be one of "strength", "cardio", or "stretch"
 - supersetGroup: use the same string on grouped exercises for supersets
-- targetSets, targetReps, targetDurationSeconds: integers, in seconds
+- targetSets, targetReps, warmupSets: integer counts
+- targetDurationSeconds, restSeconds: integer seconds
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
@@ -100,10 +102,8 @@ Not specified.`;
 ${equipment}`;
 }
 
-async function routinesSection(db: Database): Promise<string> {
-  const routines = await routineListPresenter(db);
-
-  if (routines.length === 0) {
+async function routinesSection(routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }>): Promise<string> {
+  if (routineDetails.length === 0) {
     return `## Existing Routines
 
 No routines yet.`;
@@ -111,27 +111,31 @@ No routines yet.`;
 
   const routineLines: string[] = [];
 
-  for (const routine of routines) {
-    // Add routine heading with name and id
-    routineLines.push(`### ${routine.name} (id: ${routine.id})`);
-
-    // Get detailed routine info
-    const detail = await routineDetailPresenter(db, routine.id);
-
+  for (const { routine, detail } of routineDetails) {
     if (!detail) {
       continue;
     }
 
-    // Add superset groups
+    routineLines.push(`### ${routine.name} (id: ${routine.id})`);
+
+    // Merge and sort all exercises by their order
+    const allExercises: Array<{ exercise: ExerciseDetail; supersetLabel: string | null }> = [];
+
     for (const group of detail.supersetGroups) {
       for (const exercise of group.exercises) {
-        routineLines.push(formatExerciseLine(exercise, group.label));
+        allExercises.push({ exercise, supersetLabel: group.label });
       }
     }
 
-    // Add standalone exercises
     for (const exercise of detail.standaloneExercises) {
-      routineLines.push(formatExerciseLine(exercise, null));
+      allExercises.push({ exercise, supersetLabel: null });
+    }
+
+    // Sort by order to preserve sequence
+    allExercises.sort((a, b) => a.exercise.order - b.exercise.order);
+
+    for (const { exercise, supersetLabel } of allExercises) {
+      routineLines.push(formatExerciseLine(exercise, supersetLabel));
     }
   }
 
@@ -139,32 +143,27 @@ No routines yet.`;
 }
 
 function formatExerciseLine(
-  exercise: any,
+  exercise: ExerciseDetail,
   supersetLabel: string | null
 ): string {
   const parts: string[] = [];
 
-  // Title and kind
   parts.push(`${exercise.title} (${exercise.kind})`);
 
-  // Warmup sets if present
   if (exercise.warmupSets) {
     parts.push(`warmup: ${exercise.warmupSets}`);
   }
 
-  // Target sets and reps OR duration
   if (exercise.targetSets && exercise.targetReps) {
     parts.push(`${exercise.targetSets}x${exercise.targetReps}`);
   } else if (exercise.targetDurationSeconds) {
     parts.push(`${exercise.targetDurationSeconds}s`);
   }
 
-  // Rest seconds if present
   if (exercise.restSeconds) {
     parts.push(`rest ${exercise.restSeconds}s`);
   }
 
-  // Superset label if present
   if (supersetLabel) {
     parts.push(`[${supersetLabel}]`);
   }
@@ -172,34 +171,27 @@ function formatExerciseLine(
   return `  - ${parts.join(' | ')}`;
 }
 
-async function historySection(db: Database): Promise<string> {
-  // Collect all distinct exerciseIds from routines
-  const routines = await routineListPresenter(db);
-  const exerciseIdSet = new Set<string>();
+async function historySection(db: Database, routineDetails: Array<{ routine: Awaited<ReturnType<typeof routineListPresenter>>[number]; detail: Awaited<ReturnType<typeof routineDetailPresenter>> }>): Promise<string> {
+  // Collect all distinct exerciseIds and titles from pre-built routine details
   const exerciseTitleMap = new Map<string, string>();
 
-  for (const routine of routines) {
-    const detail = await routineDetailPresenter(db, routine.id);
+  for (const { detail } of routineDetails) {
     if (!detail) {
       continue;
     }
 
-    // Collect from superset groups
     for (const group of detail.supersetGroups) {
       for (const exercise of group.exercises) {
-        exerciseIdSet.add(exercise.exerciseId);
         exerciseTitleMap.set(exercise.exerciseId, exercise.title);
       }
     }
 
-    // Collect from standalone exercises
     for (const exercise of detail.standaloneExercises) {
-      exerciseIdSet.add(exercise.exerciseId);
       exerciseTitleMap.set(exercise.exerciseId, exercise.title);
     }
   }
 
-  if (exerciseIdSet.size === 0) {
+  if (exerciseTitleMap.size === 0) {
     return `## Recent Training History
 
 No workout history yet.`;
@@ -207,7 +199,7 @@ No workout history yet.`;
 
   const historyLines: string[] = [];
 
-  for (const exerciseId of exerciseIdSet) {
+  for (const exerciseId of exerciseTitleMap.keys()) {
     const sets = await getExerciseWorkingSetHistory(db, exerciseId);
 
     if (sets.length === 0) {
@@ -218,7 +210,7 @@ No workout history yet.`;
     const recentSets = sets.slice(0, HISTORY_SETS_PER_EXERCISE);
 
     // Format set details
-    const setDescriptions = recentSets.map((set: any) => {
+    const setDescriptions = recentSets.map((set: SessionSet) => {
       const parts: string[] = [];
 
       if (set.reps !== undefined && set.reps !== null) {
@@ -233,6 +225,10 @@ No workout history yet.`;
         parts.push(`${set.durationSeconds}s`);
       }
 
+      if (set.distanceM !== undefined && set.distanceM !== null) {
+        parts.push(`${set.distanceM}m`);
+      }
+
       if (set.rpe !== undefined && set.rpe !== null) {
         parts.push(`RPE ${set.rpe}`);
       }
@@ -240,7 +236,7 @@ No workout history yet.`;
       return parts.join(' ');
     });
 
-    const exerciseTitle = exerciseTitleMap.get(exerciseId) || exerciseId;
+    const exerciseTitle = exerciseTitleMap.get(exerciseId);
     historyLines.push(`  ${exerciseTitle}: ${setDescriptions.join(', ')}`);
   }
 

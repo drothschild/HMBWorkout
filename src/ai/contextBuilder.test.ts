@@ -29,6 +29,22 @@ describe('buildSystem: AI Coach context builder', () => {
     await closeTestDatabase(database);
   });
 
+  describe('Persona and rules', () => {
+    it('includes exercise kind enum (strength, cardio, stretch) in persona', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('strength');
+      expect(prompt).toContain('cardio');
+      expect(prompt).toContain('stretch');
+    }, 30000);
+
+    it('includes guidance to reuse existing exercise titles', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('Prefer reusing exercise titles that already exist in the user\'s data');
+    }, 30000);
+  });
+
   describe('AC2.2 — goals and equipment', () => {
     it('includes user goals and equipment in the system prompt', async () => {
       setSettings({
@@ -132,6 +148,10 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('3x8');
       expect(prompt).toContain('4x10');
       expect(prompt).toContain('3x5');
+      expect(prompt).toContain('warmup: 1');
+      expect(prompt).toContain('rest 120s');
+      expect(prompt).toContain('rest 90s');
+      expect(prompt).toContain('rest 180s');
     }, 30000);
 
     it('handles superset grouping in routine prompt', async () => {
@@ -386,10 +406,6 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('11 reps');
       expect(prompt).not.toContain('12 reps');
     }, 30000);
-
-    it('verifies HISTORY_SETS_PER_EXERCISE is exactly 5', () => {
-      expect(HISTORY_SETS_PER_EXERCISE).toBe(5);
-    });
   });
 
   describe('AC2.3 — edit mode', () => {
@@ -426,19 +442,16 @@ describe('buildSystem: AI Coach context builder', () => {
       const mode: AiCoachMode = { kind: 'edit', routineId };
       const prompt = await buildSystem(database, mode);
 
-      expect(prompt).toContain('Legs');
-      expect(prompt).toContain(routineId);
-      expect(prompt).toContain('draft');
-      expect(prompt).toContain('revision');
+      expect(prompt).toContain(`The user is editing the routine "Legs"`);
+      expect(prompt).toContain(`set the draft's routineId field to exactly "${routineId}"`);
     }, 30000);
 
     it('falls back to create-mode content when routineId does not exist', async () => {
       const mode: AiCoachMode = { kind: 'edit', routineId: 'non-existent-routine' };
       const prompt = await buildSystem(database, mode);
 
-      // Should not throw and should produce a non-empty prompt
-      expect(prompt.length).toBeGreaterThan(0);
-      expect(prompt).not.toMatch(/undefined|null/);
+      expect(prompt).toContain('No routines yet');
+      expect(prompt).not.toContain('The user is editing the routine');
     }, 30000);
   });
 
@@ -460,6 +473,24 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt.length).toBeGreaterThan(0);
       expect(prompt).toContain('strength');
       expect(prompt).not.toMatch(/undefined|null/);
+    }, 30000);
+  });
+
+  describe('Security: secrets regression guard', () => {
+    it('does not leak anthropic key, bridge token, or baseUrl in prompt', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-test-secret',
+        token: 'bridge-token-12345',
+        baseUrl: 'http://bridge.local:3000',
+        aiGoals: 'Build strength',
+        aiEquipment: 'Dumbbells',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).not.toContain('sk-ant-test-secret');
+      expect(prompt).not.toContain('bridge-token-12345');
+      expect(prompt).not.toContain('bridge.local');
     }, 30000);
   });
 });
