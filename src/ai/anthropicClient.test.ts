@@ -229,6 +229,7 @@ describe('Anthropic Client', () => {
         .catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(DraftValidationError);
+      expect((error as DraftValidationError).message).toContain('not a valid object');
     });
 
     it('throws DraftValidationError with specific message when text block is empty', async () => {
