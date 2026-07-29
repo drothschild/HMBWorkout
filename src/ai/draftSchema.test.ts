@@ -233,6 +233,221 @@ describe('draftSchema', () => {
 
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
+
+    test('rejects empty routineId', () => {
+      const draft = {
+        routineId: '',
+        name: 'My Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects non-string routineId', () => {
+      const draft = {
+        routineId: 12345 as any,
+        name: 'My Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects non-string routine notes', () => {
+      const draft = {
+        name: 'My Routine',
+        notes: { a: 1 } as any,
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects non-string supersetGroup', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            supersetGroup: 99 as any,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects non-string exercise notes', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            notes: { a: 1 } as any,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects negative targetSets', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetSets: -3,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects fractional targetReps', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetReps: 2.7,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects negative restSeconds', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            restSeconds: -60,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects zero targetSets', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetSets: 0,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('rejects zero targetReps', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetReps: 0,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('accepts valid routineId', () => {
+      const draft = {
+        routineId: 'routine-123',
+        name: 'My Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.routineId).toBe('routine-123');
+    });
+
+    test('accepts routine-level notes', () => {
+      const draft = {
+        name: 'My Routine',
+        notes: 'My notes',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.notes).toBe('My notes');
+    });
+
+    test('accepts exercise-level notes', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            notes: 'Exercise notes',
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].notes).toBe('Exercise notes');
+    });
+
+    test('accepts valid supersetGroup', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            supersetGroup: 'chest',
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].supersetGroup).toBe('chest');
+    });
+
+    test('accepts valid integer values', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            warmupSets: 1,
+            targetSets: 3,
+            targetReps: 8,
+            restSeconds: 60,
+            targetDurationSeconds: 0,
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0]).toMatchObject({
+        warmupSets: 1,
+        targetSets: 3,
+        targetReps: 8,
+        restSeconds: 60,
+        targetDurationSeconds: 0,
+      });
+    });
   });
 
   describe('slugifyTitle', () => {

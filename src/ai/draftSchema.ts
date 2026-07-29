@@ -31,6 +31,12 @@ export class DraftValidationError extends Error {
   }
 }
 
+const KIND_SET: Record<ExerciseKind, true> = {
+  strength: true,
+  cardio: true,
+  stretch: true,
+};
+
 export const AI_TURN_SCHEMA = {
   type: 'object',
   properties: {
@@ -48,7 +54,7 @@ export const AI_TURN_SCHEMA = {
             type: 'object',
             properties: {
               title: { type: 'string' },
-              kind: { type: 'string', enum: ['strength', 'cardio', 'stretch'] },
+              kind: { type: 'string', enum: Object.keys(KIND_SET) },
               supersetGroup: { type: 'string' },
               warmupSets: { type: 'integer' },
               targetSets: { type: 'integer' },
@@ -79,24 +85,28 @@ export function slugifyTitle(title: string): string {
 }
 
 export function validateRoutineDraft(value: unknown): RoutineDraft {
-  // Check if value is an object
   if (!value || typeof value !== 'object') {
     throw new DraftValidationError('draft must be an object');
   }
 
   const obj = value as Record<string, unknown>;
 
-  // Check name exists and is non-empty
   if (typeof obj.name !== 'string' || !obj.name.trim()) {
     throw new DraftValidationError('routine name is required and must be non-empty');
   }
 
-  // Check exercises exists and is non-empty array
   if (!Array.isArray(obj.exercises) || obj.exercises.length === 0) {
     throw new DraftValidationError('at least one exercise is required');
   }
 
-  // Validate each exercise
+  if (obj.routineId !== undefined && (typeof obj.routineId !== 'string' || !obj.routineId.trim())) {
+    throw new DraftValidationError('routineId, when present, must be a non-empty string');
+  }
+
+  if (obj.notes !== undefined && typeof obj.notes !== 'string') {
+    throw new DraftValidationError('notes, when present, must be a string');
+  }
+
   for (const ex of obj.exercises) {
     if (!ex || typeof ex !== 'object') {
       throw new DraftValidationError('each exercise must be an object');
@@ -104,50 +114,45 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
 
     const exercise = ex as Record<string, unknown>;
 
-    // Check title
     if (typeof exercise.title !== 'string' || !exercise.title.trim()) {
       throw new DraftValidationError('exercise title is required and must be non-empty');
     }
 
-    // Check slug is non-empty
     if (!slugifyTitle(exercise.title)) {
       throw new DraftValidationError(`exercise title "${exercise.title}" does not contain valid characters`);
     }
 
-    // Check kind is valid
-    const validKinds = ['strength', 'cardio', 'stretch'];
-    if (!validKinds.includes(exercise.kind as string)) {
+    if (!Object.keys(KIND_SET).includes(exercise.kind as string)) {
       throw new DraftValidationError(
-        `exercise kind must be one of: ${validKinds.join(', ')}, got "${exercise.kind}"`
+        `exercise kind must be one of: ${Object.keys(KIND_SET).join(', ')}, got "${exercise.kind}"`
       );
     }
 
-    // Check numeric fields if present
-    if (exercise.targetSets !== undefined && (typeof exercise.targetSets !== 'number' || !isFinite(exercise.targetSets))) {
-      throw new DraftValidationError('targetSets must be a finite number');
+    if (exercise.supersetGroup !== undefined && typeof exercise.supersetGroup !== 'string') {
+      throw new DraftValidationError('supersetGroup, when present, must be a string');
     }
 
-    if (exercise.targetReps !== undefined && (typeof exercise.targetReps !== 'number' || !isFinite(exercise.targetReps))) {
-      throw new DraftValidationError('targetReps must be a finite number');
+    if (exercise.notes !== undefined && typeof exercise.notes !== 'string') {
+      throw new DraftValidationError('exercise notes, when present, must be a string');
     }
 
-    if (
-      exercise.targetDurationSeconds !== undefined &&
-      (typeof exercise.targetDurationSeconds !== 'number' || !isFinite(exercise.targetDurationSeconds))
-    ) {
-      throw new DraftValidationError('targetDurationSeconds must be a finite number');
-    }
+    const validateInteger = (field: string, value: unknown, minValue: number = 0) => {
+      if (value !== undefined) {
+        if (!Number.isInteger(value) || (value as number) < minValue) {
+          throw new DraftValidationError(
+            `${field} must be an integer >= ${minValue}, got "${value}"`
+          );
+        }
+      }
+    };
 
-    if (exercise.restSeconds !== undefined && (typeof exercise.restSeconds !== 'number' || !isFinite(exercise.restSeconds))) {
-      throw new DraftValidationError('restSeconds must be a finite number');
-    }
-
-    if (exercise.warmupSets !== undefined && (typeof exercise.warmupSets !== 'number' || !isFinite(exercise.warmupSets))) {
-      throw new DraftValidationError('warmupSets must be a finite number');
-    }
+    validateInteger('warmupSets', exercise.warmupSets, 0);
+    validateInteger('targetSets', exercise.targetSets, 1);
+    validateInteger('targetReps', exercise.targetReps, 1);
+    validateInteger('targetDurationSeconds', exercise.targetDurationSeconds, 0);
+    validateInteger('restSeconds', exercise.restSeconds, 0);
   }
 
-  // If all validations pass, return typed
   return obj as unknown as RoutineDraft;
 }
 
@@ -166,19 +171,14 @@ export function parseAiTurn(text: string): AiTurn {
 
   const obj = parsed as Record<string, unknown>;
 
-  // Check reply exists and is string
   if (typeof obj.reply !== 'string') {
     throw new DraftValidationError('reply field is required and must be a string');
   }
 
-  // If draft is present, validate it
-  if (obj.draft !== undefined) {
-    validateRoutineDraft(obj.draft);
-  }
+  const draft = obj.draft === undefined ? undefined : validateRoutineDraft(obj.draft);
 
-  // Return typed
   return {
     reply: obj.reply,
-    draft: obj.draft as RoutineDraft | undefined,
+    draft,
   };
 }

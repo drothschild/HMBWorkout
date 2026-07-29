@@ -1,6 +1,5 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { upsertRoutine } from '@/db/repository';
 import { acceptDraft } from './acceptDraft';
 import { DraftValidationError } from './draftSchema';
 
@@ -19,6 +18,7 @@ describe('acceptDraft', () => {
     test('creates a routine with exercises and routine_exercises entries', async () => {
       const draft = {
         name: 'My Routine',
+        notes: 'Routine level notes',
         exercises: [
           { title: 'Bench Press', kind: 'strength' as const, targetSets: 3, targetReps: 8, restSeconds: 60 },
           { title: 'Incline Dumbbell', kind: 'strength' as const, targetSets: 3, targetReps: 10 },
@@ -27,17 +27,15 @@ describe('acceptDraft', () => {
 
       const routineId = await acceptDraft(database, draft);
 
-      // Verify routine_id matches pattern
       expect(routineId).toMatch(/^routine-\d+$/);
 
-      // Verify routine exists
       const routinesTable = database.get('routines');
       const routines = await routinesTable.query().fetch();
       expect(routines).toHaveLength(1);
       expect(routines[0].id).toBe(routineId);
       expect((routines[0] as any).name).toBe('My Routine');
+      expect((routines[0] as any).notes).toBe('Routine level notes');
 
-      // Verify exercises created
       const exercisesTable = database.get('exercises');
       const exercises = await exercisesTable.query().fetch();
       expect(exercises).toHaveLength(2);
@@ -47,13 +45,13 @@ describe('acceptDraft', () => {
       expect((benchPress as any).kind).toBe('strength');
       expect(inclineDumb).toBeDefined();
 
-      // Verify routine_exercises entries
       const routineExercisesTable = database.get('routine_exercises');
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
       expect(entries).toHaveLength(2);
 
       const first = entries.find((e: any) => e.order === 0);
       const second = entries.find((e: any) => e.order === 1);
+
       expect((first as any).exerciseId).toBe('bench-press');
       expect((first as any).targetSets).toBe(3);
       expect((first as any).targetReps).toBe(8);
@@ -63,11 +61,46 @@ describe('acceptDraft', () => {
       expect((second as any).targetSets).toBe(3);
       expect((second as any).targetReps).toBe(10);
     });
+
+    test('creates fully-populated exercise with all target fields', async () => {
+      const draft = {
+        name: 'Full Routine',
+        notes: 'Full routine notes',
+        exercises: [
+          {
+            title: 'Complex Exercise',
+            kind: 'strength' as const,
+            supersetGroup: 'group-1',
+            warmupSets: 2,
+            targetSets: 4,
+            targetReps: 6,
+            targetDurationSeconds: 30,
+            restSeconds: 90,
+            notes: 'Exercise notes',
+          },
+        ],
+      };
+
+      const routineId = await acceptDraft(database, draft);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
+      expect(entries).toHaveLength(1);
+
+      const entry = entries[0] as any;
+      expect(entry.exerciseId).toBe('complex-exercise');
+      expect(entry.supersetGroup).toBe('group-1');
+      expect(entry.warmupSets).toBe(2);
+      expect(entry.targetSets).toBe(4);
+      expect(entry.targetReps).toBe(6);
+      expect(entry.targetDurationSeconds).toBe(30);
+      expect(entry.restSeconds).toBe(90);
+      expect(entry.notes).toBe('Exercise notes');
+    });
   });
 
   describe('AC3.3 (edit in place)', () => {
     test('updates existing routine and replaces routine_exercises', async () => {
-      // Seed a routine
       const initialDraft = {
         name: 'Initial Routine',
         exercises: [
@@ -77,7 +110,6 @@ describe('acceptDraft', () => {
       };
       const routineId = await acceptDraft(database, initialDraft);
 
-      // Accept a draft with the same routineId but different name and exercises
       const updateDraft = {
         routineId,
         name: 'Updated Routine',
@@ -90,19 +122,21 @@ describe('acceptDraft', () => {
 
       const returnedId = await acceptDraft(database, updateDraft);
 
-      // Verify returned id is the same
       expect(returnedId).toBe(routineId);
 
-      // Verify routine name updated
       const routinesTable = database.get('routines');
       const routines = await routinesTable.query().fetch();
       expect(routines).toHaveLength(1);
       expect((routines[0] as any).name).toBe('Updated Routine');
 
-      // Verify routine_exercises replaced (3 new, not 5 total)
       const routineExercisesTable = database.get('routine_exercises');
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
       expect(entries).toHaveLength(3);
+
+      const sorted = [...entries].sort((a: any, b: any) => a.order - b.order);
+      expect((sorted[0] as any).exerciseId).toBe('deadlift');
+      expect((sorted[1] as any).exerciseId).toBe('rows');
+      expect((sorted[2] as any).exerciseId).toBe('pullups');
     });
   });
 
@@ -217,27 +251,45 @@ describe('acceptDraft', () => {
     });
   });
 
-  describe('AC3.1 (inert until accept)', () => {
-    test('validates draft without writing to DB', async () => {
-      // Import validator to use directly (validation before any writes)
-      const { validateRoutineDraft } = await import('./draftSchema');
-
-      const draft = {
-        name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+  describe('AC3.4 variant (existing exercise kind preserved)', () => {
+    test('preserves existing exercise kind when accepting draft for same exercise', async () => {
+      const initialDraft = {
+        name: 'Initial Routine',
+        exercises: [{ title: 'Cycling', kind: 'cardio' as const }],
       };
-
-      // Validate the draft
-      validateRoutineDraft(draft);
-
-      // Verify no DB writes occurred
-      const routinesTable = database.get('routines');
-      const routines = await routinesTable.query().fetch();
-      expect(routines).toHaveLength(0);
+      await acceptDraft(database, initialDraft);
 
       const exercisesTable = database.get('exercises');
-      const exs = await exercisesTable.query().fetch();
-      expect(exs).toHaveLength(0);
+      let exercises = await exercisesTable.query().fetch();
+      expect(exercises).toHaveLength(1);
+      expect((exercises[0] as any).id).toBe('cycling');
+      expect((exercises[0] as any).kind).toBe('cardio');
+
+      const secondDraft = {
+        name: 'Second Routine',
+        exercises: [{ title: 'Cycling', kind: 'strength' as const }],
+      };
+      await acceptDraft(database, secondDraft);
+
+      exercises = await exercisesTable.query().fetch();
+      expect(exercises).toHaveLength(1);
+      expect((exercises[0] as any).kind).toBe('cardio');
+    });
+  });
+
+  describe('Whitespace normalization', () => {
+    test('normalizes internal whitespace in exercise title', async () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [{ title: '  bench   press  ', kind: 'strength' as const }],
+      };
+
+      await acceptDraft(database, draft);
+
+      const exercisesTable = database.get('exercises');
+      const exercises = await exercisesTable.query().fetch();
+      expect(exercises).toHaveLength(1);
+      expect((exercises[0] as any).title).toBe('bench press');
     });
   });
 });

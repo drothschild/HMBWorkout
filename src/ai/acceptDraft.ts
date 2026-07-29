@@ -1,24 +1,35 @@
-import { Database } from '@nozbe/watermelondb';
+import { Database, Q } from '@nozbe/watermelondb';
 import { upsertExercise, upsertRoutine, RoutineExerciseEntry } from '@/db/repository';
 import { RoutineDraft, slugifyTitle, validateRoutineDraft } from './draftSchema';
 
+function normalizeWhitespace(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 export async function acceptDraft(db: Database, draft: RoutineDraft): Promise<string> {
-  // Validate before any writes
   const validated = validateRoutineDraft(draft);
 
-  const routineId = validated.routineId ?? `routine-${Date.now()}`;
+  const trimmed = validated.routineId?.trim();
+  const routineId = trimmed ? trimmed : `routine-${Date.now()}`;
 
-  // Upsert exercises (dedupe by slug)
+  const exercisesTable = db.get('exercises');
+
   const upserted = new Set<string>();
   for (const ex of validated.exercises) {
     const slug = slugifyTitle(ex.title);
     if (!upserted.has(slug)) {
       upserted.add(slug);
-      await upsertExercise(db, slug, ex.title.trim(), ex.kind);
+
+      const existing = await exercisesTable.query(Q.where('id', slug)).fetchCount();
+      if (existing === 0) {
+        const normalizedTitle = normalizeWhitespace(ex.title);
+        await upsertExercise(db, slug, normalizedTitle, ex.kind);
+      }
     }
   }
 
-  // Map exercises to routine_exercise entries
   const entries: RoutineExerciseEntry[] = validated.exercises.map((ex, index) => ({
     exerciseId: slugifyTitle(ex.title),
     order: index,
@@ -31,7 +42,6 @@ export async function acceptDraft(db: Database, draft: RoutineDraft): Promise<st
     notes: ex.notes,
   }));
 
-  // Upsert routine (creates or updates, replaces routine_exercises)
   await upsertRoutine(db, routineId, validated.name, entries, validated.notes !== undefined ? { notes: validated.notes } : undefined);
 
   return routineId;
