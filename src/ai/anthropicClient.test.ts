@@ -208,31 +208,15 @@ describe('Anthropic Client', () => {
       expect(error).toBeInstanceOf(DraftValidationError);
     });
 
-    it('throws DraftValidationError when response body is null', async () => {
+    it.each([
+      [null, 'null'],
+      ['hello', 'JSON string'],
+      [42, 'JSON number'],
+      [true, 'JSON boolean'],
+    ])('throws DraftValidationError when response body is %s', async (body, label) => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: jest.fn().mockResolvedValueOnce(null),
-      });
-
-      const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);
-
-      const error = await client
-        .chat({
-          system: 'test',
-          messages: [{ role: 'user', content: 'test' }],
-        })
-        .catch((e: unknown) => e);
-
-      expect(error).toBeInstanceOf(DraftValidationError);
-    });
-
-    it('throws DraftValidationError when response has no text block', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValueOnce({
-          content: [{ type: 'thinking', thinking: 'some thinking' }],
-          stop_reason: 'end_turn',
-        }),
+        json: jest.fn().mockResolvedValueOnce(body),
       });
 
       const client = createAnthropicClient({ apiKey: 'test-key' }, mockFetch);

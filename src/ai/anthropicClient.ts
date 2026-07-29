@@ -75,21 +75,26 @@ export function createAnthropicClient(config: { apiKey: string }, fetchFn?: Fetc
       }
 
       const content = (body as { content?: { type?: string; text?: string }[] }).content;
-      const textBlock = Array.isArray(content)
-        ? content.find((block) => block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0)
-        : undefined;
+
+      // Filter to get all text blocks with string text
+      const textBlocks = Array.isArray(content)
+        ? content.filter((block): block is { type: string; text: string } =>
+            block?.type === 'text' && typeof block.text === 'string'
+          )
+        : [];
+
+      // Find the first non-empty text block
+      const textBlock = textBlocks.find((block) => block.text.length > 0);
+
       if (!textBlock) {
-        // Check if there's a text block but it's empty
-        const emptyTextBlock = Array.isArray(content)
-          ? content.find((block) => block?.type === 'text' && typeof block.text === 'string' && block.text.length === 0)
-          : undefined;
-        if (emptyTextBlock) {
+        // Derive error message from textBlocks.length
+        if (textBlocks.length > 0) {
           throw new DraftValidationError('text block is empty');
         }
         throw new DraftValidationError('response contains no text content block');
       }
 
-      return parseAiTurn(textBlock!.text as string);
+      return parseAiTurn(textBlock.text);
     },
   };
 }
