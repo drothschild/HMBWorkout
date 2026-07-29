@@ -232,7 +232,17 @@ async function historySection(db: Database, routineDetails: RoutineWithDetail[])
       return parts.join(' ');
     });
 
-    historyLines.push(`  ${exerciseTitle}: ${setDescriptions.join(', ')}`);
+    // A set can be logged with every metric left blank; drop the empty
+    // descriptions so the line doesn't render dangling commas
+    const nonEmptyDescriptions = setDescriptions.filter(
+      (description) => description.length > 0
+    );
+
+    if (nonEmptyDescriptions.length === 0) {
+      continue;
+    }
+
+    historyLines.push(`  ${exerciseTitle}: ${nonEmptyDescriptions.join(', ')}`);
   }
 
   if (historyLines.length === 0) {
