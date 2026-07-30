@@ -1,31 +1,42 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { parseRoutine } from './parse';
-import { ContractError } from './format';
-import { Database, Q } from '@nozbe/watermelondb';
+import { Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { upsertExercise, upsertRoutine } from '@/db/repository';
+import { getVaultSyncDir, resolveRoutineFile } from './test-helpers';
+
+/**
+ * These suites parse the real routine files in the Obsidian vault, so they
+ * only run on a machine where the vault is present; elsewhere (e.g. CI) they
+ * skip with a warning. The vault renames sync files over time (date prefixes
+ * like "2026-07-08 0935 Push.md"), so routines are resolved by logical name
+ * via resolveRoutineFile instead of hardcoded filenames.
+ */
+const vaultSyncDir = getVaultSyncDir();
+const vaultAvailable = fs.existsSync(vaultSyncDir);
+const describeIfVault = vaultAvailable ? describe : describe.skip;
+
+if (!vaultAvailable) {
+  console.warn(
+    `[migrate.test] Obsidian vault _sync directory not found at "${vaultSyncDir}"; ` +
+      'skipping vault-backed migration tests. Set HMB_VAULT_SYNC_DIR to run them ' +
+      'against a different vault location.'
+  );
+}
+
+const routineNames = ['Push', 'Pull', 'Legs'];
+
+const readRoutineMarkdown = (routineName: string): string =>
+  fs.readFileSync(resolveRoutineFile(vaultSyncDir, routineName), 'utf-8');
 
 /**
  * Test that migrated routine files parse correctly without ContractError.
  * This verifies AC7.2: existing routines migrate cleanly to the workout-block format.
  */
-describe('Migrated routines (AC7.2)', () => {
-  const vaultSyncDir = path.resolve(
-    '/Users/davidrothschild/Documents/Obsidian/Organizer/2-Areas/Exercise/_sync'
-  );
-
-  const routines = ['Push.md', 'Pull.md', 'Legs.md'];
-
-  for (const routineFile of routines) {
-    const routinePath = path.join(vaultSyncDir, routineFile);
-
-    it(`parses ${routineFile} without ContractError`, () => {
-      if (!fs.existsSync(routinePath)) {
-        throw new Error(`Routine file not found: ${routinePath}`);
-      }
-
-      const markdown = fs.readFileSync(routinePath, 'utf-8');
+describeIfVault('Migrated routines (AC7.2)', () => {
+  for (const routineName of routineNames) {
+    it(`parses ${routineName} without ContractError`, () => {
+      const markdown = readRoutineMarkdown(routineName);
 
       // Must not throw ContractError
       const parsed = parseRoutine(markdown);
@@ -38,8 +49,8 @@ describe('Migrated routines (AC7.2)', () => {
       expect(parsed.exercises.length).toBeGreaterThan(0);
     });
 
-    it(`${routineFile} has proper frontmatter`, () => {
-      const markdown = fs.readFileSync(routinePath, 'utf-8');
+    it(`${routineName} has proper frontmatter`, () => {
+      const markdown = readRoutineMarkdown(routineName);
       const parsed = parseRoutine(markdown);
 
       expect(parsed.frontmatter.type).toBe('workout-routine');
@@ -48,8 +59,8 @@ describe('Migrated routines (AC7.2)', () => {
       expect(parsed.frontmatter.updated).toBeTruthy();
     });
 
-    it(`${routineFile} exercises include superset and cardio/stretch`, () => {
-      const markdown = fs.readFileSync(routinePath, 'utf-8');
+    it(`${routineName} exercises include superset and cardio/stretch`, () => {
+      const markdown = readRoutineMarkdown(routineName);
       const parsed = parseRoutine(markdown);
 
       // Should have at least one superset (entries with supersetLabel)
@@ -73,25 +84,13 @@ describe('Migrated routines (AC7.2)', () => {
  * Tests the full import path: parse -> upsert exercises -> upsert routine -> verify DB structure
  * Ensures superset grouping, warmup_sets, cardio/stretch targetDurationSeconds, and order sequence are preserved.
  */
-describe('Migrated routines full import path (AC7.2 I1)', () => {
-  const vaultSyncDir = path.resolve(
-    '/Users/davidrothschild/Documents/Obsidian/Organizer/2-Areas/Exercise/_sync'
-  );
-
-  const routines = ['Push.md', 'Pull.md', 'Legs.md'];
-
-  for (const routineFile of routines) {
-    const routinePath = path.join(vaultSyncDir, routineFile);
-
-    it(`imports and upserts ${routineFile} through full DB path with correct structure`, async () => {
-      if (!fs.existsSync(routinePath)) {
-        throw new Error(`Routine file not found: ${routinePath}`);
-      }
-
+describeIfVault('Migrated routines full import path (AC7.2 I1)', () => {
+  for (const routineName of routineNames) {
+    it(`imports and upserts ${routineName} through full DB path with correct structure`, async () => {
       const database = createTestDatabase();
 
       try {
-        const markdown = fs.readFileSync(routinePath, 'utf-8');
+        const markdown = readRoutineMarkdown(routineName);
         const parsed = parseRoutine(markdown);
 
         // Build allExercises list from parsed exercises (mimics syncService import)
@@ -165,11 +164,11 @@ describe('Migrated routines full import path (AC7.2 I1)', () => {
         }
 
         // Upsert routine
-        const routineId = parsed.frontmatter.id || routineFile.replace('.md', '');
+        const routineId = parsed.frontmatter.id || routineName;
         await upsertRoutine(
           database,
           routineId,
-          parsed.frontmatter.id || routineFile.replace('.md', ''),
+          parsed.frontmatter.id || routineName,
           allExercises.map((e) => ({
             exerciseId: e.exerciseId,
             order: e.order,
