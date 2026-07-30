@@ -6,7 +6,6 @@ export interface AiTurn {
 }
 
 export interface RoutineDraft {
-  routineId?: string; // present only when editing an existing routine
   name: string;
   notes?: string;
   exercises: DraftExercise[];
@@ -45,7 +44,6 @@ export const AI_TURN_SCHEMA = {
       type: 'object',
       description: 'Include only when proposing a new routine or a revision of an existing one',
       properties: {
-        routineId: { type: 'string', description: 'Only when revising an existing routine: its exact id' },
         name: { type: 'string' },
         notes: { type: 'string' },
         exercises: {
@@ -97,10 +95,6 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
 
   if (!Array.isArray(obj.exercises) || obj.exercises.length === 0) {
     throw new DraftValidationError('at least one exercise is required');
-  }
-
-  if (obj.routineId !== undefined && (typeof obj.routineId !== 'string' || !obj.routineId.trim())) {
-    throw new DraftValidationError('routineId, when present, must be a non-empty string');
   }
 
   if (obj.notes !== undefined && typeof obj.notes !== 'string') {

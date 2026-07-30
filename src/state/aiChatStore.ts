@@ -41,7 +41,7 @@ export interface AiChatDeps {
   db: Database;
   createClient: typeof createAnthropicClient;
   buildSystem: typeof buildSystemFn;
-  accept: (db: Database, draft: RoutineDraft, mode: AiCoachMode) => Promise<string>;
+  accept: typeof acceptDraftFn;
   getSettings: typeof getSettings;
 }
 

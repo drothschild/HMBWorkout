@@ -147,6 +147,10 @@ misnomer — AI settings are in there too.
 - **Drafts are whole routines, never diffs.** `upsertRoutine` deletes and recreates
   every `routine_exercise` row, so accepting an edit draft that omits an exercise
   removes it. The persona demands the full exercise list for this reason.
+- **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
+  `routine-<epoch>` in create mode and forces `mode.routineId` in edit mode; drafts
+  carry no routine id. Accepting in edit mode always overwrites the routine named by
+  the route param.
 - **The prompt carries data, never secrets.** `buildSystem` composes goals, equipment,
   every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
   exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a

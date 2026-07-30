@@ -65,10 +65,9 @@ The "draft" field is included ONLY when proposing a complete new routine or a co
 
 Draft constraints:
 - A draft must contain at least one exercise (exercises array must not be empty)
-- routineId must be omitted unless you are in Edit Mode (only present when revising an existing routine per the Edit Mode addendum below)
 
 Exercise schema (inside draft.exercises):
-- title: must contain at least one letter or digit
+- title: must contain at least one ASCII letter or digit (a-z, 0-9)
 - kind: must be one of "strength", "cardio", or "stretch"
 - supersetGroup: use the same string on grouped exercises for supersets
 - targetSets, targetReps: when present, must be integers >= 1
@@ -269,5 +268,5 @@ async function editModeSection(db: Database, routineId: string): Promise<string 
 
   return `## Edit Mode
 
-The user is editing the routine "${detail.name}" (routineId: ${detail.id}). Return any draft as a complete revision of this routine, and set the draft's routineId field to exactly "${detail.id}".`;
+The user is editing the routine "${detail.name}". Return any draft as a complete revision of this routine.`;
 }

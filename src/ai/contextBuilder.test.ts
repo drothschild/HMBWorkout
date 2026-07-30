@@ -57,22 +57,16 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('exercises array must not be empty');
     }, 30000);
 
-    it('IMPORTANT 1: includes constraint that exercise title must contain letters or digits', async () => {
+    it('IMPORTANT 1: includes constraint that exercise title must contain ASCII letters or digits', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).toContain('title: must contain at least one letter or digit');
+      expect(prompt).toContain('title: must contain at least one ASCII letter or digit (a-z, 0-9)');
     }, 30000);
 
     it('IMPORTANT 1: includes constraint that targetSets and targetReps must be >= 1 when present', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
-    }, 30000);
-
-    it('IMPORTANT 1: states routineId must be omitted unless in Edit Mode', async () => {
-      const prompt = await buildSystem(database, { kind: 'create' });
-
-      expect(prompt).toContain('routineId must be omitted unless you are in Edit Mode');
     }, 30000);
   });
 
@@ -661,7 +655,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, mode);
 
       expect(prompt).toContain(`The user is editing the routine "Legs"`);
-      expect(prompt).toContain(`set the draft's routineId field to exactly "${routineId}"`);
+      expect(prompt).toContain('Return any draft as a complete revision of this routine');
     }, 30000);
 
     it('falls back to create-mode content when routineId does not exist', async () => {

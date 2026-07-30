@@ -134,7 +134,6 @@ describe('acceptDraft', () => {
       const routineId = await acceptDraft(database, initialDraft, { kind: 'create' });
 
       const updateDraft = {
-        routineId,
         name: 'Updated Routine',
         exercises: [
           { title: 'Deadlift', kind: 'strength' as const },
@@ -162,106 +161,103 @@ describe('acceptDraft', () => {
       expect((sorted[2] as any).exerciseId).toBe('pullups');
     });
 
-    test('CRITICAL 1: create-mode draft echoing existing routine id creates new routine', async () => {
-      // Create an initial routine
-      const initialDraft = {
-        name: 'Original Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
-      };
-      const existingRoutineId = await acceptDraft(database, initialDraft, { kind: 'create' });
+    test('CRITICAL 1: create-mode draft always mints new routine id regardless of Date.now() collision risk', async () => {
+      // Create two drafts with a frozen Date.now() to simulate a collision risk
+      const nowSpy = jest.spyOn(Date, 'now');
+      try {
+        const initialDraft = {
+          name: 'First Routine',
+          exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        };
+        nowSpy.mockReturnValueOnce(1000);
+        const firstRoutineId = await acceptDraft(database, initialDraft, { kind: 'create' });
+        expect(firstRoutineId).toBe('routine-1000');
 
-      // Capture the original routine's state
-      const routinesTable = database.get('routines');
-      let routines = await routinesTable.query().fetch();
-      expect(routines).toHaveLength(1);
-      const originalName = (routines[0] as any).name;
-      expect(originalName).toBe('Original Routine');
+        const secondDraft = {
+          name: 'Second Routine',
+          exercises: [{ title: 'Squat', kind: 'strength' as const }],
+        };
+        nowSpy.mockReturnValueOnce(2000);
+        const secondRoutineId = await acceptDraft(database, secondDraft, { kind: 'create' });
+        expect(secondRoutineId).toBe('routine-2000');
 
-      // Small delay to ensure Date.now() returns a different value (simulates real user interaction delay)
-      await new Promise((resolve) => setTimeout(resolve, 2));
+        // Verify both routines exist and are distinct
+        const routinesTable = database.get('routines');
+        const routines = await routinesTable.query().fetch();
+        expect(routines).toHaveLength(2);
 
-      // Create a new draft that echoes the existing routine's id (simulating model confusion)
-      const confusedDraft = {
-        routineId: existingRoutineId, // Model echoed back the existing id
-        name: 'New Routine',
-        exercises: [{ title: 'Squat', kind: 'strength' as const }],
-      };
+        const first = routines.find((r: any) => r.id === firstRoutineId);
+        expect((first as any).name).toBe('First Routine');
 
-      // Accept in create mode (mode is authoritative, not draft.routineId)
-      const newRoutineId = await acceptDraft(database, confusedDraft, { kind: 'create' });
+        const second = routines.find((r: any) => r.id === secondRoutineId);
+        expect((second as any).name).toBe('Second Routine');
 
-      // Must create a NEW routine, not overwrite the existing one
-      expect(newRoutineId).not.toBe(existingRoutineId);
+        // Verify exercises are correctly associated
+        const routineExercisesTable = database.get('routine_exercises');
+        const firstEntries = await routineExercisesTable.query(Q.where('routine_id', firstRoutineId)).fetch();
+        expect(firstEntries).toHaveLength(1);
+        expect((firstEntries[0] as any).exerciseId).toBe('bench-press');
 
-      // Verify both routines exist
-      routines = await routinesTable.query().fetch();
-      expect(routines).toHaveLength(2);
-
-      // Verify the original routine is unchanged
-      const original = routines.find((r: any) => r.id === existingRoutineId);
-      expect((original as any).name).toBe('Original Routine');
-
-      const routineExercisesTable = database.get('routine_exercises');
-      const originalEntries = await routineExercisesTable.query(Q.where('routine_id', existingRoutineId)).fetch();
-      expect(originalEntries).toHaveLength(1);
-      expect((originalEntries[0] as any).exerciseId).toBe('bench-press');
-
-      // Verify the new routine has the new exercises
-      const newRoutine = routines.find((r: any) => r.id === newRoutineId);
-      expect((newRoutine as any).name).toBe('New Routine');
-
-      const newEntries = await routineExercisesTable.query(Q.where('routine_id', newRoutineId)).fetch();
-      expect(newEntries).toHaveLength(1);
-      expect((newEntries[0] as any).exerciseId).toBe('squat');
+        const secondEntries = await routineExercisesTable.query(Q.where('routine_id', secondRoutineId)).fetch();
+        expect(secondEntries).toHaveLength(1);
+        expect((secondEntries[0] as any).exerciseId).toBe('squat');
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
 
-    test('CRITICAL 1: edit-mode draft with foreign routine id updates correct routine', async () => {
+    test('CRITICAL 1: edit-mode uses mode.routineId to determine target, ignoring any draft id mismatch', async () => {
       // Create two routines
       const draft1 = {
         name: 'Routine A',
         exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
       };
-      const routineIdA = await acceptDraft(database, draft1, { kind: 'create' });
+      const nowSpy = jest.spyOn(Date, 'now');
+      try {
+        nowSpy.mockReturnValueOnce(1000);
+        const routineIdA = await acceptDraft(database, draft1, { kind: 'create' });
+        expect(routineIdA).toBe('routine-1000');
 
-      // Small delay to ensure Date.now() returns a different value
-      await new Promise((resolve) => setTimeout(resolve, 2));
+        const draft2 = {
+          name: 'Routine B',
+          exercises: [{ title: 'Squat', kind: 'strength' as const }],
+        };
+        nowSpy.mockReturnValueOnce(2000);
+        const routineIdB = await acceptDraft(database, draft2, { kind: 'create' });
+        expect(routineIdB).toBe('routine-2000');
 
-      const draft2 = {
-        name: 'Routine B',
-        exercises: [{ title: 'Squat', kind: 'strength' as const }],
-      };
-      const routineIdB = await acceptDraft(database, draft2, { kind: 'create' });
+        // Create a draft to update routineA with a new exercise
+        const updateDraft = {
+          name: 'Routine A Updated',
+          exercises: [{ title: 'Deadlift', kind: 'strength' as const }],
+        };
 
-      // Create a draft for routineA that has the wrong id (routineIdB)
-      const confusedDraft = {
-        routineId: routineIdB, // Wrong id
-        name: 'Routine A Updated',
-        exercises: [{ title: 'Deadlift', kind: 'strength' as const }],
-      };
+        // Accept in edit mode with routineIdA (mode is authoritative)
+        const returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId: routineIdA });
 
-      // Accept in edit mode with correct routineId (mode is authoritative)
-      const returnedId = await acceptDraft(database, confusedDraft, { kind: 'edit', routineId: routineIdA });
+        expect(returnedId).toBe(routineIdA);
 
-      expect(returnedId).toBe(routineIdA);
+        const routinesTable = database.get('routines');
+        const routines = await routinesTable.query().fetch();
+        expect(routines).toHaveLength(2);
 
-      const routinesTable = database.get('routines');
-      const routines = await routinesTable.query().fetch();
-      expect(routines).toHaveLength(2);
+        // Verify routineA was updated
+        const routineA = routines.find((r: any) => r.id === routineIdA);
+        expect((routineA as any).name).toBe('Routine A Updated');
 
-      // Verify routineA was updated
-      const routineA = routines.find((r: any) => r.id === routineIdA);
-      expect((routineA as any).name).toBe('Routine A Updated');
+        // Verify routineB was untouched
+        const routineB = routines.find((r: any) => r.id === routineIdB);
+        expect((routineB as any).name).toBe('Routine B');
 
-      // Verify routineB was untouched
-      const routineB = routines.find((r: any) => r.id === routineIdB);
-      expect((routineB as any).name).toBe('Routine B');
+        const routineExercisesTable = database.get('routine_exercises');
+        const entriesA = await routineExercisesTable.query(Q.where('routine_id', routineIdA)).fetch();
+        expect((entriesA[0] as any).exerciseId).toBe('deadlift');
 
-      const routineExercisesTable = database.get('routine_exercises');
-      const entriesA = await routineExercisesTable.query(Q.where('routine_id', routineIdA)).fetch();
-      expect((entriesA[0] as any).exerciseId).toBe('deadlift');
-
-      const entriesB = await routineExercisesTable.query(Q.where('routine_id', routineIdB)).fetch();
-      expect((entriesB[0] as any).exerciseId).toBe('squat');
+        const entriesB = await routineExercisesTable.query(Q.where('routine_id', routineIdB)).fetch();
+        expect((entriesB[0] as any).exerciseId).toBe('squat');
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 

@@ -395,6 +395,31 @@ describe('aiChatStore', () => {
       await store.getState().acceptDraft();
       expect(fakeAccept).toHaveBeenCalledTimes(1);
     });
+
+    it('IMPORTANT 1: passes mode to accept unchanged', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      // Reset to edit mode
+      store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
+
+      const draft: RoutineDraft = {
+        name: 'Updated Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' }],
+      };
+
+      fakeChat.mockResolvedValue({ reply: 'updated', draft });
+
+      await store.getState().send('update routine');
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      const id = await store.getState().acceptDraft();
+
+      // Mode must be passed unchanged to accept
+      expect(fakeAccept).toHaveBeenCalledTimes(1);
+      expect(fakeAccept).toHaveBeenCalledWith({}, draft, { kind: 'edit', routineId: 'routine-1' });
+      expect(id).toBe('routine-id-1');
+      expect(store.getState().pendingDraft).toBeNull();
+    });
   });
 
   describe('concurrency guard', () => {

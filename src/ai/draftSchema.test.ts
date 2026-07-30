@@ -70,7 +70,6 @@ describe('draftSchema', () => {
 
     test('accepts fully-populated draft', () => {
       const draft = {
-        routineId: 'routine-1',
         name: 'My Routine',
         notes: 'Some notes',
         exercises: [
@@ -234,26 +233,6 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    test('rejects empty routineId', () => {
-      const draft = {
-        routineId: '',
-        name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('rejects non-string routineId', () => {
-      const draft = {
-        routineId: 12345 as any,
-        name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
     test('rejects non-string routine notes', () => {
       const draft = {
         name: 'My Routine',
@@ -367,17 +346,6 @@ describe('draftSchema', () => {
       };
 
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('accepts valid routineId', () => {
-      const draft = {
-        routineId: 'routine-123',
-        name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
-      };
-
-      const result = validateRoutineDraft(draft);
-      expect(result.routineId).toBe('routine-123');
     });
 
     test('accepts routine-level notes', () => {
