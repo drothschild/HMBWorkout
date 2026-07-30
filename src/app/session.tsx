@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -97,18 +97,6 @@ export default function SessionScreen() {
   }
 
   const presenter = createSessionPresenter(sessionState, dispatch, progressionHint);
-
-  const handleReset = () => {
-    setCurrentReps(undefined);
-    setCurrentWeight(undefined);
-    setCurrentRpe(undefined);
-    setCurrentDuration(undefined);
-  };
-
-  const handleSetDone = useCallback(async () => {
-    await presenter.onSetDone();
-    handleReset();
-  }, [presenter]);
 
   // Resting takes over the whole screen: big countdown, cancel or pause only
   if (presenter.isResting || presenter.isRestPaused) {
