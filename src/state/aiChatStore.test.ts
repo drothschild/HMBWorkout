@@ -355,10 +355,10 @@ describe('aiChatStore', () => {
         exercises: [{ title: 'Push-up', kind: 'strength' }],
       };
 
-      // Copy so the assertion's expected value cannot alias an object the
-      // store might mutate in place — reset gets its own instance.
+      // Copies so the assertions' expected values cannot alias objects the
+      // store might mutate in place — the store gets its own instances.
       store.getState().reset({ ...mode });
-      fakeChat.mockResolvedValue({ reply: 'created', draft });
+      fakeChat.mockResolvedValue({ reply: 'created', draft: structuredClone(draft) });
 
       await store.getState().send('create routine');
 
