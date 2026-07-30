@@ -1,4 +1,4 @@
-import { createAiChatStore, AiChatDeps } from './aiChatStore';
+import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
 import { RoutineDraft, DraftValidationError, AiTurn } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
@@ -598,6 +598,8 @@ describe('aiChatStore', () => {
       const deferred = new Promise<AiTurn>((resolve) => {
         resolveRequest = resolve;
       });
+      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
+      deferred.catch(() => {});
       fakeChat.mockReturnValue(deferred);
 
       const sendPromise = store.getState().send('hello');
@@ -626,6 +628,8 @@ describe('aiChatStore', () => {
       const deferred = new Promise<AiTurn>((resolve, reject) => {
         rejectRequest = reject;
       });
+      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
+      deferred.catch(() => {});
       fakeChat.mockReturnValue(deferred);
 
       const sendPromise = store.getState().send('hello');
@@ -653,6 +657,8 @@ describe('aiChatStore', () => {
       const deferredBuild = new Promise<string>((resolve) => {
         resolveBuild = resolve;
       });
+      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
+      deferredBuild.catch(() => {});
 
       fakeBuildSystem.mockReturnValueOnce(deferredBuild);
       fakeChat.mockResolvedValue({ reply: 'hi' });
@@ -724,6 +730,8 @@ describe('aiChatStore', () => {
       const deferredRetry = new Promise<AiTurn>((resolve) => {
         resolveRetry = resolve;
       });
+      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
+      deferredRetry.catch(() => {});
       fakeChat.mockReturnValueOnce(deferredRetry);
 
       const retryPromise = store.getState().retry();
@@ -755,6 +763,8 @@ describe('aiChatStore', () => {
       const deferredRetry = new Promise<AiTurn>((resolve, reject) => {
         rejectRetry = reject;
       });
+      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
+      deferredRetry.catch(() => {});
       fakeChat.mockReturnValueOnce(deferredRetry);
 
       const retryPromise = store.getState().retry();
@@ -785,16 +795,46 @@ describe('aiChatStore', () => {
       expect(store.getState().status).toBe('error');
       expect(store.getState().error).toEqual({ kind: 'network' });
 
-      const statusDuring = store.getState().status;
-      const errorKindDuring: string | null = null;
+      const statusesDuring: string[] = [];
+      const errorsDuring: (AiChatError | null)[] = [];
       fakeChat.mockImplementation(() => {
-        const errorDuringRetry = store.getState().error;
+        statusesDuring.push(store.getState().status);
+        errorsDuring.push(store.getState().error);
         return Promise.resolve({ reply: 'recovered' });
       });
 
       const retryPromise = store.getState().retry();
       await retryPromise;
 
+      expect(statusesDuring).toEqual(['sending']);
+      expect(errorsDuring).toEqual([null]);
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().error).toBeNull();
+    });
+
+    it('error is null while send is in flight after prior error', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+      expect(store.getState().error).toEqual({ kind: 'network' });
+
+      const statusesDuring: string[] = [];
+      const errorsDuring: (AiChatError | null)[] = [];
+      fakeChat.mockImplementation(() => {
+        statusesDuring.push(store.getState().status);
+        errorsDuring.push(store.getState().error);
+        return Promise.resolve({ reply: 'recovered' });
+      });
+
+      const sendPromise = store.getState().send('again');
+      await sendPromise;
+
+      expect(statusesDuring).toEqual(['sending']);
+      expect(errorsDuring).toEqual([null]);
       expect(store.getState().status).toBe('idle');
       expect(store.getState().error).toBeNull();
     });

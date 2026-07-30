@@ -75,6 +75,9 @@ export function createAiChatStore(deps: AiChatDeps) {
       if (generation === gen) cachedSystem = system;
     }
 
+    // If generation changed during buildSystem, abort before creating billable client.
+    if (generation !== gen) throw new Error('conversation reset');
+
     const client = deps.createClient({ apiKey: apiKey.trim() });
 
     const wireMessages: AiChatMessage[] = messages.map((msg) => ({
@@ -115,7 +118,7 @@ export function createAiChatStore(deps: AiChatDeps) {
       }
     }
 
-    return ({
+    return {
     mode: { kind: 'create' },
     messages: [],
     pendingDraft: null,
@@ -199,7 +202,7 @@ export function createAiChatStore(deps: AiChatDeps) {
       set({ pendingDraft: null });
       return id;
     },
-    });
+  };
   });
 }
 
