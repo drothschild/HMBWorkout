@@ -137,6 +137,13 @@ misnomer — AI settings are in there too.
   `validateRoutineDraft` (what the app enforces), and in `personaSection()` prose in
   `contextBuilder.ts` (what the model reads). Changing the draft shape means changing
   all three — same hazard class as the copied markdown contract.
+- **The persona restates the validator's rules, not just its shape.** `personaSection()`
+  spells out the bounds `validateRoutineDraft` enforces (non-empty name, ≥1 exercise,
+  title must slugify to something non-empty, `targetSets`/`targetReps` ≥ 1, and
+  `warmupSets`/`targetDurationSeconds`/`restSeconds` ≥ 0), so a rejected draft reads as
+  a model mistake rather than a surprise. `contextBuilder.test.ts` asserts those
+  sentences as *exact strings*: loosening or tightening a bound in `draftSchema.ts`
+  without rewording the prose fails those tests rather than silently drifting.
 - **Validate twice; structured output is not a guarantee.** `parseAiTurn` validates on
   receipt and `acceptDraft` validates again before writing. Keep both.
 - **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
@@ -193,7 +200,7 @@ misnomer — AI settings are in there too.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
-- AI draft-shape changes must be mirrored across `AI_TURN_SCHEMA`, the draft validators,
-  and the persona prompt (all in `src/ai`)
+- AI draft shape *and* validation bounds must be mirrored across `AI_TURN_SCHEMA`, the
+  draft validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
 - Do not touch generated Rill dist or the `../rill-lang` tarball dependency by hand
