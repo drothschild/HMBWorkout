@@ -45,9 +45,6 @@ export interface AiChatDeps {
   getSettings: typeof getSettings;
 }
 
-/**
- * Map caught errors to AiChatError kinds.
- */
 function mapError(error: unknown): AiChatError {
   if (error instanceof AnthropicHttpError) {
     if (error.status === 401) {
@@ -67,11 +64,9 @@ function mapError(error: unknown): AiChatError {
 export function createAiChatStore(deps: AiChatDeps) {
   // Cache the system prompt for the duration of a conversation
   let cachedSystem: string | null = null;
+  // Generation counter to discard stale responses after reset() invalidates ongoing requests
+  let generation = 0;
 
-  /**
-   * Perform the API request: build system prompt, create client, send chat request.
-   * Returns the turn on success; throws on error (caller maps error).
-   */
   async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string): Promise<AiTurn> {
     if (cachedSystem === null) {
       cachedSystem = await deps.buildSystem(deps.db, mode);
@@ -99,6 +94,7 @@ export function createAiChatStore(deps: AiChatDeps) {
 
     reset(mode: AiCoachMode) {
       cachedSystem = null;
+      generation++;
       set({
         mode,
         messages: [],
@@ -125,6 +121,7 @@ export function createAiChatStore(deps: AiChatDeps) {
       }
 
       const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
+      const gen = generation;
       set({
         messages: newMessages,
         status: 'sending',
@@ -133,6 +130,7 @@ export function createAiChatStore(deps: AiChatDeps) {
 
       try {
         const turn = await performRequest(newMessages, state.mode, settings.anthropicKey);
+        if (generation !== gen) return;
         set((currentState) => ({
           messages: [
             ...currentState.messages,
@@ -146,6 +144,7 @@ export function createAiChatStore(deps: AiChatDeps) {
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
         }));
       } catch (error) {
+        if (generation !== gen) return;
         set({
           status: 'error',
           error: mapError(error),
@@ -174,10 +173,12 @@ export function createAiChatStore(deps: AiChatDeps) {
         return;
       }
 
-      set({ status: 'sending' });
+      const gen = generation;
+      set({ status: 'sending', error: null });
 
       try {
         const turn = await performRequest(state.messages, state.mode, settings.anthropicKey);
+        if (generation !== gen) return;
         set((currentState) => ({
           messages: [
             ...currentState.messages,
@@ -188,10 +189,10 @@ export function createAiChatStore(deps: AiChatDeps) {
             },
           ],
           status: 'idle',
-          error: null,
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
         }));
       } catch (error) {
+        if (generation !== gen) return;
         set({
           status: 'error',
           error: mapError(error),
