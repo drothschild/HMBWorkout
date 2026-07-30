@@ -120,56 +120,6 @@ describe('acceptDraft', () => {
       expect(entry.restSeconds).toBe(90);
       expect(entry.notes).toBe('Exercise notes');
     });
-  });
-
-  describe('AC3.3 (edit in place)', () => {
-    test('updates existing routine and replaces routine_exercises', async () => {
-      const initialDraft = {
-        name: 'Initial Routine',
-        exercises: [
-          { title: 'Bench Press', kind: 'strength' as const },
-          { title: 'Squat', kind: 'strength' as const },
-        ],
-      };
-      // Distinct Date.now() values so an edit that wrongly minted a fresh id
-      // would produce routine-2000 !== routineId and fail below.
-      const nowSpy = jest.spyOn(Date, 'now');
-      nowSpy.mockReturnValueOnce(1000);
-      const routineId = await acceptDraft(database, initialDraft, { kind: 'create' });
-      nowSpy.mockReturnValue(2000);
-
-      const updateDraft = {
-        name: 'Updated Routine',
-        exercises: [
-          { title: 'Deadlift', kind: 'strength' as const },
-          { title: 'Rows', kind: 'strength' as const },
-          { title: 'Pullups', kind: 'strength' as const },
-        ],
-      };
-
-      let returnedId: string;
-      try {
-        returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId });
-      } finally {
-        nowSpy.mockRestore();
-      }
-
-      expect(returnedId).toBe(routineId);
-
-      const routinesTable = database.get('routines');
-      const routines = await routinesTable.query().fetch();
-      expect(routines).toHaveLength(1);
-      expect((routines[0] as any).name).toBe('Updated Routine');
-
-      const routineExercisesTable = database.get('routine_exercises');
-      const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
-      expect(entries).toHaveLength(3);
-
-      const sorted = [...entries].sort((a: any, b: any) => a.order - b.order);
-      expect((sorted[0] as any).exerciseId).toBe('deadlift');
-      expect((sorted[1] as any).exerciseId).toBe('rows');
-      expect((sorted[2] as any).exerciseId).toBe('pullups');
-    });
 
     test('create mode mints a fresh id per accept and never touches the prior routine', async () => {
       // Distinct mocked Date.now() values make the two minted ids deterministic
@@ -214,6 +164,57 @@ describe('acceptDraft', () => {
       } finally {
         nowSpy.mockRestore();
       }
+    });
+  });
+
+  describe('AC3.3 (edit in place)', () => {
+    test('updates existing routine and replaces routine_exercises', async () => {
+      const initialDraft = {
+        name: 'Initial Routine',
+        exercises: [
+          { title: 'Bench Press', kind: 'strength' as const },
+          { title: 'Squat', kind: 'strength' as const },
+        ],
+      };
+      // Distinct Date.now() values so an edit that wrongly minted a fresh id
+      // would produce routine-2000 !== routineId and fail below.
+      const nowSpy = jest.spyOn(Date, 'now');
+      let routineId: string;
+      let returnedId: string;
+      try {
+        nowSpy.mockReturnValueOnce(1000);
+        routineId = await acceptDraft(database, initialDraft, { kind: 'create' });
+        nowSpy.mockReturnValue(2000);
+
+        const updateDraft = {
+          name: 'Updated Routine',
+          exercises: [
+            { title: 'Deadlift', kind: 'strength' as const },
+            { title: 'Rows', kind: 'strength' as const },
+            { title: 'Pullups', kind: 'strength' as const },
+          ],
+        };
+
+        returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId });
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(returnedId).toBe(routineId);
+
+      const routinesTable = database.get('routines');
+      const routines = await routinesTable.query().fetch();
+      expect(routines).toHaveLength(1);
+      expect((routines[0] as any).name).toBe('Updated Routine');
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
+      expect(entries).toHaveLength(3);
+
+      const sorted = [...entries].sort((a: any, b: any) => a.order - b.order);
+      expect((sorted[0] as any).exerciseId).toBe('deadlift');
+      expect((sorted[1] as any).exerciseId).toBe('rows');
+      expect((sorted[2] as any).exerciseId).toBe('pullups');
     });
 
     test('CRITICAL 1: edit-mode uses mode.routineId to determine target, ignoring any draft id mismatch', async () => {

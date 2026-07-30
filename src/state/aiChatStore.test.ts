@@ -355,7 +355,9 @@ describe('aiChatStore', () => {
         exercises: [{ title: 'Push-up', kind: 'strength' }],
       };
 
-      store.getState().reset(mode);
+      // Copy so the assertion's expected value cannot alias an object the
+      // store might mutate in place — reset gets its own instance.
+      store.getState().reset({ ...mode });
       fakeChat.mockResolvedValue({ reply: 'created', draft });
 
       await store.getState().send('create routine');
@@ -399,7 +401,6 @@ describe('aiChatStore', () => {
       await store.getState().acceptDraft();
       expect(fakeAccept).toHaveBeenCalledTimes(1);
     });
-
   });
 
   describe('concurrency guard', () => {
