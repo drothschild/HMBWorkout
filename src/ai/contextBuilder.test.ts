@@ -627,7 +627,7 @@ describe('buildSystem: AI Coach context builder', () => {
   });
 
   describe('AC2.3 — edit mode', () => {
-    it('includes routine name and routineId in edit-mode prompt', async () => {
+    it('includes routine name and revision instruction in edit-mode prompt', async () => {
       const routineId = 'routine-edit-test';
 
       await database.write(async () => {
