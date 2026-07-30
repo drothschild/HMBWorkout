@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -809,6 +809,108 @@ describe('Repository: session and set helpers', () => {
       expect(history.every((set: any) => set.setType === 'working')).toBe(true);
       expect((history[0] as any).weightKg).toBe(100);
       expect((history[1] as any).weightKg).toBe(100);
+    }, 15000);
+  });
+
+  describe('upsertRoutine reconcile', () => {
+    it('preserves working-set history when a routine is re-upserted with the same exercises', async () => {
+      const routineId = 'routine-reupsert';
+      const exerciseId = 'exercise-ohp';
+
+      await upsertExercise(database, exerciseId, 'Overhead Press', 'strength');
+      await upsertRoutine(database, routineId, 'Push Day', [
+        { exerciseId, order: 0, targetSets: 3, targetReps: 8, restSeconds: 90 },
+      ]);
+
+      // Log sets against the routine_exercise row, as the live session flow does
+      const routineExercisesTable = database.get('routine_exercises');
+      const [before] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      expect(before).toBeDefined();
+
+      await createSession(database, {
+        sessionId: 'session-reupsert',
+        routineId,
+        startedAtMs: Date.now() - 60000,
+      });
+      await appendSet(database, 'session-reupsert', before.id, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 40,
+      });
+      await appendSet(database, 'session-reupsert', before.id, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 42.5,
+      });
+
+      // Sanity: history is visible before the edit
+      expect(await getExerciseWorkingSetHistory(database, exerciseId)).toHaveLength(2);
+
+      // Re-upsert the same routine with the same exercise (a routine edit)
+      await upsertRoutine(database, routineId, 'Push Day (edited)', [
+        { exerciseId, order: 0, targetSets: 4, targetReps: 10, restSeconds: 90 },
+      ]);
+
+      const history = await getExerciseWorkingSetHistory(database, exerciseId);
+      expect(history).toHaveLength(2);
+      expect(
+        history.map((s: any) => s.weightKg).sort((a: number, b: number) => a - b)
+      ).toEqual([40, 42.5]);
+    }, 15000);
+
+    it('reconciles routine_exercises in place: surviving rows keep ids, fields update and clear, removed rows are deleted', async () => {
+      const routineId = 'routine-reconcile';
+      await upsertExercise(database, 'ex-keep', 'Kept Exercise', 'strength');
+      await upsertExercise(database, 'ex-drop', 'Dropped Exercise', 'strength');
+      await upsertExercise(database, 'ex-add', 'Added Exercise', 'strength');
+
+      await upsertRoutine(database, routineId, 'Original', [
+        {
+          exerciseId: 'ex-keep',
+          order: 0,
+          supersetGroup: 'group-a',
+          warmupSets: 2,
+          targetSets: 3,
+          targetReps: 8,
+          notes: 'old note',
+        },
+        { exerciseId: 'ex-drop', order: 1, targetSets: 3, targetReps: 12 },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const fetchRows = async () =>
+        (await routineExercisesTable
+          .query(Q.where('routine_id', routineId))
+          .fetch()) as any[];
+
+      const keptBefore = (await fetchRows()).find((re) => re.exerciseId === 'ex-keep');
+      expect(keptBefore).toBeDefined();
+
+      await upsertRoutine(database, routineId, 'Edited', [
+        // supersetGroup/notes omitted → must clear, matching previous replace semantics
+        { exerciseId: 'ex-keep', order: 1, warmupSets: 0, targetSets: 5, targetReps: 5 },
+        { exerciseId: 'ex-add', order: 0, targetSets: 3, targetReps: 10 },
+      ]);
+
+      const after = await fetchRows();
+      expect(after).toHaveLength(2);
+      expect(after.find((re) => re.exerciseId === 'ex-drop')).toBeUndefined();
+
+      const keptAfter = after.find((re) => re.exerciseId === 'ex-keep');
+      // Same row id → session_sets.routine_exercise_id references stay attached
+      expect(keptAfter.id).toBe(keptBefore.id);
+      expect(keptAfter.order).toBe(1);
+      expect(keptAfter.warmupSets).toBe(0);
+      expect(keptAfter.targetSets).toBe(5);
+      expect(keptAfter.targetReps).toBe(5);
+      expect(keptAfter.supersetGroup).toBeNull();
+      expect(keptAfter.notes).toBeNull();
+
+      const added = after.find((re) => re.exerciseId === 'ex-add');
+      expect(added).toBeDefined();
+      expect(added.order).toBe(0);
     }, 15000);
   });
 });
