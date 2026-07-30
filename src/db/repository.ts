@@ -419,7 +419,7 @@ export async function upsertExercise(
  * @param exercises Array of exercise entries (with exerciseId, order, etc)
  * @param additionalFields Optional: notes, etc
  */
-interface RoutineExerciseEntry {
+export interface RoutineExerciseEntry {
   exerciseId: string;
   order: number;
   supersetGroup?: string;

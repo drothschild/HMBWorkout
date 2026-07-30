@@ -16,6 +16,9 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const [baseUrl, setBaseUrl] = useState('');
   const [token, setToken] = useState('');
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [aiGoals, setAiGoals] = useState('');
+  const [aiEquipment, setAiEquipment] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -28,6 +31,9 @@ export default function SettingsScreen() {
     const settings = getSettings();
     setBaseUrl(settings.baseUrl);
     setToken(settings.token);
+    setAnthropicKey(settings.anthropicKey);
+    setAiGoals(settings.aiGoals);
+    setAiEquipment(settings.aiEquipment);
   }, []);
 
   const handleSaveSettings = () => {
@@ -35,6 +41,10 @@ export default function SettingsScreen() {
     setConnectionStatus(null);
     setImportStatus(null);
     setSyncStatus(null);
+  };
+
+  const handleSaveAiSettings = () => {
+    setSettings({ anthropicKey, aiGoals, aiEquipment });
   };
 
   const handleTestConnection = async () => {
@@ -108,6 +118,7 @@ export default function SettingsScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <ThemedText type="title" style={styles.title}>
             Settings
@@ -247,6 +258,69 @@ export default function SettingsScreen() {
               </ThemedText>
             )}
           </ThemedView>
+
+          <ThemedView style={styles.section}>
+            <ThemedText type="subtitle">AI Coach</ThemedText>
+
+            <ThemedView style={styles.formGroup}>
+              <ThemedText type="default" style={styles.label}>
+                Anthropic API Key
+              </ThemedText>
+              <TextInput
+                style={[styles.input, { color: textInputColor }]}
+                placeholder="sk-ant-..."
+                placeholderTextColor={colorScheme === 'dark' ? '#999' : '#ccc'}
+                value={anthropicKey}
+                onChangeText={setAnthropicKey}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!testingConnection && !importing && !syncing}
+              />
+            </ThemedView>
+
+            <ThemedView style={styles.formGroup}>
+              <ThemedText type="default" style={styles.label}>
+                Your Goals
+              </ThemedText>
+              <TextInput
+                style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+                placeholder="e.g. Build strength, stay mobile, 3 sessions/week"
+                placeholderTextColor={colorScheme === 'dark' ? '#999' : '#ccc'}
+                value={aiGoals}
+                onChangeText={setAiGoals}
+                multiline
+                numberOfLines={4}
+                editable={!testingConnection && !importing && !syncing}
+              />
+            </ThemedView>
+
+            <ThemedView style={styles.formGroup}>
+              <ThemedText type="default" style={styles.label}>
+                Available Equipment
+              </ThemedText>
+              <TextInput
+                style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+                placeholder="e.g. Dumbbells up to 50lb, pull-up bar, bands"
+                placeholderTextColor={colorScheme === 'dark' ? '#999' : '#ccc'}
+                value={aiEquipment}
+                onChangeText={setAiEquipment}
+                multiline
+                numberOfLines={4}
+                editable={!testingConnection && !importing && !syncing}
+              />
+            </ThemedView>
+
+            <Pressable
+              style={[styles.button, styles.saveButton]}
+              onPress={handleSaveAiSettings}
+              disabled={testingConnection || importing || syncing}
+            >
+              <ThemedText type="default" style={styles.buttonText}>
+                Save AI Coach Settings
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -299,6 +373,10 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
     borderRadius: 6,
     fontSize: 14,
+  },
+  multilineInput: {
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   button: {
     paddingVertical: Spacing.two,

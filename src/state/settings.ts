@@ -6,6 +6,9 @@
 interface BridgeSettings {
   baseUrl: string;
   token: string;
+  anthropicKey: string;
+  aiGoals: string;
+  aiEquipment: string;
 }
 
 interface StorageBackend {
@@ -16,11 +19,16 @@ interface StorageBackend {
 
 const SETTINGS_KEY = 'bridge_settings';
 
-// Module-level cache, hydrated from storage at app boot
-let cache: BridgeSettings = {
+const DEFAULT_SETTINGS: BridgeSettings = {
   baseUrl: '',
   token: '',
+  anthropicKey: '',
+  aiGoals: '',
+  aiEquipment: '',
 };
+
+// Module-level cache, hydrated from storage at app boot
+let cache: BridgeSettings = { ...DEFAULT_SETTINGS };
 
 let storageBackend: StorageBackend | null = null;
 
@@ -36,7 +44,7 @@ export function injectSettingsStorage(backend: StorageBackend): void {
  * Reset cache and backend for testing.
  */
 export function resetForTesting(): void {
-  cache = { baseUrl: '', token: '' };
+  cache = { ...DEFAULT_SETTINGS };
   storageBackend = null;
 }
 
