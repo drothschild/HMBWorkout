@@ -7,18 +7,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useColorScheme } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { getAiChatStore, AiChatError } from '@/state/aiChatStore';
-import type { AiDisplayMessage } from '@/state/aiChatStore';
+import { getAiChatStore } from '@/state/aiChatStore';
+import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { getSettings } from '@/state/settings';
 import { RoutineDraft, DraftExercise } from '@/ai/draftSchema';
 
@@ -27,6 +27,19 @@ export default function AiCoachScreen() {
   const colorScheme = useColorScheme();
   const { routineId } = useLocalSearchParams<{ routineId?: string }>();
   const store = getAiChatStore();
+  const didResetRef = useRef(false);
+  const lastRoutineIdRef = useRef(routineId);
+
+  const [hasMissingKey, setHasMissingKey] = useState(() => {
+    const settings = getSettings();
+    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  });
+
+  // Synchronous reset on first render, before selector calls
+  if (!didResetRef.current) {
+    didResetRef.current = true;
+    store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+  }
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
@@ -35,17 +48,9 @@ export default function AiCoachScreen() {
 
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
-  const [hasMissingKey, setHasMissingKey] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const didResetRef = useRef(false);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
-
-  // Synchronous reset on first render
-  if (!didResetRef.current) {
-    didResetRef.current = true;
-    store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
-  }
 
   // Check for missing key on mount and focus
   useFocusEffect(
@@ -57,19 +62,21 @@ export default function AiCoachScreen() {
 
   // Re-reset when routineId changes
   useEffect(() => {
-    if (didResetRef.current) {
+    if (lastRoutineIdRef.current !== routineId) {
+      lastRoutineIdRef.current = routineId;
       store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
     }
-  }, [routineId]);
+  }, [routineId, store]);
 
   // Auto-scroll to end when messages change
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
     }
-  }, [messages, status, pendingDraft]);
+  }, [messages, status, pendingDraft, acceptError]);
 
   const handleSend = async () => {
+    setAcceptError(null);
     if (inputText.trim() === '' || status === 'sending') {
       return;
     }
@@ -79,6 +86,7 @@ export default function AiCoachScreen() {
   };
 
   const handleRetry = async () => {
+    setAcceptError(null);
     await store.getState().retry();
   };
 
@@ -153,7 +161,7 @@ export default function AiCoachScreen() {
           </View>
 
           <View style={styles.missingKeyContainer}>
-            <ThemedText type="title" style={[styles.missingKeyTitle, { fontSize: 20 }]}>
+            <ThemedText type="title" style={styles.missingKeyTitle}>
               API Key Required
             </ThemedText>
             <ThemedText type="default" style={styles.missingKeyMessage}>
@@ -443,6 +451,7 @@ const styles = StyleSheet.create({
   missingKeyTitle: {
     marginBottom: Spacing.two,
     textAlign: 'center',
+    fontSize: 20,
   },
   missingKeyMessage: {
     textAlign: 'center',
@@ -507,7 +516,6 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   draftCard: {
-    backgroundColor: '#F0F0F3',
     borderRadius: 12,
     padding: Spacing.three,
     marginVertical: Spacing.two,
