@@ -22,7 +22,8 @@ export type AiChatError =
   | { kind: 'unauthorized' }
   | { kind: 'network' }
   | { kind: 'http'; status: number }
-  | { kind: 'parse' };
+  | { kind: 'parse' }
+  | { kind: 'unknown' };
 
 interface AiChatState {
   mode: AiCoachMode;
@@ -44,9 +45,50 @@ export interface AiChatDeps {
   getSettings: typeof getSettings;
 }
 
+/**
+ * Map caught errors to AiChatError kinds.
+ */
+function mapError(error: unknown): AiChatError {
+  if (error instanceof AnthropicHttpError) {
+    if (error.status === 401) {
+      return { kind: 'unauthorized' };
+    } else {
+      return { kind: 'http', status: error.status };
+    }
+  } else if (error instanceof AnthropicUnreachable) {
+    return { kind: 'network' };
+  } else if (error instanceof DraftValidationError) {
+    return { kind: 'parse' };
+  } else {
+    return { kind: 'unknown' };
+  }
+}
+
 export function createAiChatStore(deps: AiChatDeps) {
   // Cache the system prompt for the duration of a conversation
   let cachedSystem: string | null = null;
+
+  /**
+   * Perform the API request: build system prompt, create client, send chat request.
+   * Returns the turn on success; throws on error (caller maps error).
+   */
+  async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string): Promise<AiTurn> {
+    if (cachedSystem === null) {
+      cachedSystem = await deps.buildSystem(deps.db, mode);
+    }
+
+    const client = deps.createClient({ apiKey: apiKey.trim() });
+
+    const wireMessages: AiChatMessage[] = messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    return await client.chat({
+      system: cachedSystem,
+      messages: wireMessages,
+    });
+  }
 
   return create<AiChatState>((set, get) => ({
     mode: { kind: 'create' },
@@ -69,12 +111,10 @@ export function createAiChatStore(deps: AiChatDeps) {
     async send(text: string) {
       const state = get();
 
-      // No-op if already sending
       if (state.status === 'sending') {
         return;
       }
 
-      // Check for missing API key
       const settings = deps.getSettings();
       if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
         set({
@@ -84,34 +124,15 @@ export function createAiChatStore(deps: AiChatDeps) {
         return;
       }
 
-      // Append user message and set status to sending
+      const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
       set({
-        messages: [...state.messages, { role: 'user', content: text }],
+        messages: newMessages,
         status: 'sending',
         error: null,
       });
 
       try {
-        // Build system prompt once per conversation
-        if (cachedSystem === null) {
-          cachedSystem = await deps.buildSystem(deps.db, state.mode);
-        }
-
-        // Create client and send request
-        const client = deps.createClient({ apiKey: settings.anthropicKey });
-
-        // Map state messages to wire format
-        const wireMessages: AiChatMessage[] = get().messages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-
-        const turn = await client.chat({
-          system: cachedSystem,
-          messages: wireMessages,
-        });
-
-        // Append assistant message
+        const turn = await performRequest(newMessages, state.mode, settings.anthropicKey);
         set((currentState) => ({
           messages: [
             ...currentState.messages,
@@ -122,31 +143,12 @@ export function createAiChatStore(deps: AiChatDeps) {
             },
           ],
           status: 'idle',
-          // Update pending draft if this turn includes one
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
         }));
       } catch (error) {
-        // Map error to AiChatError
-        let errorKind: AiChatError;
-
-        if (error instanceof AnthropicHttpError) {
-          if (error.status === 401) {
-            errorKind = { kind: 'unauthorized' };
-          } else {
-            errorKind = { kind: 'http', status: error.status };
-          }
-        } else if (error instanceof AnthropicUnreachable) {
-          errorKind = { kind: 'network' };
-        } else if (error instanceof DraftValidationError) {
-          errorKind = { kind: 'parse' };
-        } else {
-          // Fallback for unexpected errors
-          errorKind = { kind: 'parse' };
-        }
-
         set({
           status: 'error',
-          error: errorKind,
+          error: mapError(error),
         });
       }
     },
@@ -154,7 +156,6 @@ export function createAiChatStore(deps: AiChatDeps) {
     async retry() {
       const state = get();
 
-      // Only meaningful when there's an error and last message is user
       if (state.status !== 'error' || state.messages.length === 0) {
         return;
       }
@@ -164,29 +165,19 @@ export function createAiChatStore(deps: AiChatDeps) {
         return;
       }
 
-      // Re-run the request path without appending a new user message
-      try {
-        // Ensure system is cached
-        if (cachedSystem === null) {
-          cachedSystem = await deps.buildSystem(deps.db, state.mode);
-        }
-
-        // Create client and send request
-        const settings = deps.getSettings();
-        const client = deps.createClient({ apiKey: settings.anthropicKey });
-
-        // Map current state messages to wire format
-        const wireMessages: AiChatMessage[] = state.messages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-
-        const turn = await client.chat({
-          system: cachedSystem,
-          messages: wireMessages,
+      const settings = deps.getSettings();
+      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+        set({
+          status: 'error',
+          error: { kind: 'missing_key' },
         });
+        return;
+      }
 
-        // Append assistant message
+      set({ status: 'sending' });
+
+      try {
+        const turn = await performRequest(state.messages, state.mode, settings.anthropicKey);
         set((currentState) => ({
           messages: [
             ...currentState.messages,
@@ -198,30 +189,12 @@ export function createAiChatStore(deps: AiChatDeps) {
           ],
           status: 'idle',
           error: null,
-          // Update pending draft if this turn includes one
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
         }));
       } catch (error) {
-        // Map error to AiChatError
-        let errorKind: AiChatError;
-
-        if (error instanceof AnthropicHttpError) {
-          if (error.status === 401) {
-            errorKind = { kind: 'unauthorized' };
-          } else {
-            errorKind = { kind: 'http', status: error.status };
-          }
-        } else if (error instanceof AnthropicUnreachable) {
-          errorKind = { kind: 'network' };
-        } else if (error instanceof DraftValidationError) {
-          errorKind = { kind: 'parse' };
-        } else {
-          errorKind = { kind: 'parse' };
-        }
-
         set({
           status: 'error',
-          error: errorKind,
+          error: mapError(error),
         });
       }
     },

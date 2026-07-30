@@ -1,5 +1,5 @@
-import { createAiChatStore, AiChatDeps, AiDisplayMessage } from './aiChatStore';
-import { AiTurn, RoutineDraft } from '@/ai/draftSchema';
+import { createAiChatStore, AiChatDeps } from './aiChatStore';
+import { AiTurn, RoutineDraft, DraftValidationError } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
 // Helper to create a test store with mocked dependencies
@@ -366,15 +366,32 @@ describe('aiChatStore', () => {
     });
 
     it('is the only write path touched by store', async () => {
-      const { store, fakeAccept } = makeStore();
+      const { store, fakeAccept, fakeChat } = makeStore();
 
       store.getState().reset({ kind: 'create' });
 
-      // After all operations, accept should never be called
+      // Drive a complete conversation: send, failure, retry, reset
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+      await store.getState().send('hello');
       expect(fakeAccept).not.toHaveBeenCalled();
 
-      // Send, retry, reset should not call accept
-      fakeAccept.mockRejectedValue(new Error('should not be called'));
+      fakeChat.mockResolvedValueOnce({ reply: 'hi' });
+      await store.getState().retry();
+      expect(fakeAccept).not.toHaveBeenCalled();
+
+      store.getState().reset({ kind: 'create' });
+      expect(fakeAccept).not.toHaveBeenCalled();
+
+      // Only acceptDraft() should call accept
+      const draft: RoutineDraft = {
+        name: 'Test',
+        exercises: [{ title: 'Ex', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create');
+
+      await store.getState().acceptDraft();
+      expect(fakeAccept).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -384,30 +401,87 @@ describe('aiChatStore', () => {
 
       store.getState().reset({ kind: 'create' });
 
-      // Mock a slow request
       fakeChat.mockImplementation(
         () => new Promise((resolve) => setTimeout(() => resolve({ reply: 'delayed' }), 100))
       );
 
       const promise1 = store.getState().send('first');
-
-      // While still sending, try to send again
       const promise2 = store.getState().send('second');
 
       await Promise.all([promise1, promise2]);
 
-      // Should have exactly 2 messages (1 user 'first' + 1 assistant)
       expect(store.getState().messages).toHaveLength(2);
       expect(store.getState().messages[0].content).toBe('first');
-
-      // Only one fakeChat call should have been made
       expect(fakeChat).toHaveBeenCalledTimes(1);
+    });
+
+    it('retry sets status sending while in flight', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+
+      const statusDuringSend: string[] = [];
+      fakeChat.mockImplementation(() => {
+        statusDuringSend.push(store.getState().status);
+        return Promise.resolve({ reply: 'recovered' });
+      });
+
+      const retryPromise = store.getState().retry();
+      expect(store.getState().status).toBe('sending');
+
+      await retryPromise;
+      expect(statusDuringSend).toContain('sending');
+    });
+
+    it('double retry fires exactly one request', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+
+      fakeChat.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ reply: 'recovered' }), 100))
+      );
+
+      const promise1 = store.getState().retry();
+      const promise2 = store.getState().retry();
+
+      await Promise.all([promise1, promise2]);
+
+      expect(fakeChat).toHaveBeenCalledTimes(2);
+    });
+
+    it('send during in-flight retry is a no-op', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+
+      fakeChat.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ reply: 'recovered' }), 100))
+      );
+
+      const retryPromise = store.getState().retry();
+      const sendPromise = store.getState().send('second');
+
+      await Promise.all([retryPromise, sendPromise]);
+
+      expect(store.getState().messages).toHaveLength(2);
+      expect(store.getState().messages[0].content).toBe('hello');
+      expect(store.getState().messages[1].role).toBe('assistant');
     });
   });
 
   describe('error kind mapping', () => {
     it('maps DraftValidationError to parse error', async () => {
-      const { DraftValidationError } = require('@/ai/draftSchema');
       const { store, fakeChat } = makeStore();
 
       store.getState().reset({ kind: 'create' });
@@ -416,6 +490,98 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().error).toEqual({ kind: 'parse' });
+    });
+
+    it('maps unexpected errors to unknown error', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new Error('Unexpected error'));
+
+      await store.getState().send('hello');
+
+      expect(store.getState().error).toEqual({ kind: 'unknown' });
+    });
+  });
+
+  describe('retry missing-key guard', () => {
+    it('retry sets missing_key error when key is cleared after network failure', async () => {
+      const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: 'sk-test' });
+      const { store, fakeChat } = makeStore({
+        getSettings: fakeGetSettings,
+      });
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+
+      // Clear the key
+      fakeGetSettings.mockReturnValue({ anthropicKey: '' });
+
+      await store.getState().retry();
+
+      expect(fakeChat).toHaveBeenCalledTimes(1);
+      expect(store.getState().error).toEqual({ kind: 'missing_key' });
+    });
+  });
+
+  describe('retry guard branches', () => {
+    it('retry is a no-op when status is idle', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('idle');
+
+      fakeChat.mockClear();
+      await store.getState().retry();
+
+      expect(fakeChat).not.toHaveBeenCalled();
+    });
+
+    it('retry is a no-op when history is empty', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      expect(store.getState().messages).toHaveLength(0);
+      await store.getState().retry();
+
+      expect(fakeChat).not.toHaveBeenCalled();
+    });
+
+    it('retry is a no-op when last message is not a user turn', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'recovered' });
+      await store.getState().retry();
+      expect(store.getState().messages).toHaveLength(2);
+
+      fakeChat.mockClear();
+      await store.getState().retry();
+
+      expect(fakeChat).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('acceptDraft error handling', () => {
+    it('acceptDraft throws when pendingDraft is null', async () => {
+      const { store } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      expect(store.getState().pendingDraft).toBeNull();
+
+      await expect(store.getState().acceptDraft()).rejects.toThrow('No pending draft to accept');
     });
   });
 });
