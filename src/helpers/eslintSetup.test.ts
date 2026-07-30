@@ -28,7 +28,14 @@ describe('expo lint setup', () => {
       throw new Error('eslint is not installed (expo lint would try to auto-install it)');
     }
 
-    const eslint = new ESLint({ cwd: repoRoot });
+    // ESLint discovers eslint.config.js via dynamic import(), which jest's CJS
+    // VM rejects (--experimental-vm-modules). The config is CJS, so require it
+    // and feed it in directly; `npm run lint` covers the discovery path.
+    const eslint = new ESLint({
+      cwd: repoRoot,
+      overrideConfigFile: true,
+      overrideConfig: require(path.join(repoRoot, 'eslint.config.js')),
+    });
     const results = await eslint.lintFiles(['src/interop/format.ts']);
     const fatal = results.flatMap((r: any) => r.messages).filter((m: any) => m.fatal);
 
