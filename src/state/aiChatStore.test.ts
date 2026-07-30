@@ -594,15 +594,18 @@ describe('aiChatStore', () => {
 
       store.getState().reset({ kind: 'create' });
 
+      // Warm the cache with one successful send
+      fakeChat.mockResolvedValueOnce({ reply: 'first' });
+      await store.getState().send('hello');
+
+      // Now arm the deferred for the second send
       let resolveRequest: (value: AiTurn) => void;
       const deferred = new Promise<AiTurn>((resolve) => {
         resolveRequest = resolve;
       });
-      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
-      deferred.catch(() => {});
       fakeChat.mockReturnValue(deferred);
 
-      const sendPromise = store.getState().send('hello');
+      const sendPromise = store.getState().send('hello2');
 
       // While send is in flight, reset
       store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
@@ -611,7 +614,7 @@ describe('aiChatStore', () => {
       resolveRequest!({ reply: 'hi there' });
       await sendPromise;
 
-      // After reset + resolution, state should stay clean (no orphaned message)
+      // After reset + resolution, fresh conversation should stay empty
       const state = store.getState();
       expect(state.messages).toHaveLength(0);
       expect(state.pendingDraft).toBeNull();
@@ -624,15 +627,18 @@ describe('aiChatStore', () => {
 
       store.getState().reset({ kind: 'create' });
 
+      // Warm the cache with one successful send
+      fakeChat.mockResolvedValueOnce({ reply: 'first' });
+      await store.getState().send('hello');
+
+      // Now arm the deferred for the second send
       let rejectRequest: (reason: unknown) => void;
       const deferred = new Promise<AiTurn>((resolve, reject) => {
         rejectRequest = reject;
       });
-      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
-      deferred.catch(() => {});
       fakeChat.mockReturnValue(deferred);
 
-      const sendPromise = store.getState().send('hello');
+      const sendPromise = store.getState().send('hello2');
 
       // While send is in flight, reset
       store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
@@ -641,15 +647,16 @@ describe('aiChatStore', () => {
       rejectRequest!(new AnthropicUnreachable('Network error'));
       await sendPromise;
 
-      // After reset + rejection, state should stay clean (no error appears)
+      // After reset + rejection, fresh conversation should stay empty
       const state = store.getState();
       expect(state.messages).toHaveLength(0);
+      expect(state.pendingDraft).toBeNull();
       expect(state.status).toBe('idle');
       expect(state.error).toBeNull();
     });
 
     it('reset() during deferred buildSystem invalidates cache repopulation', async () => {
-      const { store, fakeChat, fakeBuildSystem } = makeStore();
+      const { store, fakeChat, fakeBuildSystem, fakeCreateClient } = makeStore();
 
       store.getState().reset({ kind: 'create' });
 
@@ -657,8 +664,6 @@ describe('aiChatStore', () => {
       const deferredBuild = new Promise<string>((resolve) => {
         resolveBuild = resolve;
       });
-      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
-      deferredBuild.catch(() => {});
 
       fakeBuildSystem.mockReturnValueOnce(deferredBuild);
       fakeChat.mockResolvedValue({ reply: 'hi' });
@@ -674,8 +679,14 @@ describe('aiChatStore', () => {
 
       expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
 
+      // Early-throw guard should have prevented client creation and chat in first send
+      expect(fakeCreateClient).not.toHaveBeenCalled();
+      expect(fakeChat).not.toHaveBeenCalled();
+
       // After reset, the cache should have been cleared and stay cleared
       fakeBuildSystem.mockClear();
+      fakeCreateClient.mockClear();
+      fakeChat.mockClear();
       fakeBuildSystem.mockResolvedValue('SYSTEM_EDIT');
       fakeChat.mockResolvedValue({ reply: 'hi' });
 
@@ -730,8 +741,6 @@ describe('aiChatStore', () => {
       const deferredRetry = new Promise<AiTurn>((resolve) => {
         resolveRetry = resolve;
       });
-      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
-      deferredRetry.catch(() => {});
       fakeChat.mockReturnValueOnce(deferredRetry);
 
       const retryPromise = store.getState().retry();
@@ -763,8 +772,6 @@ describe('aiChatStore', () => {
       const deferredRetry = new Promise<AiTurn>((resolve, reject) => {
         rejectRetry = reject;
       });
-      // Add catch handler to prevent unhandled rejection if promise is orphaned by generation guard
-      deferredRetry.catch(() => {});
       fakeChat.mockReturnValueOnce(deferredRetry);
 
       const retryPromise = store.getState().retry();

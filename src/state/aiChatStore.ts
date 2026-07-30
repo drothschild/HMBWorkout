@@ -119,90 +119,90 @@ export function createAiChatStore(deps: AiChatDeps) {
     }
 
     return {
-    mode: { kind: 'create' },
-    messages: [],
-    pendingDraft: null,
-    status: 'idle',
-    error: null,
+      mode: { kind: 'create' },
+      messages: [],
+      pendingDraft: null,
+      status: 'idle',
+      error: null,
 
-    reset(mode: AiCoachMode) {
-      cachedSystem = null;
-      generation++;
-      set({
-        mode,
-        messages: [],
-        pendingDraft: null,
-        status: 'idle',
-        error: null,
-      });
-    },
-
-    async send(text: string) {
-      const state = get();
-
-      if (state.status === 'sending') {
-        return;
-      }
-
-      const settings = deps.getSettings();
-      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+      reset(mode: AiCoachMode) {
+        cachedSystem = null;
+        generation++;
         set({
-          status: 'error',
-          error: { kind: 'missing_key' },
+          mode,
+          messages: [],
+          pendingDraft: null,
+          status: 'idle',
+          error: null,
         });
-        return;
-      }
+      },
 
-      const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
-      const gen = generation;
-      set({
-        messages: newMessages,
-        status: 'sending',
-        error: null,
-      });
+      async send(text: string) {
+        const state = get();
 
-      await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
-    },
+        if (state.status === 'sending') {
+          return;
+        }
 
-    async retry() {
-      const state = get();
+        const settings = deps.getSettings();
+        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+          set({
+            status: 'error',
+            error: { kind: 'missing_key' },
+          });
+          return;
+        }
 
-      if (state.status !== 'error' || state.messages.length === 0) {
-        return;
-      }
-
-      const lastMessage = state.messages[state.messages.length - 1];
-      if (lastMessage.role !== 'user') {
-        return;
-      }
-
-      const settings = deps.getSettings();
-      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+        const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
+        const gen = generation;
         set({
-          status: 'error',
-          error: { kind: 'missing_key' },
+          messages: newMessages,
+          status: 'sending',
+          error: null,
         });
-        return;
-      }
 
-      const gen = generation;
-      set({ status: 'sending', error: null });
+        await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
+      },
 
-      await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
-    },
+      async retry() {
+        const state = get();
 
-    async acceptDraft() {
-      const state = get();
+        if (state.status !== 'error' || state.messages.length === 0) {
+          return;
+        }
 
-      if (state.pendingDraft === null) {
-        throw new Error('No pending draft to accept');
-      }
+        const lastMessage = state.messages[state.messages.length - 1];
+        if (lastMessage.role !== 'user') {
+          return;
+        }
 
-      const id = await deps.accept(deps.db, state.pendingDraft);
-      set({ pendingDraft: null });
-      return id;
-    },
-  };
+        const settings = deps.getSettings();
+        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+          set({
+            status: 'error',
+            error: { kind: 'missing_key' },
+          });
+          return;
+        }
+
+        const gen = generation;
+        set({ status: 'sending', error: null });
+
+        await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
+      },
+
+      async acceptDraft() {
+        const state = get();
+
+        if (state.pendingDraft === null) {
+          throw new Error('No pending draft to accept');
+        }
+
+        const id = await deps.accept(deps.db, state.pendingDraft);
+        set({ pendingDraft: null });
+        return id;
+      },
+    };
   });
 }
 
