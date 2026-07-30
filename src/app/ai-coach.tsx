@@ -9,16 +9,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState, useRef } from 'react';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { getAiChatStore } from '@/state/aiChatStore';
+import { useTheme } from '@/hooks/use-theme';
+import { getAiChatStore, AiChatError } from '@/state/aiChatStore';
+import type { AiDisplayMessage } from '@/state/aiChatStore';
 import { getSettings } from '@/state/settings';
-import { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { RoutineDraft, DraftExercise } from '@/ai/draftSchema';
 
 export default function AiCoachScreen() {
@@ -34,12 +35,31 @@ export default function AiCoachScreen() {
 
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
+  const [hasMissingKey, setHasMissingKey] = useState(false);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const didResetRef = useRef(false);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
-  // Mount reset
-  useEffect(() => {
+  // Synchronous reset on first render
+  if (!didResetRef.current) {
+    didResetRef.current = true;
     store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+  }
+
+  // Check for missing key on mount and focus
+  useFocusEffect(
+    useCallback(() => {
+      const settings = getSettings();
+      setHasMissingKey(!settings.anthropicKey || settings.anthropicKey.trim() === '');
+    }, [])
+  );
+
+  // Re-reset when routineId changes
+  useEffect(() => {
+    if (didResetRef.current) {
+      store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+    }
   }, [routineId]);
 
   // Auto-scroll to end when messages change
@@ -47,17 +67,13 @@ export default function AiCoachScreen() {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
     }
-  }, [messages]);
-
-  // Check for missing key on render
-  const settings = getSettings();
-  const hasMissingKey = !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  }, [messages, status, pendingDraft]);
 
   const handleSend = async () => {
     if (inputText.trim() === '' || status === 'sending') {
       return;
     }
-    const text = inputText;
+    const text = inputText.trim();
     setInputText('');
     await store.getState().send(text);
   };
@@ -71,14 +87,51 @@ export default function AiCoachScreen() {
       return;
     }
     setAccepting(true);
+    setAcceptError(null);
     try {
       const id = await store.getState().acceptDraft();
+      setAccepting(false);
       router.push(`/routine/${id}`);
     } catch (err) {
       console.error('Failed to accept draft:', err);
       setAccepting(false);
+      setAcceptError('Failed to save routine. Try again.');
     }
   };
+
+  // Build footer element to avoid remounting on each render
+  const footerItems: React.ReactNode[] = [];
+
+  if (status === 'sending') {
+    footerItems.push(
+      <View key="typing" style={styles.typingIndicatorContainer}>
+        <ActivityIndicator size="small" color="#999" />
+        <ThemedText type="small" style={styles.typingIndicatorText}>
+          Coach is thinking…
+        </ThemedText>
+      </View>
+    );
+  }
+
+  if (pendingDraft) {
+    footerItems.push(<DraftCard key="draft" draft={pendingDraft} onAccept={handleAccept} accepting={accepting} sending={status === 'sending'} />);
+  }
+
+  if (acceptError) {
+    footerItems.push(
+      <View key="acceptError" style={styles.errorBubble}>
+        <ThemedText type="default" style={styles.errorMessage}>
+          {acceptError}
+        </ThemedText>
+      </View>
+    );
+  }
+
+  if (error) {
+    footerItems.push(<ErrorBubble key="error" error={error} onRetry={handleRetry} />);
+  }
+
+  const footer = footerItems.length > 0 ? <View style={styles.footerContent}>{footerItems}</View> : null;
 
   const isEditing = routineId !== undefined;
   const headerTitle = isEditing ? 'Edit with AI Coach' : 'AI Coach';
@@ -88,7 +141,7 @@ export default function AiCoachScreen() {
       <ThemedView style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.headerContainer}>
-            <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
               <ThemedText type="default" style={styles.backButtonText}>
                 ← Back
               </ThemedText>
@@ -100,13 +153,13 @@ export default function AiCoachScreen() {
           </View>
 
           <View style={styles.missingKeyContainer}>
-            <ThemedText type="title" style={styles.missingKeyTitle}>
+            <ThemedText type="title" style={[styles.missingKeyTitle, { fontSize: 20 }]}>
               API Key Required
             </ThemedText>
             <ThemedText type="default" style={styles.missingKeyMessage}>
               Add your Anthropic API key in Settings to use the AI Coach
             </ThemedText>
-            <Pressable style={styles.settingsButton} onPress={() => router.push('/settings')}>
+            <Pressable style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]} onPress={() => router.push('/settings')}>
               <ThemedText type="default" style={styles.settingsButtonText}>
                 Open Settings
               </ThemedText>
@@ -121,7 +174,7 @@ export default function AiCoachScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.headerContainer}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
             <ThemedText type="default" style={styles.backButtonText}>
               ← Back
             </ThemedText>
@@ -135,37 +188,13 @@ export default function AiCoachScreen() {
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.keyboardAvoidingView}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(_, index) => String(index)}
             renderItem={({ item }) => <MessageBubble message={item} />}
-            ListFooterComponent={() => {
-              const items: React.ReactNode[] = [];
-
-              if (status === 'sending') {
-                items.push(
-                  <View key="typing" style={styles.typingIndicatorContainer}>
-                    <ActivityIndicator size="small" color="#999" />
-                    <ThemedText type="small" style={styles.typingIndicatorText}>
-                      Coach is thinking…
-                    </ThemedText>
-                  </View>
-                );
-              }
-
-              if (pendingDraft) {
-                items.push(<DraftCard key="draft" draft={pendingDraft} onAccept={handleAccept} accepting={accepting} sending={status === 'sending'} />);
-              }
-
-              if (error) {
-                items.push(<ErrorBubble key="error" error={error} onRetry={handleRetry} />);
-              }
-
-              return items.length > 0 ? <View style={styles.footerContent}>{items}</View> : null;
-            }}
+            ListFooterComponent={footer}
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}
           />
@@ -181,7 +210,7 @@ export default function AiCoachScreen() {
               editable={status !== 'sending' && !accepting}
             />
             <Pressable
-              style={[styles.sendButton, (status === 'sending' || inputText.trim() === '' || accepting) && styles.sendButtonDisabled]}
+              style={({ pressed }) => [styles.sendButton, (status === 'sending' || inputText.trim() === '' || accepting) && styles.sendButtonDisabled, pressed && styles.pressed]}
               onPress={handleSend}
               disabled={status === 'sending' || inputText.trim() === '' || accepting}
             >
@@ -222,6 +251,8 @@ interface DraftCardProps {
 }
 
 function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
+  const theme = useTheme();
+
   // Group exercises by supersetGroup
   const groupedExercises: Array<{
     label: string | null;
@@ -246,7 +277,7 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
   }
 
   return (
-    <View style={styles.draftCard}>
+    <View style={[styles.draftCard, { backgroundColor: theme.backgroundElement }]}>
       <ThemedText type="subtitle" style={styles.draftName}>
         {draft.name}
       </ThemedText>
@@ -275,9 +306,9 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
                 </View>
 
                 <ThemedText type="small" style={styles.exerciseDetails}>
-                  {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && `${exercise.warmupSets}w `}
                   {exercise.targetSets !== undefined && exercise.targetReps !== undefined && `${exercise.targetSets}x${exercise.targetReps}`}
-                  {exercise.targetDurationSeconds !== undefined && exercise.targetDurationSeconds > 0 && `${Math.floor(exercise.targetDurationSeconds / 60)}min`}
+                  {exercise.targetDurationSeconds !== undefined && exercise.targetDurationSeconds > 0 && `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(exercise.targetDurationSeconds % 60).padStart(2, '0')}`}
+                  {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
                   {exercise.restSeconds !== undefined && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
                 </ThemedText>
               </View>
@@ -287,7 +318,7 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
       </View>
 
       <Pressable
-        style={[styles.acceptButton, (accepting || sending) && styles.acceptButtonDisabled]}
+        style={({ pressed }) => [styles.acceptButton, (accepting || sending) && styles.acceptButtonDisabled, pressed && styles.pressed]}
         onPress={onAccept}
         disabled={accepting || sending}
       >
@@ -307,22 +338,37 @@ interface ErrorBubbleProps {
 function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
   const router = useRouter();
 
-  let errorMessage = 'Something went wrong. Try again.';
-  let showRetry = true;
+  let errorMessage: string;
+  let showRetry: boolean;
 
-  if (error.kind === 'missing_key') {
-    errorMessage = 'Add your Anthropic API key in Settings to use the AI Coach';
-    showRetry = false;
-  } else if (error.kind === 'unauthorized') {
-    errorMessage = 'API key rejected — check Settings';
-  } else if (error.kind === 'network') {
-    errorMessage = "Couldn't reach the AI service. Check your connection.";
-  } else if (error.kind === 'http') {
-    errorMessage = `The AI service returned an error (${error.status}). Try again.`;
-  } else if (error.kind === 'parse') {
-    errorMessage = 'Got an unreadable response. Try again.';
-  } else if (error.kind === 'unknown') {
-    errorMessage = 'Something went wrong. Try again.';
+  switch (error.kind) {
+    case 'missing_key':
+      errorMessage = 'Add your Anthropic API key in Settings to use the AI Coach';
+      showRetry = false;
+      break;
+    case 'unauthorized':
+      errorMessage = 'API key rejected — check Settings';
+      showRetry = true;
+      break;
+    case 'network':
+      errorMessage = "Couldn't reach the AI service. Check your connection.";
+      showRetry = true;
+      break;
+    case 'http':
+      errorMessage = `The AI service returned an error (${error.status}). Try again.`;
+      showRetry = true;
+      break;
+    case 'parse':
+      errorMessage = 'Got an unreadable response. Try again.';
+      showRetry = true;
+      break;
+    case 'unknown':
+      errorMessage = 'Something went wrong. Try again.';
+      showRetry = true;
+      break;
+    default:
+      const _exhaustive: never = error;
+      return _exhaustive;
   }
 
   return (
@@ -330,15 +376,15 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
       <ThemedText type="default" style={styles.errorMessage}>
         {errorMessage}
       </ThemedText>
-      {error.kind === 'unauthorized' && (
-        <Pressable onPress={() => router.push('/settings')} style={styles.errorLink}>
+      {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
+        <Pressable onPress={() => router.push('/settings')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
           <ThemedText type="link" style={styles.errorLinkText}>
             Open Settings
           </ThemedText>
         </Pressable>
       )}
       {showRetry && (
-        <Pressable onPress={onRetry} style={styles.retryButton}>
+        <Pressable onPress={onRetry} style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
           <ThemedText type="default" style={styles.retryButtonText}>
             Retry
           </ThemedText>
@@ -349,6 +395,9 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
 }
 
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.6,
+  },
   container: {
     flex: 1,
     justifyContent: 'flex-start',

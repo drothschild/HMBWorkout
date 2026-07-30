@@ -97,6 +97,12 @@ export default function RoutinesScreen() {
                   </ThemedText>
                 )}
               </Pressable>
+              <Pressable
+                style={styles.aiCoachButton}
+                onPress={() => router.push('/ai-coach')}
+              >
+                <ThemedText type="default" style={styles.aiCoachButtonText}>AI Coach</ThemedText>
+              </Pressable>
               {importMessage && (
                 <ThemedText
                   type="default"
@@ -126,6 +132,12 @@ export default function RoutinesScreen() {
                   </ThemedText>
                 )}
               </Pressable>
+              <Pressable
+                style={styles.aiCoachButton}
+                onPress={() => router.push('/ai-coach')}
+              >
+                <ThemedText type="default" style={styles.aiCoachButtonText}>AI Coach</ThemedText>
+              </Pressable>
               {importMessage && (
                 <ThemedText
                   type="default"
@@ -139,12 +151,6 @@ export default function RoutinesScreen() {
                   {importMessage}
                 </ThemedText>
               )}
-              <Pressable
-                style={styles.aiCoachButton}
-                onPress={() => router.push('/ai-coach')}
-              >
-                <ThemedText type="default" style={styles.aiCoachButtonText}>AI Coach</ThemedText>
-              </Pressable>
               <FlatList
                 data={routines}
                 keyExtractor={(item) => item.id}
