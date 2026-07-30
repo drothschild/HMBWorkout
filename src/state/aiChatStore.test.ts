@@ -607,6 +607,9 @@ describe('aiChatStore', () => {
 
       const sendPromise = store.getState().send('hello2');
 
+      // The deferred must be genuinely in flight — otherwise this test is vacuous
+      expect(fakeChat).toHaveBeenCalledTimes(2);
+
       // While send is in flight, reset
       store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
 
@@ -685,8 +688,6 @@ describe('aiChatStore', () => {
 
       // After reset, the cache should have been cleared and stay cleared
       fakeBuildSystem.mockClear();
-      fakeCreateClient.mockClear();
-      fakeChat.mockClear();
       fakeBuildSystem.mockResolvedValue('SYSTEM_EDIT');
       fakeChat.mockResolvedValue({ reply: 'hi' });
 
