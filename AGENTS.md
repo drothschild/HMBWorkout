@@ -1,10 +1,12 @@
 # HMB Workout
 
-Last verified: 2026-07-21
+Last verified: 2026-07-29
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
-session flow is driven by a pure functional Rill-lang state machine.
+session flow is driven by a pure functional Rill-lang state machine. Routines can
+also be authored conversationally against the Anthropic API with a user-supplied
+key (`src/ai`).
 
 ## Expo version discipline
 
@@ -21,6 +23,8 @@ on memory of older Expo/Router/Reanimated APIs.
   Node-only `createFsResolver` lives behind the `rill-lang/fs-resolver` subpath
 - Zustand 5 — active-session store (imperative shell)
 - @kingstinct/react-native-healthkit — write-only workout export
+- Anthropic Messages API — called over plain `fetch`, **no SDK dependency** (see AI
+  Coach below)
 - Jest + ts-jest (node env) — tests
 
 ## Commands
@@ -47,11 +51,14 @@ everything else only shapes payloads and runs side effects.
 - **Core (`src/engine`)** — pure. The bundled `.lv` rules are the *only* place that
   decides phase transitions, advancement, validation, and which effects fire. A Rill
   `transition(state, event) → Result({state, effects})` is the single contract.
-- **Shell (`src/state`, `src/components`, `src/app`)** — imperative. The Zustand store
-  owns injected effect executors and persistence; presenters derive view data from
-  engine state. **No session-flow decisions belong in components or the store** — if
-  you find yourself branching on `phase` to decide what happens next, it belongs in a
-  `.lv` rule, not TS.
+- **Shell (`src/state`, `src/components`, `src/app`, `src/ai`)** — imperative. The
+  Zustand store owns injected effect executors and persistence; presenters derive view
+  data from engine state. **No session-flow decisions belong in components or the
+  store** — if you find yourself branching on `phase` to decide what happens next, it
+  belongs in a `.lv` rule, not TS.
+- The AI slice is shell-only and deliberately does not touch the engine: it authors
+  *routines* (data), never session flow. A routine produced by the AI is
+  indistinguishable from a hand-built one by the time the engine sees it.
 
 ### Non-obvious engine conventions (will bite you)
 
@@ -111,11 +118,52 @@ Write-only. All HealthKit errors are logged and swallowed — a Health failure m
 never affect DB or sync state. Dependencies are injected (`HealthKitSaveDeps`) so the
 save path is testable in the node jest project.
 
+## AI Coach (`src/ai`)
+
+Conversational routine authoring. The user brings their own Anthropic key; requests go
+straight to the API (never via the bridge) and the chat is never persisted. The three
+settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`) live in the existing
+`bridge_settings` blob, so `BridgeSettings` in `src/state/settings.ts` is now a
+misnomer — AI settings are in there too.
+
+- **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
+  `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
+  `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
+  the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
+  jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
+  `AnthropicHttpError`), matching the sync convention.
+- **One turn shape, three declarations.** The `{ reply, draft? }` contract is stated in
+  `AI_TURN_SCHEMA` (what the API enforces), in the `AiTurn`/`RoutineDraft` types plus
+  `validateRoutineDraft` (what the app enforces), and in `personaSection()` prose in
+  `contextBuilder.ts` (what the model reads). Changing the draft shape means changing
+  all three — same hazard class as the copied markdown contract.
+- **Validate twice; structured output is not a guarantee.** `parseAiTurn` validates on
+  receipt and `acceptDraft` validates again before writing. Keep both.
+- **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
+  Exercises are global and shared by every routine, so `acceptDraft` creates a missing
+  exercise but never updates an existing one's title or kind — a draft must not rename
+  or re-kind an exercise out from under other routines. Title reuse therefore maps to
+  the same record, which is why the persona pushes the model toward existing titles.
+- **Drafts are whole routines, never diffs.** `upsertRoutine` deletes and recreates
+  every `routine_exercise` row, so accepting an edit draft that omits an exercise
+  removes it. The persona demands the full exercise list for this reason.
+- **The prompt carries data, never secrets.** `buildSystem` composes goals, equipment,
+  every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
+  exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a
+  regression test in `contextBuilder.test.ts` asserts this.
+- **`aiChatStore` is ephemeral with generation-counter invalidation.** `reset(mode)`
+  clears the cached system prompt and bumps `generation`; a request that resolves after
+  a reset is discarded rather than appended, and cannot repopulate the cache it just
+  cleared. That counter looks removable and is not. Deps are injected (`AiChatDeps`) so
+  the whole turn path tests without network or DB.
+
 ## Testing gotchas
 
-- Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. It covers
-  `engine/db/interop/state/sync/health` — all pure TS, no RN runtime. The commented-out
-  `rn` project is intentional future work; don't assume RN-env tests run.
+- Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
+  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai` — all pure TS, no
+  RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
+  The commented-out `rn` project is intentional future work; don't assume RN-env tests
+  run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
 - `watchman: false` is required — watchman's crawl hangs jest startup on this machine.
 - ts-jest transform pins `useDefineForClassFields: false` + `experimentalDecorators`/
   `emitDecoratorMetadata`. WatermelonDB models rely on legacy decorator semantics;
@@ -128,9 +176,12 @@ save path is testable in the node jest project.
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
 - `src/interop/` — vault markdown serializer/parser (the shared contract)
-- `src/state/` — Zustand store, presenters, session start/rehydrate
+- `src/state/` — Zustand stores (session + AI chat), presenters, settings,
+  session start/rehydrate
 - `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
+- `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
+  system-prompt builder, draft→repository accept path
 - `src/app/` — expo-router screens
 
 ## Boundaries
@@ -138,4 +189,7 @@ save path is testable in the node jest project.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
+- AI draft-shape changes must be mirrored across `AI_TURN_SCHEMA`, the draft validators,
+  and the persona prompt (all in `src/ai`)
+- The AI accept path may create exercises but must never mutate existing ones
 - Do not touch generated Rill dist or the `../rill-lang` tarball dependency by hand
