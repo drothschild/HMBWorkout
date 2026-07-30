@@ -139,6 +139,12 @@ export default function RoutinesScreen() {
                   {importMessage}
                 </ThemedText>
               )}
+              <Pressable
+                style={styles.aiCoachButton}
+                onPress={() => router.push('/ai-coach')}
+              >
+                <ThemedText type="default" style={styles.aiCoachButtonText}>AI Coach</ThemedText>
+              </Pressable>
               <FlatList
                 data={routines}
                 keyExtractor={(item) => item.id}
@@ -241,5 +247,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     fontSize: 12,
     marginTop: Spacing.one,
+  },
+  aiCoachButton: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    backgroundColor: '#208AEF',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  aiCoachButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

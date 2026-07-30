@@ -148,6 +148,17 @@ export default function RoutineDetailScreen() {
             {starting ? 'Starting...' : 'Start from this routine'}
           </ThemedText>
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.aiEditButton,
+            pressed && styles.aiEditButtonPressed,
+          ]}
+          onPress={() => router.push(`/ai-coach?routineId=${id}`)}
+        >
+          <ThemedText type="default" style={styles.aiEditButtonText}>
+            Edit with AI Coach
+          </ThemedText>
+        </Pressable>
       </SafeAreaView>
     </ThemedView>
   );
@@ -223,6 +234,21 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   startButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  aiEditButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: Spacing.three,
+  },
+  aiEditButtonPressed: {
+    opacity: 0.7,
+  },
+  aiEditButtonText: {
     color: '#fff',
     fontWeight: '600',
   },
