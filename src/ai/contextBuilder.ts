@@ -64,6 +64,7 @@ Every response must be valid JSON with this structure:
 The "draft" field is included ONLY when proposing a complete new routine or a complete revision of an existing routine. A draft always contains the full exercise list (not a diff).
 
 Draft constraints:
+- A draft must have a non-empty name
 - A draft must contain at least one exercise (exercises array must not be empty)
 
 Exercise schema (inside draft.exercises):

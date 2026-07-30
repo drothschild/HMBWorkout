@@ -344,7 +344,10 @@ describe('aiChatStore', () => {
   });
 
   describe('AC3.2 / AC5.3 - accept and write-path isolation', () => {
-    it('calls accept with draft and mode, returns id', async () => {
+    it.each([
+      { kind: 'create' } as const,
+      { kind: 'edit', routineId: 'routine-1' } as const,
+    ])('calls accept with the draft and the live mode (%o), returns id', async (mode) => {
       const { store, fakeAccept, fakeChat } = makeStore();
 
       const draft: RoutineDraft = {
@@ -352,7 +355,7 @@ describe('aiChatStore', () => {
         exercises: [{ title: 'Push-up', kind: 'strength' }],
       };
 
-      store.getState().reset({ kind: 'create' });
+      store.getState().reset(mode);
       fakeChat.mockResolvedValue({ reply: 'created', draft });
 
       await store.getState().send('create routine');
@@ -362,7 +365,8 @@ describe('aiChatStore', () => {
       const id = await store.getState().acceptDraft();
 
       expect(fakeAccept).toHaveBeenCalledTimes(1);
-      expect(fakeAccept).toHaveBeenCalledWith({}, draft, { kind: 'create' });
+      // Mode must be passed unchanged to accept
+      expect(fakeAccept).toHaveBeenCalledWith({}, draft, mode);
       expect(id).toBe('routine-id-1');
       expect(store.getState().pendingDraft).toBeNull();
     });
@@ -396,30 +400,6 @@ describe('aiChatStore', () => {
       expect(fakeAccept).toHaveBeenCalledTimes(1);
     });
 
-    it('IMPORTANT 1: passes mode to accept unchanged', async () => {
-      const { store, fakeAccept, fakeChat } = makeStore();
-
-      // Reset to edit mode
-      store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
-
-      const draft: RoutineDraft = {
-        name: 'Updated Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' }],
-      };
-
-      fakeChat.mockResolvedValue({ reply: 'updated', draft });
-
-      await store.getState().send('update routine');
-      expect(store.getState().pendingDraft).toEqual(draft);
-
-      const id = await store.getState().acceptDraft();
-
-      // Mode must be passed unchanged to accept
-      expect(fakeAccept).toHaveBeenCalledTimes(1);
-      expect(fakeAccept).toHaveBeenCalledWith({}, draft, { kind: 'edit', routineId: 'routine-1' });
-      expect(id).toBe('routine-id-1');
-      expect(store.getState().pendingDraft).toBeNull();
-    });
   });
 
   describe('concurrency guard', () => {

@@ -57,6 +57,12 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('exercises array must not be empty');
     }, 30000);
 
+    it('includes constraint that a draft must have a non-empty name', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('A draft must have a non-empty name');
+    }, 30000);
+
     it('IMPORTANT 1: includes constraint that exercise title must contain ASCII letters or digits', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 

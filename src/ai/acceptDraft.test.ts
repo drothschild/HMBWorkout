@@ -131,7 +131,12 @@ describe('acceptDraft', () => {
           { title: 'Squat', kind: 'strength' as const },
         ],
       };
+      // Distinct Date.now() values so an edit that wrongly minted a fresh id
+      // would produce routine-2000 !== routineId and fail below.
+      const nowSpy = jest.spyOn(Date, 'now');
+      nowSpy.mockReturnValueOnce(1000);
       const routineId = await acceptDraft(database, initialDraft, { kind: 'create' });
+      nowSpy.mockReturnValue(2000);
 
       const updateDraft = {
         name: 'Updated Routine',
@@ -142,7 +147,12 @@ describe('acceptDraft', () => {
         ],
       };
 
-      const returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId });
+      let returnedId: string;
+      try {
+        returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId });
+      } finally {
+        nowSpy.mockRestore();
+      }
 
       expect(returnedId).toBe(routineId);
 
@@ -161,8 +171,8 @@ describe('acceptDraft', () => {
       expect((sorted[2] as any).exerciseId).toBe('pullups');
     });
 
-    test('CRITICAL 1: create-mode draft always mints new routine id regardless of Date.now() collision risk', async () => {
-      // Create two drafts with a frozen Date.now() to simulate a collision risk
+    test('create mode mints a fresh id per accept and never touches the prior routine', async () => {
+      // Distinct mocked Date.now() values make the two minted ids deterministic
       const nowSpy = jest.spyOn(Date, 'now');
       try {
         const initialDraft = {
