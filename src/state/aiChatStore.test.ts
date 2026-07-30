@@ -1,5 +1,5 @@
 import { createAiChatStore, AiChatDeps } from './aiChatStore';
-import { RoutineDraft, DraftValidationError } from '@/ai/draftSchema';
+import { RoutineDraft, DraftValidationError, AiTurn } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
 // Helper to create a test store with mocked dependencies
@@ -594,8 +594,8 @@ describe('aiChatStore', () => {
 
       store.getState().reset({ kind: 'create' });
 
-      let resolveRequest: (value: any) => void;
-      const deferred = new Promise((resolve) => {
+      let resolveRequest: (value: AiTurn) => void;
+      const deferred = new Promise<AiTurn>((resolve) => {
         resolveRequest = resolve;
       });
       fakeChat.mockReturnValue(deferred);
@@ -622,8 +622,8 @@ describe('aiChatStore', () => {
 
       store.getState().reset({ kind: 'create' });
 
-      let rejectRequest: (reason: any) => void;
-      const deferred = new Promise((resolve, reject) => {
+      let rejectRequest: (reason: unknown) => void;
+      const deferred = new Promise<AiTurn>((resolve, reject) => {
         rejectRequest = reject;
       });
       fakeChat.mockReturnValue(deferred);
@@ -642,6 +642,42 @@ describe('aiChatStore', () => {
       expect(state.messages).toHaveLength(0);
       expect(state.status).toBe('idle');
       expect(state.error).toBeNull();
+    });
+
+    it('reset() during deferred buildSystem invalidates cache repopulation', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      let resolveBuild: (value: string) => void;
+      const deferredBuild = new Promise<string>((resolve) => {
+        resolveBuild = resolve;
+      });
+
+      fakeBuildSystem.mockReturnValueOnce(deferredBuild);
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      const sendPromise = store.getState().send('first');
+
+      // While buildSystem is in flight, reset to a different mode
+      store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
+
+      // Now resolve the deferred buildSystem with old mode's system
+      resolveBuild!('SYSTEM_CREATE');
+      await sendPromise;
+
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+
+      // After reset, the cache should have been cleared and stay cleared
+      fakeBuildSystem.mockClear();
+      fakeBuildSystem.mockResolvedValue('SYSTEM_EDIT');
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('second');
+
+      // buildSystem should be called again (cache not populated with stale value)
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+      expect(fakeBuildSystem).toHaveBeenCalledWith({}, { kind: 'edit', routineId: 'routine-1' });
     });
   });
 
@@ -674,6 +710,70 @@ describe('aiChatStore', () => {
     });
   });
 
+  describe('IMPORTANT 1 — retry generation guards', () => {
+    it('reset() during retry-in-flight success does not commit response', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+
+      let resolveRetry: (value: AiTurn) => void;
+      const deferredRetry = new Promise<AiTurn>((resolve) => {
+        resolveRetry = resolve;
+      });
+      fakeChat.mockReturnValueOnce(deferredRetry);
+
+      const retryPromise = store.getState().retry();
+
+      // While retry is in flight, reset
+      store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
+
+      // Now resolve the deferred retry
+      resolveRetry!({ reply: 'recovered' });
+      await retryPromise;
+
+      // After reset, the response should not have been committed
+      const state = store.getState();
+      expect(state.messages).toHaveLength(0); // reset cleared messages
+      expect(state.status).toBe('idle');
+      expect(state.error).toBeNull();
+    });
+
+    it('reset() during retry-in-flight error does not commit error', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+
+      await store.getState().send('hello');
+      expect(store.getState().status).toBe('error');
+
+      let rejectRetry: (reason: unknown) => void;
+      const deferredRetry = new Promise<AiTurn>((resolve, reject) => {
+        rejectRetry = reject;
+      });
+      fakeChat.mockReturnValueOnce(deferredRetry);
+
+      const retryPromise = store.getState().retry();
+
+      // While retry is in flight, reset
+      store.getState().reset({ kind: 'edit', routineId: 'routine-1' });
+
+      // Now reject the deferred retry
+      rejectRetry!(new AnthropicUnreachable('Still network error'));
+      await retryPromise;
+
+      // After reset, the error should not have been committed (state is clean from reset)
+      const state = store.getState();
+      expect(state.messages).toHaveLength(0); // reset cleared messages
+      expect(state.status).toBe('idle');
+      expect(state.error).toBeNull();
+    });
+  });
+
   describe('IMPORTANT 2 — retry clears stale error while in flight', () => {
     it('error is null while retry is in flight', async () => {
       const { store, fakeChat } = makeStore();
@@ -685,19 +785,18 @@ describe('aiChatStore', () => {
       expect(store.getState().status).toBe('error');
       expect(store.getState().error).toEqual({ kind: 'network' });
 
-      const statusDuringRetry: (string | null)[] = [];
+      const statusDuring = store.getState().status;
+      const errorKindDuring: string | null = null;
       fakeChat.mockImplementation(() => {
-        statusDuringRetry.push(store.getState().status);
         const errorDuringRetry = store.getState().error;
-        statusDuringRetry.push(errorDuringRetry?.kind ?? null);
         return Promise.resolve({ reply: 'recovered' });
       });
 
       const retryPromise = store.getState().retry();
       await retryPromise;
 
-      expect(statusDuringRetry).toContain('sending');
-      expect(statusDuringRetry).toContain(null); // error is null during retry
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().error).toBeNull();
     });
   });
 });

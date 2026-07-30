@@ -67,9 +67,12 @@ export function createAiChatStore(deps: AiChatDeps) {
   // Generation counter to discard stale responses after reset() invalidates ongoing requests
   let generation = 0;
 
-  async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string): Promise<AiTurn> {
-    if (cachedSystem === null) {
-      cachedSystem = await deps.buildSystem(deps.db, mode);
+  async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string, gen: number): Promise<AiTurn> {
+    let system = cachedSystem;
+    if (system === null) {
+      system = await deps.buildSystem(deps.db, mode);
+      // A reset() during the build must not repopulate the cache it just cleared.
+      if (generation === gen) cachedSystem = system;
     }
 
     const client = deps.createClient({ apiKey: apiKey.trim() });
@@ -80,12 +83,39 @@ export function createAiChatStore(deps: AiChatDeps) {
     }));
 
     return await client.chat({
-      system: cachedSystem,
+      system,
       messages: wireMessages,
     });
   }
 
-  return create<AiChatState>((set, get) => ({
+  return create<AiChatState>((set, get) => {
+    // Shared turn execution with generation guard and unified error handling
+    async function runTurn(gen: number, messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string) {
+      try {
+        const turn = await performRequest(messages, mode, apiKey, gen);
+        if (generation !== gen) return;
+        set((currentState) => ({
+          messages: [
+            ...currentState.messages,
+            {
+              role: 'assistant',
+              content: JSON.stringify(turn),
+              turn,
+            },
+          ],
+          status: 'idle',
+          pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+        }));
+      } catch (error) {
+        if (generation !== gen) return;
+        set({
+          status: 'error',
+          error: mapError(error),
+        });
+      }
+    }
+
+    return ({
     mode: { kind: 'create' },
     messages: [],
     pendingDraft: null,
@@ -128,28 +158,7 @@ export function createAiChatStore(deps: AiChatDeps) {
         error: null,
       });
 
-      try {
-        const turn = await performRequest(newMessages, state.mode, settings.anthropicKey);
-        if (generation !== gen) return;
-        set((currentState) => ({
-          messages: [
-            ...currentState.messages,
-            {
-              role: 'assistant',
-              content: JSON.stringify(turn),
-              turn,
-            },
-          ],
-          status: 'idle',
-          pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
-        }));
-      } catch (error) {
-        if (generation !== gen) return;
-        set({
-          status: 'error',
-          error: mapError(error),
-        });
-      }
+      await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
     },
 
     async retry() {
@@ -176,28 +185,7 @@ export function createAiChatStore(deps: AiChatDeps) {
       const gen = generation;
       set({ status: 'sending', error: null });
 
-      try {
-        const turn = await performRequest(state.messages, state.mode, settings.anthropicKey);
-        if (generation !== gen) return;
-        set((currentState) => ({
-          messages: [
-            ...currentState.messages,
-            {
-              role: 'assistant',
-              content: JSON.stringify(turn),
-              turn,
-            },
-          ],
-          status: 'idle',
-          pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
-        }));
-      } catch (error) {
-        if (generation !== gen) return;
-        set({
-          status: 'error',
-          error: mapError(error),
-        });
-      }
+      await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
     },
 
     async acceptDraft() {
@@ -211,7 +199,8 @@ export function createAiChatStore(deps: AiChatDeps) {
       set({ pendingDraft: null });
       return id;
     },
-  }));
+    });
+  });
 }
 
 // Defer import until needed to avoid loading database singleton at module load time
