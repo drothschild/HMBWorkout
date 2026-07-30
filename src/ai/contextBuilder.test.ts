@@ -47,7 +47,32 @@ describe('buildSystem: AI Coach context builder', () => {
     it('includes persona units contract in exercise schema', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).toContain('targetDurationSeconds, restSeconds: integer seconds');
+      expect(prompt).toContain('warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0');
+    }, 30000);
+
+    it('IMPORTANT 1: includes constraint that draft must contain at least one exercise', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('at least one exercise');
+      expect(prompt).toContain('exercises array must not be empty');
+    }, 30000);
+
+    it('IMPORTANT 1: includes constraint that exercise title must contain letters or digits', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('title: must contain at least one letter or digit');
+    }, 30000);
+
+    it('IMPORTANT 1: includes constraint that targetSets and targetReps must be >= 1 when present', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
+    }, 30000);
+
+    it('IMPORTANT 1: states routineId must be omitted unless in Edit Mode', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('routineId must be omitted unless you are in Edit Mode');
     }, 30000);
   });
 

@@ -1,6 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { upsertExercise, upsertRoutine, RoutineExerciseEntry } from '@/db/repository';
 import { RoutineDraft, slugifyTitle, validateRoutineDraft } from './draftSchema';
+import { type AiCoachMode } from './contextBuilder';
 
 function normalizeWhitespace(text: string): string {
   return text
@@ -8,11 +9,13 @@ function normalizeWhitespace(text: string): string {
     .replace(/\s+/g, ' ');
 }
 
-export async function acceptDraft(db: Database, draft: RoutineDraft): Promise<string> {
+export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoachMode): Promise<string> {
   const validated = validateRoutineDraft(draft);
 
-  const trimmed = validated.routineId?.trim();
-  const routineId = trimmed ? trimmed : `routine-${Date.now()}`;
+  // Mode is authoritative for the routine id. In create mode, mint a fresh id
+  // regardless of any draft-supplied id (which may be echoing an existing routine's id).
+  // In edit mode, force the id to match the mode's routine, ignoring the draft.
+  const routineId = mode.kind === 'create' ? `routine-${Date.now()}` : mode.routineId;
 
   const exercisesTable = db.get('exercises');
 

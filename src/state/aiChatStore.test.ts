@@ -344,7 +344,7 @@ describe('aiChatStore', () => {
   });
 
   describe('AC3.2 / AC5.3 - accept and write-path isolation', () => {
-    it('calls accept with draft and returns id', async () => {
+    it('calls accept with draft and mode, returns id', async () => {
       const { store, fakeAccept, fakeChat } = makeStore();
 
       const draft: RoutineDraft = {
@@ -362,7 +362,7 @@ describe('aiChatStore', () => {
       const id = await store.getState().acceptDraft();
 
       expect(fakeAccept).toHaveBeenCalledTimes(1);
-      expect(fakeAccept).toHaveBeenCalledWith({}, draft);
+      expect(fakeAccept).toHaveBeenCalledWith({}, draft, { kind: 'create' });
       expect(id).toBe('routine-id-1');
       expect(store.getState().pendingDraft).toBeNull();
     });

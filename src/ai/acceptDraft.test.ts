@@ -27,7 +27,7 @@ describe('acceptDraft', () => {
       expect(await database.get('exercises').query().fetchCount()).toBe(0);
       expect(await database.get('routine_exercises').query().fetchCount()).toBe(0);
 
-      await acceptDraft(database, draft);
+      await acceptDraft(database, draft, { kind: 'create' });
 
       // proves the pre-accept zeros above were a real observation, not a
       // fixture that could never write
@@ -48,7 +48,7 @@ describe('acceptDraft', () => {
         ],
       };
 
-      const routineId = await acceptDraft(database, draft);
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
 
       expect(routineId).toMatch(/^routine-\d+$/);
 
@@ -104,7 +104,7 @@ describe('acceptDraft', () => {
         ],
       };
 
-      const routineId = await acceptDraft(database, draft);
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
 
       const routineExercisesTable = database.get('routine_exercises');
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
@@ -131,7 +131,7 @@ describe('acceptDraft', () => {
           { title: 'Squat', kind: 'strength' as const },
         ],
       };
-      const routineId = await acceptDraft(database, initialDraft);
+      const routineId = await acceptDraft(database, initialDraft, { kind: 'create' });
 
       const updateDraft = {
         routineId,
@@ -143,7 +143,7 @@ describe('acceptDraft', () => {
         ],
       };
 
-      const returnedId = await acceptDraft(database, updateDraft);
+      const returnedId = await acceptDraft(database, updateDraft, { kind: 'edit', routineId });
 
       expect(returnedId).toBe(routineId);
 
@@ -161,6 +161,108 @@ describe('acceptDraft', () => {
       expect((sorted[1] as any).exerciseId).toBe('rows');
       expect((sorted[2] as any).exerciseId).toBe('pullups');
     });
+
+    test('CRITICAL 1: create-mode draft echoing existing routine id creates new routine', async () => {
+      // Create an initial routine
+      const initialDraft = {
+        name: 'Original Routine',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+      const existingRoutineId = await acceptDraft(database, initialDraft, { kind: 'create' });
+
+      // Capture the original routine's state
+      const routinesTable = database.get('routines');
+      let routines = await routinesTable.query().fetch();
+      expect(routines).toHaveLength(1);
+      const originalName = (routines[0] as any).name;
+      expect(originalName).toBe('Original Routine');
+
+      // Small delay to ensure Date.now() returns a different value (simulates real user interaction delay)
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
+      // Create a new draft that echoes the existing routine's id (simulating model confusion)
+      const confusedDraft = {
+        routineId: existingRoutineId, // Model echoed back the existing id
+        name: 'New Routine',
+        exercises: [{ title: 'Squat', kind: 'strength' as const }],
+      };
+
+      // Accept in create mode (mode is authoritative, not draft.routineId)
+      const newRoutineId = await acceptDraft(database, confusedDraft, { kind: 'create' });
+
+      // Must create a NEW routine, not overwrite the existing one
+      expect(newRoutineId).not.toBe(existingRoutineId);
+
+      // Verify both routines exist
+      routines = await routinesTable.query().fetch();
+      expect(routines).toHaveLength(2);
+
+      // Verify the original routine is unchanged
+      const original = routines.find((r: any) => r.id === existingRoutineId);
+      expect((original as any).name).toBe('Original Routine');
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const originalEntries = await routineExercisesTable.query(Q.where('routine_id', existingRoutineId)).fetch();
+      expect(originalEntries).toHaveLength(1);
+      expect((originalEntries[0] as any).exerciseId).toBe('bench-press');
+
+      // Verify the new routine has the new exercises
+      const newRoutine = routines.find((r: any) => r.id === newRoutineId);
+      expect((newRoutine as any).name).toBe('New Routine');
+
+      const newEntries = await routineExercisesTable.query(Q.where('routine_id', newRoutineId)).fetch();
+      expect(newEntries).toHaveLength(1);
+      expect((newEntries[0] as any).exerciseId).toBe('squat');
+    });
+
+    test('CRITICAL 1: edit-mode draft with foreign routine id updates correct routine', async () => {
+      // Create two routines
+      const draft1 = {
+        name: 'Routine A',
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+      };
+      const routineIdA = await acceptDraft(database, draft1, { kind: 'create' });
+
+      // Small delay to ensure Date.now() returns a different value
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
+      const draft2 = {
+        name: 'Routine B',
+        exercises: [{ title: 'Squat', kind: 'strength' as const }],
+      };
+      const routineIdB = await acceptDraft(database, draft2, { kind: 'create' });
+
+      // Create a draft for routineA that has the wrong id (routineIdB)
+      const confusedDraft = {
+        routineId: routineIdB, // Wrong id
+        name: 'Routine A Updated',
+        exercises: [{ title: 'Deadlift', kind: 'strength' as const }],
+      };
+
+      // Accept in edit mode with correct routineId (mode is authoritative)
+      const returnedId = await acceptDraft(database, confusedDraft, { kind: 'edit', routineId: routineIdA });
+
+      expect(returnedId).toBe(routineIdA);
+
+      const routinesTable = database.get('routines');
+      const routines = await routinesTable.query().fetch();
+      expect(routines).toHaveLength(2);
+
+      // Verify routineA was updated
+      const routineA = routines.find((r: any) => r.id === routineIdA);
+      expect((routineA as any).name).toBe('Routine A Updated');
+
+      // Verify routineB was untouched
+      const routineB = routines.find((r: any) => r.id === routineIdB);
+      expect((routineB as any).name).toBe('Routine B');
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const entriesA = await routineExercisesTable.query(Q.where('routine_id', routineIdA)).fetch();
+      expect((entriesA[0] as any).exerciseId).toBe('deadlift');
+
+      const entriesB = await routineExercisesTable.query(Q.where('routine_id', routineIdB)).fetch();
+      expect((entriesB[0] as any).exerciseId).toBe('squat');
+    });
   });
 
   describe('AC3.4 (slug dedupe)', () => {
@@ -174,7 +276,7 @@ describe('acceptDraft', () => {
         ],
       };
 
-      const routineId = await acceptDraft(database, draft);
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
 
       // Verify only one exercise created
       const exercisesTable = database.get('exercises');
@@ -197,7 +299,7 @@ describe('acceptDraft', () => {
         exercises: [{ title: 'Bulgarian Split Squat', kind: 'strength' as const }],
       };
 
-      await acceptDraft(database, draft);
+      await acceptDraft(database, draft, { kind: 'create' });
 
       // Verify exercise created with correct slug
       const exercisesTable = database.get('exercises');
@@ -215,7 +317,7 @@ describe('acceptDraft', () => {
         exercises: [{ title: 'Exercise', kind: 'yoga' as any }],
       };
 
-      await expect(acceptDraft(database, invalidDraft)).rejects.toThrow(DraftValidationError);
+      await expect(acceptDraft(database, invalidDraft, { kind: 'create' })).rejects.toThrow(DraftValidationError);
 
       // Verify nothing was written
       const routinesTable = database.get('routines');
@@ -237,7 +339,7 @@ describe('acceptDraft', () => {
         exercises: [],
       };
 
-      await expect(acceptDraft(database, invalidDraft)).rejects.toThrow(DraftValidationError);
+      await expect(acceptDraft(database, invalidDraft, { kind: 'create' })).rejects.toThrow(DraftValidationError);
 
       const routinesTable = database.get('routines');
       const routines = await routinesTable.query().fetch();
@@ -258,7 +360,7 @@ describe('acceptDraft', () => {
         exercises: [{ title: '!!!', kind: 'strength' as const }],
       };
 
-      await expect(acceptDraft(database, invalidDraft)).rejects.toThrow(DraftValidationError);
+      await expect(acceptDraft(database, invalidDraft, { kind: 'create' })).rejects.toThrow(DraftValidationError);
 
       const routinesTable = database.get('routines');
       const routines = await routinesTable.query().fetch();
@@ -280,7 +382,7 @@ describe('acceptDraft', () => {
         name: 'Initial Routine',
         exercises: [{ title: 'Cycling', kind: 'cardio' as const }],
       };
-      await acceptDraft(database, initialDraft);
+      await acceptDraft(database, initialDraft, { kind: 'create' });
 
       const exercisesTable = database.get('exercises');
       let exercises = await exercisesTable.query().fetch();
@@ -292,7 +394,7 @@ describe('acceptDraft', () => {
         name: 'Second Routine',
         exercises: [{ title: 'Cycling', kind: 'strength' as const }],
       };
-      await acceptDraft(database, secondDraft);
+      await acceptDraft(database, secondDraft, { kind: 'create' });
 
       exercises = await exercisesTable.query().fetch();
       expect(exercises).toHaveLength(1);
@@ -307,7 +409,7 @@ describe('acceptDraft', () => {
         exercises: [{ title: '  bench   press  ', kind: 'strength' as const }],
       };
 
-      await acceptDraft(database, draft);
+      await acceptDraft(database, draft, { kind: 'create' });
 
       const exercisesTable = database.get('exercises');
       const exercises = await exercisesTable.query().fetch();

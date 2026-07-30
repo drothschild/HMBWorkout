@@ -41,7 +41,7 @@ export interface AiChatDeps {
   db: Database;
   createClient: typeof createAnthropicClient;
   buildSystem: typeof buildSystemFn;
-  accept: typeof acceptDraftFn;
+  accept: (db: Database, draft: RoutineDraft, mode: AiCoachMode) => Promise<string>;
   getSettings: typeof getSettings;
 }
 
@@ -198,7 +198,7 @@ export function createAiChatStore(deps: AiChatDeps) {
           throw new Error('No pending draft to accept');
         }
 
-        const id = await deps.accept(deps.db, state.pendingDraft);
+        const id = await deps.accept(deps.db, state.pendingDraft, state.mode);
         set({ pendingDraft: null });
         return id;
       },

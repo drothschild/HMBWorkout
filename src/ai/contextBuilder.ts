@@ -63,11 +63,16 @@ Every response must be valid JSON with this structure:
 
 The "draft" field is included ONLY when proposing a complete new routine or a complete revision of an existing routine. A draft always contains the full exercise list (not a diff).
 
+Draft constraints:
+- A draft must contain at least one exercise (exercises array must not be empty)
+- routineId must be omitted unless you are in Edit Mode (only present when revising an existing routine per the Edit Mode addendum below)
+
 Exercise schema (inside draft.exercises):
+- title: must contain at least one letter or digit
 - kind: must be one of "strength", "cardio", or "stretch"
 - supersetGroup: use the same string on grouped exercises for supersets
-- targetSets, targetReps, warmupSets: integer counts
-- targetDurationSeconds, restSeconds: integer seconds
+- targetSets, targetReps: when present, must be integers >= 1
+- warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
