@@ -406,8 +406,12 @@ export async function upsertExercise(
 
 /**
  * Upsert a routine (create if not exists, update if exists).
- * When upserting, replaces the routine's previous routine_exercises entries
- * (delete-then-insert) so re-import reflects edits.
+ * When upserting, reconciles the routine's routine_exercises in place:
+ * entries whose exercise survives the edit update the existing row — keeping
+ * its id, so session_sets.routine_exercise_id references (and working-set
+ * history) stay attached — while removed exercises are deleted and new ones
+ * created. Optional fields absent from an entry are cleared, so an edit still
+ * fully replaces each row's contents.
  *
  * @param database The database instance
  * @param routineId The routine ID
@@ -458,30 +462,59 @@ export async function upsertRoutine(
       });
     }
 
-    // Delete all old routine_exercises for this routine
-    const oldExercises = await routineExercisesTable
+    // Reconcile routine_exercises in place. session_sets.routine_exercise_id
+    // references these rows, so surviving exercises must keep their row ids —
+    // delete-and-recreate would orphan all previously logged sets.
+    const oldExercises = (await routineExercisesTable
       .query(Q.where('routine_id', routineId))
-      .fetch();
+      .fetch()) as RoutineExercise[];
 
-    for (const oldExercise of oldExercises) {
-      await oldExercise.destroyPermanently();
+    // Queue existing rows per exercise, oldest order first, so a duplicated
+    // exercise matches deterministically.
+    const unclaimed = new Map<string, RoutineExercise[]>();
+    for (const old of [...oldExercises].sort(
+      (a, b) => (a as any)._raw.order - (b as any)._raw.order
+    )) {
+      const key = (old as any).exerciseId;
+      if (!unclaimed.has(key)) unclaimed.set(key, []);
+      unclaimed.get(key)!.push(old);
     }
 
-    // Create new routine_exercises
     for (const exerciseEntry of exercises) {
-      await routineExercisesTable.create((re: any) => {
-        re._raw.routine_id = routineId;
-        re._raw.exercise_id = exerciseEntry.exerciseId;
-        re._raw.order = exerciseEntry.order;
-        if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
-        re.warmupSets = exerciseEntry.warmupSets ?? 0;
-        if (exerciseEntry.targetSets !== undefined) re.targetSets = exerciseEntry.targetSets;
-        if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
-        if (exerciseEntry.targetDurationSeconds !== undefined)
-          re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
-        if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
-        if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
-      });
+      const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
+      if (existing) {
+        await existing.update((re: any) => {
+          re.order = exerciseEntry.order;
+          re.supersetGroup = exerciseEntry.supersetGroup ?? null;
+          re.warmupSets = exerciseEntry.warmupSets ?? 0;
+          re.targetSets = exerciseEntry.targetSets ?? null;
+          re.targetReps = exerciseEntry.targetReps ?? null;
+          re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
+          re.restSeconds = exerciseEntry.restSeconds ?? null;
+          re.notes = exerciseEntry.notes ?? null;
+        });
+      } else {
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseEntry.exerciseId;
+          re._raw.order = exerciseEntry.order;
+          if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
+          re.warmupSets = exerciseEntry.warmupSets ?? 0;
+          if (exerciseEntry.targetSets !== undefined) re.targetSets = exerciseEntry.targetSets;
+          if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
+          if (exerciseEntry.targetDurationSeconds !== undefined)
+            re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
+          if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
+          if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
+        });
+      }
+    }
+
+    // Delete only rows whose exercise is no longer in the routine.
+    for (const leftovers of unclaimed.values()) {
+      for (const removed of leftovers) {
+        await removed.destroyPermanently();
+      }
     }
 
     return routine;
