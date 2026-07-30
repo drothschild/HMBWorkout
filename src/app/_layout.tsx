@@ -116,6 +116,7 @@ export default function RootLayout() {
               presentation: 'modal',
             }}
           />
+          <Stack.Screen name="ai-coach" options={{ headerShown: false }} />
         </Stack>
       </ThemeProvider>
     </DatabaseProvider>
