@@ -25,7 +25,11 @@ function EntryPointButtons({ importLabel, importing, importMessage, onImport, on
   return (
     <>
       <Pressable
-        style={[styles.importButton, importing && styles.importButtonDisabled]}
+        style={({ pressed }) => [
+          styles.importButton,
+          importing && styles.importButtonDisabled,
+          pressed && styles.importButtonPressed,
+        ]}
         onPress={onImport}
         disabled={importing}
       >
@@ -131,19 +135,6 @@ export default function RoutinesScreen() {
               <ThemedText type="default" style={styles.placeholder}>
                 No routines found. Import routines to get started.
               </ThemedText>
-              <Pressable
-                style={[styles.importButton, importing && styles.importButtonDisabled]}
-                onPress={handleImportRoutines}
-                disabled={importing}
-              >
-                {importing ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText type="default" style={styles.importButtonText}>
-                    Import Routines
-                  </ThemedText>
-                )}
-              </Pressable>
               <EntryPointButtons
                 importLabel="Import Routines"
                 importing={importing}
@@ -154,19 +145,6 @@ export default function RoutinesScreen() {
             </ThemedView>
           ) : (
             <>
-              <Pressable
-                style={[styles.importButton, importing && styles.importButtonDisabled]}
-                onPress={handleImportRoutines}
-                disabled={importing}
-              >
-                {importing ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText type="default" style={styles.importButtonText}>
-                    Import More Routines
-                  </ThemedText>
-                )}
-              </Pressable>
               <EntryPointButtons
                 importLabel="Import More Routines"
                 importing={importing}

@@ -35,9 +35,12 @@ export default function AiCoachScreen() {
     return !settings.anthropicKey || settings.anthropicKey.trim() === '';
   });
 
-  // Synchronous reset on first render, before selector calls
-  if (!didResetRef.current) {
+  // Synchronous reset on first render (and on a routineId change), before the
+  // selector calls below sample the store — a post-render effect would let one
+  // frame of the previous conversation paint first.
+  if (!didResetRef.current || lastRoutineIdRef.current !== routineId) {
     didResetRef.current = true;
+    lastRoutineIdRef.current = routineId;
     store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
   }
 
@@ -59,14 +62,6 @@ export default function AiCoachScreen() {
       setHasMissingKey(!settings.anthropicKey || settings.anthropicKey.trim() === '');
     }, [])
   );
-
-  // Re-reset when routineId changes
-  useEffect(() => {
-    if (lastRoutineIdRef.current !== routineId) {
-      lastRoutineIdRef.current = routineId;
-      store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
-    }
-  }, [routineId, store]);
 
   // Auto-scroll to end when messages change
   useEffect(() => {
