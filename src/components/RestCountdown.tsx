@@ -10,7 +10,7 @@ interface RestCountdownProps {
   frozenRemainingMs: number | undefined;
   isPaused: boolean;
   onRestElapsed: () => void;
-  onCancel: () => void;
+  onSkip: () => void;
   onPause: () => void;
   onResume: () => void;
 }
@@ -24,15 +24,16 @@ function formatMs(ms: number): string {
 
 /**
  * Full-screen rest countdown. Renders max(0, deadline - now) while running and
- * the engine-frozen remainder while paused. The only controls are Cancel and
- * Pause/Resume; at 0 it dispatches RestElapsed once.
+ * the engine-frozen remainder while paused. The only controls are Skip and
+ * Pause/Resume; at 0 it dispatches RestElapsed once. Skipping is benign — the
+ * engine's SkipRest lands in the same state RestElapsed would.
  */
 export function RestCountdown({
   deadlineMs,
   frozenRemainingMs,
   isPaused,
   onRestElapsed,
-  onCancel,
+  onSkip,
   onPause,
   onResume,
 }: RestCountdownProps) {
@@ -87,8 +88,8 @@ export function RestCountdown({
             <ThemedText style={styles.buttonText}>Pause</ThemedText>
           </Pressable>
         )}
-        <Pressable style={[styles.button, styles.cancelButton]} onPress={onCancel}>
-          <ThemedText style={styles.buttonText}>Cancel</ThemedText>
+        <Pressable style={[styles.button, styles.skipButton]} onPress={onSkip}>
+          <ThemedText style={styles.buttonText}>Skip</ThemedText>
         </Pressable>
       </View>
     </View>
@@ -129,8 +130,8 @@ const styles = StyleSheet.create({
   resumeButton: {
     backgroundColor: '#34C759',
   },
-  cancelButton: {
-    backgroundColor: '#FF3B30',
+  skipButton: {
+    backgroundColor: '#007AFF',
   },
   buttonText: {
     color: 'white',

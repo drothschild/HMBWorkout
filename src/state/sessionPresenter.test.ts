@@ -1,4 +1,9 @@
-import { createSessionPresenter, formatLoggedSetLine } from './sessionPresenter';
+import {
+  computeSetPrefill,
+  createSessionPresenter,
+  currentExerciseHasLoggedSet,
+  formatLoggedSetLine,
+} from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
 
@@ -143,9 +148,11 @@ describe('createSessionPresenter', () => {
     const mockDispatch = jest.fn(async () => null);
     const presenter = createSessionPresenter(state, mockDispatch);
 
+    // The input field carries lbs; the presenter converts to canonical kg
+    // before the event crosses into the engine.
     presenter.onLogSet({
       reps: 8,
-      weightKg: 25,
+      weightLbs: 55,
       rpe: 7.5,
     });
 
@@ -153,12 +160,24 @@ describe('createSessionPresenter', () => {
       expect.objectContaining({
         tag: 'LogSet',
         reps: 8,
-        weightKg: 25,
+        weightKg: 24.95,
         rpe: 7.5,
         // One-tap logging: the engine advances on LogSet, so the event carries
         // the wall clock for rest-deadline math
         nowMs: expect.any(Number),
       })
+    );
+  });
+
+  test('leaves the LogSet weight undefined when no weight was entered', () => {
+    const state = createMockState();
+    const mockDispatch = jest.fn(async () => null);
+    const presenter = createSessionPresenter(state, mockDispatch);
+
+    presenter.onLogSet({ reps: 8 });
+
+    expect(mockDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: 'LogSet', reps: 8, weightKg: undefined })
     );
   });
 
@@ -213,7 +232,7 @@ describe('createSessionPresenter', () => {
     expect(presenter.restRemainingMs).toBeUndefined();
   });
 
-  test('dispatches SkipRest on cancel-rest action', () => {
+  test('dispatches SkipRest on skip-rest action', () => {
     const state = createMockState();
     state.phase = 'resting';
     const mockDispatch = jest.fn(async () => null);
@@ -284,6 +303,371 @@ describe('createSessionPresenter', () => {
         nowMs: expect.any(Number),
       })
     );
+  });
+
+  describe('current exercise logged sets', () => {
+    const set = (exerciseId: string, reps: number): LoggedSet => ({
+      exerciseId,
+      setType: 'working',
+      reps,
+      weightKg: 40,
+      durationSeconds: null,
+      rpe: null,
+    });
+
+    const twoExerciseState = (): SessionState => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      return state;
+    };
+
+    test('returns only the current exercise sets, newest first', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets.map((s) => s.reps)).toEqual([6, 8]);
+      expect(presenter.currentExerciseLoggedSets.every((s) => s.exerciseId === 'ex-1')).toBe(true);
+    });
+
+    test('is empty when only other exercises have sets', () => {
+      const state = twoExerciseState();
+      state.exerciseIndex = 1;
+      state.loggedSets = [set('ex-1', 8), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets).toEqual([]);
+    });
+
+    test('drops the previous exercise sets after advancement', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5)];
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets.map((s) => s.exerciseId)).toEqual(['ex-2']);
+    });
+
+    test('counts every set in the session, not just the current exercise', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.loggedSetCount).toBe(3);
+    });
+  });
+
+  describe('set input prefill', () => {
+    const workingSet = (exerciseId: string, reps: number, weightKg: number): LoggedSet => ({
+      exerciseId,
+      setType: 'working',
+      reps,
+      weightKg,
+      durationSeconds: null,
+      rpe: null,
+    });
+
+    test('prefers the last in-session set of the current exercise over the history fallback', () => {
+      const state = createMockState();
+      state.loggedSets = [workingSet('ex-1', 8, 40), workingSet('ex-1', 6, 45)];
+
+      const prefill = computeSetPrefill(state, { reps: 12, weightLbs: 100 });
+
+      // Stored kg converts to display lbs on the way into the input: 45kg → 99lbs
+      expect(prefill).toEqual({ reps: 6, weightLbs: 99 });
+    });
+
+    test('ignores sets logged for other exercises', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
+      state.loggedSets = [workingSet('ex-2', 5, 60), workingSet('ex-1', 8, 40)];
+
+      expect(computeSetPrefill(state)).toEqual({ reps: 5, weightLbs: 132.5 });
+    });
+
+    test('a duplicated exercise entry prefills from the first entry sets', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1 }, // Same exerciseId listed twice
+      ];
+      state.exerciseIndex = 1;
+      state.loggedSets = [workingSet('ex-1', 8, 40)];
+
+      expect(computeSetPrefill(state)).toEqual({ reps: 8, weightLbs: 88 });
+    });
+
+    test('a warmup set prefills the next set', () => {
+      const state = createMockState();
+      // createMockState logs one warmup set: 10 reps at 20kg → 44lbs
+
+      expect(computeSetPrefill(state)).toEqual({ reps: 10, weightLbs: 44 });
+    });
+
+    test('never prefills rpe, and a stored -1 sentinel does not leak', () => {
+      const state = createMockState();
+      state.loggedSets = [{ ...workingSet('ex-1', 8, 40), rpe: -1 }];
+
+      const prefill = computeSetPrefill(state);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 88 });
+      expect(prefill).not.toHaveProperty('rpe');
+    });
+
+    test('omits null metrics instead of coercing them to zero', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: 12, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state)).toEqual({ reps: 12 });
+    });
+
+    test('a fully-empty logged set falls through to the history/target fallbacks', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state, { reps: 5, weightLbs: 80 })).toEqual({ reps: 5, weightLbs: 80 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 8 }); // targetReps from the mock entry
+    });
+
+    test('a fully-empty duration set falls through to targetDurationSeconds', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.entries[0].targetDurationSeconds = 60;
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state)).toEqual({ durationSeconds: 60 });
+    });
+
+    test('duration entries prefill from the last in-session duration', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: 45, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state)).toEqual({ durationSeconds: 45 });
+    });
+
+    test('duration entries fall back to targetDurationSeconds', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.entries[0].targetDurationSeconds = 60;
+      state.loggedSets = [];
+
+      expect(computeSetPrefill(state)).toEqual({ durationSeconds: 60 });
+    });
+
+    test('strength entries fall back to history, then to targetReps', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      // The history fallback is already in display lbs (the caller converts)
+      expect(computeSetPrefill(state, { reps: 5, weightLbs: 80 })).toEqual({ reps: 5, weightLbs: 80 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 8 }); // targetReps from the mock entry
+    });
+
+    test('returns undefined when there is nothing to prefill', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 0;
+
+      expect(computeSetPrefill(state)).toBeUndefined();
+    });
+
+    test('returns undefined when the exercise index is out of bounds', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5;
+
+      expect(computeSetPrefill(state)).toBeUndefined();
+    });
+
+    test('is not a presenter field — computeSetPrefill is the sole prefill contract', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn(async () => null));
+
+      expect(presenter).not.toHaveProperty('setPrefill');
+    });
+  });
+
+  describe('currentExerciseHasLoggedSet', () => {
+    test('true when the current exercise has an in-session set', () => {
+      // createMockState logs one warmup set for ex-1, the current exercise
+      expect(currentExerciseHasLoggedSet(createMockState())).toBe(true);
+    });
+
+    test('false when only other exercises have sets', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
+
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
+    });
+
+    test('false when the exercise index is out of bounds', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5;
+
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
+    });
+  });
+
+  describe('exercise progress', () => {
+    const widenToThreeEntries = (state: SessionState) => {
+      state.entries = [0, 1, 2].map((idx) => ({
+        idx,
+        exerciseId: `ex-${idx + 1}`,
+        kind: 'strength' as const,
+        warmupSets: 0,
+        targetSets: 3,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 90,
+        supersetGroup: '',
+      }));
+      return state;
+    };
+
+    test('starts at zero completed out of the routine total', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 0;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.totalExerciseCount).toBe(3);
+      expect(presenter.completedExerciseCount).toBe(0);
+      expect(presenter.exerciseProgress).toBe(0);
+    });
+
+    test('counts advanced-past exercises as completed (skips included)', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(1);
+      expect(presenter.exerciseProgress).toBeCloseTo(1 / 3);
+    });
+
+    test('shows full progress at phase done even though the engine leaves the index at length-1', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.phase = 'done';
+      state.exerciseIndex = 2; // Natural completion does not advance past the last entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(3);
+      expect(presenter.exerciseProgress).toBe(1);
+    });
+
+    test('clamps a skip past the last exercise to the total', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 3; // SkipExercise on the last entry leaves the index out of bounds
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(3);
+      expect(presenter.exerciseProgress).toBe(1);
+    });
+
+    test('reports zero progress for an empty routine without dividing by zero', () => {
+      const state = createMockState();
+      state.entries = [];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.totalExerciseCount).toBe(0);
+      expect(presenter.completedExerciseCount).toBe(0);
+      expect(presenter.exerciseProgress).toBe(0);
+    });
+  });
+
+  describe('finish confirmation copy', () => {
+    const secondEntry = {
+      idx: 1,
+      exerciseId: 'ex-2',
+      kind: 'strength' as const,
+      warmupSets: 0,
+      targetSets: 3,
+      targetReps: 8,
+      targetDurationSeconds: 0,
+      restSeconds: 90,
+      supersetGroup: '',
+    };
+
+    test('reports logged sets and remaining planned exercises', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        secondEntry,
+        { ...secondEntry, idx: 2, exerciseId: 'ex-3' },
+      ];
+      state.exerciseIndex = 1;
+      state.loggedSets = Array.from({ length: 5 }, () => ({
+        exerciseId: 'ex-1',
+        setType: 'working' as const,
+        reps: 8,
+        weightKg: 25,
+        durationSeconds: null,
+        rpe: null,
+      }));
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.title).toBe('Finish workout?');
+      expect(presenter.finishConfirmation.message).toContain('5 sets');
+      expect(presenter.finishConfirmation.message).toContain('2 planned exercises remain');
+    });
+
+    test('uses singular wording for one set and one remaining exercise', () => {
+      const state = createMockState();
+      state.exerciseIndex = 0;
+      // createMockState logs exactly one set and has one entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.message).toContain('1 set');
+      expect(presenter.finishConfirmation.message).not.toContain('1 sets');
+      expect(presenter.finishConfirmation.message).toContain('1 planned exercise remains');
+    });
+
+    test('omits the remaining clause when no planned exercises remain', () => {
+      const state = createMockState();
+      state.exerciseIndex = 1; // Skipped past the only entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.message).not.toContain('remain');
+      expect(presenter.finishConfirmation.message.length).toBeGreaterThan(0);
+    });
+
+    test('is stable and non-empty for a fresh session with nothing logged', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.title.length).toBeGreaterThan(0);
+      expect(presenter.finishConfirmation.message).toContain('0 sets');
+    });
   });
 
   test('returns current entry for exerciseIndex', () => {
@@ -361,7 +745,7 @@ describe('createSessionPresenter', () => {
 
       expect(presenter.progressionHint).toBeDefined();
       expect(presenter.progressionHint?.toLowerCase()).toContain('increase');
-      expect(presenter.progressionHint).toContain('2.5');
+      expect(presenter.progressionHint).toContain('5 lbs');
     });
 
     test('surfaces hold hint when any working set has RPE > 8', () => {
@@ -504,8 +888,9 @@ describe('formatLoggedSetLine', () => {
     rpe: 7.5,
   };
 
-  test('renders reps, weight, and RPE when all are present', () => {
-    expect(formatLoggedSetLine(baseSet)).toBe('8 x 25kg RPE: 7.5');
+  test('renders reps, weight in display lbs, and RPE when all are present', () => {
+    // Stored 25kg renders as 55lbs (nearest 0.5 lb)
+    expect(formatLoggedSetLine(baseSet)).toBe('8 x 55lbs RPE: 7.5');
   });
 
   test('omits unset weight and the -1 RPE sentinel', () => {
@@ -515,7 +900,7 @@ describe('formatLoggedSetLine', () => {
   });
 
   test('omits null metrics, keeping only the weight', () => {
-    expect(formatLoggedSetLine({ ...baseSet, reps: null, rpe: null })).toBe('25kg');
+    expect(formatLoggedSetLine({ ...baseSet, reps: null, rpe: null })).toBe('55lbs');
   });
 
   test('renders a stretch set from its own duration', () => {

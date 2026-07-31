@@ -11,6 +11,7 @@ import {
   type SessionExerciseLogEntry,
 } from '@/db/repository';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
+import { formatWeightLbs } from '@/state/weightUnits';
 
 /**
  * A conversation about the workout the user just finished. It carries the
@@ -244,7 +245,8 @@ function formatSetMetrics(set: SessionSet): string {
   }
 
   if (set.weightKg !== undefined && set.weightKg !== null) {
-    parts.push(`@ ${set.weightKg}kg`);
+    // Storage is canonical kg; the prompt speaks display lbs to match the UI
+    parts.push(`@ ${formatWeightLbs(set.weightKg)}`);
   }
 
   if (set.durationSeconds !== undefined && set.durationSeconds !== null) {

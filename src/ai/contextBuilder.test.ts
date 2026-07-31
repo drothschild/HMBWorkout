@@ -418,7 +418,8 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).toContain('Bench Press');
       expect(prompt).toContain('8 reps');
-      expect(prompt).toContain('@ 100kg');
+      // Stored 100kg speaks display lbs in the prompt, matching the UI
+      expect(prompt).toContain('@ 220.5lbs');
     }, 30000);
 
     it('handles cardio exercises with duration, distance, and RPE in history', async () => {
@@ -820,7 +821,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(lineFor(prompt, 'Bench Press')).toBe(
-        '  Bench Press (target 3x8): 5 reps @ 40kg (warmup), 8 reps @ 100kg, 6 reps @ 100kg RPE 9'
+        '  Bench Press (target 3x8): 5 reps @ 88lbs (warmup), 8 reps @ 220.5lbs, 6 reps @ 220.5lbs RPE 9'
       );
     }, 30000);
 
@@ -851,7 +852,8 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
-      expect(lineFor(prompt, 'Bench Press')).not.toContain('999kg');
+      // 999kg from the other session would render as 2202.5lbs
+      expect(lineFor(prompt, 'Bench Press')).not.toContain('2202.5lbs');
     }, 30000);
 
     it('keeps a repeated exercise as two separate entries', async () => {
@@ -912,7 +914,7 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(benchLines).toEqual([
         '  Bench Press (target 3x8): no sets logged',
-        '  Bench Press (target 1x20): 20 reps @ 40kg',
+        '  Bench Press (target 1x20): 20 reps @ 88lbs',
       ]);
     }, 30000);
 
@@ -1402,7 +1404,7 @@ describe('buildSystem: AI Coach context builder', () => {
         .find((line) => line.includes('Bench Press:'));
 
       expect(benchLine).toBe(
-        '  Bench Press: 8 reps @ 102.5kg (2026-07-29), 8 reps @ 100kg (2026-07-22)'
+        '  Bench Press: 8 reps @ 226lbs (2026-07-29), 8 reps @ 220.5lbs (2026-07-22)'
       );
     }, 30000);
   });

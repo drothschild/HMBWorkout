@@ -15,7 +15,7 @@ else (
   }, working_sets)
 
   if (length(high_rpe_sets) == 0)
-  then "Increase weight by 2.5 kg - hitting target with room in RPE"
+  then "Increase weight by 5 lbs - hitting target with room in RPE"
   else "Hold current weight - working harder than desired"
 )
 
