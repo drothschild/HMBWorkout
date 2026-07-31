@@ -251,7 +251,13 @@ is now a misnomer — AI settings are in there too.
   `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
   the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
   jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
-  `AnthropicHttpError`), matching the sync convention.
+  `AnthropicHttpError`), matching the sync convention. The cost: no SDK means nothing
+  strips a `json_schema` of keywords the structured-output endpoint's subset doesn't
+  support (array/string/number bounds) — one in `ALTERNATES_SCHEMA` made the Replace
+  button 400 on every tap until it was caught (PR #71). Every schema handed to
+  `output_config.format` must pass `expectStructuredOutputSafe`
+  (`src/ai/structuredOutputSubset.ts`); put bounds in the validator instead, which is
+  where the SDKs put the keywords they strip.
 - **One turn shape, three declarations.** The `{ reply, draft?, settingsProposal? }`
   contract is stated in `AI_TURN_SCHEMA` (what the API enforces), in the
   `AiTurn`/`RoutineDraft`/`SettingsProposal` types plus `validateRoutineDraft` and
