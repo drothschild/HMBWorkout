@@ -3,6 +3,7 @@ import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { saveEngineState, loadActiveEngineState } from '@/db/engineState';
 import { createSession } from '@/db/repository';
+import { rehydrateActiveSession } from './sessionRehydrate';
 import { Database } from '@nozbe/watermelondb';
 
 /**
@@ -205,5 +206,87 @@ describe('Session hydration and restart recovery', () => {
     expect(loadedState!.entries).toHaveLength(1);
     expect(loadedState!.entries[0].idx).toBe(0);
     expect(loadedState!.entries[0].exerciseId).toBe('ex-1');
+  });
+
+  describe('rehydrateActiveSession (boot restart recovery)', () => {
+    // Fresh fakes per store: executors are irrelevant here beyond keeping the
+    // real rest timer and notifications out of the node environment.
+    function fakeExecutors() {
+      return {
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+      };
+    }
+
+    const routine = {
+      id: 'routine-rehydrate',
+      name: 'Rehydrate Routine',
+      entries: [
+        {
+          exerciseId: 'ex-rehydrate',
+          kind: 'strength' as const,
+          warmupSets: 1,
+          targetSets: 1,
+          targetReps: 8,
+          targetDurationSeconds: 0,
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+      ],
+    };
+
+    it('rehydrates a mid-warmup session without dispatching Resume — no error surfaces', async () => {
+      // App killed mid-warmup: StartSession leaves the engine in warmup, and
+      // dispatch() has already persisted that state.
+      const store = createActiveSessionStore(database, fakeExecutors());
+      const now = Date.now();
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId: 'rehydrate-warmup',
+        nowMs: now,
+        routine,
+      });
+      expect(store.getState().sessionState!.phase).toBe('warmup');
+
+      // Relaunch: fresh store, load the persisted state
+      const store2 = createActiveSessionStore(database, fakeExecutors());
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('warmup');
+
+      await rehydrateActiveSession(store2, loaded!, now + 60_000);
+
+      // The observed bug: an unconditional Resume is rejected by the engine
+      // ("invalid event Resume in phase warmup") and lands in lastError, which
+      // the session screen renders as a red banner.
+      expect(store2.getState().lastError).toBeNull();
+      expect(store2.getState().sessionState!.phase).toBe('warmup');
+    });
+
+    it('still dispatches Resume for a paused session, restoring the pre-pause phase', async () => {
+      const store = createActiveSessionStore(database, fakeExecutors());
+      const now = Date.now();
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId: 'rehydrate-paused',
+        nowMs: now,
+        routine,
+      });
+      await store.getState().dispatch({ tag: 'PauseSession', nowMs: now + 5_000 });
+      expect(store.getState().sessionState!.phase).toBe('paused');
+
+      const store2 = createActiveSessionStore(database, fakeExecutors());
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('paused');
+
+      await rehydrateActiveSession(store2, loaded!, now + 60_000);
+
+      // No rest was in flight when paused, so Resume returns the session to
+      // the phase recorded before the pause (warmup) — never leaves it paused.
+      expect(store2.getState().lastError).toBeNull();
+      expect(store2.getState().sessionState!.phase).toBe('warmup');
+    });
   });
 });
