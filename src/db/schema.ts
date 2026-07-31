@@ -54,7 +54,7 @@ export const databaseSchema = appSchema({
       columns: [
         { name: 'session_id', type: 'string', isIndexed: true },
         { name: 'routine_exercise_id', type: 'string', isIndexed: true },
-        { name: 'set_type', type: 'string' }, // 'warmup' | 'working' | 'drop'
+        { name: 'set_type', type: 'string' }, // 'warmup' | 'working' | 'stretch' | 'cardio'
         { name: 'reps', type: 'number', isOptional: true },
         { name: 'weight_kg', type: 'number', isOptional: true },
         { name: 'duration_seconds', type: 'number', isOptional: true },

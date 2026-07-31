@@ -139,7 +139,7 @@ export function createActiveSessionStore(
 
       // Append the set to the database
       await appendSet(database, sessionId, routineExerciseId, {
-        setType: set.setType as any,
+        setType: set.setType,
         reps: set.reps ?? undefined,
         weightKg: set.weightKg ?? undefined,
         durationSeconds: set.durationSeconds ?? undefined,
