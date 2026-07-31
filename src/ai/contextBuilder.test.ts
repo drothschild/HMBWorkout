@@ -928,6 +928,20 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('bridge-token-12345');
       expect(prompt).not.toContain('bridge.local');
     }, 30000);
+
+    it('handles a debrief when the routine no longer exists', async () => {
+      // Create a session with no backing routine
+      await createSession(database, {
+        sessionId,
+        routineId, // routine-debrief does not exist
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).toContain('The user has just finished the routine "routine-debrief"');
+      expect(prompt).toContain('This routine no longer exists');
+    }, 30000);
   });
 
   // Pinned as exact strings for the same reason as the draft and settings

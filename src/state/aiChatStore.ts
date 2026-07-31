@@ -22,6 +22,7 @@ export interface AiDisplayMessage {
   role: 'user' | 'assistant';
   content: string; // wire content: user text, or raw AiTurn JSON for assistant turns
   turn?: AiTurn; // parsed turn for rendering (assistant only)
+  hidden?: boolean; // when true, not rendered in the UI but still sent to API
 }
 
 export type AiChatError =
@@ -172,7 +173,27 @@ export function createAiChatStore(deps: AiChatDeps) {
         // sent for the user. Going through reset() first keeps the generation
         // and prompt-cache rules identical to every other conversation start.
         get().reset(mode);
-        await get().send(DEBRIEF_OPENING_MESSAGE);
+
+        // Send the opening message but mark it hidden: the user never typed it,
+        // and the AI's greeting should be the first visible message.
+        const settings = deps.getSettings();
+        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+          set({
+            status: 'error',
+            error: { kind: 'missing_key' },
+          });
+          return;
+        }
+
+        const gen = generation;
+        const newMessages: AiDisplayMessage[] = [{ role: 'user', content: DEBRIEF_OPENING_MESSAGE, hidden: true }];
+        set({
+          messages: newMessages,
+          status: 'sending',
+          error: null,
+        });
+
+        await runTurn(gen, newMessages, mode, settings.anthropicKey);
       },
 
       async send(text: string) {

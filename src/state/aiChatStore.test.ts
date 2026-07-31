@@ -363,12 +363,37 @@ describe('aiChatStore', () => {
       const state = store.getState();
       expect(state.mode).toEqual(debrief);
       expect(fakeBuildSystem).toHaveBeenCalledWith({}, debrief);
+      expect(state.messages[1].turn).toEqual({ reply: 'How did that go?' });
+      expect(state.status).toBe('idle');
+    });
+
+    it('marks the opening message hidden so only the coach greeting is visible', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
       expect(state.messages[0]).toEqual({
         role: 'user',
         content: DEBRIEF_OPENING_MESSAGE,
+        hidden: true,
       });
-      expect(state.messages[1].turn).toEqual({ reply: 'How did that go?' });
-      expect(state.status).toBe('idle');
+    });
+
+    it('preserves the opening message in wire content sent to the API', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      // The wire content must include the hidden opening message for the API
+      const callArgs = fakeChat.mock.calls[0][0];
+      expect(callArgs.messages).toHaveLength(1);
+      expect(callArgs.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+      });
     });
 
     it('discards the previous conversation', async () => {

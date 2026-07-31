@@ -43,7 +43,10 @@ export default function AiCoachScreen() {
     () => aiCoachModeFromParams({ routineId, debriefSessionId }),
     [routineId, debriefSessionId]
   );
-  const startedModeRef = useRef<typeof mode | null>(null);
+  // Guard on a derived string key rather than useMemo object identity, which React
+  // does not guarantee to cache. Use the key to detect when params change.
+  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
+  const startedModeRef = useRef<string | null>(null);
 
   const [hasMissingKey, setHasMissingKey] = useState(() => {
     const settings = getSettings();
@@ -56,10 +59,10 @@ export default function AiCoachScreen() {
   // error, while useLayoutEffect still runs before the frame paints, so no
   // stale conversation is ever visible.
   useLayoutEffect(() => {
-    if (startedModeRef.current === mode) {
+    if (startedModeRef.current === modeKey) {
       return;
     }
-    startedModeRef.current = mode;
+    startedModeRef.current = modeKey;
 
     if (mode.kind === 'debrief') {
       // A debrief is the coach's conversation to open; the store sends the
@@ -68,7 +71,7 @@ export default function AiCoachScreen() {
     } else {
       store.getState().reset(mode);
     }
-  }, [mode, store]);
+  }, [modeKey, mode, store]);
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
@@ -86,8 +89,13 @@ export default function AiCoachScreen() {
   useFocusEffect(
     useCallback(() => {
       const settings = getSettings();
-      setHasMissingKey(!settings.anthropicKey || settings.anthropicKey.trim() === '');
-    }, [])
+      const keyMissing = !settings.anthropicKey || settings.anthropicKey.trim() === '';
+      setHasMissingKey(keyMissing);
+      // If the key was missing and now exists, allow the conversation to start fresh
+      if (!keyMissing && error?.kind === 'missing_key') {
+        startedModeRef.current = null;
+      }
+    }, [error?.kind])
   );
 
   // Auto-scroll to end when messages change
@@ -298,6 +306,10 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ message }: MessageBubbleProps) {
+  if (message.hidden) {
+    return null;
+  }
+
   const isUser = message.role === 'user';
 
   return (

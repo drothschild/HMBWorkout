@@ -160,7 +160,6 @@ export function createActiveSessionStore(
         try {
           const { createSyncService } = await import('@/sync/syncService');
           const { createBridgeClient } = await import('@/sync/bridgeClient');
-          const { getSettings } = await import('@/state/settings');
 
           const settings = getSettings();
           const bridgeClient = createBridgeClient(settings);

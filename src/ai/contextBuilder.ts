@@ -63,7 +63,7 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
   }
 
   if (mode.kind === 'debrief') {
-    sections.push(await debriefSection(db, mode));
+    sections.push(await debriefSection(db, mode, routineDetails));
   }
 
   return sections.join('\n\n');
@@ -309,14 +309,22 @@ No workout history yet.`;
  * single session and keeps warmups, because how the whole workout went is the
  * subject of the conversation.
  */
-async function debriefSection(db: Database, mode: DebriefMode): Promise<string> {
-  const detail = await routineDetailPresenter(db, mode.routineId);
+async function debriefSection(db: Database, mode: DebriefMode, routineDetails: RoutineWithDetail[]): Promise<string> {
+  // Find the routine detail in the pre-built list to avoid a redundant fetch
+  const found = routineDetails.find((r) => r.routine.id === mode.routineId);
+  const detail = found?.detail ?? null;
   const routineName = detail?.name ?? mode.routineId;
   const log = await getSessionExerciseLog(db, mode.sessionId, mode.routineId);
 
   const header = `## Just-Finished Workout
 
 The user has just finished the routine "${routineName}". These are the sets they logged.`;
+
+  if (!detail) {
+    return `${header}
+
+This routine no longer exists.`;
+  }
 
   if (log.length === 0) {
     return `${header}
