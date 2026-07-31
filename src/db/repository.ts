@@ -542,8 +542,13 @@ async function mapRoutineExercisesToExercises(
 /**
  * One planned exercise of a routine, paired with the sets a single session
  * actually logged against it.
+ *
+ * routineExerciseId identifies this entry (the routine_exercises row id), not
+ * exerciseId: a routine may list the same exercise more than once, so
+ * exerciseId alone cannot serve as a unique key (AGENTS.md boundary rule).
  */
 export interface SessionExerciseLogEntry {
+  routineExerciseId: string;
   exerciseId: string;
   title: string;
   order: number;
@@ -565,12 +570,14 @@ export interface SessionExerciseLogEntry {
  * @param database The database instance
  * @param sessionId The finished session to read sets from
  * @param routineId The routine that session performed
+ * @param sessionSets Optional pre-fetched session sets to avoid a duplicate query
  * @returns Planned exercises in order, each with its logged sets
  */
 export async function getSessionExerciseLog(
   database: Database,
   sessionId: string,
-  routineId: string
+  routineId: string,
+  sessionSets?: SessionSet[]
 ): Promise<SessionExerciseLogEntry[]> {
   const routineExercises = (await database
     .get('routine_exercises')
@@ -593,7 +600,7 @@ export async function getSessionExerciseLog(
     exercises.map((exercise) => [exercise.id, (exercise as any).title as string])
   );
 
-  const sets = await getSessionSets(database, sessionId);
+  const sets = sessionSets ?? (await getSessionSets(database, sessionId));
   const setsByRoutineExerciseId = new Map<string, SessionSet[]>();
   for (const set of sets) {
     const key = (set as any).routineExerciseId as string;
@@ -610,13 +617,14 @@ export async function getSessionExerciseLog(
     const exerciseId = raw.exercise_id as string;
 
     return {
+      routineExerciseId: re.id,
       exerciseId,
       title: titleById.get(exerciseId) ?? exerciseId,
       order: raw.order as number,
       targetSets: raw.target_sets ?? undefined,
       targetReps: raw.target_reps ?? undefined,
       targetDurationSeconds: raw.target_duration_seconds ?? undefined,
-      sets: setsByRoutineExerciseId.get((re as any).id) ?? [],
+      sets: setsByRoutineExerciseId.get(re.id) ?? [],
     };
   });
 }

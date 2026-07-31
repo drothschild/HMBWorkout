@@ -82,6 +82,45 @@ export interface SessionPresenterOutput {
 }
 
 /**
+ * Shared formatter for logged sets across session and history detail screens.
+ * Handles sentinel conventions: rpe -1 and null reps/weight/duration mean "absent"
+ * and must be omitted, never rendered.
+ *
+ * @param setType The set type (strength/stretch/cardio/etc)
+ * @param reps Logged reps (null/undefined = absent)
+ * @param weightKg Logged weight in kg (null/undefined = absent)
+ * @param durationSeconds Logged duration (null/undefined = absent)
+ * @param rpe Logged RPE (-1 sentinel or null/undefined = absent)
+ */
+export function formatSetLine(
+  setType: string,
+  reps: number | null | undefined,
+  weightKg: number | null | undefined,
+  durationSeconds: number | null | undefined,
+  rpe: number | null | undefined
+): string {
+  const parts: string[] = [];
+
+  if (setType === 'stretch' || setType === 'cardio') {
+    if (durationSeconds != null) {
+      parts.push(`${durationSeconds}s`);
+    }
+  } else if (reps != null && weightKg != null) {
+    parts.push(`${reps} x ${formatWeightLbs(weightKg)}`);
+  } else if (reps != null) {
+    parts.push(`${reps} reps`);
+  } else if (weightKg != null) {
+    parts.push(formatWeightLbs(weightKg));
+  }
+
+  if (rpe != null && rpe !== -1) {
+    parts.push(`RPE: ${rpe}`);
+  }
+
+  return parts.length > 0 ? parts.join(' ') : '—';
+}
+
+/**
  * Format one logged set for the session screen's Logged Sets list.
  * Reps/weight/duration may legitimately be null or undefined, and rpe carries
  * the host's -1 sentinel for "not logged" (see SENTINEL_TO_OPTION_MAP in
@@ -90,25 +129,7 @@ export interface SessionPresenterOutput {
  * duration exercises renders every line correctly.
  */
 export function formatLoggedSetLine(set: LoggedSet): string {
-  const parts: string[] = [];
-
-  if (set.setType === 'stretch' || set.setType === 'cardio') {
-    if (set.durationSeconds != null) {
-      parts.push(`${set.durationSeconds}s`);
-    }
-  } else if (set.reps != null && set.weightKg != null) {
-    parts.push(`${set.reps} x ${formatWeightLbs(set.weightKg)}`);
-  } else if (set.reps != null) {
-    parts.push(`${set.reps} reps`);
-  } else if (set.weightKg != null) {
-    parts.push(formatWeightLbs(set.weightKg));
-  }
-
-  if (set.rpe != null && set.rpe !== -1) {
-    parts.push(`RPE: ${set.rpe}`);
-  }
-
-  return parts.length > 0 ? parts.join(' ') : '—';
+  return formatSetLine(set.setType, set.reps, set.weightKg, set.durationSeconds, set.rpe);
 }
 
 /**
