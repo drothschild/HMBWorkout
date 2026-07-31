@@ -51,9 +51,10 @@ export function createActiveSessionStore(
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
 
-  // Queue of pending discard promises. Tied to dispatch invocations, not the store
-  // instance: each dispatch drains its own pending discards, so rapid dispatches
-  // don't steal each other's awaits.
+  // Queue of pending discard promises. The rules permit at most one in-flight discard
+  // (a second AbandonSession from idle errors), which is what makes the shared queue safe.
+  // Each dispatch drains its queue upon success, ensuring all discard side effects are
+  // observed by the caller before dispatch returns.
   const pendingDiscardPromises: Promise<void>[] = [];
 
   // Create executors that interact with the database
@@ -241,9 +242,24 @@ export function createActiveSessionStore(
 
         // Settle any pending discards from this dispatch (queued by onDiscardSession).
         // This ensures a caller that awaits dispatch observes all side effects completed.
-        while (pendingDiscardPromises.length > 0) {
-          const p = pendingDiscardPromises.shift()!;
-          await p;
+        // If a discard fails, it's caught by its own try/catch below.
+        try {
+          while (pendingDiscardPromises.length > 0) {
+            const p = pendingDiscardPromises.shift()!;
+            await p;
+          }
+        } catch (drainErr) {
+          // Discard failure: roll the store FORWARD to match the engine's reality
+          // (which has transitioned to idle), rather than preserving the old in-progress
+          // state. This prevents store/engine disagreement. The error is surfaced via
+          // lastError so the UI can inform the user; the row remains on disk for later
+          // inspection and cleanup.
+          const message = drainErr instanceof Error ? drainErr.message : String(drainErr);
+          set({
+            sessionState: null,
+            lastError: message,
+          });
+          return null;
         }
 
         // Neither an abandoned nor a completed session has a live row to persist
@@ -263,17 +279,14 @@ export function createActiveSessionStore(
 
         return newState;
       } catch (err) {
-        // Handle TransitionError and discard failures.
-        // On discard failure, roll the store FORWARD to match the engine's reality
-        // (which has transitioned to idle), rather than preserving the old in-progress
-        // state. This prevents store/engine disagreement. The error is surfaced via
-        // lastError so the UI can inform the user; the row remains on disk for later
-        // inspection and cleanup.
+        // TransitionError from engine: preserve the prior in-progress state and surface the error.
+        // The engine rejected the event (e.g., invalid LogSet), but the session is still active
+        // and should remain visible in the store.
         const message = err instanceof Error ? err.message : String(err);
 
         set({
-          sessionState: null,
           lastError: message,
+          // sessionState is NOT changed here — preserved as-is
         });
 
         return null;

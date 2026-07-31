@@ -291,6 +291,64 @@ describe('activeSession store', () => {
     });
   });
 
+  describe('M3b: hydrate() idle→null mapping', () => {
+    it('should map idle phase to null sessionState', async () => {
+      const store = createActiveSessionStore(database);
+
+      // Create a state in idle phase
+      const idleState: SessionState = {
+        sessionId: 'test-session',
+        routineId: 'test-routine',
+        phase: 'idle',
+        exerciseIndex: 0,
+        setIndex: 0,
+        supersetPosition: 0,
+        loggedSets: [],
+        startedAtMs: 1000,
+        prePausePhase: '',
+        entries: [],
+        lastLoggedSet: undefined,
+        restDeadlineMs: 0,
+        restRemainingMs: 0,
+      };
+
+      // Hydrate with idle state
+      store.getState().hydrate(idleState);
+
+      // Session state should be null (idle→null mapping)
+      expect(store.getState().sessionState).toBeNull();
+      expect(store.getState().lastError).toBeNull();
+    });
+
+    it('should preserve non-idle phase states', async () => {
+      const store = createActiveSessionStore(database);
+
+      const warmupState: SessionState = {
+        sessionId: 'test-session',
+        routineId: 'test-routine',
+        phase: 'warmup',
+        exerciseIndex: 0,
+        setIndex: 0,
+        supersetPosition: 0,
+        loggedSets: [],
+        startedAtMs: 1000,
+        prePausePhase: '',
+        entries: [],
+        lastLoggedSet: undefined,
+        restDeadlineMs: 0,
+        restRemainingMs: 0,
+      };
+
+      // Hydrate with warmup state
+      store.getState().hydrate(warmupState);
+
+      // Session state should be preserved (not null)
+      expect(store.getState().sessionState).toBeDefined();
+      expect(store.getState().sessionState?.phase).toBe('warmup');
+      expect(store.getState().lastError).toBeNull();
+    });
+  });
+
   describe('SetDone event', () => {
     it('should advance to the next exercise', async () => {
       const store = createActiveSessionStore(database);
@@ -753,6 +811,70 @@ describe('activeSession store', () => {
       expect(presenter.progressionHint).toBe('Increase weight by 2.5 kg');
       expect(presenter.currentEntry?.kind).toBe('strength');
     }, 20000);
+  });
+
+  describe('C1: Invalid event mid-session preserves state', () => {
+    it('should preserve sessionState when engine rejects an event mid-session', async () => {
+      const store = createActiveSessionStore(database);
+
+      const routine = {
+        id: 'routine-c1',
+        name: 'Test Routine C1',
+        entries: [
+          {
+            exerciseId: 'ex-1',
+            kind: 'strength' as const,
+            warmupSets: 1,
+            targetSets: 3,
+            targetReps: 8,
+            targetDurationSeconds: 0,
+            restSeconds: 60,
+            supersetGroup: '',
+          },
+        ],
+      };
+
+      const sessionId = crypto.randomUUID?.() || 'test-session-c1';
+
+      // Start session
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine,
+      });
+
+      // Verify session is started and state is preserved
+      let storeState = store.getState();
+      expect(storeState.sessionState).toBeDefined();
+      expect(storeState.sessionState?.phase).toBe('warmup');
+      expect(storeState.lastError).toBeNull();
+
+      // Try to log a set with invalid RPE (3.3 is outside the valid range for warmup phase)
+      // This should trigger a TransitionError from the engine
+      const dispatchResult = await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 10,
+        weightKg: 50,
+        durationSeconds: 0,
+        rpe: 3.3, // Invalid RPE value (should be 1-10 or undefined)
+      });
+
+      // After invalid event:
+      storeState = store.getState();
+
+      // The dispatch should return null (error case)
+      expect(dispatchResult).toBeNull();
+
+      // CRITICAL: sessionState should be PRESERVED (still in-progress), not nulled
+      expect(storeState.sessionState).toBeDefined();
+      expect(storeState.sessionState?.sessionId).toBe(sessionId);
+      expect(storeState.sessionState?.phase).toBe('warmup');
+
+      // lastError should be set
+      expect(storeState.lastError).toBeDefined();
+      expect(storeState.lastError).toMatch(/invalid|rpe|value|failed/i);
+    });
   });
 
 describe('Phase 7: onCompleteSession real executor with sync rejection', () => {

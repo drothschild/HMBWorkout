@@ -189,6 +189,19 @@ export async function getSessionSets(
  * @param database The database instance
  * @param sessionId The session ID to discard
  */
+/**
+ * Delete an in-progress session and all its logged sets.
+ * Called when a user explicitly abandons a workout. Idempotent by session id.
+ *
+ * If this operation fails (e.g., database write error), the session row remains
+ * on disk. On next app launch, rehydrate will restore this stale row as the active
+ * session, and the user can abandon again. This is the retry path: resurrection
+ * at next launch, then retry abandon. No automatic cleanup on StartSession.
+ *
+ * @param database The database instance
+ * @param sessionId The session ID to discard
+ * @throws Error if sessionId is empty/blank or if the database write fails
+ */
 export async function discardInProgressSession(
   database: Database,
   sessionId: string
@@ -199,20 +212,22 @@ export async function discardInProgressSession(
   }
 
   await database.write(async () => {
-    // Fetch both the sets and session; scoped catch on find() only
+    // Fetch both the sets and session. Use query().fetch()[0] to distinguish not-found
+    // from real read errors: not-found returns an empty array, while read errors propagate.
     const sets = (await database
       .get('session_sets')
       .query(Q.where('session_id', sessionId))
       .fetch()) as SessionSet[];
 
-    const session = await database
+    const sessions = (await database
       .get('sessions')
-      .find(sessionId)
-      .catch(() => null);
+      .query(Q.where('id', sessionId))
+      .fetch()) as Session[];
+    const session = sessions[0] || null;
 
     // Atomic batch: prepare all deletions, then execute in one batch.
     // This ensures atomicity: a crash between here and completion leaves nothing
-    // deleted. Destroy failures propagate; not-found is handled by the catch above.
+    // deleted. Destroy failures propagate; not-found returns null (handled above).
     await database.batch(
       ...sets.map((s) => s.prepareDestroyPermanently()),
       ...(session ? [session.prepareDestroyPermanently()] : []),

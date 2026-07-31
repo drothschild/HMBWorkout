@@ -8,10 +8,19 @@
 
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { getSession, getSessionSets, upsertExercise, upsertRoutine } from '@/db/repository';
+import { getSession, getSessionSets, upsertExercise, upsertRoutine, discardInProgressSession } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
 import { createActiveSessionStore } from './activeSession';
 import type { HealthKitDeps } from './activeSession';
+
+// Mock discardInProgressSession for testing failure paths
+jest.mock('@/db/repository', () => {
+  const actual = jest.requireActual('@/db/repository');
+  return {
+    ...actual,
+    discardInProgressSession: jest.fn(actual.discardInProgressSession),
+  };
+});
 
 const ROUTINE_ID = 'routine-abandon';
 const SESSION_ID = 'session-abandon';
@@ -150,52 +159,32 @@ describe('abandoning an in-progress workout', () => {
     expect(store.getState().sessionState).toBeNull();
   });
 
-  it('when discard fails, rolls the store forward to match the idle engine: nulls sessionState, surfaces error, leaves row inspectable', async () => {
+  it('I1: when discard fails, rolls the store forward to match the idle engine: nulls sessionState, surfaces error, leaves row inspectable', async () => {
     // At this point, beforeEach has already set up a workout with some sets
     expect(store.getState().sessionState).not.toBeNull();
     expect(await getSession(database, SESSION_ID)).toBeDefined();
 
-    // Create a failing discard function that rejects
-    const failingDiscardInProgressSession = jest.fn(async () => {
+    // Make the mocked discardInProgressSession reject
+    const mockDiscard = discardInProgressSession as jest.Mock;
+    mockDiscard.mockImplementationOnce(async () => {
       throw new Error('Discard failed: simulated write error');
     });
 
-    // Create a new store with overridden discardInProgressSession via executor override
-    const failingStore = createActiveSessionStore(
-      database,
-      {
-        onScheduleRest: jest.fn(),
-        onCancelRest: jest.fn(),
-        onNotify: jest.fn(),
-        onDiscardSession: failingDiscardInProgressSession,
-      },
-      syncSpy,
-      healthKitDeps
-    );
+    // Try to abandon using the existing store; the engine transitions to idle,
+    // but discardInProgressSession (called by onDiscardSession executor) rejects
+    const result = await store.getState().dispatch({ tag: 'AbandonSession' });
 
-    // Hydrate with the existing session so we can try to abandon it
-    const state = store.getState().sessionState;
-    if (state) {
-      failingStore.getState().hydrate(state);
-    }
+    // Result should be null (error case)
+    expect(result).toBeNull();
 
-    // Try to abandon; the engine transitions to idle, but discard throws
-    const result = await failingStore.getState().dispatch({ tag: 'AbandonSession' });
+    // Store has rolled forward: sessionState is null to match engine's idle phase
+    expect(store.getState().sessionState).toBeNull();
 
-    // Engine transitioned to idle (result is the idle state), but we expect
-    // dispatch to have caught the discard failure and returned null
-    // Actually, since Rill catches executor errors, the dispatch succeeds and returns the
-    // new state. But our code then awaits the rejected promise from onDiscardSession.
-    // The engine's onExecutorError handler swallows the error, so the rejected promise
-    // never makes it to our dispatch. This is by design in Rill.
-    //
-    // So we need to verify different behavior: the store should show the session is gone
-    // (even though discard failed) because the engine transitioned to idle.
-    // The key invariant: store and engine must agree (both idle/null).
+    // lastError should contain the failure message
+    expect(store.getState().lastError).toBeDefined();
+    expect(store.getState().lastError).toContain('Discard failed');
 
-    // Store has rolled to match engine's idle phase
-    expect(failingStore.getState().sessionState).toBeNull();
-    // The row is still on disk because discard failed (caught by engine)
+    // The row is still on disk because discard failed (not deleted)
     expect(await getSession(database, SESSION_ID)).toBeDefined();
   });
 });

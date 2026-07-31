@@ -109,8 +109,21 @@ export default function SessionScreen() {
         {
           text: 'Abandon',
           style: 'destructive',
-          onPress: () => {
-            presenter.onAbandonSession();
+          onPress: async () => {
+            // Await the abandon dispatch; if it fails (returns null), show an error dialog
+            const result = await dispatch({
+              tag: 'AbandonSession',
+            });
+
+            if (!result) {
+              // Abandon failed: show error dialog with honest copy
+              Alert.alert(
+                'Couldn\'t discard the workout',
+                'The workout data may reappear at next launch — you can abandon it again then.'
+              );
+            }
+
+            // Navigate back regardless of success or failure
             router.back();
           },
         },

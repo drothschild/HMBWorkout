@@ -114,4 +114,54 @@ describe('discardInProgressSession', () => {
   it('is a no-op for a session that is already gone', async () => {
     await expect(discardInProgressSession(database, 'never-existed')).resolves.toBeUndefined();
   });
+
+  // M3a: Entry guard for empty/blank session IDs
+  it('M3a: rejects empty sessionId with exact message, writes nothing', async () => {
+    await expect(discardInProgressSession(database, '')).rejects.toThrow(
+      'discardInProgressSession: sessionId must not be empty or blank'
+    );
+
+    // Verify nothing was written
+    const sessions = await database.get('sessions').query().fetch();
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('M3a: rejects blank-only sessionId with exact message, writes nothing', async () => {
+    await expect(discardInProgressSession(database, '   ')).rejects.toThrow(
+      'discardInProgressSession: sessionId must not be empty or blank'
+    );
+
+    // Verify nothing was written
+    const sessions = await database.get('sessions').query().fetch();
+    expect(sessions).toHaveLength(0);
+  });
+
+  // M3c: Repository-level destroy-failure propagation
+  it('M3c: propagates database batch errors (destroy failure)', async () => {
+    const routineExerciseId = await seedRoutine(database, 'routine-1');
+    await createSession(database, {
+      sessionId: 'session-live',
+      routineId: 'routine-1',
+      startedAtMs: 1000,
+    });
+    await appendSet(database, 'session-live', routineExerciseId, { setType: 'working', reps: 8 });
+
+    // Mock the batch method to reject
+    const batchSpy = jest.spyOn(database, 'batch').mockRejectedValueOnce(
+      new Error('Database batch failed: simulated write error')
+    );
+
+    // Discard should reject with the batch error
+    await expect(discardInProgressSession(database, 'session-live')).rejects.toThrow(
+      'Database batch failed: simulated write error'
+    );
+
+    // Verify the batch was attempted
+    expect(batchSpy).toHaveBeenCalled();
+
+    // Verify session is still on disk (discard failed)
+    expect(await getSession(database, 'session-live')).toBeDefined();
+
+    batchSpy.mockRestore();
+  });
 });
