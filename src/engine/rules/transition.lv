@@ -227,6 +227,30 @@ match event {
         })
       }
     ),
+  -- A kill mid-rest (not paused) rehydrates Resting with its wall-clock
+  -- deadline intact but no armed alert in the new process, and the boot
+  -- sequence dispatches Resume unconditionally. Reconcile both directions:
+  -- a live deadline re-arms the alert (the shell's fixed notification
+  -- identity makes the re-emit replace, not duplicate, a pre-kill alert);
+  -- an expired one gets the same phase-from-position recovery RestElapsed
+  -- would have made. Resume is unreachable in Resting from the UI (the
+  -- Resume buttons render only while paused), so this arm is boot-only.
+  Resume(p) if state.phase == Resting -> (
+      match state.restDeadlineMs {
+        Some(d) ->
+          if (p.nowMs < d)
+          then Ok({ state: state, effects: [ScheduleRest({ deadlineMs: d })] })
+          else (
+            let currentEntry = at(state.exerciseIndex, state.entries)?
+            let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
+            Ok({
+              state: { state | phase: nextPhase, restDeadlineMs: None },
+              effects: [CancelRest]
+            })
+          ),
+        None -> Ok({ state: state, effects: [] })
+      }
+    ),
   -- Rehydrate dispatches Resume unconditionally after a relaunch to reconcile
   -- a paused rest; in any other phase there is nothing to resume, so the event
   -- is acknowledged as a no-op rather than rejected — an Err here becomes an
