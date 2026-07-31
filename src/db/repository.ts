@@ -181,7 +181,8 @@ export async function getSessionSets(
  * not current-session sets.
  *
  * Phase 4 Task 3: Query prior working sets by exercise ID, excluding warmups and other set types.
- * Returns sets ordered most-recent-first by set creation time (created_at desc), then by position.
+ * Returns sets ordered most-recent-first by set creation time (created_at desc),
+ * breaking ties by position desc so same-millisecond appends still order most-recent-first.
  *
  * @param database The database instance
  * @param exerciseId The exercise ID to query
@@ -216,8 +217,11 @@ export async function getExerciseWorkingSetHistory(
     )
     .fetch()) as SessionSet[];
 
-  // Sort most-recent-first by set creation time, then by position for stable ordering.
-  // (session_id is a random UUID and carries no temporal order — created_at is the real clock.)
+  // Sort most-recent-first by set creation time, breaking created_at ties by
+  // position DESC: same-millisecond appends must order exactly like appends a
+  // millisecond apart, and the later-position set is the more recent one either
+  // way. (session_id is a random UUID and carries no temporal order — created_at
+  // is the real clock.)
   allSets.sort((a, b) => {
     const createdA = (a as any)._raw.created_at ?? 0;
     const createdB = (b as any)._raw.created_at ?? 0;
@@ -226,7 +230,7 @@ export async function getExerciseWorkingSetHistory(
     }
     const aPos = (a as any)._raw.position ?? 0;
     const bPos = (b as any)._raw.position ?? 0;
-    return aPos - bPos;
+    return bPos - aPos;
   });
 
   return allSets;
