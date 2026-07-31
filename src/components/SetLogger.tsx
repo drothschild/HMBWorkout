@@ -4,6 +4,7 @@ import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
@@ -36,6 +37,13 @@ export function SetLogger({
   onRpeChange,
   onDurationTextChange,
 }: SetLoggerProps) {
+  const theme = useTheme();
+  // TextInput is not a Themed* component, so its text and border colors must
+  // resolve against the scheme here — a static color renders black-on-black
+  // in dark mode.
+  const inputStyle = [styles.input, { color: theme.text, borderColor: theme.backgroundSelected }];
+  const setRowStyle = [styles.setRow, { borderBottomColor: theme.backgroundSelected }];
+
   const isDurationBased = isDurationBasedEntry(presenter.currentEntry);
 
   // Identity of the stopwatch run: the current entry plus its set position, so
@@ -61,7 +69,7 @@ export function SetLogger({
         <ScrollView style={styles.loggedSets}>
           <ThemedText type="smallBold">{`Logged sets (${presenter.loggedSetCount})`}</ThemedText>
           {presenter.loggedSets.map((set, idx) => (
-            <View key={idx} style={styles.setRow}>
+            <View key={idx} style={setRowStyle}>
               <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
             </View>
           ))}
@@ -108,8 +116,9 @@ export function SetLogger({
           />
           <ThemedText>Duration (sec)</ThemedText>
           <TextInput
-            style={styles.input}
+            style={inputStyle}
             placeholder="Duration"
+            placeholderTextColor={theme.textSecondary}
             keyboardType="decimal-pad"
             value={durationText}
             onChangeText={onDurationTextChange}
@@ -121,8 +130,9 @@ export function SetLogger({
           <View style={[styles.inputGroup, styles.inputRowItem]}>
             <ThemedText>Reps</ThemedText>
             <TextInput
-              style={styles.input}
+              style={inputStyle}
               placeholder="Reps"
+              placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
               value={repsText}
               onChangeText={onRepsTextChange}
@@ -132,8 +142,9 @@ export function SetLogger({
           <View style={[styles.inputGroup, styles.inputRowItem]}>
             <ThemedText>Weight (lbs)</ThemedText>
             <TextInput
-              style={styles.input}
+              style={inputStyle}
               placeholder="Weight"
+              placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
               value={weightText}
               onChangeText={onWeightTextChange}
@@ -273,12 +284,11 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.one,
   },
   input: {
+    // color and borderColor are theme-resolved inline (inputStyle)
     borderWidth: 1,
-    borderColor: '#ccc',
     borderRadius: 4,
     padding: Spacing.two,
     marginTop: Spacing.one,
-    color: '#000',
   },
   rpeHeader: {
     flexDirection: 'row',
@@ -301,9 +311,9 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.two,
   },
   setRow: {
+    // borderBottomColor is theme-resolved inline (setRowStyle)
     paddingVertical: Spacing.one,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   buttonGroup: {
     gap: Spacing.two,
