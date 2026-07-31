@@ -206,6 +206,132 @@ describe('Session hydration and restart recovery', () => {
     expect(scheduleRest2).not.toHaveBeenCalled();
   });
 
+  // Killed mid-rest (NOT paused): the state on disk keeps phase 'resting' and
+  // its wall-clock restDeadlineMs, but the relaunched process holds no armed
+  // alert. The boot-time Resume must reconcile both directions: re-arm a rest
+  // that is still live, and recover the phase from one that expired while the
+  // app was dead.
+  const killedMidRestRoutine = {
+    id: 'routine-killed-mid-rest',
+    name: 'Killed Mid-Rest Routine',
+    entries: [
+      {
+        exerciseId: 'ex-kmr1',
+        kind: 'strength' as const,
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 90,
+        supersetGroup: '',
+      },
+    ],
+  };
+
+  async function driveToRestingAndKill(db: Database, sessionId: string, now: number) {
+    const store = createActiveSessionStore(db, {
+      onScheduleRest: jest.fn(),
+      onCancelRest: jest.fn(),
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    await store.getState().dispatch({
+      tag: 'StartSession',
+      sessionId,
+      nowMs: now,
+      routine: killedMidRestRoutine,
+    });
+
+    // LogSet the first working set — enters the 90s between-sets rest with
+    // deadline now+2000+90000. The app is killed here without pausing.
+    await store.getState().dispatch({
+      tag: 'LogSet',
+      reps: 8,
+      weightKg: 40,
+      durationSeconds: 0,
+      nowMs: now + 2000,
+    });
+
+    const restingState = store.getState().sessionState!;
+    expect(restingState.phase).toBe('resting');
+    expect(restingState.restDeadlineMs).toBe(now + 92_000);
+    await saveEngineState(db, sessionId, restingState);
+    return restingState.restDeadlineMs;
+  }
+
+  it('Resume after a kill mid-rest re-arms the alert for a still-live deadline', async () => {
+    const now = Date.now();
+    const deadline = await driveToRestingAndKill(database, 'test-hydrate-rest-live', now);
+
+    // Relaunch simulation: fresh store (fresh executors with no armed alert),
+    // hydrate, then the boot-time Resume 30s into the 90s rest.
+    const scheduleRest2 = jest.fn();
+    const cancelRest2 = jest.fn();
+    const store2 = createActiveSessionStore(database, {
+      onScheduleRest: scheduleRest2,
+      onCancelRest: cancelRest2,
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    const loaded = await loadActiveEngineState(database);
+    expect(loaded).not.toBeNull();
+    store2.getState().hydrate(loaded!);
+
+    const result = await store2.getState().dispatch({
+      tag: 'Resume',
+      nowMs: now + 32_000,
+    });
+
+    // The rest continues against the same wall-clock deadline; the new process
+    // gets its alert re-armed for the remaining time.
+    expect(store2.getState().lastError).toBeNull();
+    expect(result).not.toBeNull();
+    const s = store2.getState().sessionState!;
+    expect(s.phase).toBe('resting');
+    expect(s.restDeadlineMs).toBe(deadline);
+    expect(scheduleRest2).toHaveBeenCalledWith(deadline);
+  });
+
+  it('Resume after a kill mid-rest recovers the phase from an expired deadline', async () => {
+    const now = Date.now();
+    await driveToRestingAndKill(database, 'test-hydrate-rest-expired', now);
+
+    const scheduleRest2 = jest.fn();
+    const cancelRest2 = jest.fn();
+    const store2 = createActiveSessionStore(database, {
+      onScheduleRest: scheduleRest2,
+      onCancelRest: cancelRest2,
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    const loaded = await loadActiveEngineState(database);
+    expect(loaded).not.toBeNull();
+    store2.getState().hydrate(loaded!);
+
+    // Resume long after the 90s rest ran out while the app was dead.
+    const result = await store2.getState().dispatch({
+      tag: 'Resume',
+      nowMs: now + 200_000,
+    });
+
+    // Same recovery RestElapsed would have made: phase from position (set 1 of
+    // a 0-warmup entry → working), deadline cleared, logged set intact.
+    expect(store2.getState().lastError).toBeNull();
+    expect(result).not.toBeNull();
+    const s = store2.getState().sessionState!;
+    expect(s.phase).toBe('working');
+    expect(s.setIndex).toBe(1);
+    expect(s.restDeadlineMs).toBe(0);
+    expect(s.loggedSets).toHaveLength(1);
+    expect(scheduleRest2).not.toHaveBeenCalled();
+  });
+
   it('persists and loads mid-session state with deadline info intact (AC10.4/AC10.6)', async () => {
     // AC10.4: Serialized SessionState persisted mid-session rehydrates after app restart
     // AC10.6: Rest deadline is preserved for reconciliation after rehydration
