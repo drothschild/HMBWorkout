@@ -6,6 +6,11 @@ import { createSession, appendSet, discardInProgressSession } from '@/db/reposit
 import { saveEngineState } from '@/db/engineState';
 import type { HealthKitSaveDeps } from '@/health/saveWorkout';
 
+// Discriminates a failed discard from an engine rejection in lastError. The
+// session screen gates its recovery copy on this exact prefix — producer,
+// consumer, and tests must all reference this constant, never a literal.
+export const DISCARD_FAILURE_PREFIX = 'discard failed: ';
+
 // Defer import until needed to avoid loading database singleton at module load time
 let database: Database | null = null;
 
@@ -259,7 +264,7 @@ export function createActiveSessionStore(
           const message = drainErr instanceof Error ? drainErr.message : String(drainErr);
           set({
             sessionState: null,
-            lastError: `discard failed: ${message}`,
+            lastError: `${DISCARD_FAILURE_PREFIX}${message}`,
           });
           return null;
         }

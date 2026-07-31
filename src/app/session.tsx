@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
-import { activeSessionStore } from '@/state/activeSession';
+import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
 import { getExerciseWorkingSetHistory } from '@/db/repository';
@@ -117,7 +117,7 @@ export default function SessionScreen() {
               // Abandon failed: read store state to discriminate error type
               const postDispatchLastError = activeSessionStore.getState().lastError;
 
-              if (postDispatchLastError?.startsWith('discard failed')) {
+              if (postDispatchLastError?.startsWith(DISCARD_FAILURE_PREFIX)) {
                 // Discard failed: session row still on disk, row is inspectable
                 Alert.alert(
                   'Couldn\'t discard the workout',

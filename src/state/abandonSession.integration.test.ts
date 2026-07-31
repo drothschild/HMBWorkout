@@ -10,7 +10,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { getSession, getSessionSets, upsertExercise, upsertRoutine, discardInProgressSession } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
-import { createActiveSessionStore } from './activeSession';
+import { createActiveSessionStore, DISCARD_FAILURE_PREFIX } from './activeSession';
 import type { HealthKitDeps } from './activeSession';
 
 // Mock discardInProgressSession for testing failure paths
@@ -158,7 +158,7 @@ describe('abandoning an in-progress workout', () => {
     expect(store.getState().lastError).toContain('AbandonSession');
     expect(store.getState().sessionState).toBeNull();
     // Rejection error does NOT have the discard failure prefix (used to discriminate from discard failure)
-    expect(store.getState().lastError).not.toMatch(/^discard failed:/i);
+    expect(store.getState().lastError?.startsWith(DISCARD_FAILURE_PREFIX)).toBe(false);
   });
 
   it('I1: when discard fails, rolls the store forward to match the idle engine: nulls sessionState, surfaces error, leaves row inspectable', async () => {
@@ -184,7 +184,7 @@ describe('abandoning an in-progress workout', () => {
 
     // lastError should contain the discard failure prefix (discriminates from rejection)
     expect(store.getState().lastError).not.toBeNull();
-    expect(store.getState().lastError).toMatch(/^discard failed:/i);
+    expect(store.getState().lastError?.startsWith(DISCARD_FAILURE_PREFIX)).toBe(true);
 
     // The row is still on disk because discard failed (not deleted)
     expect(await getSession(database, SESSION_ID)).toBeDefined();
