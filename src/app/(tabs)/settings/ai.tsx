@@ -1,7 +1,7 @@
 import { StyleSheet, TextInput, Pressable, ScrollView, View, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -49,6 +49,19 @@ export default function AiCoachSettingsScreen() {
   };
 
   useEffect(() => () => flush(), [flush]);
+
+  // Re-sync from settings on focus to pick up external changes (e.g., approved
+  // proposals from AI Coach). Flush pending edits first so any unflushed changes
+  // get saved before re-reading, preventing stale snapshots from reverting approved changes.
+  useFocusEffect(
+    useCallback(() => {
+      flush();
+      const settings = getSettings();
+      setAnthropicKey(settings.anthropicKey);
+      setAiGoals(settings.aiGoals);
+      setAiEquipment(settings.aiEquipment);
+    }, [flush])
+  );
 
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
   const placeholderColor = colorScheme === 'dark' ? '#999' : '#ccc';

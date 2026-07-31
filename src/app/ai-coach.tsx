@@ -108,7 +108,10 @@ export default function AiCoachScreen() {
 
   // Approval is the whole point of a proposal: nothing is written until this runs.
   const handleApproveSettings = () => {
-    if (pendingSettingsProposal === null) {
+    // Check live store state, not render snapshot: double-tap arriving after the
+    // first approval completes would pass the stale render-snapshot guard and hit
+    // the store's throw, which we'd misreport as a failure. Bail silently instead.
+    if (store.getState().pendingSettingsProposal === null) {
       return;
     }
     setAcceptError(null);
