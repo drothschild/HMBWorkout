@@ -594,7 +594,7 @@ describe('draftSchema', () => {
       };
 
       const result = validateRoutineDraft(draft);
-      expect((result.exercises[0] as any).description).toBe(
+      expect(result.exercises[0].description).toBe(
         'From all fours, bring the left shin forward and lower the hips toward the floor.'
       );
     });

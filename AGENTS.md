@@ -201,9 +201,10 @@ is now a misnomer — AI settings are in there too.
   receipt and `acceptDraft` validates again before writing. Keep both.
 - **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
   Exercises are global and shared by every routine, so `acceptDraft` creates a missing
-  exercise but never updates an existing one's title or kind — a draft must not rename
-  or re-kind an exercise out from under other routines. Title reuse therefore maps to
-  the same record, which is why the persona pushes the model toward existing titles.
+  exercise but never updates an existing one's title, kind, or description — a draft
+  must not rename or re-kind an exercise out from under other routines. Title reuse
+  therefore maps to the same record, which is why the persona pushes the model toward
+  existing titles.
 - **Drafts are whole routines, never diffs.** `upsertRoutine` reconciles
   `routine_exercises` in place, not delete-and-recreate: entries claim existing
   rows by `exerciseId` (oldest `order` first, so duplicated exercises match
