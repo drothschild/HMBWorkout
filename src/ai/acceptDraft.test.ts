@@ -121,6 +121,54 @@ describe('acceptDraft', () => {
       expect(entry.notes).toBe('Exercise notes');
     });
 
+    test('writes a draft description onto a newly created exercise', async () => {
+      const draft = {
+        name: 'Cooldown',
+        exercises: [
+          {
+            title: 'Pigeon Stretch (Left)',
+            kind: 'stretch' as const,
+            targetDurationSeconds: 30,
+            description: 'From all fours, bring the left shin forward and lower the hips toward the floor.',
+          },
+        ],
+      };
+
+      await acceptDraft(database, draft, { kind: 'create' });
+
+      const exercise = await database.get('exercises').find('pigeon-stretch-left');
+      expect((exercise as any).description).toBe(
+        'From all fours, bring the left shin forward and lower the hips toward the floor.'
+      );
+    });
+
+    test('never overwrites an existing exercise description, even a null one', async () => {
+      // First accept creates the exercise without a description.
+      await acceptDraft(
+        database,
+        { name: 'Cooldown v1', exercises: [{ title: 'Pigeon Stretch', kind: 'stretch' as const }] },
+        { kind: 'create' }
+      );
+      const created = await database.get('exercises').find('pigeon-stretch');
+      expect((created as any).description ?? null).toBeNull();
+
+      // Second accept reuses the title and carries a description: the existing
+      // record must stay untouched (create-only accept path).
+      await acceptDraft(
+        database,
+        {
+          name: 'Cooldown v2',
+          exercises: [
+            { title: 'Pigeon Stretch', kind: 'stretch' as const, description: 'Late-arriving how-to' },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      const after = await database.get('exercises').find('pigeon-stretch');
+      expect((after as any).description ?? null).toBeNull();
+    });
+
     test('create mode mints a fresh id per accept and never touches the prior routine', async () => {
       // Distinct mocked Date.now() values make the two minted ids deterministic
       const nowSpy = jest.spyOn(Date, 'now');

@@ -41,6 +41,7 @@ export interface DraftExercise {
   targetDurationSeconds?: number;
   restSeconds?: number;
   notes?: string;
+  description?: string; // applied only when the accept path creates the exercise
 }
 
 export class DraftValidationError extends Error {
@@ -80,6 +81,7 @@ export const AI_TURN_SCHEMA = {
               targetDurationSeconds: { type: 'integer' },
               restSeconds: { type: 'integer' },
               notes: { type: 'string' },
+              description: { type: 'string' },
             },
             required: ['title', 'kind'],
             additionalProperties: false,
@@ -159,6 +161,10 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
 
     if (exercise.notes !== undefined && typeof exercise.notes !== 'string') {
       throw new DraftValidationError('exercise notes, when present, must be a string');
+    }
+
+    if (exercise.description !== undefined && typeof exercise.description !== 'string') {
+      throw new DraftValidationError('exercise description, when present, must be a string');
     }
 
     const validateInteger = (field: string, value: unknown, minValue: number = 0) => {
