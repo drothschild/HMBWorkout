@@ -238,13 +238,7 @@ export default function TodayScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ThemedView style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            Today
-          </ThemedText>
           {renderContent()}
-          <Pressable onPress={() => router.push('/history')} style={styles.historyLink}>
-            <ThemedText type="linkPrimary">View History</ThemedText>
-          </Pressable>
         </ThemedView>
       </SafeAreaView>
     </ThemedView>
@@ -277,9 +271,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.three,
-  },
-  title: {
-    textAlign: 'center',
   },
   placeholder: {
     textAlign: 'center',
@@ -340,9 +331,5 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     fontSize: 12,
     marginTop: Spacing.one,
-  },
-  historyLink: {
-    padding: Spacing.two,
-    alignSelf: 'center',
   },
 });

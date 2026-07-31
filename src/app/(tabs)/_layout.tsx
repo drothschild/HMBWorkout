@@ -52,6 +52,17 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="history"
+        options={{
+          title: 'History',
+          headerTitle: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>📜</Text>
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',

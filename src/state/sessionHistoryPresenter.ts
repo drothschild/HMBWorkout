@@ -15,6 +15,18 @@ export function formatSetCountLabel(setCount: number): string {
 }
 
 /**
+ * Format a session's end time as a short date for the history card and the
+ * delete confirmation, in the device locale.
+ */
+export function formatSessionDate(epochMs: number): string {
+  return new Date(epochMs).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+/**
  * Query all finished sessions (endedAt set) and format them for the history
  * list UI, most recently finished first.
  *

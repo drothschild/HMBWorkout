@@ -117,7 +117,6 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen name="ai-coach" options={{ headerShown: false }} />
-          <Stack.Screen name="history" options={{ headerShown: false }} />
         </Stack>
       </ThemeProvider>
     </DatabaseProvider>

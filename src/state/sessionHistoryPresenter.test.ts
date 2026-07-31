@@ -1,7 +1,11 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet } from '@/db/repository';
-import { formatSetCountLabel, sessionHistoryPresenter } from './sessionHistoryPresenter';
+import {
+  formatSessionDate,
+  formatSetCountLabel,
+  sessionHistoryPresenter,
+} from './sessionHistoryPresenter';
 
 describe('sessionHistoryPresenter', () => {
   let database: Database;
@@ -185,6 +189,17 @@ describe('sessionHistoryPresenter', () => {
     // Should fall back to routine ID when name lookup fails
     expect(history[0].routineName).toBe('routine-deleted');
     expect(history[0].setCount).toBe(1);
+  });
+});
+
+describe('formatSessionDate', () => {
+  it('formats an epoch as a date with day and year, no time component', () => {
+    // Built from local-time components so the rendered day is stable in any timezone.
+    const epochMs = new Date(2026, 0, 15).getTime();
+    const formatted = formatSessionDate(epochMs);
+    expect(formatted).toContain('15');
+    expect(formatted).toContain('2026');
+    expect(formatted).not.toMatch(/\d{1,2}:\d{2}/);
   });
 });
 

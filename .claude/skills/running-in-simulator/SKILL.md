@@ -54,7 +54,7 @@ dialog that needs a manual tap. Confirm the bundle loaded with
 ## 3. Navigate headlessly
 
 `xcrun simctl openurl <udid> "hmbworkout://<path>"` — known paths:
-`ai-coach`, `routine/<id>`, `settings`, `settings/ai`.
+`ai-coach`, `history`, `routine/<id>`, `settings`, `settings/ai`.
 
 ## 4. Tap and type
 
