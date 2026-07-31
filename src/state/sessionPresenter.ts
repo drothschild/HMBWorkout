@@ -179,6 +179,56 @@ export function currentExerciseHasLoggedSet(sessionState: SessionState): boolean
 }
 
 /**
+ * The exercise currently being performed, or '' when there is none.
+ *
+ * The session screen's per-exercise effects (set prefill, progression hint)
+ * derive per-exercise data, so they must re-run whenever the exercise changes —
+ * and `exerciseIndex` alone does not say that. ReplaceExercise rewrites
+ * `entries[exerciseIndex].exerciseId` in place, leaving the index untouched, so
+ * an effect keyed on the index would keep showing the replaced exercise's
+ * numbers. A primitive (rather than the entry object, whose identity changes on
+ * every dispatch) so it works as a React dependency.
+ */
+export function currentExerciseId(
+  sessionState: SessionState | null | undefined
+): string {
+  return sessionState?.entries?.[sessionState.exerciseIndex]?.exerciseId ?? '';
+}
+
+/** What a fetched cross-session prefill was fetched *for*. */
+export interface PrefillTarget {
+  sessionId: string;
+  exerciseIndex: number;
+  exerciseId: string;
+}
+
+/**
+ * Whether a cross-session history prefill is still the right thing to apply.
+ *
+ * The history query is async, and the workout keeps moving while it is in
+ * flight: the user can log a set, advance to the next exercise, finish and
+ * start another session, or swap the exercise out from under the request. The
+ * result is applied only if the state it was fetched for is still the state on
+ * screen.
+ *
+ * All three keys matter, and the exerciseId is the one that is easy to miss: a
+ * swap leaves sessionId and exerciseIndex identical while changing what is
+ * being performed, so checking only the first two would prefill the
+ * substitute's inputs with the original's last set.
+ */
+export function historyPrefillStillApplies(
+  fresh: SessionState,
+  target: PrefillTarget
+): boolean {
+  return (
+    fresh.sessionId === target.sessionId &&
+    fresh.exerciseIndex === target.exerciseIndex &&
+    currentExerciseId(fresh) === target.exerciseId &&
+    !currentExerciseHasLoggedSet(fresh)
+  );
+}
+
+/**
  * Default input values for the next set of the current exercise.
  *
  * Precedence: the exercise's own last in-session set (matched by exerciseId —
