@@ -1,7 +1,7 @@
 import { StyleSheet, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -109,28 +109,26 @@ export default function RoutineDetailScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Edit ${exercise.title}`}
                     >
-                      <View style={styles.exerciseRowContent}>
-                        <View style={styles.exerciseInfo}>
-                          <ThemedText type="default" style={styles.exerciseName}>
-                            {exercise.title}
+                      <View style={styles.exerciseInfo}>
+                        <ThemedText type="default" style={styles.exerciseName}>
+                          {exercise.title}
+                        </ThemedText>
+                        <ThemedText type="default" style={styles.exerciseDetails}>
+                          {exercise.targetSets != null &&
+                            exercise.targetReps != null &&
+                            `${exercise.targetSets}x${exercise.targetReps}`}
+                          {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
+                            `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
+                              exercise.targetDurationSeconds % 60
+                            ).padStart(2, '0')}`}
+                          {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
+                          {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+                        </ThemedText>
+                        {exercise.description && (
+                          <ThemedText type="small" style={styles.exerciseDescription}>
+                            {exercise.description}
                           </ThemedText>
-                          <ThemedText type="default" style={styles.exerciseDetails}>
-                            {exercise.targetSets != null &&
-                              exercise.targetReps != null &&
-                              `${exercise.targetSets}x${exercise.targetReps}`}
-                            {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                              `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                                exercise.targetDurationSeconds % 60
-                              ).padStart(2, '0')}`}
-                            {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                            {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                          </ThemedText>
-                          {exercise.description && (
-                            <ThemedText type="small" style={styles.exerciseDescription}>
-                              {exercise.description}
-                            </ThemedText>
-                          )}
-                        </View>
+                        )}
                       </View>
                       <ThemedText type="default" style={styles.exerciseChevron}>
                         ›
@@ -155,36 +153,34 @@ export default function RoutineDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Edit ${exercise.title}`}
                 >
-                  <View style={styles.exerciseRowContent}>
-                    <View style={styles.exerciseInfo}>
-                      <ThemedText type="default" style={styles.exerciseName}>
-                        {exercise.title}
+                  <View style={styles.exerciseInfo}>
+                    <ThemedText type="default" style={styles.exerciseName}>
+                      {exercise.title}
+                    </ThemedText>
+                    <ThemedText type="default" style={styles.exerciseDetails}>
+                      {exercise.targetSets != null &&
+                        exercise.targetReps != null &&
+                        `${exercise.targetSets}x${exercise.targetReps}`}
+                      {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
+                        `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
+                          exercise.targetDurationSeconds % 60
+                        ).padStart(2, '0')}`}
+                      {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
+                      {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+                    </ThemedText>
+                    {exercise.description && (
+                      <ThemedText type="small" style={styles.exerciseDescription}>
+                        {exercise.description}
                       </ThemedText>
-                      <ThemedText type="default" style={styles.exerciseDetails}>
-                        {exercise.targetSets != null &&
-                          exercise.targetReps != null &&
-                          `${exercise.targetSets}x${exercise.targetReps}`}
-                        {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                          `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                            exercise.targetDurationSeconds % 60
-                          ).padStart(2, '0')}`}
-                        {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                        {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                      </ThemedText>
-                      {exercise.description && (
-                        <ThemedText type="small" style={styles.exerciseDescription}>
-                          {exercise.description}
-                        </ThemedText>
-                      )}
-                    </View>
+                    )}
                   </View>
                   <ThemedText type="default" style={styles.exerciseChevron}>
                     ›
                   </ThemedText>
                 </Pressable>
-                ))}
-              </View>
-            )}
+              ))}
+            </View>
+          )}
         </ScrollView>
 
         <Pressable
@@ -289,9 +285,6 @@ const styles = StyleSheet.create({
   },
   exerciseItemPressed: {
     opacity: 0.6,
-  },
-  exerciseRowContent: {
-    flex: 1,
   },
   exerciseInfo: {
     flex: 1,

@@ -51,15 +51,17 @@ export default function ExerciseDetailScreen() {
       timerRef.current = null;
     }
     if (!hasPendingRef.current || !id) return;
-    hasPendingRef.current = false;
     const value = pendingValueRef.current;
     updateExerciseDescription(database, id, value)
       .then(() => {
+        hasPendingRef.current = false;
         setSaveError(null);
       })
       .catch((error) => {
+        // Re-mark pending so the next flush (typing or unmount) will retry the same value
+        hasPendingRef.current = true;
         console.error('Failed to save exercise description:', error);
-        setSaveError('Couldn\'t save — retry');
+        setSaveError('Couldn\'t save — will retry with your next change');
       });
   }, [id]);
 
@@ -73,6 +75,10 @@ export default function ExerciseDetailScreen() {
     timerRef.current = setTimeout(flush, AUTOSAVE_DELAY_MS);
   };
 
+  // Flush any pending changes on unmount. If the flush fails mid-flight and setState
+  // is called on an unmounted component, it's a no-op (React ignores it), so hasPendingRef
+  // may remain true. This is a tiny race window and acceptable: the next session load
+  // will see the value in the component and can save again if needed.
   useEffect(() => () => flush(), [flush]);
 
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';

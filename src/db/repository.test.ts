@@ -883,7 +883,7 @@ describe('Repository: session and set helpers', () => {
       expect((exercise as any).description).toBeNull();
     }, 10000);
 
-    it('updateExerciseDescription trims leading and trailing whitespace', async () => {
+    it('stores trimmed text (decorator + boundary agree)', async () => {
       await upsertExercise(database, 'exercise-trim', 'Press', 'strength', 'Original');
 
       await updateExerciseDescription(database, 'exercise-trim', '  squat cues  ');
@@ -906,7 +906,7 @@ describe('Repository: session and set helpers', () => {
       expect((exercise as any).description).toBeNull();
     }, 10000);
 
-    it('upsertExercise create trims leading and trailing whitespace from description', async () => {
+    it('create stores trimmed text (decorator + boundary agree)', async () => {
       await upsertExercise(database, 'exercise-create-trim', 'Deadlift', 'strength', '  keep your chest up  ');
 
       const exercise = await database.get('exercises').find('exercise-create-trim');

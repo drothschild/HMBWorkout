@@ -404,7 +404,8 @@ export async function upsertExercise(
       return exercise;
     } catch {
       // Not found, create new
-      const normalized = description?.trim() ? description.trim() : null;
+      const trimmed = description?.trim();
+      const normalized = trimmed ? trimmed : null;
       const created = await exercisesTable.create((e: any) => {
         e._raw.id = exerciseId;
         e.title = title;
@@ -440,7 +441,8 @@ export async function updateExerciseDescription(
     const exercisesTable = database.get('exercises');
     const exercise = await exercisesTable.find(exerciseId);
 
-    const normalized = description?.trim() ? description.trim() : null;
+    const trimmed = description?.trim();
+    const normalized = trimmed ? trimmed : null;
 
     await exercise.update((record: any) => {
       record.description = normalized;
