@@ -19,10 +19,12 @@ export type TodayStartOptions =
 
 /**
  * Derive what Today can offer the user: a choice among their saved routines,
- * or an empty state when they have none.
+ * or an empty state when they have none or all are unstartable.
  *
  * Today never invents a routine — a session always starts from one the user
  * saved, so an empty database is an empty state, not a blank workout.
+ * Routines with no exercises cannot be started, so a user whose routines
+ * all have zero exercises sees the same guidance as having no routines.
  */
 export async function todayStartPresenter(db: Database): Promise<TodayStartOptions> {
   const routines = await routineListPresenter(db);
@@ -31,11 +33,19 @@ export async function todayStartPresenter(db: Database): Promise<TodayStartOptio
     return { kind: 'no-routines' };
   }
 
+  const routinesWithStartable = routines.map((routine) => ({
+    ...routine,
+    startable: routine.exerciseCount > 0,
+  }));
+
+  const hasStartable = routinesWithStartable.some((r) => r.startable);
+
+  if (!hasStartable) {
+    return { kind: 'no-routines' };
+  }
+
   return {
     kind: 'choose-routine',
-    routines: routines.map((routine) => ({
-      ...routine,
-      startable: routine.exerciseCount > 0,
-    })),
+    routines: routinesWithStartable,
   };
 }

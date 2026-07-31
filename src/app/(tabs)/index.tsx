@@ -21,26 +21,28 @@ export default function TodayScreen() {
   const [startOptions, setStartOptions] = useState<TodayStartOptions | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadRoutines = useCallback(async () => {
+    try {
+      const options = await todayStartPresenter(database);
+      setStartOptions(options);
+      setLoadError(null);
+    } catch (error) {
+      console.error('Failed to load routines for Today:', error);
+      setLoadError('Could not load routines. Please try again.');
+      setStartOptions(null);
+    }
+  }, []);
 
   // Reload on focus rather than once on mount: routines arrive from the AI
   // Coach, the vault import, and the Routines tab, all of which the user
   // reaches and returns from without this screen unmounting.
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-
-      todayStartPresenter(database)
-        .then((options) => {
-          if (!cancelled) setStartOptions(options);
-        })
-        .catch((error) => {
-          console.error('Failed to load routines for Today:', error);
-        });
-
-      return () => {
-        cancelled = true;
-      };
-    }, [])
+      setStartError(null);
+      loadRoutines();
+    }, [loadRoutines])
   );
 
   const handleStartRoutine = async (routineId: string) => {
@@ -94,6 +96,18 @@ export default function TodayScreen() {
                 onPress={() => router.push('/session')}
               >
                 <ThemedText style={styles.buttonText}>Resume Session</ThemedText>
+              </Pressable>
+            </View>
+          ) : loadError ? (
+            <View style={styles.centered}>
+              <ThemedText type="default" style={styles.errorText}>
+                {loadError}
+              </ThemedText>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => loadRoutines()}
+              >
+                <ThemedText style={styles.buttonText}>Retry</ThemedText>
               </Pressable>
             </View>
           ) : startOptions === null ? (

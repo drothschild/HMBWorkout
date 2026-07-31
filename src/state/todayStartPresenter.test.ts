@@ -50,13 +50,14 @@ describe('todayStartPresenter', () => {
 
   it('offers every saved routine as a choice, in creation order', async () => {
     const now = Date.now();
-    await seedRoutine(db, { id: 'routine-push', name: 'Push Day', exerciseCount: 1, createdAt: now });
+    // Seed out of insertion order to verify sort is actually load-bearing
     await seedRoutine(db, {
       id: 'routine-pull',
       name: 'Pull Day',
       exerciseCount: 2,
       createdAt: now + 1000,
     });
+    await seedRoutine(db, { id: 'routine-push', name: 'Push Day', exerciseCount: 1, createdAt: now });
 
     const options = await todayStartPresenter(db);
 
@@ -69,15 +70,22 @@ describe('todayStartPresenter', () => {
     });
   });
 
-  it('marks a routine with no exercises as not startable', async () => {
+  it('shows all-routines-unstartable guidance when a single routine has no exercises', async () => {
     const now = Date.now();
     await seedRoutine(db, { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, createdAt: now });
 
     const options = await todayStartPresenter(db);
 
-    expect(options).toEqual({
-      kind: 'choose-routine',
-      routines: [{ id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, startable: false }],
-    });
+    expect(options).toEqual({ kind: 'no-routines' });
+  });
+
+  it('shows no-routines empty state when all routines are unstartable', async () => {
+    const now = Date.now();
+    await seedRoutine(db, { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, createdAt: now });
+    await seedRoutine(db, { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, createdAt: now + 1000 });
+
+    const options = await todayStartPresenter(db);
+
+    expect(options).toEqual({ kind: 'no-routines' });
   });
 });
