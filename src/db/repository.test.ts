@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1286,6 +1286,108 @@ describe('Repository: session and set helpers', () => {
       expect((history[0] as any).weightKg).toBe(100);
       expect((history[1] as any).weightKg).toBe(100);
     }, 15000);
+  });
+
+  describe('upsertExercise and updateExerciseDescription', () => {
+    it('creates an exercise without a description when none is provided', async () => {
+      await upsertExercise(database, 'exercise-no-desc', 'Goblet Squat', 'strength');
+
+      const exercise = await database.get('exercises').find('exercise-no-desc');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('creates an exercise with a description when one is provided', async () => {
+      await upsertExercise(
+        database,
+        'exercise-with-desc',
+        'Goblet Squat',
+        'strength',
+        'Hold a dumbbell at chest height, squat between your knees.'
+      );
+
+      const exercise = await database.get('exercises').find('exercise-with-desc');
+      expect((exercise as any).description).toBe(
+        'Hold a dumbbell at chest height, squat between your knees.'
+      );
+    }, 10000);
+
+    it('updateExerciseDescription sets the description without touching title or kind', async () => {
+      await upsertExercise(database, 'exercise-update-desc', 'Overhead Press', 'strength');
+
+      await updateExerciseDescription(
+        database,
+        'exercise-update-desc',
+        'Press from shoulder height to lockout overhead.'
+      );
+
+      const exercise = await database.get('exercises').find('exercise-update-desc');
+      expect((exercise as any).description).toBe('Press from shoulder height to lockout overhead.');
+      expect((exercise as any).title).toBe('Overhead Press');
+      expect((exercise as any).kind).toBe('strength');
+    }, 10000);
+
+    it('updateExerciseDescription can clear a description back to null', async () => {
+      await upsertExercise(
+        database,
+        'exercise-clear-desc',
+        'Lat Pulldown',
+        'strength',
+        'Pull the bar to your upper chest.'
+      );
+
+      await updateExerciseDescription(database, 'exercise-clear-desc', null);
+
+      const exercise = await database.get('exercises').find('exercise-clear-desc');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('updateExerciseDescription normalizes empty string to null', async () => {
+      await upsertExercise(database, 'exercise-empty-str', 'Curl', 'strength', 'Original description');
+
+      await updateExerciseDescription(database, 'exercise-empty-str', '');
+
+      const exercise = await database.get('exercises').find('exercise-empty-str');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('updateExerciseDescription normalizes whitespace-only string to null', async () => {
+      await upsertExercise(database, 'exercise-ws-str', 'Row', 'strength', 'Original description');
+
+      await updateExerciseDescription(database, 'exercise-ws-str', '   ');
+
+      const exercise = await database.get('exercises').find('exercise-ws-str');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('stores trimmed text (decorator + boundary agree)', async () => {
+      await upsertExercise(database, 'exercise-trim', 'Press', 'strength', 'Original');
+
+      await updateExerciseDescription(database, 'exercise-trim', '  squat cues  ');
+
+      const exercise = await database.get('exercises').find('exercise-trim');
+      expect((exercise as any).description).toBe('squat cues');
+    }, 10000);
+
+    it('upsertExercise create normalizes empty string description to null', async () => {
+      await upsertExercise(database, 'exercise-create-empty', 'Bench', 'strength', '');
+
+      const exercise = await database.get('exercises').find('exercise-create-empty');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('upsertExercise create normalizes whitespace-only description to null', async () => {
+      await upsertExercise(database, 'exercise-create-ws', 'Squat', 'strength', '   ');
+
+      const exercise = await database.get('exercises').find('exercise-create-ws');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('create stores trimmed text (decorator + boundary agree)', async () => {
+      await upsertExercise(database, 'exercise-create-trim', 'Deadlift', 'strength', '  keep your chest up  ');
+
+      const exercise = await database.get('exercises').find('exercise-create-trim');
+      expect((exercise as any).description).toBe('keep your chest up');
+    }, 10000);
   });
 
   describe('upsertRoutine reconcile', () => {

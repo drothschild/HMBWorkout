@@ -2,6 +2,7 @@ import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
 import RoutineExercise from './models/RoutineExercise';
+import Exercise from './models/Exercise';
 import Routine from './models/Routine';
 import { validateSet } from './validation';
 
@@ -500,16 +501,26 @@ export async function getSupersetGroups(
  * Upsert an exercise (create if not exists, update if exists).
  * Exercises are keyed by slug (id).
  *
+ * `description` only applies on create — it is user-authored, so re-upserting
+ * an existing exercise (e.g. via the AI accept path, which calls this only
+ * for exercises that don't exist yet) never touches a description someone
+ * already wrote. Use updateExerciseDescription for the user edit path.
+ *
+ * Normalizes empty or whitespace-only descriptions to null on create, so the
+ * database always carries clean data.
+ *
  * @param database The database instance
  * @param exerciseId The exercise slug/ID
  * @param title Human-readable title
  * @param kind Exercise kind (strength, cardio, stretch)
+ * @param description Optional user-authored description, set only on create
  */
 export async function upsertExercise(
   database: Database,
   exerciseId: string,
   title: string,
-  kind: string
+  kind: string,
+  description?: string
 ): Promise<any> {
   return await database.write(async () => {
     const exercisesTable = database.get('exercises');
@@ -524,14 +535,51 @@ export async function upsertExercise(
       return exercise;
     } catch {
       // Not found, create new
+      const trimmed = description?.trim();
+      const normalized = trimmed ? trimmed : null;
       const created = await exercisesTable.create((e: any) => {
         e._raw.id = exerciseId;
         e.title = title;
         e.kind = kind;
+        if (normalized !== null) e.description = normalized;
         e._raw.created_at = Date.now();
       });
       return created;
     }
+  });
+}
+
+/**
+ * Update an exercise's user-authored description. This is the targeted edit
+ * path: it touches only the description field and never the title or kind,
+ * so it's safe for the user-facing edit screen without risking the
+ * create-only invariant the AI accept path depends on (exercises are global
+ * and shared across every routine).
+ *
+ * Normalizes empty or whitespace-only strings to null, so the database always
+ * carries clean data: either a meaningful description or null, never ''.
+ *
+ * @param database The database instance
+ * @param exerciseId The exercise ID
+ * @param description The new description, or null to clear it
+ */
+export async function updateExerciseDescription(
+  database: Database,
+  exerciseId: string,
+  description: string | null
+): Promise<Exercise> {
+  return await database.write(async () => {
+    const exercisesTable = database.get('exercises');
+    const exercise = await exercisesTable.find(exerciseId);
+
+    const trimmed = description?.trim();
+    const normalized = trimmed ? trimmed : null;
+
+    await exercise.update((record: any) => {
+      record.description = normalized;
+    });
+
+    return exercise as Exercise;
   });
 }
 

@@ -10,6 +10,7 @@ export interface ExerciseDetail {
   targetDurationSeconds?: number;
   restSeconds?: number;
   kind: string;
+  description: string | null;
 }
 
 export interface SupersetGroupDetail {
@@ -44,7 +45,7 @@ export async function routineDetailPresenter(
     routineExercises.sort((a, b) => a._raw.order - b._raw.order);
 
     // Get exercise details
-    const exerciseMap = new Map<string, { title: string; kind: string }>();
+    const exerciseMap = new Map<string, { title: string; kind: string; description: string | null }>();
     const exerciseIds = [...new Set(routineExercises.map((re) => re._raw.exercise_id))];
 
     for (const exId of exerciseIds) {
@@ -52,6 +53,7 @@ export async function routineDetailPresenter(
       exerciseMap.set(exId, {
         title: (exercise as any).title,
         kind: (exercise as any)._raw.kind,
+        description: (exercise as any)._raw.description ?? null,
       });
     }
 
@@ -73,6 +75,7 @@ export async function routineDetailPresenter(
         targetDurationSeconds: re._raw.target_duration_seconds,
         restSeconds: re._raw.rest_seconds,
         kind: exerciseInfo?.kind || 'strength',
+        description: exerciseInfo?.description ?? null,
       };
 
       const supersetLabel = re._raw.superset_group;
