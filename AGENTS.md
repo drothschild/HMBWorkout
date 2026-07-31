@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-29
+Last verified: 2026-07-30
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -152,9 +152,14 @@ misnomer — AI settings are in there too.
   exercise but never updates an existing one's title or kind — a draft must not rename
   or re-kind an exercise out from under other routines. Title reuse therefore maps to
   the same record, which is why the persona pushes the model toward existing titles.
-- **Drafts are whole routines, never diffs.** `upsertRoutine` deletes and recreates
-  every `routine_exercise` row, so accepting an edit draft that omits an exercise
-  removes it. The persona demands the full exercise list for this reason.
+- **Drafts are whole routines, never diffs.** `upsertRoutine` reconciles
+  `routine_exercises` in place, not delete-and-recreate: entries claim existing
+  rows by `exerciseId` (oldest `order` first, so duplicated exercises match
+  deterministically) and survivors keep their row ids. That stability is
+  load-bearing: `session_sets.routine_exercise_id` references those rows and
+  `getExerciseWorkingSetHistory` joins by row id, so editing a routine never
+  orphans logged history. An exercise the draft omits *is* deleted, which is why
+  the persona demands the full exercise list.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
