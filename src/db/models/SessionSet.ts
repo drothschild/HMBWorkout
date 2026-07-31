@@ -1,7 +1,10 @@
 import { Model } from '@nozbe/watermelondb';
 import { field, text, readonly, date, relation } from '@nozbe/watermelondb/decorators';
+import type { SetType } from '@/engine/types';
 
-export type SetType = 'warmup' | 'working' | 'drop';
+// set_type stores exactly what the engine logs; the union's single source of
+// truth is the engine boundary (src/engine/types.ts).
+export type { SetType };
 
 export default class SessionSet extends Model {
   static table = 'session_sets';
