@@ -12,12 +12,26 @@ import { RoutineEntry } from '@/engine/types';
  * never by accumulating ticks: JS timers drift and suspend outright while the
  * app is backgrounded, so a tick count is not elapsed time. The interval in the
  * component exists only to trigger a re-render; truth is computed here.
+ *
+ * Two display modes share this one state machine. An entry with a positive
+ * `targetDurationSeconds` runs as a countdown: after the same lead-in, the
+ * running phase counts DOWN from the target, halts at 0:00 exactly once
+ * (recording the target as the elapsed exercise time and firing one buzz),
+ * and drops the per-minute milestones. An entry with no target (0 or absent)
+ * keeps the original count-up stopwatch, milestones included. The mode is
+ * decided per advance from the caller's input, not latched onto the run —
+ * `targetDurationSeconds` is a property of the routine entry the key already
+ * identifies, so it stays constant for the run's lifetime in practice.
  */
 
 /** Lead-in before the clock starts, so the user can get into position. */
 export const LEAD_IN_SECONDS = 5;
 
-/** Alert cadence: buzz once at every full minute of exercise time. */
+/**
+ * Alert cadence for the count-up stopwatch: buzz once at every full minute of
+ * exercise time. Countdown mode never uses this — it fires exactly one buzz,
+ * at 0:00, in place of the whole cadence.
+ */
 export const MILESTONE_INTERVAL_SECONDS = 60;
 
 export type StopwatchPhase = 'leadIn' | 'running' | 'stopped';
@@ -64,15 +78,27 @@ export interface StopwatchView {
   phase: StopwatchPhase;
   /** Whole seconds left in the lead-in (5..1); 0 once the clock is running. */
   remainingLeadInSeconds: number;
-  /** Whole seconds of exercise time, excluding the lead-in; 0 during it. */
+  /**
+   * Whole seconds of exercise time, excluding the lead-in; 0 during it.
+   * Always the true elapsed time (never the countdown remainder), and in
+   * countdown mode never reports past the target — a late tick caps here
+   * rather than showing overtime. This is what a manual or auto stop records.
+   */
   elapsedSeconds: number;
   /**
-   * Lead-in renders as a bare count ("5"); the running clock as "m:ss"; a
-   * stop that recorded nothing renders "—" so the card never asserts a
-   * duration it did not record.
+   * Seconds left in a countdown: target minus elapsed, clamped to zero.
+   * Always 0 outside countdown mode (no target, or a target of 0) — callers
+   * driving the plain count-up stopwatch have no reason to read it.
+   */
+  remainingSeconds: number;
+  /**
+   * Lead-in renders as a bare count ("5"); the running clock as "m:ss" —
+   * elapsed time counting up, or remaining time counting down in countdown
+   * mode; a stop that recorded nothing renders "—" so the card never
+   * asserts a duration it did not record.
    */
   display: string;
-  /** Heading above the clock — 'Starting in', 'Elapsed', 'Paused', 'Stopped'. */
+  /** Heading above the clock — 'Starting in', 'Elapsed', 'Remaining', 'Paused', 'Stopped'. */
   label: string;
   /** Frozen by anything at all: the session pause, the local pause, or a stop. */
   isFrozen: boolean;
@@ -97,6 +123,14 @@ export interface StopwatchAdvanceInput {
    * none, which is what makes stop's recorded time fire exactly once.
    */
   command?: StopwatchCommand;
+  /**
+   * The routine entry's target duration, seconds. A positive value switches
+   * the running phase into a countdown (see module doc); 0 or undefined keeps
+   * the plain count-up stopwatch. Not part of the run's persisted state —
+   * it is a property of the entry the key already identifies, so the caller
+   * re-supplies it on every advance rather than it being latched at arm time.
+   */
+  targetDurationSeconds?: number;
 }
 
 export interface StopwatchAdvanceResult {
@@ -105,13 +139,23 @@ export interface StopwatchAdvanceResult {
   /**
    * The minute (1, 2, 3…) whose milestone was crossed on this advance, or
    * undefined. Fires at most once per advance and exactly once per minute.
+   * Never fires in countdown mode — see `vibrateAtZero`.
    */
   vibrateAtMinute: number | undefined;
   /**
+   * True on the single advance where a countdown run reaches 0:00 on its
+   * own — never on a manual Stop, and never again once the run is stopped.
+   * This is the one buzz a countdown run gets, replacing the per-minute
+   * milestones entirely. Always false outside countdown mode.
+   */
+  vibrateAtZero: boolean;
+  /**
    * Whole seconds of exercise time to record as the exercise's duration,
-   * emitted only on the advance that processed a `stop`. Every other advance —
-   * including a late tick, a replayed one, or a second stop — reports
-   * undefined, so the Duration field is written once and stays the user's.
+   * emitted only on the advance that processed a `stop` — a manual one, or
+   * a countdown run reaching 0:00 on its own, which behaves exactly like a
+   * stop and records the target. Every other advance — including a late
+   * tick, a replayed one, or a second stop — reports undefined, so the
+   * Duration field is written once and stays the user's.
    */
   recordedSeconds: number | undefined;
 }
@@ -184,7 +228,7 @@ export function advanceStopwatch(
   run: StopwatchRun | undefined,
   input: StopwatchAdvanceInput
 ): StopwatchAdvanceResult {
-  const { key, running, nowMs, command } = input;
+  const { key, running, nowMs, command, targetDurationSeconds } = input;
 
   // No timed exercise: drop any run so returning to one starts a fresh lead-in.
   if (key === undefined) {
@@ -192,9 +236,18 @@ export function advanceStopwatch(
       run: undefined,
       view: undefined,
       vibrateAtMinute: undefined,
+      vibrateAtZero: false,
       recordedSeconds: undefined,
     };
   }
+
+  // 0 or absent is the plain count-up stopwatch; only a positive target
+  // switches the running phase into a countdown.
+  const target =
+    targetDurationSeconds !== undefined && targetDurationSeconds > 0
+      ? targetDurationSeconds
+      : undefined;
+  const isCountdown = target !== undefined;
 
   // A different key means a different (entry, set) — reset rather than resume.
   // That clears the local pause and any stop along with the clock.
@@ -232,28 +285,58 @@ export function advanceStopwatch(
   }
 
   const isFrozen = next.frozenAtMs !== undefined;
-  const isStopped = next.control === 'stopped';
+  let isStopped = next.control === 'stopped';
   const effectiveNowMs = next.frozenAtMs ?? nowMs;
   const sinceStartMs = Math.max(0, effectiveNowMs - next.startedAtMs);
   const leadInRemainingMs = LEAD_IN_SECONDS * 1000 - sinceStartMs;
   const isLeadIn = leadInRemainingMs > 0;
   // max(0, …) also normalizes the -0 that Math.floor yields exactly at the
   // boundary, so the first running frame is 0 and not a negative zero.
-  const elapsedSeconds = isLeadIn ? 0 : Math.max(0, Math.floor(-leadInRemainingMs / 1000));
+  const rawElapsedSeconds = isLeadIn ? 0 : Math.max(0, Math.floor(-leadInRemainingMs / 1000));
+
+  // A countdown run expires exactly like a manual Stop: once exercise time
+  // reaches the target, latch `control` to 'stopped' so it halts there for
+  // good — applyCommand's terminal check then keeps a later pause/resume from
+  // reviving it, same as a real stop. Gated on `!isStopped` (checked against
+  // the control coming into this advance) so this only fires on the one tick
+  // that crosses the line; a run already stopped — by this or an earlier
+  // advance — skips straight past. `vibrateAtZero` latches the same way,
+  // which is what makes it a one-shot buzz instead of firing every tick after
+  // expiry. A stop landing on this same tick via the user's own command has
+  // already set `isStopped` above, so it wins here: no double vibrate.
+  let vibrateAtZero = false;
+  if (isCountdown && !isLeadIn && !isStopped && rawElapsedSeconds >= target) {
+    next = { ...next, control: 'stopped' };
+    isStopped = true;
+    stoppingNow = true;
+    vibrateAtZero = true;
+  }
+
+  // Exercise time never reports past the target in countdown mode — a late
+  // tick (background gap, slow interval) must not record or display overtime.
+  const elapsedSeconds =
+    target !== undefined ? Math.min(rawElapsedSeconds, target) : rawElapsedSeconds;
+  const remainingSeconds = target !== undefined ? Math.max(0, target - elapsedSeconds) : 0;
 
   if (isStopped) {
     // A stop with no elapsed time records nothing: no exercise time happened,
     // and writing a 0 over the routine's prefilled target duration would destroy
     // a useful default. Display '—' to signal nothing was recorded; once
-    // something was recorded, show the frozen elapsed time.
+    // something was recorded, show the frozen clock — countdown mode keeps
+    // showing remaining time even once stopped (same source as the running
+    // and paused phases, so the card never switches meaning mid-freeze), which
+    // is what makes an expired run read as "0:00" while `recordedSeconds`
+    // below still carries the real duration (the target) into the Duration field.
     const shouldRecordSeconds = stoppingNow && elapsedSeconds > 0;
-    const displayValue = elapsedSeconds > 0 ? formatStopwatchDisplay(elapsedSeconds) : '—';
+    const stoppedDisplaySeconds = isCountdown ? remainingSeconds : elapsedSeconds;
+    const displayValue = elapsedSeconds > 0 ? formatStopwatchDisplay(stoppedDisplaySeconds) : '—';
     return {
       run: next,
       view: {
         phase: 'stopped',
         remainingLeadInSeconds: 0,
         elapsedSeconds,
+        remainingSeconds,
         display: displayValue,
         label: 'Stopped',
         isFrozen: true,
@@ -263,6 +346,7 @@ export function advanceStopwatch(
         canStop: false,
       },
       vibrateAtMinute: undefined,
+      vibrateAtZero,
       recordedSeconds: shouldRecordSeconds ? elapsedSeconds : undefined,
     };
   }
@@ -279,23 +363,29 @@ export function advanceStopwatch(
         phase: 'leadIn',
         remainingLeadInSeconds: Math.ceil(leadInRemainingMs / 1000),
         elapsedSeconds: 0,
+        remainingSeconds,
         display: String(Math.ceil(leadInRemainingMs / 1000)),
         label: isFrozen ? 'Paused' : 'Starting in',
         isFrozen,
         ...controls,
       },
       vibrateAtMinute: undefined,
+      vibrateAtZero: false,
       recordedSeconds: undefined,
     };
   }
 
   // Milestones are suppressed while frozen — by either pause — so a halted
   // workout stays silent and still owes the minute once the clock moves again.
+  // Countdown mode drops per-minute milestones entirely: the single zero-buzz
+  // above replaces them, so this block never runs for a countdown run.
   let vibrateAtMinute: number | undefined;
-  const minute = Math.floor(elapsedSeconds / MILESTONE_INTERVAL_SECONDS);
-  if (!isFrozen && minute > next.lastMilestone) {
-    vibrateAtMinute = minute;
-    next = { ...next, lastMilestone: minute };
+  if (!isCountdown) {
+    const minute = Math.floor(elapsedSeconds / MILESTONE_INTERVAL_SECONDS);
+    if (!isFrozen && minute > next.lastMilestone) {
+      vibrateAtMinute = minute;
+      next = { ...next, lastMilestone: minute };
+    }
   }
 
   return {
@@ -304,12 +394,20 @@ export function advanceStopwatch(
       phase: 'running',
       remainingLeadInSeconds: 0,
       elapsedSeconds,
-      display: formatStopwatchDisplay(elapsedSeconds),
-      label: isFrozen ? 'Paused' : 'Elapsed',
+      remainingSeconds,
+      display: formatStopwatchDisplay(isCountdown ? remainingSeconds : elapsedSeconds),
+      label: isCountdown
+        ? isFrozen
+          ? 'Paused'
+          : 'Remaining'
+        : isFrozen
+          ? 'Paused'
+          : 'Elapsed',
       isFrozen,
       ...controls,
     },
     vibrateAtMinute,
+    vibrateAtZero: false,
     recordedSeconds: undefined,
   };
 }

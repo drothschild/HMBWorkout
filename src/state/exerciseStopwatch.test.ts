@@ -778,7 +778,10 @@ describe('advanceStopwatch — countdown mode', () => {
     const stopped = atCountdown(LEAD_IN_SECONDS * 1000 + 10_000, run, true, 'stop');
     expect(stopped.recordedSeconds).toBe(10);
     expect(stopped.vibrateAtZero).toBe(false);
-    expect(stopped.view?.display).toBe('0:10');
+    // The card keeps showing remaining time — the same source as while it was
+    // running — rather than switching to elapsed just because it stopped; the
+    // recorded Duration value above is what actually captures the elapsed time.
+    expect(stopped.view?.display).toBe('0:50');
   });
 
   test('stopping during the lead-in still records nothing, matching the plain stopwatch', () => {
