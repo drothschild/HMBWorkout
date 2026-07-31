@@ -89,7 +89,7 @@ describe('createSessionPresenter', () => {
     );
   });
 
-  test('dispatches LogSet with reps, weight, and RPE on logSet', () => {
+  test('dispatches LogSet with reps, weight, RPE, and the current time on logSet', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);
     const presenter = createSessionPresenter(state, mockDispatch);
@@ -106,6 +106,9 @@ describe('createSessionPresenter', () => {
         reps: 8,
         weightKg: 25,
         rpe: 7.5,
+        // One-tap logging: the engine advances on LogSet, so the event carries
+        // the wall clock for rest-deadline math
+        nowMs: expect.any(Number),
       })
     );
   });

@@ -75,24 +75,22 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
     expect(state?.sessionId).toBe(sessionId);
     expect(state?.phase).toBe('warmup'); // First exercise has warmupSets > 0
 
-    // Log a warmup set for first exercise
+    // Log a warmup set for first exercise — one-tap: records AND advances into rest
     let logState = await store.getState().dispatch({
       tag: 'LogSet',
       reps: 8,
       weightKg: 60,
       durationSeconds: 0,
       rpe: 6.5,
-    });
-    expect(logState).toBeDefined();
-    expect(logState?.phase).toBe('warmup');
-
-    // Mark set done
-    let doneState = await store.getState().dispatch({
-      tag: 'SetDone',
       nowMs: Date.now(),
     });
-    expect(doneState).toBeDefined();
-    expect(doneState?.setIndex).toBe(1); // Moved to next set
+    expect(logState).toBeDefined();
+    expect(logState?.phase).toBe('resting');
+    expect(logState?.setIndex).toBe(1); // Moved to next set
+
+    // Cut the between-sets rest short
+    let restState = await store.getState().dispatch({ tag: 'SkipRest' });
+    expect(restState?.phase).toBe('working');
 
     // Log a working set
     logState = await store.getState().dispatch({
@@ -101,38 +99,37 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       weightKg: 70,
       durationSeconds: 0,
       rpe: 7.5,
-    });
-    expect(logState).toBeDefined();
-
-    doneState = await store.getState().dispatch({
-      tag: 'SetDone',
       nowMs: Date.now(),
     });
-    expect(doneState?.setIndex).toBe(2);
+    expect(logState?.setIndex).toBe(2);
 
-    // Log second working set
+    restState = await store.getState().dispatch({ tag: 'SkipRest' });
+    expect(restState?.phase).toBe('working');
+
+    // Log second working set (1 warmup + 3 targets = 4 positions, so one remains)
     logState = await store.getState().dispatch({
       tag: 'LogSet',
       reps: 8,
       weightKg: 75,
       durationSeconds: 0,
       rpe: 8,
+      nowMs: Date.now(),
     });
-    expect(logState).toBeDefined();
+    expect(logState?.setIndex).toBe(3);
 
-    doneState = await store.getState().dispatch({
+    restState = await store.getState().dispatch({ tag: 'SkipRest' });
+    expect(restState?.phase).toBe('working');
+
+    // Skip the last working set without logging it (SetDone = Skip Set)
+    const skipState = await store.getState().dispatch({
       tag: 'SetDone',
       nowMs: Date.now(),
     });
-    expect(doneState?.setIndex).toBe(3); // All sets for first exercise done
+    expect(skipState?.exerciseIndex).toBe(1); // Advanced to next exercise
+    expect(skipState?.setIndex).toBe(0); // Reset set index
 
-    // Advance to second exercise
-    let advanceState = await store.getState().dispatch({
-      tag: 'SetDone',
-      nowMs: Date.now(),
-    });
-    expect(advanceState?.exerciseIndex).toBe(1); // Advanced to next exercise
-    expect(advanceState?.setIndex).toBe(0); // Reset set index
+    restState = await store.getState().dispatch({ tag: 'SkipRest' });
+    expect(restState?.phase).toBe('working');
 
     // Log a set for the second exercise
     logState = await store.getState().dispatch({
@@ -141,6 +138,7 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
       weightKg: 65,
       durationSeconds: 0,
       rpe: 7,
+      nowMs: Date.now(),
     });
     expect(logState).toBeDefined();
 

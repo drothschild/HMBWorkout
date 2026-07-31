@@ -108,7 +108,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -139,6 +141,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7,
+        nowMs: Date.now(),
       });
 
       // Verify appendSet (mocked) was called with the right parameters
@@ -173,7 +176,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -199,6 +204,7 @@ describe('activeSession store', () => {
         reps: 8,
         weightKg: 50,
         rpe: 7.5,
+        nowMs: Date.now(),
       });
 
       const storeState = store.getState();
@@ -219,7 +225,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -244,6 +252,7 @@ describe('activeSession store', () => {
         durationSeconds: 0,
         reps: 8,
         weightKg: 50,
+        nowMs: Date.now(),
       });
 
       // Verify engine state is persisted in store
@@ -268,6 +277,7 @@ describe('activeSession store', () => {
         tag: 'LogSet',
         durationSeconds: 0,
         reps: 8,
+        nowMs: Date.now(),
       });
 
       const state = store.getState();
@@ -479,6 +489,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7.5,
+        nowMs: Date.now(),
       });
 
       // Debug: check for errors in store
@@ -487,8 +498,18 @@ describe('activeSession store', () => {
         console.error('Store error:', storeState.lastError);
       }
 
-      // Query database directly for the persisted set
-      const sets = await getSessionSets(database, sessionId);
+      // One-tap logging: this was the entry's only set, so the dispatch also
+      // completed the workout, and the fire-and-forget persist may still be in
+      // flight when dispatch resolves. Wait for the row to land.
+      let sets: any[] = [];
+      for (let attempt = 0; attempt < 50 && sets.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+        try {
+          sets = await getSessionSets(database, sessionId);
+        } catch {
+          // LokiJS's record cache can race the in-flight write; retry
+        }
+      }
       expect(sets).toHaveLength(1);
       expect((sets[0] as any).rpe).toBe(7.5);
       expect((sets[0] as any).reps).toBe(8);
@@ -598,6 +619,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7,
+        nowMs: Date.now(),
       });
 
       // Debug: check for errors
@@ -859,6 +881,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 3.3, // Invalid RPE value (fails 0.5-step increment check)
+        nowMs: Date.now(),
       });
 
       // After invalid event:

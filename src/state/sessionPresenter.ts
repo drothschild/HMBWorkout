@@ -115,6 +115,7 @@ export function createSessionPresenter(
         weightKg: values.weightKg,
         rpe: values.rpe,
         durationSeconds: values.durationSeconds,
+        nowMs: Date.now(),
       });
     },
 

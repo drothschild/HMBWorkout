@@ -85,19 +85,13 @@ describe('Integration: StartSession from Done phase (C1)', () => {
     expect(state?.sessionId).toBe(session1Id);
     expect(state?.phase).toBe('working'); // No warmup, goes straight to working
 
-    // Log and finish the first set
-    let logState = await store.getState().dispatch({
+    // Log the first (and only) set — one-tap logging advances straight to Done
+    let finishState = await store.getState().dispatch({
       tag: 'LogSet',
       reps: 5,
       weightKg: 100,
       durationSeconds: 0,
       rpe: 8,
-    });
-    expect(logState).not.toBeNull();
-
-    // Mark set done — this should advance to Done since it's the only set
-    let finishState = await store.getState().dispatch({
-      tag: 'SetDone',
       nowMs: Date.now(),
     });
     expect(finishState).not.toBeNull();
