@@ -225,6 +225,18 @@ expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read those, no
 `target*` fields, when consuming a parsed session. Contract violations throw
 `ContractError`.
 
+Serializer flag guards must check `!= null`, not `!== undefined`: WatermelonDB
+returns `null`, not `undefined`, for an unset optional column, so every optional
+field `serializeSession`/`serializeRoutine` read off a DB row — `reps`,
+`weightKg`, `distanceM`, `durationSeconds`, `rpe` on `SessionSet`; `targetSets`,
+`targetReps`, `targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is
+subject to it. `syncService.ts`'s row-to-serializer mapping normalizes the same
+hazard at the shell boundary (`?? undefined`, matching its pre-existing
+`exerciseId` handling); keep both layers. A regression here is not a rejected
+sync — the bridge's `validateSessionDoc` never runs `parseFlags`, so a bad guard
+writes a `<flag>=null` line straight into the vault and the session still flips
+to `synced`.
+
 ## Sync (`src/sync`)
 
 Offline-first queue. Sessions are written locally with `sync_status='local'` and flip
