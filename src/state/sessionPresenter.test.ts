@@ -429,6 +429,27 @@ describe('createSessionPresenter', () => {
       expect(computeSetPrefill(state)).toEqual({ reps: 12 });
     });
 
+    test('a fully-empty logged set falls through to the history/target fallbacks', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state, { reps: 5, weightLbs: 80 })).toEqual({ reps: 5, weightLbs: 80 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 8 }); // targetReps from the mock entry
+    });
+
+    test('a fully-empty duration set falls through to targetDurationSeconds', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.entries[0].targetDurationSeconds = 60;
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state)).toEqual({ durationSeconds: 60 });
+    });
+
     test('duration entries prefill from the last in-session duration', () => {
       const state = createMockState();
       state.entries[0].kind = 'stretch';
