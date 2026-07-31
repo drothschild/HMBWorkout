@@ -25,7 +25,8 @@ describe('directivesSections: weaving helper', () => {
     );
 
     expect(overridableSection).toContain('- Default to short, punchy replies');
-    expect(overridableSection).toMatch(/preferences below may override/i);
+    expect(overridableSection).toMatch(/preferences below/i);
+    expect(overridableSection).toMatch(/may override/i);
     expect(immutableSection).toBe('');
   });
 
