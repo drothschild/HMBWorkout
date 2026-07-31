@@ -697,52 +697,111 @@ describe('Repository: session and set helpers', () => {
         });
       });
 
-      // Create a session and append sets
-      await createSession(database, {
-        sessionId: 'session-history-1',
-        routineId: routineId,
-        startedAtMs: Date.now() - 100000,
-      });
+      // Create a session and append sets. Each Date.now() call yields a
+      // distinct, increasing timestamp: with the real clock, back-to-back
+      // appends share a created_at millisecond only when the machine is fast
+      // enough, which made the ordering assertions below load-dependent.
+      const baseTimeMs = 1700000000000;
+      const nowSpy = jest.spyOn(Date, 'now');
+      let tick = 0;
+      nowSpy.mockImplementation(() => baseTimeMs + tick++ * 1000);
+      try {
+        await createSession(database, {
+          sessionId: 'session-history-1',
+          routineId: routineId,
+          startedAtMs: baseTimeMs - 100000,
+        });
 
-      // Append a warmup set (should be excluded)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'warmup',
-        reps: 12,
-        weightKg: 50,
-      });
+        // Append a warmup set (should be excluded)
+        await appendSet(database, 'session-history-1', 'routine-exercise-1', {
+          setType: 'warmup',
+          reps: 12,
+          weightKg: 50,
+        });
 
-      // Append a working set (should be included)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 8,
-      });
+        // Append a working set (should be included)
+        await appendSet(database, 'session-history-1', 'routine-exercise-1', {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+          rpe: 8,
+        });
 
-      // Append another working set (should be included)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'working',
-        reps: 8,
-        weightKg: 100,
-        rpe: 8.5,
-      });
+        // Append another working set (should be included)
+        await appendSet(database, 'session-history-1', 'routine-exercise-1', {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+          rpe: 8.5,
+        });
 
-      // Append a drop set (should be excluded)
-      await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-        setType: 'drop',
-        reps: 15,
-        weightKg: 70,
-      });
+        // Append a drop set (should be excluded)
+        await appendSet(database, 'session-history-1', 'routine-exercise-1', {
+          setType: 'drop',
+          reps: 15,
+          weightKg: 70,
+        });
+      } finally {
+        nowSpy.mockRestore();
+      }
 
-      // Get history and verify only working sets returned
+      // Get history and verify only working sets returned, most recent first
       const history = await getExerciseWorkingSetHistory(database, exerciseId);
       expect(history).toHaveLength(2);
       expect((history[0] as any).setType).toBe('working');
       expect((history[1] as any).setType).toBe('working');
       expect((history[0] as any).reps).toBe(8);
       expect((history[0] as any).weightKg).toBe(100);
-      expect((history[0] as any).rpe).toBe(8);
-      expect((history[1] as any).rpe).toBe(8.5);
+      expect((history[0] as any).rpe).toBe(8.5);
+      expect((history[1] as any).rpe).toBe(8);
+    }, 15000);
+
+    it('orders same-millisecond sets most-recent-first (created_at tie breaks by position)', async () => {
+      const routineId = 'routine-tie';
+      const exerciseId = 'exercise-tie';
+
+      await upsertExercise(database, exerciseId, 'Deadlift', 'strength');
+      await upsertRoutine(database, routineId, 'Tie Routine', [
+        { exerciseId, order: 0, targetSets: 2, targetReps: 8 },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [routineExercise] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      expect(routineExercise).toBeDefined();
+
+      await createSession(database, {
+        sessionId: 'session-tie',
+        routineId,
+        startedAtMs: 1700000000000 - 60000,
+      });
+
+      // Pin the clock so both appends land in the same millisecond — the
+      // collision that only happens by chance on a fast machine. Same-ms sets
+      // must sort exactly like sets logged milliseconds apart: the
+      // later-position set is the more recent one either way.
+      const nowSpy = jest.spyOn(Date, 'now');
+      nowSpy.mockReturnValue(1700000000000);
+      try {
+        await appendSet(database, 'session-tie', routineExercise.id, {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+          rpe: 8,
+        });
+        await appendSet(database, 'session-tie', routineExercise.id, {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+          rpe: 8.5,
+        });
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      const history = await getExerciseWorkingSetHistory(database, exerciseId);
+      expect(history.map((s: any) => s.rpe)).toEqual([8.5, 8]);
     }, 15000);
 
     it('Phase 4 Task 3: returns prior working sets for progression hint evaluation', async () => {
