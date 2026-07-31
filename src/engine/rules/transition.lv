@@ -8,201 +8,93 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 (
 -- Advancement after the set at the current position is finished. Shared by
 -- LogSet (record then advance) and SetDone (advance without recording) so the
--- two events can never disagree on advancement. Curried like h.rest_duration.
+-- two events can never disagree on advancement.
+--
 -- A superset group is a contiguous run of entries sharing a supersetGroup
--- label (see interop's groupSupersets, which builds routines this way). A
--- round visits every member once, in order; a set finished by any member but
--- the round's last immediately hands off to the next member with no rest,
--- and only the last member's set completion decides whether to start the
--- next round or move on. Because every member is visited exactly once per
--- round, a member's own count of already-logged sets always equals the
--- shared round number (state.setIndex) — this is what lets ReplaceExercise's
--- "setIndex == 0" untouched-entry guard keep working unmodified for members
--- reached only via a superset hop. This assumes every member of a group
--- prescribes the same number of sets; a mismatched pair (e.g. one member
--- warming up and the other not) is not round-robined correctly, since only
--- the round's last member's own set count decides when the group is done.
+-- label (see interop's groupSupersets, which builds routines this way; a
+-- standalone exercise is a "group" of just itself, per h.group_end_idx). A
+-- round visits every still-active member once, in array order: finishing a
+-- set hands off to the next member still active THIS round (h.next_active_idx
+-- over (currentIdx, groupEndIdx]) with no rest; a member that already used up
+-- its own warmupSets+targetSets in an earlier round is skipped, not treated
+-- as ending the group. Only when nobody after the current position is active
+-- this round does the group decide whether ANY member is active next round
+-- (loop back to whichever member is first active then) or the whole group is
+-- done (advance past groupEndIdx). Because a member is visited in every round
+-- up to its own completion and never after, its own count of already-logged
+-- sets always equals the shared round number (state.setIndex) for as long as
+-- it keeps being visited — this is what lets ReplaceExercise's "setIndex ==
+-- 0" untouched-entry guard keep working unmodified for a member reached only
+-- via a superset hop.
 let advance_after_set = fn(s) -> fn(nowMs) -> (
     let currentEntry = at(s.exerciseIndex, s.entries)?
-    let allSetsForEntry = currentEntry.warmupSets + currentEntry.targetSets
-    let nextIdx = s.exerciseIndex + 1
-    let hasNextInWorkout = nextIdx < length(s.entries)
-    let samePartner = if (!hasNextInWorkout) then false else (
-        let nextEntryInWorkout = at(nextIdx, s.entries)?
-        match (currentEntry.supersetGroup, nextEntryInWorkout.supersetGroup) {
-          (Some(c), Some(n)) -> c == n,
-          _ -> false
-        }
-      )
+    let groupStartIdx = s.exerciseIndex - s.supersetPosition
+    let groupEndIdx = h.group_end_idx(s.entries)(groupStartIdx)(currentEntry.supersetGroup)
 
-    if (samePartner)
-    then (
-      -- Check if this partner still has sets in THIS round (not just exists).
-      let nextEntry = at(nextIdx, s.entries)?
-      let nextAllSets = nextEntry.warmupSets + nextEntry.targetSets
-      let partnerHasSetsInRound = s.setIndex < nextAllSets
-      if (partnerHasSetsInRound)
-      then (
-        -- Hand off to the next member of this round. No rest between superset
-        -- partners; the round (setIndex) is shared and carries over unchanged.
+    match h.next_active_idx(s.entries)(s.exerciseIndex)(groupEndIdx)(s.setIndex) {
+      Some(nextIdx) -> (
+        -- Hand off to the next still-active member of this round. No rest
+        -- between superset partners; the round (setIndex) is shared and
+        -- carries over unchanged.
+        let nextEntry = at(nextIdx, s.entries)?
         Ok({
-          state: { s | phase: h.phase_for(nextEntry)(s.setIndex), exerciseIndex: nextIdx, supersetPosition: s.supersetPosition + 1, restDeadlineMs: None },
+          state: { s | phase: h.phase_for(nextEntry)(s.setIndex), exerciseIndex: nextIdx, supersetPosition: nextIdx - groupStartIdx, restDeadlineMs: None },
           effects: []
         })
-      )
-      else (
-        -- Partner exhausted for this round. This is the round's last member.
-        -- Check if group/entry is done using same logic as main else branch.
+      ),
+      None -> (
+        -- Nobody after this position is active this round: this was the
+        -- round's last (active) member. Either the round repeats from
+        -- whichever member is first active next round, or the group/exercise
+        -- is entirely done.
         let nextRound = s.setIndex + 1
-        let groupStartIdx = s.exerciseIndex - s.supersetPosition
-        let roundDone = if (s.supersetPosition == 0)
-          then nextRound >= allSetsForEntry
-          else (
-            -- For group: check if any member has sets in next round
-            let groupMembersHaveSets = fold(
-              false,
-              fn(anyHave) -> fn(entry) -> (
-                if (anyHave) then true
-                else (
-                  match (currentEntry.supersetGroup, entry.supersetGroup) {
-                    (Some(currGrp), Some(entryGrp)) ->
-                      if (currGrp == entryGrp)
-                      then nextRound < (entry.warmupSets + entry.targetSets)
-                      else anyHave,
-                    _ -> anyHave
-                  }
-                )
-              ),
-              s.entries
+        match h.next_active_idx(s.entries)(groupStartIdx - 1)(groupEndIdx)(nextRound) {
+          Some(firstActiveIdx) -> (
+            let firstActiveEntry = at(firstActiveIdx, s.entries)?
+            -- Rest between rounds/sets only from Warmup/Working, so
+            -- RestElapsed can recover the phase from setIndex vs warmupSets.
+            let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
+            if (restBetweenSets)
+            then (
+              let restDeadlineMs = nowMs + currentEntry.restSeconds * 1000
+              Ok({
+                state: { s | phase: Resting, exerciseIndex: firstActiveIdx, setIndex: nextRound, supersetPosition: firstActiveIdx - groupStartIdx, restDeadlineMs: Some(restDeadlineMs) },
+                effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
+              })
             )
-            !groupMembersHaveSets
-          )
-
-        if (!roundDone)
-        then (
-          let firstMemberEntry = at(groupStartIdx, s.entries)?
-          let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
-          if (restBetweenSets)
-          then (
-            let restDeadlineMs = nowMs + currentEntry.restSeconds * 1000
-            Ok({
-              state: { s | phase: Resting, exerciseIndex: groupStartIdx, setIndex: nextRound, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
-              effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
-            })
-          )
-          else Ok({
-            state: { s | phase: h.phase_for(firstMemberEntry)(nextRound), exerciseIndex: groupStartIdx, setIndex: nextRound, supersetPosition: 0, restDeadlineMs: None },
-            effects: []
-          })
-        )
-        else (
-          -- After group completes, move to first entry after the group.
-          -- For standalone exercises, just move to next entry.
-          -- For groups, scan to find the end of the group.
-          let nextExerciseIndex = s.exerciseIndex + 1
-          let workoutDone = nextExerciseIndex >= length(s.entries)
-
-          if (workoutDone)
-          then Ok({
-            state: { s | phase: Done, restDeadlineMs: None },
-            effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: length(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
-          })
-          else (
-            let nextEntryAfterGroup = at(nextExerciseIndex, s.entries)?
-            let restSeconds = h.rest_duration(currentEntry)(nextEntryAfterGroup)(false)
-            let restDeadlineMs = nowMs + restSeconds * 1000
-
-            if (restSeconds > 0)
-            then Ok({
-              state: { s | phase: Resting, exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
-              effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
-            })
             else Ok({
-              state: { s | phase: h.phase_for(nextEntryAfterGroup)(0), exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
+              state: { s | phase: h.phase_for(firstActiveEntry)(nextRound), exerciseIndex: firstActiveIdx, setIndex: nextRound, supersetPosition: firstActiveIdx - groupStartIdx, restDeadlineMs: None },
               effects: []
             })
+          ),
+          None -> (
+            let nextExerciseIndex = groupEndIdx + 1
+            let workoutDone = nextExerciseIndex >= length(s.entries)
+
+            if (workoutDone)
+            then Ok({
+              state: { s | phase: Done, restDeadlineMs: None },
+              effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: h.distinct_exercise_count(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
+            })
+            else (
+              let nextEntry = at(nextExerciseIndex, s.entries)?
+              let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
+              let restDeadlineMs = nowMs + restSeconds * 1000
+
+              if (restSeconds > 0)
+              then Ok({
+                state: { s | phase: Resting, exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
+                effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
+              })
+              else Ok({
+                state: { s | phase: h.phase_for(nextEntry)(0), exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
+                effects: []
+              })
+            )
           )
-        )
+        }
       )
-    )
-    else (
-      -- Round's last member (or a standalone exercise, a group of one).
-      -- For a superset group, must check if ANY member still has sets in next round.
-      -- For a standalone exercise, just check the entry itself.
-      let nextRound = s.setIndex + 1
-      let groupStartIdx = s.exerciseIndex - s.supersetPosition
-
-      -- If standalone (supersetPosition == 0), use this entry's set count.
-      -- Otherwise, use the maximum set count among all group members.
-      let roundDone = if (s.supersetPosition == 0)
-        then nextRound >= allSetsForEntry
-        else (
-          -- For group: check if any member has sets in next round
-          -- by finding the max total sets and comparing with nextRound
-          let groupMembersHaveSets = fold(
-            false,
-            fn(anyHave) -> fn(entry) -> (
-              if (anyHave) then true
-              else (
-                match (currentEntry.supersetGroup, entry.supersetGroup) {
-                  (Some(currGrp), Some(entryGrp)) ->
-                    if (currGrp == entryGrp)
-                    then nextRound < (entry.warmupSets + entry.targetSets)
-                    else anyHave,
-                  _ -> anyHave
-                }
-              )
-            ),
-            s.entries
-          )
-          !groupMembersHaveSets
-        )
-
-      if (!roundDone)
-      then (
-        let firstMemberEntry = at(groupStartIdx, s.entries)?
-        -- Rest between rounds/sets only from Warmup/Working, so RestElapsed
-        -- can recover the phase from setIndex vs warmupSets.
-        let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
-        if (restBetweenSets)
-        then (
-          let restDeadlineMs = nowMs + currentEntry.restSeconds * 1000
-          Ok({
-            state: { s | phase: Resting, exerciseIndex: groupStartIdx, setIndex: nextRound, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
-            effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
-          })
-        )
-        else Ok({
-          state: { s | phase: h.phase_for(firstMemberEntry)(nextRound), exerciseIndex: groupStartIdx, setIndex: nextRound, supersetPosition: 0, restDeadlineMs: None },
-          effects: []
-        })
-      )
-      else (
-        let nextExerciseIndex = s.exerciseIndex + 1
-        let workoutDone = nextExerciseIndex >= length(s.entries)
-
-        if (workoutDone)
-        then Ok({
-          state: { s | phase: Done, restDeadlineMs: None },
-          effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: length(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
-        })
-        else (
-          let nextEntry = at(nextExerciseIndex, s.entries)?
-          let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
-          let restDeadlineMs = nowMs + restSeconds * 1000
-
-          if (restSeconds > 0)
-          then Ok({
-            state: { s | phase: Resting, exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
-            effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
-          })
-          else Ok({
-            state: { s | phase: h.phase_for(nextEntry)(0), exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
-            effects: []
-          })
-        )
-      )
-    )
+    }
   )
 
 -- Wall-clock reconciliation of an in-flight rest, for the arms that find
@@ -325,21 +217,6 @@ match event {
       })
     ),
   SkipRest -> Err("invalid event SkipRest in phase " ++ h.phase_to_string(state.phase)),
-  -- Stretching is excluded (symmetry with LogSet/SetDone): the cool-down must
-  -- never advance the workout, and skipping the last exercise would push
-  -- exerciseIndex out of range and strand StopStretching's entry lookup.
-  -- If in a superset group, skip past the entire group to avoid leaving a
-  -- member with logged history but setIndex==0.
-  SkipExercise if state.phase != Idle && state.phase != Done && state.phase != Stretching -> (
-      let currentEntry = at(state.exerciseIndex, state.entries)?
-      -- If in a superset group, skip past the entire group; otherwise just advance
-      let skipToIdx = state.exerciseIndex + 1
-      Ok({
-        state: { state | exerciseIndex: skipToIdx, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None },
-        effects: []
-      })
-    ),
-  SkipExercise -> Err("invalid event SkipExercise in phase " ++ h.phase_to_string(state.phase)),
   -- Substitute a different movement for the entry the athlete is facing.
   -- Warmup and Working only: those are the phases where an exercise is in
   -- progress and nothing about it is committed yet. Resting and Stretching sit
@@ -350,14 +227,14 @@ match event {
       -- so the pick names the entry it was made about and is rejected if the
       -- workout advanced past it.
       let _ = require(p.idx == state.exerciseIndex, "ReplaceExercise must target the current exercise")?
-      -- Untouched-entry guard. setIndex == 0 && supersetPosition == 0 means
-      -- "nothing recorded yet for the entry at this position". setIndex is 0 for
-      -- fresh entries and the start of each superset round; supersetPosition is 0
-      -- for the first group member or standalone exercises. SkipExercise ensures
-      -- we never land on a group member with prior logged sets. Scanning
-      -- loggedSets by exerciseId would not work: a routine may list the same
-      -- movement twice, and the second entry would inherit the first's veto.
-      let _ = require(state.setIndex == 0 && state.supersetPosition == 0, "cannot replace an exercise once a set has already been recorded for it")?
+      -- Untouched-entry guard. setIndex == 0 means "nothing recorded yet for
+      -- the entry at this position" — true for a fresh entry, and still true
+      -- for a superset member reached only via a same-round hop, since
+      -- advance_after_set keeps setIndex as the round number shared across a
+      -- group's members (see its docstring). Scanning loggedSets by exerciseId
+      -- would not be: a routine may list the same movement twice, and the
+      -- second entry would inherit the first's veto.
+      let _ = require(state.setIndex == 0, "cannot replace an exercise once a set has already been recorded for it")?
       let _ = require(p.exerciseId != "", "ReplaceExercise requires a non-empty exerciseId")?
       -- Bounds check. Without it a stranded exerciseIndex would fall through
       -- the fold below matching nothing and silently rebuild the list unchanged.
@@ -457,8 +334,8 @@ match event {
   AppForegrounded(p) -> Ok({ state: state, effects: [] }),
   FinishSession(p) if state.phase != Idle && state.phase != Done -> (
       let effects = if (state.phase == Resting)
-        then [CancelRest, CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: length(state.loggedSets), setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
-        else [CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: length(state.loggedSets), setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
+        then [CancelRest, CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: h.distinct_exercise_count(state.loggedSets), setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
+        else [CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: h.distinct_exercise_count(state.loggedSets), setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
 
       Ok({
         state: { state | phase: Done, restDeadlineMs: None, restRemainingMs: None },

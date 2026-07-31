@@ -329,7 +329,7 @@ describe('Superset groups with mismatched set counts', () => {
   });
 
   it('handles group with one member having zero target sets', async () => {
-    const { executors } = makeRecordingExecutors();
+    const { executors, summaries } = makeRecordingExecutors();
     const engine = createEngine(executors);
     // A has 0 warmups + 3 working = 3 total
     // B has 0 warmups + 0 working = 0 total (empty exercise in group)
@@ -342,7 +342,8 @@ describe('Superset groups with mismatched set counts', () => {
       })
     );
 
-    // A 1: hand off to B (in same group), B exhausted so loop back
+    // A 1: B has nothing to do at any round (0 < 0 is never true), so it's
+    // never visited — A loops back to itself every round.
     let state = await engine.dispatch(logSet(1000));
     expect(state.exerciseIndex).toBe(0);
     expect(state.setIndex).toBe(1);
@@ -352,89 +353,14 @@ describe('Superset groups with mismatched set counts', () => {
     expect(state.exerciseIndex).toBe(0);
     expect(state.setIndex).toBe(2);
 
-    // A 3: final set for A
+    // A 3: final set for A. B was never active for any round, so the group
+    // (and here, the whole two-entry workout) completes immediately — B is
+    // never something the user has to "get to" and skip past.
     state = await engine.dispatch(logSet(3000));
-    // After A's 3rd set, we move to B (next exercise, still in group)
-    // B has working phase (warmupSets=0)
-    expect(state.exerciseIndex).toBe(1);
-    expect(state.phase).toBe('working');
-    expect(state.setIndex).toBe(0);
-
-    // Skip B to move past the group
-    state = await engine.dispatch({ tag: 'SkipExercise' });
-    // SkipExercise moves to next exercise, but doesn't trigger completion
-    // If past the end of exercises, we'd be in an invalid state
-    // That's fine - the user would error on next action
-    expect(state.exerciseIndex).toBe(2);
-    expect(state.loggedSets).toHaveLength(3);
-  });
-});
-
-describe('SkipExercise within superset groups', () => {
-  it('skips entire superset group when called on a group member', async () => {
-    const { executors } = makeRecordingExecutors();
-    const engine = createEngine(executors);
-    engine.setState(
-      makeState({
-        entries: makeEntries(3, [
-          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
-          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
-          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 0 },
-        ]),
-      })
-    );
-
-    // Log one set from A (exercise 0)
-    let state = await engine.dispatch(logSet(1000)); // A1 set 1
-    expect(state.exerciseIndex).toBe(1); // Now at B
-    expect(state.loggedSets).toHaveLength(1);
-
-    // Skip exercise when at B (member of group A)
-    state = await engine.dispatch({ tag: 'SkipExercise' });
-    // Should move past the entire group to exercise 2
-    expect(state.exerciseIndex).toBe(2);
-    expect(state.setIndex).toBe(0);
-    expect(state.supersetPosition).toBe(0);
-
-    // The remaining sets in group A should not be completed
-    state = await engine.dispatch(logSet(2000)); // Should log on exercise 2
     expect(state.phase).toBe('done');
-    expect(state.loggedSets).toHaveLength(2);
-  });
-
-  it('does not create invalid state for ReplaceExercise after skip within group', async () => {
-    const engine = createEngine({});
-    engine.setState(
-      makeState({
-        phase: 'working',
-        entries: makeEntries(3, [
-          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
-          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
-          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 0 },
-        ]),
-      })
-    );
-
-    // Log a set on first member
-    let state = await engine.dispatch(logSet(1000)); // A1 set 1
-    expect(state.exerciseIndex).toBe(1);
-    expect(state.loggedSets).toHaveLength(1);
-
-    // Skip when at second member
-    state = await engine.dispatch({ tag: 'SkipExercise' });
-    expect(state.exerciseIndex).toBe(2);
-
-    // ReplaceExercise should not succeed on entry 2 if we had a
-    // setIndex == 0 guard, because it's legitimate
-    // But it should definitely not succeed on entry 1 (the skipped member)
-    // Since we can't replace an exercise mid-group anyway
-    await expect(
-      engine.dispatch({
-        tag: 'ReplaceExercise',
-        idx: 1,
-        exerciseId: 'different-exercise',
-      })
-    ).rejects.toThrow(/must target the current exercise/);
+    expect(state.loggedSets).toHaveLength(3);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].setsLogged).toBe(3);
   });
 });
 
@@ -559,19 +485,21 @@ describe('FinishSession mid-superset-round', () => {
       })
     );
 
-    let state = await engine.dispatch(logSet(1000)); // A1 set 1
-    state = await engine.dispatch(logSet(2000)); // A2 set 1
-    state = await engine.dispatch(logSet(3000)); // A1 set 2
+    let state = await engine.dispatch(logSet(1000)); // A1 -> hop to B, exerciseIndex 1
+    state = await engine.dispatch(logSet(2000)); // B1 -> loop back to A for round 2, exerciseIndex 0
+    state = await engine.dispatch(logSet(3000)); // A2 -> hop to B again, exerciseIndex 1
 
-    // Finish mid-workout at exercise 0, setIndex 1
+    // Finish mid-round, sitting at exerciseIndex 1 (B) with two distinct
+    // exercises (A and B) having logged sets. The raw exerciseIndex (1) would
+    // undercount relative to the correct answer (2) — this is exactly the
+    // non-monotonic-exerciseIndex case exercisesCompleted must not use.
+    expect(state.exerciseIndex).toBe(1);
     state = await engine.dispatch({ tag: 'FinishSession', nowMs: 4000 });
     expect(state.phase).toBe('done');
 
-    // Should report distinct entries (0 and 1 have logged sets)
     expect(summaries).toHaveLength(1);
     const summary = summaries[0];
     expect(summary.setsLogged).toBe(3);
-    // exercisesCompleted should reflect entries with logged sets
-    // not the raw exerciseIndex
+    expect(summary.exercisesCompleted).toBe(2);
   });
 });

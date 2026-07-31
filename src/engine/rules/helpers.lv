@@ -68,4 +68,68 @@ let rest_duration = fn(currentEntry) -> fn(nextEntry) -> fn(isLastExercise) -> (
   )
 )
 
+-- Last index (inclusive), starting from groupStartIdx, of the contiguous run
+-- of entries sharing `label` (interop's groupSupersets only ever collapses
+-- *adjacent* same-label lines into one group, so a group is always a
+-- contiguous slice — see src/interop/parse.ts). A standalone entry
+-- (label: None) is a "group" of exactly itself: the scan stops at the very
+-- next entry since None never matches None or Some in the equality check.
+let group_end_idx = fn(entries) -> fn(groupStartIdx) -> fn(label) -> (
+  fold(
+    { idx: 0, open: true, endIdx: groupStartIdx },
+    fn(acc) -> fn(entry) -> (
+      if (acc.idx <= groupStartIdx)
+      then { idx: acc.idx + 1, open: acc.open, endIdx: acc.endIdx }
+      else if (!acc.open)
+      then { idx: acc.idx + 1, open: false, endIdx: acc.endIdx }
+      else (
+        let matches = match (label, entry.supersetGroup) {
+          (Some(c), Some(n)) -> c == n,
+          _ -> false
+        }
+        if (matches)
+        then { idx: acc.idx + 1, open: true, endIdx: acc.idx }
+        else { idx: acc.idx + 1, open: false, endIdx: acc.endIdx }
+      )
+    ),
+    entries
+  ).endIdx
+)
+
+-- Smallest index in (afterIdx, groupEndIdx] whose own warmupSets+targetSets
+-- still owes a set at `round` (0-based, so a member is "active" at round r
+-- iff r < its own total). None means nobody left in that window for this
+-- round — the caller reads that as "round done" or "group done" depending on
+-- the window it passed. A member with fewer total sets than its partner is
+-- simply skipped once its own count is exhausted, rather than ending the
+-- group's round for everyone (the earlier, wrong behavior this replaced).
+let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round) -> (
+  fold(
+    { idx: 0, found: None },
+    fn(acc) -> fn(entry) -> (
+      match acc.found {
+        Some(f) -> { idx: acc.idx + 1, found: acc.found },
+        None ->
+          if (acc.idx > afterIdx && acc.idx <= groupEndIdx && round < (entry.warmupSets + entry.targetSets))
+          then { idx: acc.idx + 1, found: Some(acc.idx) }
+          else { idx: acc.idx + 1, found: None }
+      }
+    ),
+    entries
+  ).found
+)
+
+-- Count of distinct exercises with at least one logged set. Used for the
+-- session-complete summary's exercisesCompleted, which must stay monotonic:
+-- exerciseIndex itself moves backward each round while cycling through a
+-- superset group, so it can't serve as a completion count once a group is
+-- involved.
+let distinct_exercise_count = fn(loggedSets) -> (
+  length(fold(
+    [],
+    fn(seen) -> fn(set) -> if (contains(set.exerciseId, seen)) then seen else append(seen, [set.exerciseId]),
+    loggedSets
+  ))
+)
+
 0
