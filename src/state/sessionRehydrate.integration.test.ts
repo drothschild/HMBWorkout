@@ -438,7 +438,7 @@ describe('Session hydration and restart recovery', () => {
       ],
     };
 
-    it('rehydrates a mid-warmup session without dispatching Resume — no error surfaces', async () => {
+    it('rehydrates a mid-warmup session cleanly — the boot Resume is a no-op, not an error', async () => {
       // App killed mid-warmup: StartSession leaves the engine in warmup, and
       // dispatch() has already persisted that state.
       const store = createActiveSessionStore(database, fakeExecutors());
@@ -458,9 +458,11 @@ describe('Session hydration and restart recovery', () => {
 
       await rehydrateActiveSession(store2, loaded!, now + 60_000);
 
-      // The observed bug: an unconditional Resume is rejected by the engine
-      // ("invalid event Resume in phase warmup") and lands in lastError, which
-      // the session screen renders as a red banner.
+      // The original bug: the engine rejected Resume outside paused, so the
+      // boot dispatch landed "invalid event Resume in phase warmup" in
+      // lastError and the session screen rendered a red banner. The engine
+      // now acknowledges Resume everywhere, so the unconditional boot
+      // dispatch must leave no error and the state untouched.
       expect(store2.getState().lastError).toBeNull();
       expect(store2.getState().sessionState!.phase).toBe('warmup');
     });
@@ -487,6 +489,49 @@ describe('Session hydration and restart recovery', () => {
       // the phase recorded before the pause (warmup) — never leaves it paused.
       expect(store2.getState().lastError).toBeNull();
       expect(store2.getState().sessionState!.phase).toBe('warmup');
+    });
+
+    // The engine-level killed-mid-rest tests above dispatch Resume by hand;
+    // these two prove the actual boot path delivers it. A kill mid-rest (not
+    // paused) leaves phase 'resting' with a wall-clock deadline on disk and no
+    // armed alert in the new process — if rehydrateActiveSession withholds
+    // Resume, the engine's reconciliation is unreachable in the real app.
+    it('re-arms a still-live rest deadline after a kill mid-rest', async () => {
+      const now = Date.now();
+      const deadline = await driveToRestingAndKill(database, 'rehydrate-rest-live', now);
+
+      const executors = fakeExecutors();
+      const store2 = createActiveSessionStore(database, executors);
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('resting');
+
+      // Boot 32s into the 90s rest: the deadline is still in the future.
+      await rehydrateActiveSession(store2, loaded!, now + 32_000);
+
+      expect(store2.getState().lastError).toBeNull();
+      const s = store2.getState().sessionState!;
+      expect(s.phase).toBe('resting');
+      expect(s.restDeadlineMs).toBe(deadline);
+      expect(executors.onScheduleRest).toHaveBeenCalledWith(deadline);
+    });
+
+    it('recovers the phase from a rest deadline that expired while killed', async () => {
+      const now = Date.now();
+      await driveToRestingAndKill(database, 'rehydrate-rest-expired', now);
+
+      const executors = fakeExecutors();
+      const store2 = createActiveSessionStore(database, executors);
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('resting');
+
+      // Boot long after the 90s rest ran out while the app was dead.
+      await rehydrateActiveSession(store2, loaded!, now + 200_000);
+
+      expect(store2.getState().lastError).toBeNull();
+      const s = store2.getState().sessionState!;
+      expect(s.phase).toBe('working');
+      expect(s.restDeadlineMs).toBe(0);
+      expect(executors.onScheduleRest).not.toHaveBeenCalled();
     });
   });
 });
