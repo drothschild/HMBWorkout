@@ -106,6 +106,35 @@ describe('buildRestCommentaryPrompt', () => {
       expect(message).toContain('target 30s');
       expect(message).toContain('rest 90s');
     });
+
+    it('formats the Up Next line correctly for working sets: title and kind stay together', () => {
+      const { message } = buildRestCommentaryPrompt(promptInput());
+
+      // The Up Next line is the third line (after "## Up Next" header and blank line)
+      const upNextLine = message.split('\n')[2];
+      expect(upNextLine).toBe('Bench Press (strength) | Set 2 of 3 | target 3x8 | rest 90s');
+    });
+
+    it('formats the Up Next line correctly for zero-total duration entries: title and kind together, set position omitted', () => {
+      const { message } = buildRestCommentaryPrompt(
+        promptInput({
+          exercise: {
+            ...benchPress,
+            title: 'Cooldown Stretch',
+            kind: 'stretch',
+            warmupSets: 0,
+            targetSets: 0,
+            targetReps: 0,
+            targetDurationSeconds: 30,
+            isWarmupSet: false,
+            setNumber: 1,
+          },
+        })
+      );
+
+      const upNextLine = message.split('\n')[2];
+      expect(upNextLine).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
+    });
   });
 
   describe('history', () => {
