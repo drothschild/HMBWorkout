@@ -1,6 +1,6 @@
-import { createSessionPresenter } from './sessionPresenter';
+import { createSessionPresenter, formatLoggedSetLine } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
-import type { SessionState } from '@/engine/types';
+import type { LoggedSet, SessionState } from '@/engine/types';
 
 /**
  * Test: Session presenter logic
@@ -394,5 +394,69 @@ describe('createSessionPresenter', () => {
         expect.objectContaining({ tag: 'FinishSession' })
       );
     });
+  });
+});
+
+describe('formatLoggedSetLine', () => {
+  const baseSet: LoggedSet = {
+    exerciseId: 'ex-1',
+    setType: 'working',
+    reps: 8,
+    weightKg: 25,
+    durationSeconds: null,
+    rpe: 7.5,
+  };
+
+  test('renders reps, weight, and RPE when all are present', () => {
+    expect(formatLoggedSetLine(baseSet)).toBe('8 x 25kg RPE: 7.5');
+  });
+
+  test('omits unset weight and the -1 RPE sentinel', () => {
+    expect(
+      formatLoggedSetLine({ ...baseSet, reps: 60, weightKg: undefined, rpe: -1 })
+    ).toBe('60 reps');
+  });
+
+  test('omits null metrics, keeping only the weight', () => {
+    expect(formatLoggedSetLine({ ...baseSet, reps: null, rpe: null })).toBe('25kg');
+  });
+
+  test('renders a stretch set from its own duration', () => {
+    expect(
+      formatLoggedSetLine({
+        exerciseId: 'ex-1',
+        setType: 'stretch',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 30,
+        rpe: null,
+      })
+    ).toBe('30s');
+  });
+
+  test('appends RPE to a cardio set when logged', () => {
+    expect(
+      formatLoggedSetLine({
+        exerciseId: 'ex-1',
+        setType: 'cardio',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 300,
+        rpe: 6,
+      })
+    ).toBe('300s RPE: 6');
+  });
+
+  test('falls back to a dash when the set has no metrics at all', () => {
+    expect(
+      formatLoggedSetLine({
+        exerciseId: 'ex-1',
+        setType: 'working',
+        reps: undefined,
+        weightKg: undefined,
+        durationSeconds: undefined,
+        rpe: undefined,
+      })
+    ).toBe('—');
   });
 });
