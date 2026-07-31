@@ -14,13 +14,15 @@ import {
   createAnthropicClient,
   AiChatMessage,
 } from '@/ai/anthropicClient';
-import { buildSystem as buildSystemFn, AiCoachMode } from '@/ai/contextBuilder';
+import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
 import { getSettings, setSettings } from '@/state/settings';
+import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
   content: string; // wire content: user text, or raw AiTurn JSON for assistant turns
   turn?: AiTurn; // parsed turn for rendering (assistant only)
+  hidden?: boolean; // when true, not rendered in the UI but still sent to API
 }
 
 export type AiChatError =
@@ -39,6 +41,7 @@ interface AiChatState {
   status: 'idle' | 'sending' | 'error';
   error: AiChatError | null;
   reset(mode: AiCoachMode): void;
+  openDebrief(mode: DebriefMode): Promise<void>;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
   acceptDraft(): Promise<string | null>;
@@ -148,6 +151,28 @@ export function createAiChatStore(deps: AiChatDeps) {
       }
     }
 
+    // Shared turn-start body: check key, set status, call runTurn. Used by
+    // openDebrief, send, and retry to avoid drifting copies.
+    async function startTurn(newMessages: AiDisplayMessage[], mode: AiCoachMode) {
+      const settings = deps.getSettings();
+      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+        set({
+          status: 'error',
+          error: { kind: 'missing_key' },
+        });
+        return;
+      }
+
+      const gen = generation;
+      set({
+        messages: newMessages,
+        status: 'sending',
+        error: null,
+      });
+
+      await runTurn(gen, newMessages, mode, settings.anthropicKey);
+    }
+
     return {
       mode: { kind: 'create' },
       messages: [],
@@ -169,6 +194,18 @@ export function createAiChatStore(deps: AiChatDeps) {
         });
       },
 
+      async openDebrief(mode: DebriefMode) {
+        // A debrief is a conversation the coach starts, so the opening turn is
+        // sent for the user. Going through reset() first keeps the generation
+        // and prompt-cache rules identical to every other conversation start.
+        get().reset(mode);
+
+        // Send the opening message but mark it hidden: the user never typed it,
+        // and the AI's greeting should be the first visible message.
+        const newMessages: AiDisplayMessage[] = [{ role: 'user', content: DEBRIEF_OPENING_MESSAGE, hidden: true }];
+        await startTurn(newMessages, mode);
+      },
+
       async send(text: string) {
         const state = get();
 
@@ -176,24 +213,8 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
         const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
-        const gen = generation;
-        set({
-          messages: newMessages,
-          status: 'sending',
-          error: null,
-        });
-
-        await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
+        await startTurn(newMessages, state.mode);
       },
 
       async retry() {
@@ -208,19 +229,7 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
-        const gen = generation;
-        set({ status: 'sending', error: null });
-
-        await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
+        await startTurn(state.messages, state.mode);
       },
 
       async acceptDraft() {

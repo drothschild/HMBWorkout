@@ -721,6 +721,322 @@ describe('buildSystem: AI Coach context builder', () => {
     }, 30000);
   });
 
+  describe('Debrief mode', () => {
+    const sessionId = 'session-debrief';
+    const routineId = 'routine-debrief';
+
+    // A finished workout: two exercises planned, only the first one logged,
+    // with a warmup set ahead of the working sets.
+    async function seedFinishedWorkout() {
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Upper Body';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-bench';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-row';
+          e.title = 'Rows';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      const bench = await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-bench',
+        order: 0,
+        warmupSets: 1,
+        targetSets: 3,
+        targetReps: 8,
+        restSeconds: 120,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-row',
+        order: 1,
+        targetSets: 4,
+        targetReps: 10,
+      });
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      await appendSet(database, sessionId, (bench as any).id, {
+        setType: 'warmup',
+        reps: 5,
+        weightKg: 40,
+      });
+      await appendSet(database, sessionId, (bench as any).id, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 100,
+      });
+      await appendSet(database, sessionId, (bench as any).id, {
+        setType: 'working',
+        reps: 6,
+        weightKg: 100,
+        rpe: 9,
+      });
+    }
+
+    function lineFor(prompt: string, exerciseTitle: string): string | undefined {
+      return prompt.split('\n').find((line) => line.trimStart().startsWith(`${exerciseTitle} (`));
+    }
+
+    it('names the routine the user just finished', async () => {
+      await seedFinishedWorkout();
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).toContain('The user has just finished the routine "Upper Body"');
+    }, 30000);
+
+    it('lists every set logged for an exercise against its target', async () => {
+      await seedFinishedWorkout();
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(lineFor(prompt, 'Bench Press')).toBe(
+        '  Bench Press (target 3x8): 5 reps @ 40kg (warmup), 8 reps @ 100kg, 6 reps @ 100kg RPE 9'
+      );
+    }, 30000);
+
+    it('says so for a planned exercise that was never logged', async () => {
+      await seedFinishedWorkout();
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4x10): no sets logged');
+    }, 30000);
+
+    it('summarises only the session being debriefed', async () => {
+      await seedFinishedWorkout();
+
+      const bench = (
+        await database.get('routine_exercises').query().fetch()
+      )[0] as any;
+      await createSession(database, {
+        sessionId: 'session-other',
+        routineId,
+        startedAtMs: Date.now() - 7200000,
+      });
+      await appendSet(database, 'session-other', bench.id, {
+        setType: 'working',
+        reps: 3,
+        weightKg: 999,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(lineFor(prompt, 'Bench Press')).not.toContain('999kg');
+    }, 30000);
+
+    it('keeps a repeated exercise as two separate entries', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Upper Body';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-bench';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Same exercise twice in one routine: distinct rows, so upsert would
+      // collapse them — create them directly, as the session engine's
+      // routine_exercise lookup does by (routine, order).
+      let second: any;
+      await database.write(async () => {
+        await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-bench';
+          re.order = 0;
+          re.warmupSets = 0;
+          re.targetSets = 3;
+          re.targetReps = 8;
+        });
+        second = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-bench';
+          re.order = 1;
+          re.warmupSets = 0;
+          re.targetSets = 1;
+          re.targetReps = 20;
+        });
+      });
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+      await appendSet(database, sessionId, second.id, {
+        setType: 'working',
+        reps: 20,
+        weightKg: 40,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      const benchLines = prompt
+        .split('\n')
+        .filter((line) => line.trimStart().startsWith('Bench Press ('));
+
+      expect(benchLines).toEqual([
+        '  Bench Press (target 3x8): no sets logged',
+        '  Bench Press (target 1x20): 20 reps @ 40kg',
+      ]);
+    }, 30000);
+
+    it('leaves the just-finished summary out of a create conversation', async () => {
+      await seedFinishedWorkout();
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).not.toContain('Just-Finished Workout');
+      expect(prompt).not.toContain('The user has just finished the routine');
+    }, 30000);
+
+    it('does not leak the anthropic key or bridge credentials', async () => {
+      await seedFinishedWorkout();
+      setSettings({
+        anthropicKey: 'sk-ant-test-secret',
+        token: 'bridge-token-12345',
+        baseUrl: 'http://bridge.local:3000',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).not.toContain('sk-ant-test-secret');
+      expect(prompt).not.toContain('bridge-token-12345');
+      expect(prompt).not.toContain('bridge.local');
+    }, 30000);
+
+    it('handles a debrief when the routine no longer exists and no sets logged', async () => {
+      // Create a session with no backing routine and no logged sets
+      await createSession(database, {
+        sessionId,
+        routineId, // routine-debrief does not exist
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).toContain('The user has just finished the routine "routine-debrief"');
+      // When there are no logged sets, the header should not promise them
+      expect(prompt).not.toContain('These are the sets they logged');
+      expect(prompt).toContain('This routine no longer exists');
+    }, 30000);
+
+    it('shows logged sets even when the routine no longer exists', async () => {
+      // Create a routine and exercise, capture the routine_exercise id
+      const reId = await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Deleted Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-pushups';
+          e.title = 'Push-ups';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        const re = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-pushups';
+          re.order = 0;
+          re.warmupSets = 0;
+          re.targetSets = 3;
+          re.targetReps = 10;
+        });
+        return re.id;
+      });
+
+      // Create session and log a set
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      await appendSet(database, sessionId, reId, {
+        setType: 'working' as const,
+        reps: 8,
+      });
+
+      // Delete the routine (but sets remain)
+      await database.write(async () => {
+        const routine = await database.get('routines').find(routineId);
+        await routine.destroyPermanently();
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).toContain('The user has just finished the routine "routine-debrief"');
+      // When there are logged sets, the header should mention them
+      expect(prompt).toContain('These are the sets they logged');
+      // Should show the logged exercise, not the "no longer exists" message
+      expect(prompt).toContain('Push-ups');
+      expect(prompt).not.toContain('This routine no longer exists');
+    }, 30000);
+  });
+
+  // Pinned as exact strings for the same reason as the draft and settings
+  // bounds: the persona is what the model reads, so a behaviour change here
+  // has to be a deliberate edit rather than a silent drift.
+  describe('Debrief persona', () => {
+    it('tells the coach to open by asking how the workout went', async () => {
+      const prompt = await buildSystem(database, {
+        kind: 'debrief',
+        routineId: 'routine-1',
+        sessionId: 'session-1',
+      });
+
+      expect(prompt).toContain(
+        'Open the conversation by asking how the workout went before proposing any changes'
+      );
+    }, 30000);
+
+    it('scopes a debrief draft to the routine just performed', async () => {
+      const prompt = await buildSystem(database, {
+        kind: 'debrief',
+        routineId: 'routine-1',
+        sessionId: 'session-1',
+      });
+
+      expect(prompt).toContain(
+        'Any draft you propose is a complete revision of the routine the user just performed, for next time'
+      );
+    }, 30000);
+
+    it('keeps the debrief instructions out of a create conversation', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).not.toContain(
+        'Open the conversation by asking how the workout went before proposing any changes'
+      );
+    }, 30000);
+  });
+
   describe('Empty cases', () => {
     it('produces non-empty prompt with coach persona when DB is empty', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });

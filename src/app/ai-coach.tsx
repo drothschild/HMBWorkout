@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -19,33 +19,54 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
+import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { getSettings } from '@/state/settings';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
+
+const HEADER_TITLES = {
+  create: 'AI Coach',
+  edit: 'Edit with AI Coach',
+  debrief: 'Workout Debrief',
+} as const;
 
 export default function AiCoachScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
-  const { routineId } = useLocalSearchParams<{ routineId?: string }>();
+  const { routineId, debriefSessionId } = useLocalSearchParams<{
+    routineId?: string;
+    debriefSessionId?: string;
+  }>();
   const store = getAiChatStore();
-  const didResetRef = useRef(false);
-  const lastRoutineIdRef = useRef(routineId);
+  // Stable per set of params, so it doubles as the identity of the conversation
+  // these params ask for.
+  const mode = useMemo(
+    () => aiCoachModeFromParams({ routineId, debriefSessionId }),
+    [routineId, debriefSessionId]
+  );
+  // Guard on a derived string key rather than useMemo object identity, which React
+  // does not guarantee to cache. Use the key to detect when params change.
+  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
+  const startedModeRef = useRef<string | null>(null);
 
-  const [hasMissingKey, setHasMissingKey] = useState(() => {
-    const settings = getSettings();
-    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
-  });
-
-  // Reset before paint on first mount (and on a routineId change). A layout
-  // effect rather than a render-body write: writing the store mid-render makes
-  // React 19 log a setState-during-render error, while useLayoutEffect still
-  // runs before the frame paints, so no stale conversation is ever visible.
+  // Start the conversation before paint on first mount (and whenever the params
+  // name a different one). A layout effect rather than a render-body write:
+  // writing the store mid-render makes React 19 log a setState-during-render
+  // error, while useLayoutEffect still runs before the frame paints, so no
+  // stale conversation is ever visible.
   useLayoutEffect(() => {
-    if (!didResetRef.current || lastRoutineIdRef.current !== routineId) {
-      didResetRef.current = true;
-      lastRoutineIdRef.current = routineId;
-      store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+    if (startedModeRef.current === modeKey) {
+      return;
     }
-  }, [routineId, store]);
+    startedModeRef.current = modeKey;
+
+    if (mode.kind === 'debrief') {
+      // A debrief is the coach's conversation to open; the store sends the
+      // first turn so the user arrives to a question, not a blank thread.
+      void store.getState().openDebrief(mode);
+    } else {
+      store.getState().reset(mode);
+    }
+  }, [modeKey, mode, store]);
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
@@ -56,10 +77,16 @@ export default function AiCoachScreen() {
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [hasMissingKey, setHasMissingKey] = useState(() => {
+    const settings = getSettings();
+    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  });
   const flatListRef = useRef<FlatList>(null);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
-  // Check for missing key on mount and focus
+  // Re-check the key on every focus, not just mount: the gate must lift when
+  // the user returns from Settings after adding a key (this hook was once
+  // deleted and that dead-ended the missing-key screen — keep it).
   useFocusEffect(
     useCallback(() => {
       const settings = getSettings();
@@ -181,8 +208,7 @@ export default function AiCoachScreen() {
 
   const footer = footerItems.length > 0 ? <View style={styles.footerContent}>{footerItems}</View> : null;
 
-  const isEditing = routineId !== undefined;
-  const headerTitle = isEditing ? 'Edit with AI Coach' : 'AI Coach';
+  const headerTitle = HEADER_TITLES[mode.kind];
 
   if (hasMissingKey) {
     return (
@@ -281,6 +307,10 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ message }: MessageBubbleProps) {
+  if (message.hidden) {
+    return null;
+  }
+
   const isUser = message.role === 'user';
 
   return (

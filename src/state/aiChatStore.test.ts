@@ -1,4 +1,5 @@
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
+import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
 import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
@@ -346,10 +347,129 @@ describe('aiChatStore', () => {
     });
   });
 
+  describe('post-workout debrief', () => {
+    const debrief = {
+      kind: 'debrief',
+      routineId: 'routine-1',
+      sessionId: 'session-1',
+    } as const;
+
+    it('opens the conversation with the coach, not the user', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.mode).toEqual(debrief);
+      expect(fakeBuildSystem).toHaveBeenCalledWith({}, debrief);
+      expect(state.messages[1].turn).toEqual({ reply: 'How did that go?' });
+      expect(state.status).toBe('idle');
+    });
+
+    it('marks the opening message hidden so only the coach greeting is visible', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+        hidden: true,
+      });
+    });
+
+    it('preserves the opening message in wire content sent to the API', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      // The wire content must include the hidden opening message for the API
+      const callArgs = fakeChat.mock.calls[0][0];
+      expect(callArgs.messages).toHaveLength(1);
+      expect(callArgs.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+      });
+    });
+
+    it('discards the previous conversation', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({
+        reply: 'hi',
+        draft: { name: 'Draft', exercises: [{ title: 'Ex', kind: 'strength' as const }] },
+      });
+
+      store.getState().reset({ kind: 'create' });
+      await store.getState().send('build me something');
+      expect(store.getState().pendingDraft).not.toBeNull();
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.pendingDraft).toBeNull();
+      expect(state.messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
+    });
+
+    it('discards a reply that was in flight when the debrief opened', async () => {
+      const { store, fakeChat } = makeStore();
+
+      // Warm the cached system prompt so the deferred below is armed on the
+      // send under test rather than on a later request.
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first' });
+      await store.getState().send('hello');
+
+      let resolveStale: (turn: AiTurn) => void = () => {};
+      fakeChat.mockReturnValueOnce(
+        new Promise<AiTurn>((resolve) => {
+          resolveStale = resolve;
+        })
+      );
+      const inFlight = store.getState().send('build me something');
+
+      // The deferred must be genuinely in flight — otherwise this is vacuous
+      expect(fakeChat).toHaveBeenCalledTimes(2);
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      const opening = store.getState().openDebrief(debrief);
+
+      resolveStale({ reply: 'stale answer' });
+      await inFlight;
+      await opening;
+
+      expect(store.getState().messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
+    });
+
+    it('reports a missing key without leaving a half-open conversation', async () => {
+      const { store, fakeChat } = makeStore({
+        getSettings: jest.fn().mockReturnValue({ anthropicKey: '' }) as never,
+      });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(fakeChat).not.toHaveBeenCalled();
+      expect(state.error).toEqual({ kind: 'missing_key' });
+      expect(state.mode).toEqual(debrief);
+    });
+  });
+
   describe('AC3.2 / AC5.3 - accept and write-path isolation', () => {
     it.each([
       { kind: 'create' } as const,
       { kind: 'edit', routineId: 'routine-1' } as const,
+      { kind: 'debrief', routineId: 'routine-1', sessionId: 'session-1' } as const,
     ])('calls accept with the draft and the live mode (%o), returns id', async (mode) => {
       const { store, fakeAccept, fakeChat } = makeStore();
 
