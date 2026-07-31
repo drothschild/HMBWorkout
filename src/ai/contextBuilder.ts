@@ -52,6 +52,7 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
   sections.push(personaSection(mode));
   sections.push(goalsSection());
   sections.push(equipmentSection());
+  sections.push(personalitySection());
 
   // Build routine details once, reuse for both routines and history sections
   const routines = await routineListPresenter(db);
@@ -160,6 +161,21 @@ Not specified.`;
   return `## Available Equipment
 
 ${equipment}`;
+}
+
+function personalitySection(): string {
+  const settings = getSettings();
+  const personality = settings.aiPersonality?.trim();
+
+  if (!personality) {
+    return `## Coaching Style
+
+Not specified.`;
+  }
+
+  return `## Coaching Style
+
+${personality}`;
 }
 
 function routinesSection(routineDetails: RoutineWithDetail[]): string {
