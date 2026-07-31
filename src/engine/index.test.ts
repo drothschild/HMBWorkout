@@ -398,12 +398,12 @@ describe('engine: dispatch loop with effect executors', () => {
 
   describe('state retention across phases: invalid events preserve state (M4)', () => {
     const phaseTests = [
-      { phase: 'idle' as const, validEvent: (s: any) => ({ tag: 'StartSession' as const, sessionId: 's', nowMs: 1000, routine: { id: 'r', entries: [] } }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
-      { phase: 'warmup' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
-      { phase: 'working' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
-      { phase: 'resting' as const, validEvent: (s: any) => ({ tag: 'RestElapsed' as const, nowMs: s.restDeadlineMs + 1 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
-      { phase: 'paused' as const, validEvent: (s: any) => ({ tag: 'Resume' as const, nowMs: 5000 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
-      { phase: 'done' as const, validEvent: (s: any) => undefined, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },
+      { phase: 'idle' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
+      { phase: 'warmup' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
+      { phase: 'working' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
+      { phase: 'resting' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
+      { phase: 'paused' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
+      { phase: 'done' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },
     ];
 
     for (const tc of phaseTests) {
