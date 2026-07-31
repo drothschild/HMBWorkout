@@ -108,6 +108,12 @@ export default function RoutineDetailScreen() {
             {routine.name}
           </ThemedText>
 
+          {routine.notes && (
+            <ThemedText type="default" style={styles.routineNotes}>
+              {routine.notes}
+            </ThemedText>
+          )}
+
           {routine.supersetGroups.length > 0 && (
             <View style={styles.section}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>
@@ -292,6 +298,12 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: 'center',
+    marginBottom: Spacing.four,
+  },
+  routineNotes: {
+    textAlign: 'center',
+    opacity: 0.7,
+    marginTop: -Spacing.two,
     marginBottom: Spacing.four,
   },
   section: {

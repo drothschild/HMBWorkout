@@ -23,6 +23,8 @@ export interface SupersetGroupDetail {
 export interface RoutineDetail {
   id: string;
   name: string;
+  /** Routine-level description (the routines.notes column); null when absent. */
+  notes: string | null;
   supersetGroups: SupersetGroupDetail[];
   standaloneExercises: ExerciseDetail[];
 }
@@ -100,9 +102,14 @@ export async function routineDetailPresenter(
       })
     );
 
+    // Normalize whitespace-only notes to null, matching the exercise
+    // description convention, so read sites can treat null as "absent".
+    const trimmedNotes = ((routine as any).notes as string | undefined)?.trim();
+
     return {
       id: routineId,
       name: (routine as any).name,
+      notes: trimmedNotes ? trimmedNotes : null,
       supersetGroups: supersetGroupsArray,
       standaloneExercises,
     };

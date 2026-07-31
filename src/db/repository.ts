@@ -301,6 +301,35 @@ export async function getExerciseTitles(
 }
 
 /**
+ * Resolve a routine's display fields by id. Engine session state carries only
+ * routineId (the Rill boundary strips display data), so the session screen
+ * resolves the name and description shell-side, the way getExerciseTitles
+ * does for exercise titles. Whitespace-only notes normalize to null so
+ * callers can treat null as "absent".
+ *
+ * @param database The database instance
+ * @param routineId The routine id to resolve
+ * @returns Name and notes, or null when the routine no longer exists
+ */
+export async function getRoutineDisplay(
+  database: Database,
+  routineId: string
+): Promise<{ name: string; notes: string | null } | null> {
+  try {
+    const routine = (await database.get('routines').find(routineId)) as any;
+    const trimmedNotes = (routine.notes as string | undefined)?.trim();
+
+    return {
+      name: routine.name,
+      notes: trimmedNotes ? trimmedNotes : null,
+    };
+  } catch {
+    // Routine no longer exists; the caller falls back to generic chrome.
+    return null;
+  }
+}
+
+/**
  * Get all working-type sets for an exercise across all sessions (prior history).
  * Used for progression hint evaluation: rules compute hints based on prior working sets,
  * not current-session sets.

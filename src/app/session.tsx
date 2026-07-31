@@ -14,7 +14,7 @@ import {
 } from '@/state/sessionPresenter';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
-import { getExerciseTitles, getExerciseWorkingSetHistory } from '@/db/repository';
+import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
 // Defer import until needed to avoid loading database singleton at module load time
@@ -62,6 +62,9 @@ export default function SessionScreen() {
   const [currentDuration, setCurrentDuration] = useState<number | undefined>();
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
+  const [routineDisplay, setRoutineDisplay] = useState<
+    { name: string; notes: string | null } | undefined
+  >();
 
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const lastError = activeSessionStore((state: any) => state.lastError);
@@ -185,6 +188,28 @@ export default function SessionScreen() {
     loadTitles();
   }, [sessionState?.sessionId]);
 
+  // Engine state carries only routineId, so the routine's name and description
+  // are resolved shell-side too. The routine row is fixed for a session's
+  // lifetime, so one load per session suffices (and survives rehydration).
+  useEffect(() => {
+    const loadRoutine = async () => {
+      if (!sessionState) {
+        setRoutineDisplay(undefined);
+        return;
+      }
+
+      try {
+        const db = getDatabase();
+        setRoutineDisplay((await getRoutineDisplay(db, sessionState.routineId)) ?? undefined);
+      } catch (error) {
+        console.error('Failed to load routine display:', error);
+        setRoutineDisplay(undefined);
+      }
+    };
+
+    loadRoutine();
+  }, [sessionState?.sessionId]);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -198,7 +223,14 @@ export default function SessionScreen() {
     );
   }
 
-  const presenter = createSessionPresenter(sessionState, dispatch, progressionHint, exerciseTitles);
+  const presenter = createSessionPresenter(
+    sessionState,
+    dispatch,
+    progressionHint,
+    exerciseTitles,
+    undefined,
+    routineDisplay
+  );
 
   // Destructive and unrecoverable: the workout and its logged sets are deleted
   // and never reach the vault, so it takes an explicit confirmation.
@@ -306,7 +338,7 @@ export default function SessionScreen() {
         >
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <ThemedText type="smallBold">Active Session</ThemedText>
+              <ThemedText type="smallBold">{presenter.routineName ?? 'Active Session'}</ThemedText>
               <View style={styles.headerControls}>
                 <ThemedText type="small" style={styles.phaseText}>
                   {presenter.phase}
@@ -323,6 +355,11 @@ export default function SessionScreen() {
                 )}
               </View>
             </View>
+            {presenter.routineNotes && (
+              <ThemedText type="small" style={styles.routineNotes}>
+                {presenter.routineNotes}
+              </ThemedText>
+            )}
             <ExerciseProgress
               completed={presenter.completedExerciseCount}
               total={presenter.totalExerciseCount}
@@ -410,6 +447,10 @@ const styles = StyleSheet.create({
   },
   phaseText: {
     opacity: 0.7,
+  },
+  routineNotes: {
+    opacity: 0.7,
+    marginTop: Spacing.one,
   },
   errorBanner: {
     backgroundColor: '#FF3B30',
