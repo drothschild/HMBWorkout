@@ -206,6 +206,48 @@ match event {
       })
     ),
   SkipExercise -> Err("invalid event SkipExercise in phase " ++ h.phase_to_string(state.phase)),
+  -- Substitute a different movement for the entry the athlete is facing.
+  -- Warmup and Working only: those are the phases where an exercise is in
+  -- progress and nothing about it is committed yet. Resting and Stretching sit
+  -- between exercises, Paused is a held position, and Idle/Done have no entry
+  -- to swap.
+  ReplaceExercise(p) if state.phase == Warmup || state.phase == Working -> (
+      -- Same-entry guard: the alternates come back from a network round-trip,
+      -- so the pick names the entry it was made about and is rejected if the
+      -- workout advanced past it.
+      let _ = require(p.idx == state.exerciseIndex, "ReplaceExercise must target the current exercise")?
+      -- Untouched-entry guard. setIndex advances on both LogSet and SetDone and
+      -- resets to 0 on every entry change, so setIndex == 0 is an exactly
+      -- entry-scoped "nothing recorded yet". Scanning loggedSets by exerciseId
+      -- would not be: a routine may list the same movement twice, and the
+      -- second entry would inherit the first's veto.
+      let _ = require(state.setIndex == 0, "cannot replace an exercise once a set has already been recorded for it")?
+      let _ = require(p.exerciseId != "", "ReplaceExercise requires a non-empty exerciseId")?
+      -- Bounds check. Without it a stranded exerciseIndex would fall through
+      -- the fold below matching nothing and silently rebuild the list unchanged.
+      let _ = at(p.idx, state.entries)?
+
+      -- Rill has no indexed assignment, so the list is rebuilt. fold carries a
+      -- position counter alongside the list being built (the Rill RoutineEntry
+      -- alias has no idx field — the host re-derives idx from array position on
+      -- the way out), swapping exerciseId on the one entry whose position
+      -- matches and copying every other entry through untouched. Order is
+      -- preserved because append puts each rebuilt entry on the end.
+      let rebuilt = fold(
+        { position: 0, entries: [] },
+        fn(acc) -> fn(entry) -> (
+          let kept = if (acc.position == p.idx) then { entry | exerciseId: p.exerciseId } else entry
+          { position: acc.position + 1, entries: append(acc.entries, [kept]) }
+        ),
+        state.entries
+      )
+
+      Ok({
+        state: { state | entries: rebuilt.entries },
+        effects: []
+      })
+    ),
+  ReplaceExercise(p) -> Err("invalid event ReplaceExercise in phase " ++ h.phase_to_string(state.phase)),
   PauseSession(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
       let remaining = match state.restDeadlineMs {
         Some(d) -> Some(d - p.nowMs),

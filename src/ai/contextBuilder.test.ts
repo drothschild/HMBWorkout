@@ -1,6 +1,13 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { createSession, appendSet, upsertExercise, upsertRoutineExercise } from '@/db/repository';
+import {
+  createSession,
+  appendSet,
+  getExerciseWorkingSetHistory,
+  updateRoutineExerciseExerciseId,
+  upsertExercise,
+  upsertRoutineExercise,
+} from '@/db/repository';
 import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 import {
@@ -541,6 +548,71 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('8 reps');
       // Stored 100kg speaks display lbs in the prompt, matching the UI
       expect(prompt).toContain('@ 220.5lbs');
+    }, 30000);
+
+    it('does not hand a substituted exercise the history the original earned', async () => {
+      // The end-to-end shape of the swap bug: the coach reads history through
+      // getExerciseWorkingSetHistory, so re-pointing a routine entry must not
+      // make months of the original's work show up under the substitute's name.
+      const routineId = 'routine-swap-history';
+      const routineExerciseId = 'routine-exercise-swap';
+
+      await upsertExercise(database, 'exercise-barbell-bench', 'Barbell Bench Press', 'strength');
+      await upsertExercise(database, 'exercise-floor-press', 'Dumbbell Floor Press', 'strength');
+
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Swap Routine';
+        });
+        await database.get('routine_exercises').create((re: any) => {
+          re._raw.id = routineExerciseId;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'exercise-barbell-bench';
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      // Three weeks of bench work, logged the way a pre-v3 install did:
+      // no recorded identity, resolvable only through the join.
+      for (const sessionId of ['session-w1', 'session-w2', 'session-w3']) {
+        await createSession(database, { sessionId, routineId, startedAtMs: Date.now() - 100000 });
+        await appendSet(database, sessionId, routineExerciseId, {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+        });
+      }
+
+      await updateRoutineExerciseExerciseId(
+        database,
+        routineExerciseId,
+        'exercise-floor-press'
+      );
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+      const historyStart = prompt.indexOf('## Recent Training History');
+      expect(historyStart).toBeGreaterThan(-1);
+      const historySection = prompt.slice(historyStart);
+
+      // The substitute is what the routine names now, so it is the exercise
+      // whose history the coach looks up — and it has none. Before the fix this
+      // section read as three sessions of 220.5lb work under its name.
+      expect(historySection).not.toContain('Dumbbell Floor Press');
+      expect(historySection).not.toContain('220.5lbs');
+
+      // The sets themselves are intact and still the original's. (They are out
+      // of the prompt only because the section is scoped to exercises the
+      // user's routines currently name — the same reason any exercise dropped
+      // from every routine stops appearing. That scoping predates the swap
+      // feature and is unchanged by it.)
+      expect(
+        await getExerciseWorkingSetHistory(database, 'exercise-barbell-bench')
+      ).toHaveLength(3);
+      expect(
+        await getExerciseWorkingSetHistory(database, 'exercise-floor-press')
+      ).toHaveLength(0);
     }, 30000);
 
     it('handles cardio exercises with duration, distance, and RPE in history', async () => {

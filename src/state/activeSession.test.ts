@@ -3,7 +3,14 @@ import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { createSessionPresenter } from './sessionPresenter';
 import type { SessionState } from '@/engine/types';
-import { getSession, getSessionSets, upsertRoutineExercise } from '@/db/repository';
+import {
+  findRoutineExerciseIdByOrder,
+  getExerciseWorkingSetHistory,
+  getSession,
+  getSessionSets,
+  updateRoutineExerciseExerciseId,
+  upsertRoutineExercise,
+} from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
 import { injectSettingsStorage, resetForTesting, setSettings } from './settings';
 
@@ -514,6 +521,105 @@ describe('activeSession store', () => {
       expect((sets[0] as any).rpe).toBe(7.5);
       expect((sets[0] as any).reps).toBe(8);
       expect((sets[0] as any).weightKg).toBe(50);
+      // The set records which exercise it was logged for. The routine_exercises
+      // row it points at is permanent and its exercise_id is mutable
+      // (ReplaceExercise), so the row cannot be the identity of record.
+      expect((sets[0] as any)._raw.exercise_id).toBe('ex-test-i1b');
+    });
+
+    it('stamps the persisted set with the entry’s exercise, so a later swap cannot re-attribute it', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-stamp';
+          r.name = 'Stamp Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-stamp-original';
+          e.title = 'Original';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-stamp-substitute';
+          e.title = 'Substitute';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-stamp', {
+        exerciseId: 'ex-stamp-original',
+        order: 0,
+        warmupSets: 0,
+        targetSets: 1,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 60,
+      });
+
+      const store = createActiveSessionStore(database, {
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onCompleteSession: jest.fn(),
+      });
+
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId: 'session-stamp',
+        nowMs: Date.now(),
+        routine: {
+          id: 'routine-stamp',
+          name: 'Stamp Routine',
+          entries: [
+            {
+              exerciseId: 'ex-stamp-original',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 60,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 60,
+        durationSeconds: 0,
+        rpe: 8,
+        nowMs: Date.now(),
+      });
+
+      let sets: any[] = [];
+      for (let attempt = 0; attempt < 50 && sets.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+        try {
+          sets = await getSessionSets(database, 'session-stamp');
+        } catch {
+          // LokiJS's record cache can race the in-flight write; retry
+        }
+      }
+      expect(sets).toHaveLength(1);
+
+      // Now swap the routine entry, the way the Replace flow does after the
+      // session ends. The logged set must not follow it.
+      const rowId = await findRoutineExerciseIdByOrder(database, 'routine-stamp', 0);
+      expect(rowId).not.toBeNull();
+      await updateRoutineExerciseExerciseId(database, rowId!, 'ex-stamp-substitute');
+
+      expect(
+        await getExerciseWorkingSetHistory(database, 'ex-stamp-original')
+      ).toHaveLength(1);
+      expect(
+        await getExerciseWorkingSetHistory(database, 'ex-stamp-substitute')
+      ).toHaveLength(0);
     });
   });
 

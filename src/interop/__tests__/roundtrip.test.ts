@@ -113,6 +113,73 @@ describe('round-trip', () => {
       expect(set2.kind).toBe('strength');
     });
 
+    test('session round-trip preserves the exercise a set was performed as, not its routine row', () => {
+      // ReplaceExercise re-points the routine_exercises row. A session
+      // serialized after that swap must round-trip back to what was performed
+      // — the identity travels in the line's existing id slot, so the grammar
+      // is the same one every other session uses.
+      const sessionRow = {
+        id: 'sess-rt-swap',
+        routineId: 'push-06-01',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+
+      const sets = [
+        {
+          routineExerciseId: 're-001',
+          exerciseId: 'barbell-bench-press',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 80,
+          durationSeconds: undefined,
+          rpe: 8,
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-001',
+          // Already swapped: the plan names the substitute now.
+          exerciseId: 'dumbbell-floor-press',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        { id: 'barbell-bench-press', title: 'Barbell Bench Press', kind: 'strength' as const },
+        { id: 'dumbbell-floor-press', title: 'Dumbbell Floor Press', kind: 'strength' as const },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+      const parsed = parseSession(markdown);
+
+      expect(parsed.exercises).toHaveLength(1);
+      const line = parsed.exercises[0] as WorkoutLine;
+      expect(line.exerciseId).toBe('barbell-bench-press');
+      // Everything else still comes from the plan and survives untouched.
+      expect(line.setType).toBe('working');
+      expect(line.targetReps).toBe(6);
+      expect(line.weight).toBe(80);
+      expect(line.rpe).toBe(8);
+      expect(line.restSeconds).toBe(90);
+    });
+
     test('routine round-trip: parse(serialize(rows)) preserves machine fields', () => {
       const routineRow = {
         id: 'push-rt-001',

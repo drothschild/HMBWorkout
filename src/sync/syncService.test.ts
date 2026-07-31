@@ -7,7 +7,13 @@
 
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { createSession, deleteSession, deleteRoutine, appendSet } from '@/db/repository';
+import {
+  createSession,
+  deleteSession,
+  deleteRoutine,
+  appendSet,
+  updateRoutineExerciseExerciseId,
+} from '@/db/repository';
 import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
 import { createSyncService } from './syncService';
 
@@ -131,6 +137,122 @@ describe('Sync Service', () => {
       // Verify session transitioned to "synced"
       const updatedSession = await database.get('sessions').find('session-1');
       expect((updatedSession as any).customSyncStatus).toBe('synced');
+    });
+  });
+
+  describe('vault export after a mid-session exercise replacement', () => {
+    // A session can sit at sync_status='local' for days (bridge offline). If a
+    // ReplaceExercise swap lands in the meantime, the routine_exercises row now
+    // names the substitute — but the markdown posted to the vault must still
+    // name what was actually performed.
+    async function seedSwappedRoutine() {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Push Day';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        for (const [id, title] of [
+          ['barbell-bench-press', 'Barbell Bench Press'],
+          ['dumbbell-floor-press', 'Dumbbell Floor Press'],
+        ]) {
+          await database.get('exercises').create((e: any) => {
+            e._raw.id = id;
+            e.title = title;
+            e.kind = 'strength';
+            e._raw.created_at = Date.now();
+          });
+        }
+        await database.get('routine_exercises').create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'barbell-bench-press';
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      await createSession(database, {
+        sessionId: 'session-1',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-1', 'routine-exercise-1', {
+        setType: 'working',
+        reps: 6,
+        weightKg: 80,
+        exerciseId: 'barbell-bench-press',
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+    }
+
+    function makeClient(postSessionCalls: any[]) {
+      return {
+        health: jest.fn().mockResolvedValue({ ok: true }),
+        postSession: jest.fn().mockImplementation(async (payload) => {
+          postSessionCalls.push(payload);
+        }),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+    }
+
+    it('serializes the exercise performed, not the substitute swapped in later', async () => {
+      await seedSwappedRoutine();
+      await updateRoutineExerciseExerciseId(
+        database,
+        'routine-exercise-1',
+        'dumbbell-floor-press'
+      );
+
+      const postSessionCalls: any[] = [];
+      await createSyncService(database, makeClient(postSessionCalls)).syncNow();
+
+      expect(postSessionCalls).toHaveLength(1);
+      expect(postSessionCalls[0].markdown).toContain('- barbell-bench-press: 1x6');
+      expect(postSessionCalls[0].markdown).not.toContain('dumbbell-floor-press');
+    });
+
+    it('changes only the identity slot, leaving the rest of the line alone', async () => {
+      // The swap must not perturb the grammar: same flags, same order, same
+      // block. (serialize → parse symmetry for this case is pinned in the
+      // interop round-trip suite, where the inputs are contract-shaped.)
+      await seedSwappedRoutine();
+
+      const before: any[] = [];
+      await createSyncService(database, makeClient(before)).syncNow();
+
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-1');
+        await (session as any).update((record: any) => {
+          record._raw.sync_status = 'local';
+        });
+      });
+      await updateRoutineExerciseExerciseId(
+        database,
+        'routine-exercise-1',
+        'dumbbell-floor-press'
+      );
+
+      const after: any[] = [];
+      await createSyncService(database, makeClient(after)).syncNow();
+
+      expect(after[0].markdown).toBe(before[0].markdown);
+    });
+
+    it('serializes an unswapped routine exactly as before', async () => {
+      await seedSwappedRoutine();
+
+      const postSessionCalls: any[] = [];
+      await createSyncService(database, makeClient(postSessionCalls)).syncNow();
+
+      expect(postSessionCalls[0].markdown).toContain('- barbell-bench-press: 1x6');
     });
   });
 

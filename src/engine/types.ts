@@ -62,6 +62,11 @@ export type Event =
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipRest' }
   | { tag: 'SkipExercise' }
+  // Swap which exercise the entry at `idx` names, leaving its targets,
+  // warmups, rest and superset group alone. `idx` is the 0-based entry
+  // position and must equal the current exerciseIndex — the rule rejects a
+  // pick made about an entry the workout has already moved past.
+  | { tag: 'ReplaceExercise'; idx: number; exerciseId: string }
   | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'StartStretching' }
   | { tag: 'StopStretching' }

@@ -62,6 +62,27 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
             exerciseIds.map((id) => database.get('exercises').find(id))
           );
 
+          // A set records what it was performed as, which after a
+          // ReplaceExercise swap is no longer any of the routine's current
+          // exercises — and serializeSession drops a set whose exercise record
+          // it cannot find. Fetch those too, by query rather than find(): a
+          // stamped id with no surviving row must not take the whole session's
+          // sync down with it.
+          const stampedExerciseIds = [
+            ...new Set(
+              sets
+                .map((s) => (s as any)._raw.exercise_id as string | null)
+                .filter((id): id is string => !!id && !exerciseIds.includes(id))
+            ),
+          ];
+          const stampedExercises =
+            stampedExerciseIds.length > 0
+              ? await database
+                  .get('exercises')
+                  .query(Q.where('id', Q.oneOf(stampedExerciseIds)))
+                  .fetch()
+              : [];
+
           // Serialize session to markdown
           const markdown = serializeSession(
             {
@@ -74,6 +95,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
             },
             sets.map((s) => ({
               routineExerciseId: (s as any).routineExerciseId,
+              exerciseId: (s as any)._raw.exercise_id ?? undefined,
               setType: (s as any).setType,
               reps: (s as any).reps,
               weightKg: (s as any).weightKg,
@@ -94,7 +116,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               restSeconds: re._raw.rest_seconds,
               notes: re._raw.notes,
             })),
-            (exercises as any[]).map((e) => ({
+            ([...exercises, ...stampedExercises] as any[]).map((e) => ({
               id: e.id,
               title: e.title,
               kind: e._raw.kind,
