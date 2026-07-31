@@ -1,6 +1,60 @@
-# Welcome to your Expo app 👋
+# HMB Workout
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A local-first iOS workout logger. Sessions are driven by a pure functional
+state machine, data lives on-device, and an Obsidian vault is the sync target
+via a Mac-side bridge. Routines can also be authored conversationally with an
+AI coach backed by the Anthropic API (bring your own key).
+
+## Technologies
+
+### App platform
+
+- **[Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/) / React Native 0.86 / React 19** —
+  iOS app built as a custom dev client (native modules rule out Expo Go).
+- **[expo-router](https://docs.expo.dev/router/introduction/)** — file-based
+  routing from `src/app/`: tabs (Today, Routines, Settings with nested
+  sub-screens), routine detail, session modal, and the AI Coach chat screen.
+- **TypeScript** throughout, `strict` mode.
+
+### Data & state
+
+- **[WatermelonDB](https://watermelondb.dev/) 0.28** — on-device database
+  (SQLite on iOS, LokiJS on web/tests). Schema, models, and a repository layer
+  live in `src/db/`.
+- **rill-lang 1.1.1** (local packed tarball) — a pure functional
+  rules language that runs the workout-session engine (`src/engine/rules/*.lv`).
+  Every phase transition, validation, and effect decision is made by Rill
+  rules; TypeScript hosts them and executes the resulting effects. This
+  functional-core / imperative-shell split is the project's load-bearing
+  architectural invariant.
+- **[Zustand](https://zustand.docs.pmnd.rs/) 5** — imperative-shell stores:
+  the active workout session and the ephemeral AI chat conversation.
+- **expo-secure-store** — settings blob (bridge credentials + AI key/goals/
+  equipment) in the iOS Keychain.
+
+### Integrations
+
+- **Anthropic Messages API** — the AI Coach calls `claude-sonnet-5` over a
+  hand-rolled `fetch` client with structured outputs (JSON schema-constrained
+  turns). Deliberately **no `@anthropic-ai/sdk`** dependency: the client must
+  stay React Native/Hermes-safe and injectable for tests. The user supplies
+  their own API key; requests go directly to the API and conversations are
+  never persisted.
+- **Obsidian vault sync** — workout sessions serialize to a markdown grammar
+  (`src/interop/`) and post to a companion Mac-side HTTP bridge
+  (`../workout-bridge`, Node) over Tailscale. Offline-first: sessions queue
+  locally and sync when the bridge is reachable. The markdown contract is
+  copied into both repos and must be changed in lockstep.
+- **[@kingstinct/react-native-healthkit](https://github.com/kingstinct/react-native-healthkit)** —
+  write-only workout export to Apple Health; Health failures never affect app
+  state.
+
+### Tooling
+
+- **Jest + ts-jest** — a single node test project covering the pure TS
+  domains (engine, db, interop, state, sync, health, helpers, ai). Screens
+  have no RN-environment tests by design.
+- **ESLint 9 (expo flat config)** — `npm run lint`.
 
 ## Get started
 
@@ -10,47 +64,33 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Run the app (custom dev client required — WatermelonDB is native)
 
    ```bash
-   npx expo start
+   npm run ios
    ```
 
-In the output, you'll find options to open the app in a
+   or start the bundler alone with `npm start`.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+3. Run tests and checks
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   ```bash
+   npm test
+   npx tsc --noEmit
+   npm run lint
+   ```
 
-## Get a fresh project
+## Structure
 
-When you're ready, run:
+- `src/engine/` — pure Rill session core + host dispatch/effect mapping
+- `src/db/` — WatermelonDB schema, models, repository
+- `src/interop/` — vault markdown serializer/parser (shared contract)
+- `src/state/` — Zustand stores, presenters, settings
+- `src/sync/` — bridge HTTP client + offline sync queue
+- `src/health/` — HealthKit write-only export
+- `src/ai/` — AI coach: draft schema/validators, Anthropic client,
+  system-prompt builder, accept path
+- `src/app/` — expo-router screens
 
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+See `AGENTS.md` for architecture invariants and contributor conventions, and
+`docs/` for design plans, implementation plans, and test plans.
