@@ -1,7 +1,7 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet } from '@/db/repository';
-import { sessionHistoryPresenter } from './sessionHistoryPresenter';
+import { formatSetCountLabel, sessionHistoryPresenter } from './sessionHistoryPresenter';
 
 describe('sessionHistoryPresenter', () => {
   let database: Database;
@@ -185,5 +185,19 @@ describe('sessionHistoryPresenter', () => {
     // Should fall back to routine ID when name lookup fails
     expect(history[0].routineName).toBe('routine-deleted');
     expect(history[0].setCount).toBe(1);
+  });
+});
+
+describe('formatSetCountLabel', () => {
+  it('uses the singular for exactly one set', () => {
+    expect(formatSetCountLabel(1)).toBe('1 logged set');
+  });
+
+  it('uses the plural for zero sets', () => {
+    expect(formatSetCountLabel(0)).toBe('0 logged sets');
+  });
+
+  it('uses the plural for several sets', () => {
+    expect(formatSetCountLabel(2)).toBe('2 logged sets');
   });
 });
