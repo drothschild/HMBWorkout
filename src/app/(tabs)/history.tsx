@@ -1,7 +1,7 @@
-import { StyleSheet, Pressable, FlatList, View, Alert } from 'react-native';
+import { StyleSheet, Pressable, FlatList, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState, useRef } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -9,38 +9,46 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import { deleteSession } from '@/db/repository';
 import {
+  formatSessionDate,
   formatSetCountLabel,
   sessionHistoryPresenter,
   SessionHistoryItem,
 } from '@/state/sessionHistoryPresenter';
 
-function formatSessionDate(epochMs: number): string {
-  return new Date(epochMs).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export default function HistoryScreen() {
-  const router = useRouter();
   const [sessions, setSessions] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const generationRef = useRef(0);
 
   const loadHistory = useCallback(async () => {
+    // Monotonic counter: bump generation each time, never reset.
+    // Stale loads with older generation will be ignored.
+    const generation = ++generationRef.current;
     try {
       const items = await sessionHistoryPresenter(database);
-      setSessions(items);
+      if (generationRef.current === generation) {
+        setSessions(items);
+        setLoading(false);
+      }
     } catch (error) {
       console.error('Failed to load session history:', error);
-    } finally {
-      setLoading(false);
+      if (generationRef.current === generation) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  // Reload on focus rather than once on mount: a tab screen stays mounted, and
+  // a workout finished after the first visit must still appear here.
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+      // Return cleanup to invalidate any in-flight request on blur
+      return () => {
+        generationRef.current += 1;
+      };
+    }, [loadHistory])
+  );
 
   const handleDelete = (session: SessionHistoryItem) => {
     Alert.alert(
@@ -68,17 +76,6 @@ export default function HistoryScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.headerContainer}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-          >
-            <ThemedText type="default" style={styles.backButtonText}>
-              ← Today
-            </ThemedText>
-          </Pressable>
-        </View>
-
         <ThemedText type="title" style={styles.title}>
           History
         </ThemedText>
@@ -130,23 +127,6 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
-  },
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Spacing.two,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    padding: Spacing.two,
-    marginLeft: -Spacing.two,
-  },
-  backButtonPressed: {
-    opacity: 0.6,
-  },
-  backButtonText: {
-    color: '#007AFF',
-    fontWeight: '500',
   },
   title: {
     marginTop: Spacing.two,
