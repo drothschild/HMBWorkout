@@ -47,7 +47,9 @@
  * -------------------
  */
 export const OVERRIDABLE_DIRECTIVES = `- Begin with a 5 minute warmup unless the user's Goals say otherwise
-- End with a 5 minute cooldown with stretches for each used muscle group unless the user's Goals say otherwise`;
+- End with a cooldown with stretches for each used muscle group unless the user's Goals say otherwise
+- Always break cooldown stretches into individual exercises, and split any unilateral stretch into separate Left and Right entries
+- Each individual stretch should be 30 seconds`;
 
 /**
  * Non-negotiable behavioral constraints for the AI Coach.
