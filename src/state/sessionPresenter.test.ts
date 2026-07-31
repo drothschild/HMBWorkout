@@ -74,12 +74,12 @@ describe('createSessionPresenter', () => {
     expect(presenter.loggedSets[1].rpe).toBe(8);
   });
 
-  test('dispatches SetDone on setDone action', () => {
+  test('dispatches SetDone on skip-set action (advance without logging)', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);
     const presenter = createSessionPresenter(state, mockDispatch);
 
-    presenter.onSetDone();
+    presenter.onSkipSet();
 
     expect(mockDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -87,6 +87,55 @@ describe('createSessionPresenter', () => {
         nowMs: expect.any(Number),
       })
     );
+  });
+
+  describe('set position within the current entry', () => {
+    // Mock entry: warmupSets 1, targetSets 3 → 4 positions in total
+
+    test('exposes the warmup position while on a warmup set', () => {
+      const state = createMockState();
+      state.setIndex = 0;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isWarmupSet).toBe(true);
+      expect(presenter.setNumber).toBe(1);
+      expect(presenter.totalSetsForEntry).toBe(4);
+      expect(presenter.setPositionLabel).toBe('Warmup 1 of 1');
+    });
+
+    test('exposes the working position once past the warmups', () => {
+      const state = createMockState();
+      state.setIndex = 1;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isWarmupSet).toBe(false);
+      expect(presenter.setNumber).toBe(1);
+      expect(presenter.totalSetsForEntry).toBe(4);
+      expect(presenter.setPositionLabel).toBe('Set 1 of 3');
+    });
+
+    test('counts working sets within the entry, not globally', () => {
+      const state = createMockState();
+      state.setIndex = 3;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.setPositionLabel).toBe('Set 3 of 3');
+    });
+
+    test('degrades to an empty label when there is no current entry', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5; // Out of range
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.setPositionLabel).toBe('');
+      expect(presenter.totalSetsForEntry).toBe(0);
+      expect(presenter.setNumber).toBe(0);
+      expect(presenter.isWarmupSet).toBe(false);
+    });
   });
 
   test('dispatches LogSet with reps, weight, RPE, and the current time on logSet', () => {

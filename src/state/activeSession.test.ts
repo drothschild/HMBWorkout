@@ -1001,6 +1001,94 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
     });
   });
 
+  describe('one-tap completion: final persist lands before the session closes', () => {
+    function tick(): Promise<void> {
+      return new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it('onCompleteSession waits for the pending set persist before writing ended_at', async () => {
+      // The merged LogSet transition emits [PersistSet, CompleteSession] in one
+      // dispatch, and rill executors are fire-and-forget — completion must not
+      // outrun the final set's write or the synced markdown misses it.
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const persistDone = jest.fn();
+      const onPersistSet = jest.fn(() => persistGate.then(persistDone));
+
+      const syncFn = jest.fn(async () => {});
+      const store = createActiveSessionStore(
+        database,
+        {
+          onScheduleRest: jest.fn(),
+          onCancelRest: jest.fn(),
+          onNotify: jest.fn(),
+          onPersistSet,
+        },
+        syncFn,
+        {
+          ensureAuthorized: jest.fn(async () => 'authorized' as const),
+          requestAuthorization: jest.fn(async () => true),
+          saveWorkoutSample: jest.fn(async () => undefined),
+        }
+      );
+
+      const sessionId = 'session-persist-drain';
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine: {
+          id: 'routine-persist-drain',
+          name: 'Persist Drain Routine',
+          entries: [
+            {
+              exerciseId: 'ex-drain',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 0,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      // The final set: records, completes the workout, and leaves the persist in flight
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 50,
+        durationSeconds: 0,
+        nowMs: Date.now(),
+      });
+      expect(store.getState().sessionState?.phase).toBe('done');
+      expect(onPersistSet).toHaveBeenCalledTimes(1);
+
+      // Completion must be parked behind the un-persisted set
+      for (let i = 0; i < 10; i++) await tick();
+      let session = (await database.get('sessions').find(sessionId)) as any;
+      expect(session._raw.ended_at).toBeNull();
+      expect(syncFn).not.toHaveBeenCalled();
+
+      // Let the persist land; completion may now proceed
+      releasePersist();
+      for (let attempt = 0; attempt < 50; attempt++) {
+        session = (await database.get('sessions').find(sessionId)) as any;
+        if (session._raw.ended_at) break;
+        await tick();
+      }
+      expect(session._raw.ended_at).toBeTruthy();
+      expect(syncFn).toHaveBeenCalled();
+      expect(persistDone.mock.invocationCallOrder[0]).toBeLessThan(
+        syncFn.mock.invocationCallOrder[0]
+      );
+    });
+  });
+
   describe('post-workout debrief', () => {
     const routineId = 'routine-debrief';
     let fakeStorage: { [key: string]: string };
