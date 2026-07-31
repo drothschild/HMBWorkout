@@ -120,7 +120,7 @@ export default function RoutineDetailScreen() {
                   </ThemedText>
                   {group.exercises.map((exercise) => (
                     <Pressable
-                      key={exercise.exerciseId}
+                      key={exercise.routineExerciseId}
                       style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
                       onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
                       accessibilityRole="button"
@@ -164,7 +164,7 @@ export default function RoutineDetailScreen() {
               </ThemedText>
               {routine.standaloneExercises.map((exercise) => (
                 <Pressable
-                  key={exercise.exerciseId}
+                  key={exercise.routineExerciseId}
                   style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
                   onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
                   accessibilityRole="button"

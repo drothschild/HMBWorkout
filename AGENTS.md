@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-30
+Last verified: 2026-07-31
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -78,33 +78,51 @@ everything else only shapes payloads and runs side effects.
 
 These exist to work around Rill's type system and have no analog in ordinary TS:
 
-1. **Uniform-record effects.** Rill's checker cannot unify a heterogeneous list, so
-   the engine emits every effect as the *same* record shape
-   `{ kind: String, deadline_ms: Int, message: String }`. The host
-   (`engine/index.ts` `mapUniformEffect`) enriches each uniform record into the typed
-   `Effect` union, pulling payloads from state. Adding an effect = add a `kind` string
-   in `transition.lv` **and** a case in `mapUniformEffect`; never widen the Rill record.
+1. **Typed effect variants, not a uniform record.** `Effect` is a tagged union
+   declared in `types.lv` — `CreateSession`, `ScheduleRest`, `CancelRest`, `Notify`,
+   `PersistSet`, `CompleteSession`, `DiscardSession` — mirrored by the TS `Effect`
+   union in `engine/types.ts`. The host (`engine/index.ts`) maps each tag to a
+   handler in the `rillExecutors` table, unpacking that variant's own payload and
+   forwarding it to the matching `EffectExecutors` method inside a try/catch so one
+   failing executor never crashes `dispatch`. Adding an effect means adding a variant
+   to `types.lv` **and** `engine/types.ts`, plus a case in `rillExecutors` — there is
+   no shared record shape left to widen. `DiscardSession` is its own variant rather
+   than a case of `CompleteSession` on purpose: `CompleteSession` is what drives
+   vault sync and the HealthKit export, so an abandoned session (`AbandonSession`)
+   must emit `DiscardSession` so the session is deleted instead of synced or
+   exported.
 
-2. **Host-appended `loggedSets`.** Rill has no list-append. The `LogSet` rule writes a
-   single `lastLoggedSet` onto the returned state; the host appends it to
-   `loggedSets` when it sees a `persist_set` effect. Do not expect the core to grow
-   the list — that is the shell's job, and it is the reason `lastLoggedSet` exists.
+2. **`transition.lv` appends to `loggedSets` itself.** Rill does have a list-append
+   builtin, and the `LogSet` rule uses it: `loggedSets: append(state.loggedSets,
+   [theSet])` on the returned state, so the host never rebuilds the list. The same
+   rule also writes `theSet` onto `lastLoggedSet`; `engine/index.ts` only carries
+   that field across the sentinel boundary (rpe -1.0 ⇄ `undefined`, etc.) — nothing
+   else in the codebase currently reads it.
 
 3. **`idx` is 0-based order, host-assigned.** Rill indexed list access uses head/tail
-   recursion, so entries must carry an explicit `idx`. The host pre-indexes
-   `routine.entries` (`idx = array position`) inside `dispatch` before handing the
-   event to Rill. Callers pass routines *without* `idx`; never author `idx` by hand.
+   recursion, so entries must carry an explicit `idx`. Rill's own `RoutineEntry`
+   alias (`types.lv`) has no `idx` field — `toRillRoutineEntry` strips it before an
+   entry crosses into Rill — so the host supplies it on both sides of a `dispatch`
+   call: `fromRillState` re-derives `idx` as array position after every transition
+   returns (`entries.map((entry, idx) => ({ idx, ... }))`), and, going the other way,
+   `startSessionFromRoutine.ts` assigns `idx: re._raw.order` — the DB's canonical
+   0-based order, not a loop counter — when building a `StartSession` event's
+   `routine.entries`, so it matches `routine_exercises.order` for `onPersistSet`'s
+   later lookup. Callers pass routines *without* `idx`; never author `idx` by hand.
 
 4. **Rules are inlined, not module-loaded.** `.lv` files are imported as strings
    (babel inline-import). Metro's transform cache keys on the *importing* TS file,
    not the `.lv` content — after editing any `.lv` file, restart Metro with
    `npx expo start --clear` or modules that inline the same rules can end up with
    mixed old/new copies (e.g. `loadRules.ts` validating different sources than
-   `engine/index.ts` executes). `loadRules.ts` splices `validate_set`/`rest_duration` helper
-   bodies into `transition` as let-bindings to build `transitionCompositeSource`.
-   `loadRules()` (type-check gate) must run from the boot effect in `_layout.tsx`,
-   **not** at module-init — a module-init throw crashes before the RuleErrorScreen can
-   render. Keep it that way.
+   `engine/index.ts` executes, since each file has its own `import ... from
+   './rules/*.lv'` statements). `loadRules()` type-checks the bundled rules
+   directly — `checkRuleSource(transitionSource, { resolve })`, where `resolve`
+   serves the same inlined `types.lv`/`helpers.lv`/`transition.lv` sources
+   `engine/index.ts` uses — it does not assemble or splice rule text together.
+   `loadRules()` (the type-check gate) must run from the boot effect in
+   `_layout.tsx`, **not** at module-init — a module-init throw crashes before the
+   RuleErrorScreen can render. Keep it that way.
 
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
@@ -166,9 +184,14 @@ misnomer — AI settings are in there too.
   exercise but never updates an existing one's title or kind — a draft must not rename
   or re-kind an exercise out from under other routines. Title reuse therefore maps to
   the same record, which is why the persona pushes the model toward existing titles.
-- **Drafts are whole routines, never diffs.** `upsertRoutine` deletes and recreates
-  every `routine_exercise` row, so accepting an edit draft that omits an exercise
-  removes it. The persona demands the full exercise list for this reason.
+- **Drafts are whole routines, never diffs.** `upsertRoutine` reconciles
+  `routine_exercises` in place, not delete-and-recreate: entries claim existing
+  rows by `exerciseId` (oldest `order` first, so duplicated exercises match
+  deterministically) and survivors keep their row ids. That stability is
+  load-bearing: `session_sets.routine_exercise_id` references those rows and
+  `getExerciseWorkingSetHistory` joins by row id, so editing a routine never
+  orphans logged history. An exercise the draft omits *is* deleted, which is why
+  the persona demands the full exercise list.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -189,9 +212,12 @@ misnomer — AI settings are in there too.
   `src/state/postWorkoutDebrief.ts` so they test in the node project;
   `debriefNavigation.ts` exists only to keep `expo-router` out of that file.
 - **The prompt carries data, never secrets.** `buildSystem` composes goals, equipment,
-  every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
-  exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a
-  regression test in `contextBuilder.test.ts` asserts this.
+  every routine, a `## Recent Workouts` section (the last `RECENT_WORKOUTS_IN_PROMPT`
+  (10) completed sessions, one line each dated in UTC with weekday, preceded by a
+  `Today:` anchor line so the model has a recency reference point), and working-set
+  history (`HISTORY_SETS_PER_EXERCISE` most recent per exercise, warmups excluded,
+  each set dated to the UTC day it was logged). `anthropicKey`/`token`/`baseUrl` must
+  never appear — a regression test in `contextBuilder.test.ts` asserts this.
 - **A `settingsProposal` is proposed, never applied.** The model may propose new
   `aiGoals`/`aiEquipment` when the user asks, but `approveSettingsProposal` is the only
   path to `setSettings`, and it validates the proposal a second time first. Fields are
@@ -243,6 +269,11 @@ misnomer — AI settings are in there too.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
+- A routine may list the same exercise more than once, so a routine *entry* is
+  identified by its `routine_exercises` row id, never by `exercise_id` — React list
+  keys, logged-set attribution (`session_sets.routine_exercise_id`), and
+  `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
+  therefore surface it (`ExerciseDetail.routineExerciseId`)
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
