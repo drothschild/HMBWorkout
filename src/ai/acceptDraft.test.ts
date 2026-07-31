@@ -272,6 +272,47 @@ describe('acceptDraft', () => {
     });
   });
 
+  describe('debrief mode', () => {
+    test('revises the routine that was just performed, never a fresh one', async () => {
+      const nowSpy = jest.spyOn(Date, 'now');
+      try {
+        nowSpy.mockReturnValueOnce(1000);
+        const routineId = await acceptDraft(
+          database,
+          { name: 'Upper Body', exercises: [{ title: 'Bench Press', kind: 'strength' as const }] },
+          { kind: 'create' }
+        );
+        // A fresh id would be routine-2000, so minting one here would be visible.
+        nowSpy.mockReturnValue(2000);
+
+        const returnedId = await acceptDraft(
+          database,
+          {
+            name: 'Upper Body',
+            exercises: [
+              { title: 'Bench Press', kind: 'strength' as const, targetSets: 3, targetReps: 6 },
+            ],
+          },
+          { kind: 'debrief', routineId, sessionId: 'session-1' }
+        );
+
+        expect(returnedId).toBe(routineId);
+
+        const routines = await database.get('routines').query().fetch();
+        expect(routines).toHaveLength(1);
+
+        const entries = await database
+          .get('routine_exercises')
+          .query(Q.where('routine_id', routineId))
+          .fetch();
+        expect(entries).toHaveLength(1);
+        expect((entries[0] as any).targetReps).toBe(6);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+  });
+
   describe('AC3.4 (slug dedupe)', () => {
     test('creates one exercise for duplicate slugs', async () => {
       const draft = {

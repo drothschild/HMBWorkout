@@ -5,6 +5,7 @@ import { createSessionPresenter } from './sessionPresenter';
 import { SessionState } from '@/engine/types';
 import { getSession, getSessionSets, upsertRoutineExercise } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
+import { injectSettingsStorage, resetForTesting, setSettings } from './settings';
 
 describe('activeSession store', () => {
   let database: Database;
@@ -852,6 +853,154 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
         // Clean up the unhandledRejection listener
         process.removeListener('unhandledRejection', unhandledRejectionHandler);
       }
+    });
+  });
+
+  describe('post-workout debrief', () => {
+    const routineId = 'routine-debrief';
+    let fakeStorage: { [key: string]: string };
+
+    const fakeStorageBackend = {
+      getItemAsync: async (key: string) => fakeStorage[key] ?? null,
+      setItemAsync: async (key: string, value: string) => {
+        fakeStorage[key] = value;
+      },
+      deleteItemAsync: async (key: string) => {
+        delete fakeStorage[key];
+      },
+    };
+
+    beforeEach(() => {
+      fakeStorage = {};
+      resetForTesting();
+      injectSettingsStorage(fakeStorageBackend);
+    });
+
+    function makeSyncFn() {
+      return jest.fn(async () => {});
+    }
+
+    function makeHealthKitDeps() {
+      return {
+        ensureAuthorized: jest.fn(async () => 'authorized' as const),
+        requestAuthorization: jest.fn(async () => true),
+        saveWorkoutSample: jest.fn(async () => undefined),
+      };
+    }
+
+    async function finishWorkout(store: ReturnType<typeof createActiveSessionStore>) {
+      const sessionId = 'session-debrief';
+
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine: {
+          id: routineId,
+          name: 'Upper Body',
+          entries: [
+            {
+              exerciseId: 'ex-debrief',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 0,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      await store.getState().dispatch({ tag: 'FinishSession', nowMs: Date.now() });
+
+      return sessionId;
+    }
+
+    it('opens a debrief chat for the routine and session just finished', async () => {
+      setSettings({ anthropicKey: 'sk-test' });
+      const openDebriefChat = jest.fn();
+
+      const store = createActiveSessionStore(
+        database,
+        { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
+        makeSyncFn(),
+        makeHealthKitDeps(),
+        openDebriefChat
+      );
+
+      const sessionId = await finishWorkout(store);
+
+      expect(openDebriefChat).toHaveBeenCalledWith({
+        kind: 'debrief',
+        routineId,
+        sessionId,
+      });
+    });
+
+    it('opens nothing when no Anthropic key is configured', async () => {
+      const openDebriefChat = jest.fn();
+
+      const store = createActiveSessionStore(
+        database,
+        { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
+        makeSyncFn(),
+        makeHealthKitDeps(),
+        openDebriefChat
+      );
+
+      await finishWorkout(store);
+
+      expect(openDebriefChat).not.toHaveBeenCalled();
+    });
+
+    it('opens the debrief only once persistence, sync and the Health write are under way', async () => {
+      setSettings({ anthropicKey: 'sk-test' });
+      const openDebriefChat = jest.fn();
+      const syncFn = makeSyncFn();
+      const healthKitDeps = makeHealthKitDeps();
+
+      const store = createActiveSessionStore(
+        database,
+        { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
+        syncFn,
+        healthKitDeps,
+        openDebriefChat
+      );
+
+      const sessionId = await finishWorkout(store);
+
+      const session = (await database.get('sessions').find(sessionId)) as any;
+      expect(session._raw.ended_at).toBeTruthy();
+      expect(openDebriefChat.mock.invocationCallOrder[0]).toBeGreaterThan(
+        syncFn.mock.invocationCallOrder[0]
+      );
+      expect(openDebriefChat.mock.invocationCallOrder[0]).toBeGreaterThan(
+        healthKitDeps.saveWorkoutSample.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('completes the session even when the debrief chat cannot be opened', async () => {
+      setSettings({ anthropicKey: 'sk-test' });
+      const openDebriefChat = jest.fn(() => {
+        throw new Error('navigation failed');
+      });
+
+      const store = createActiveSessionStore(
+        database,
+        { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
+        makeSyncFn(),
+        makeHealthKitDeps(),
+        openDebriefChat
+      );
+
+      const sessionId = await finishWorkout(store);
+
+      expect(store.getState().sessionState?.phase).toBe('done');
+      const session = (await database.get('sessions').find(sessionId)) as any;
+      expect(session._raw.ended_at).toBeTruthy();
+      expect(session._raw.engine_state).toBe('');
     });
   });
 });

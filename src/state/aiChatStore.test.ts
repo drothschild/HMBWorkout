@@ -1,4 +1,5 @@
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
+import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
 import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
@@ -346,10 +347,96 @@ describe('aiChatStore', () => {
     });
   });
 
+  describe('post-workout debrief', () => {
+    const debrief = {
+      kind: 'debrief',
+      routineId: 'routine-1',
+      sessionId: 'session-1',
+    } as const;
+
+    it('opens the conversation with the coach, not the user', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.mode).toEqual(debrief);
+      expect(fakeBuildSystem).toHaveBeenCalledWith({}, debrief);
+      expect(state.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+      });
+      expect(state.messages[1].turn).toEqual({ reply: 'How did that go?' });
+      expect(state.status).toBe('idle');
+    });
+
+    it('discards the previous conversation', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({
+        reply: 'hi',
+        draft: { name: 'Draft', exercises: [{ title: 'Ex', kind: 'strength' as const }] },
+      });
+
+      store.getState().reset({ kind: 'create' });
+      await store.getState().send('build me something');
+      expect(store.getState().pendingDraft).not.toBeNull();
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.pendingDraft).toBeNull();
+      expect(state.messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
+    });
+
+    it('discards a reply that was in flight when the debrief opened', async () => {
+      const { store, fakeChat } = makeStore();
+
+      let resolveFirst: (turn: AiTurn) => void = () => {};
+      fakeChat.mockReturnValueOnce(
+        new Promise<AiTurn>((resolve) => {
+          resolveFirst = resolve;
+        })
+      );
+
+      store.getState().reset({ kind: 'create' });
+      const inFlight = store.getState().send('build me something');
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      const opening = store.getState().openDebrief(debrief);
+
+      resolveFirst({ reply: 'stale answer' });
+      await inFlight;
+      await opening;
+
+      const state = store.getState();
+      expect(state.messages).toHaveLength(2);
+      expect(state.messages.some((message) => message.content.includes('stale answer'))).toBe(false);
+    });
+
+    it('reports a missing key without leaving a half-open conversation', async () => {
+      const { store, fakeChat } = makeStore({
+        getSettings: jest.fn().mockReturnValue({ anthropicKey: '' }) as never,
+      });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(fakeChat).not.toHaveBeenCalled();
+      expect(state.error).toEqual({ kind: 'missing_key' });
+      expect(state.mode).toEqual(debrief);
+    });
+  });
+
   describe('AC3.2 / AC5.3 - accept and write-path isolation', () => {
     it.each([
       { kind: 'create' } as const,
       { kind: 'edit', routineId: 'routine-1' } as const,
+      { kind: 'debrief', routineId: 'routine-1', sessionId: 'session-1' } as const,
     ])('calls accept with the draft and the live mode (%o), returns id', async (mode) => {
       const { store, fakeAccept, fakeChat } = makeStore();
 
