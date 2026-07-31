@@ -177,7 +177,7 @@ function routinesSection(routineDetails: RoutineWithDetail[]): string {
     // The routine's description, so edit/debrief drafts can see (and choose
     // to preserve or revise) what the user reads at the start of a workout.
     if (detail.notes) {
-      routineLines.push(detail.notes);
+      routineLines.push(neutralizeNotesForPrompt(detail.notes));
     }
 
     // Merge and sort all exercises by their order
@@ -208,6 +208,19 @@ No routines yet.`;
   }
 
   return `## Existing Routines\n\n${routineLines.join('\n')}`;
+}
+
+/**
+ * Routine notes are user free text dropped into a markdown-structured prompt,
+ * so a notes line starting with '#' would read as a section heading and could
+ * masquerade as prompt structure. Strip leading '#' runs (and the whitespace
+ * after them) from every line so notes always read as body text.
+ */
+function neutralizeNotesForPrompt(notes: string): string {
+  return notes
+    .split('\n')
+    .map((line) => line.replace(/^\s*#+\s*/, ''))
+    .join('\n');
 }
 
 function formatExerciseLine(
