@@ -331,6 +331,7 @@ export function createEngine(executors: Partial<EffectExecutors>) {
               weightKg: e.weightKg === 0.0 ? undefined : e.weightKg,
               durationSeconds: e.durationSeconds === 0 ? undefined : e.durationSeconds,
               rpe: e.rpe === -1.0 ? undefined : e.rpe,
+              nowMs: e.nowMs,
             },
           };
           break;

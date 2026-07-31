@@ -12,7 +12,7 @@ alias Routine = { entries: List(RoutineEntry), id: String }
 alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List(LoggedSet) }
 
 -- Now define types that depend on the above aliases
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | SkipExercise | PauseSession({ nowMs: Int }) | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int }) | AbandonSession
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float), nowMs: Int }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | SkipExercise | PauseSession({ nowMs: Int }) | StartStretching | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int }) | AbandonSession
 
 -- DiscardSession is the counterpart to CompleteSession, not a variant of it:
 -- CompleteSession is what drives the vault sync and the HealthKit export, so an
