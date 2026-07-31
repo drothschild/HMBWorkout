@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { Database } from '@nozbe/watermelondb';
-import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
+import { createEngine, EffectExecutors } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
-import { createSession, appendSet, getSessionSets, discardInProgressSession } from '@/db/repository';
+import { createSession, appendSet, discardInProgressSession } from '@/db/repository';
 import { saveEngineState } from '@/db/engineState';
 import type { HealthKitSaveDeps } from '@/health/saveWorkout';
 
@@ -51,10 +51,10 @@ export function createActiveSessionStore(
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
 
-  // rill fires effect executors without awaiting them, but a caller that awaits
-  // dispatch must not be able to observe an abandoned workout still on disk.
-  // dispatch() picks this up and awaits it before returning.
-  let pendingDiscard: Promise<void> | null = null;
+  // Queue of pending discard promises. Tied to dispatch invocations, not the store
+  // instance: each dispatch drains its own pending discards, so rapid dispatches
+  // don't steal each other's awaits.
+  const pendingDiscardPromises: Promise<void>[] = [];
 
   // Create executors that interact with the database
   const executors: Partial<EffectExecutors> = {
@@ -120,8 +120,9 @@ export function createActiveSessionStore(
       // Abandon: delete the session and its sets outright. Sync and HealthKit
       // are untouched here by construction — both hang off onCompleteSession,
       // which an abandoned workout never emits.
-      pendingDiscard = discardInProgressSession(database, sessionId);
-      return pendingDiscard;
+      const p = discardInProgressSession(database, sessionId);
+      pendingDiscardPromises.push(p);
+      return p;
     },
 
     async onScheduleRest(deadlineMs: number) {
@@ -221,8 +222,11 @@ export function createActiveSessionStore(
       // Update both the store state and the engine's internal state
       currentSessionState = state;
       engine.setState(state);
+      // Apply the same idle→null mapping as dispatch(): the store's null and the
+      // engine's idle phase represent the same state (no active workout).
+      const hasSession = state.phase !== 'idle';
       set({
-        sessionState: state,
+        sessionState: hasSession ? state : null,
         lastError: null,
       });
     },
@@ -235,11 +239,11 @@ export function createActiveSessionStore(
         // Track current state for executors
         currentSessionState = newState;
 
-        // Settle an abandon's deletion before returning (see pendingDiscard).
-        if (pendingDiscard) {
-          const discard = pendingDiscard;
-          pendingDiscard = null;
-          await discard;
+        // Settle any pending discards from this dispatch (queued by onDiscardSession).
+        // This ensures a caller that awaits dispatch observes all side effects completed.
+        while (pendingDiscardPromises.length > 0) {
+          const p = pendingDiscardPromises.shift()!;
+          await p;
         }
 
         // Neither an abandoned nor a completed session has a live row to persist
@@ -259,14 +263,18 @@ export function createActiveSessionStore(
 
         return newState;
       } catch (err) {
-        // Handle TransitionError
+        // Handle TransitionError and discard failures.
+        // On discard failure, roll the store FORWARD to match the engine's reality
+        // (which has transitioned to idle), rather than preserving the old in-progress
+        // state. This prevents store/engine disagreement. The error is surfaced via
+        // lastError so the UI can inform the user; the row remains on disk for later
+        // inspection and cleanup.
         const message = err instanceof Error ? err.message : String(err);
 
-        // Set error but preserve prior state
-        set((state) => ({
+        set({
+          sessionState: null,
           lastError: message,
-          sessionState: state.sessionState, // Keep existing state
-        }));
+        });
 
         return null;
       }

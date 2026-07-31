@@ -193,22 +193,30 @@ export async function discardInProgressSession(
   database: Database,
   sessionId: string
 ): Promise<void> {
+  // Guard against empty/blank session IDs
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error('discardInProgressSession: sessionId must not be empty or blank');
+  }
+
   await database.write(async () => {
+    // Fetch both the sets and session; scoped catch on find() only
     const sets = (await database
       .get('session_sets')
       .query(Q.where('session_id', sessionId))
       .fetch()) as SessionSet[];
 
-    for (const set of sets) {
-      await set.destroyPermanently();
-    }
+    const session = await database
+      .get('sessions')
+      .find(sessionId)
+      .catch(() => null);
 
-    try {
-      const session = await database.get('sessions').find(sessionId);
-      await session.destroyPermanently();
-    } catch {
-      // Already discarded; any orphaned sets were removed above regardless.
-    }
+    // Atomic batch: prepare all deletions, then execute in one batch.
+    // This ensures atomicity: a crash between here and completion leaves nothing
+    // deleted. Destroy failures propagate; not-found is handled by the catch above.
+    await database.batch(
+      ...sets.map((s) => s.prepareDestroyPermanently()),
+      ...(session ? [session.prepareDestroyPermanently()] : []),
+    );
   });
 }
 

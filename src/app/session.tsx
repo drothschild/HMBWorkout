@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   finishButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#34C759',
   },
   buttonText: {
     color: 'white',
