@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, FlatList, ActivityIndicator } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
+import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
 import { getSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
@@ -94,6 +95,39 @@ export default function RoutinesScreen() {
     router.push(`/routine/${routineId}`);
   };
 
+  const handleDelete = (routine: RoutineListItem) => {
+    Alert.alert(
+      'Delete routine?',
+      `This removes "${routine.name}" from this device. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteRoutine(database, routine.id);
+              await loadRoutines();
+            } catch (error) {
+              if (error instanceof RoutineHasUnsyncedSessionsError) {
+                Alert.alert(
+                  'Cannot delete routine',
+                  'This routine has a workout that hasn\'t synced to your vault yet. Sync first, then delete.'
+                );
+              } else {
+                console.error('Failed to delete routine:', error);
+                Alert.alert(
+                  'Could not delete routine',
+                  'Please try again.'
+                );
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleImportRoutines = async () => {
     const settings = getSettings();
     if (!settings.baseUrl) {
@@ -157,12 +191,17 @@ export default function RoutinesScreen() {
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <Pressable
-                    style={styles.routineItem}
+                    style={({ pressed }) => [styles.routineItem, pressed && styles.routineItemPressed]}
                     onPress={() => handleRoutinePress(item.id)}
+                    onLongPress={() => handleDelete(item)}
+                    delayLongPress={400}
                   >
                     <ThemedText type="subtitle">{item.name}</ThemedText>
                     <ThemedText type="default" style={styles.exerciseCount}>
                       {item.exerciseCount} exercises
+                    </ThemedText>
+                    <ThemedText type="small" style={styles.routineHint}>
+                      Long-press to delete
                     </ThemedText>
                   </Pressable>
                 )}
@@ -253,9 +292,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
   },
+  routineItemPressed: {
+    opacity: 0.6,
+  },
   exerciseCount: {
     opacity: 0.6,
     fontSize: 12,
+    marginTop: Spacing.one,
+  },
+  routineHint: {
+    opacity: 0.4,
     marginTop: Spacing.one,
   },
 });

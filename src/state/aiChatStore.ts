@@ -44,7 +44,7 @@ interface AiChatState {
   openDebrief(mode: DebriefMode): Promise<void>;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
-  acceptDraft(): Promise<string>;
+  acceptDraft(): Promise<string | null>;
   approveSettingsProposal(): void;
   declineSettingsProposal(): void;
 }
@@ -89,6 +89,10 @@ export function createAiChatStore(deps: AiChatDeps) {
     cachedSystem = null;
     systemEpoch++;
   }
+
+  // Synchronous in-flight latch for acceptDraft: same-frame double-taps pass the
+  // screen's render-snapshot guard, so the store must refuse re-entry itself
+  let acceptInFlight = false;
 
   async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string, gen: number): Promise<AiTurn> {
     let system = cachedSystem;
@@ -229,15 +233,24 @@ export function createAiChatStore(deps: AiChatDeps) {
       },
 
       async acceptDraft() {
+        if (acceptInFlight) {
+          return null;
+        }
+
         const state = get();
 
         if (state.pendingDraft === null) {
           throw new Error('No pending draft to accept');
         }
 
-        const id = await deps.accept(deps.db, state.pendingDraft, state.mode);
-        set({ pendingDraft: null });
-        return id;
+        acceptInFlight = true;
+        try {
+          const id = await deps.accept(deps.db, state.pendingDraft, state.mode);
+          set({ pendingDraft: null });
+          return id;
+        } finally {
+          acceptInFlight = false;
+        }
       },
 
       approveSettingsProposal() {

@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
+import { Alert, StyleSheet, View, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
-import { activeSessionStore } from '@/state/activeSession';
+import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
 import { getExerciseWorkingSetHistory } from '@/db/repository';
@@ -98,6 +98,61 @@ export default function SessionScreen() {
 
   const presenter = createSessionPresenter(sessionState, dispatch, progressionHint);
 
+  // Destructive and unrecoverable: the workout and its logged sets are deleted
+  // and never reach the vault, so it takes an explicit confirmation.
+  const confirmAbandon = () => {
+    Alert.alert(
+      'Abandon workout?',
+      'This workout and every set you have logged will be deleted. It will not be saved to your vault.',
+      [
+        { text: 'Keep going', style: 'cancel' },
+        {
+          text: 'Abandon',
+          style: 'destructive',
+          onPress: async () => {
+            // Delegate to presenter, which handles dispatch and returns the promise
+            const result = await presenter.onAbandonSession();
+
+            if (!result) {
+              // Abandon failed: read store state to discriminate error type
+              const postDispatchLastError = activeSessionStore.getState().lastError;
+
+              if (postDispatchLastError?.startsWith(DISCARD_FAILURE_PREFIX)) {
+                // Discard failed: session row still on disk, row is inspectable
+                Alert.alert(
+                  'Couldn\'t discard the workout',
+                  'The workout data may reappear at next launch — you can abandon it again then.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => router.back(),
+                    },
+                  ]
+                );
+              } else {
+                // Transition error (rejection): workout is still live in the engine, or no session existed
+                // Do not navigate—let the user stay in the session if it's still live
+                Alert.alert(
+                  'Couldn\'t abandon the workout',
+                  'Try again.',
+                  [
+                    {
+                      text: 'OK',
+                    },
+                  ]
+                );
+              }
+              return;
+            }
+
+            // Success: navigate back
+            router.back();
+          },
+        },
+      ]
+    );
+  };
+
   // Resting takes over the whole screen: big countdown, cancel or pause only
   if (presenter.isResting || presenter.isRestPaused) {
     return (
@@ -173,12 +228,17 @@ export default function SessionScreen() {
               <ThemedText style={styles.buttonText}>Close</ThemedText>
             </Pressable>
           ) : (
-            <Pressable
-              style={[styles.button, styles.finishButton]}
-              onPress={() => presenter.onFinishSession()}
-            >
-              <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
-            </Pressable>
+            <>
+              <Pressable
+                style={[styles.button, styles.finishButton]}
+                onPress={() => presenter.onFinishSession()}
+              >
+                <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+              </Pressable>
+              <Pressable style={styles.button} onPress={confirmAbandon}>
+                <ThemedText style={styles.abandonText}>Abandon workout</ThemedText>
+              </Pressable>
+            </>
           )}
         </View>
       </SafeAreaView>
@@ -229,10 +289,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   finishButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#34C759',
   },
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  abandonText: {
+    color: '#FF3B30',
   },
 });

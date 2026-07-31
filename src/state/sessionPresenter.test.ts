@@ -1,6 +1,6 @@
 import { createSessionPresenter } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
-import { SessionState } from '@/engine/types';
+import type { SessionState } from '@/engine/types';
 
 /**
  * Test: Session presenter logic
@@ -363,4 +363,36 @@ describe('createSessionPresenter', () => {
     });
   });
 
+  describe('abandoning the workout', () => {
+    test('returns a promise from dispatch', async () => {
+      const mockDispatch = jest.fn(async () => null);
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      const result = presenter.onAbandonSession();
+
+      expect(result).toBeInstanceOf(Promise);
+      await result;
+    });
+
+    test('dispatches AbandonSession and nothing else', async () => {
+      const mockDispatch = jest.fn(async () => null);
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      await presenter.onAbandonSession();
+
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+      expect(mockDispatch).toHaveBeenCalledWith({ tag: 'AbandonSession' });
+    });
+
+    test('does not finish the session', async () => {
+      const mockDispatch = jest.fn(async () => null);
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      await presenter.onAbandonSession();
+
+      expect(mockDispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ tag: 'FinishSession' })
+      );
+    });
+  });
 });

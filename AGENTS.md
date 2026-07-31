@@ -191,8 +191,11 @@ misnomer — AI settings are in there too.
   a stale prompt back. `reset` advances both; an approved settings write advances only
   `systemEpoch` — the cached prompt embeds goals and equipment and must be rebuilt, but
   the conversation continues and an in-flight response still lands. Collapsing the two
-  back into one counter reintroduces exactly that bug. Deps are injected (`AiChatDeps`)
-  so the whole turn path tests without network or DB.
+  back into one counter reintroduces exactly that bug. `acceptDraft` re-entry is latched
+  in the store — a second same-frame call returns `null` instead of writing a duplicate
+  routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
+  and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
+  network or DB.
 
 ## Testing gotchas
 
