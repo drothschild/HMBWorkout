@@ -100,6 +100,8 @@ function targetSummary(exercise: RestCommentaryExercise): string {
 }
 
 function setPosition(exercise: RestCommentaryExercise): string {
+  const totalPlanned = exercise.warmupSets + exercise.targetSets;
+  if (totalPlanned === 0) return '';
   return exercise.isWarmupSet
     ? `Warmup ${exercise.setNumber} of ${exercise.warmupSets}`
     : `Set ${exercise.setNumber} of ${exercise.targetSets}`;
@@ -179,16 +181,17 @@ ${neutralizeForPrompt(directives)}`);
   const exercise = input.exercise;
   // Neutralize the title like personality/directives: model-authored titles
   // could contain newlines that fabricate prompt sections.
+  const metricSegments = [
+    setPosition(exercise),
+    targetSummary(exercise),
+    `rest ${exercise.restSeconds}s`,
+  ].filter((segment) => segment.length > 0);
+
   const upNext = [
     neutralizeForPrompt(exercise.title),
     `(${exercise.kind})`,
-    '|',
-    setPosition(exercise),
-    '|',
-    targetSummary(exercise),
-    '|',
-    `rest ${exercise.restSeconds}s`,
-  ].join(' ');
+    ...metricSegments,
+  ].join(' | ');
 
   const message = `## Up Next
 
