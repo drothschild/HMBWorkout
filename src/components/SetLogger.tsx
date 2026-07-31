@@ -3,7 +3,7 @@ import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { Spacing } from '@/constants/theme';
-import { SessionPresenterOutput } from '@/state/sessionPresenter';
+import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { snapRpe, rpeHint, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
 
 interface SetLoggerProps {
@@ -34,7 +34,7 @@ export function SetLogger({
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="subtitle">
-        {presenter.currentEntry?.exerciseId || 'Exercise'}
+        {presenter.currentExerciseTitle || 'Exercise'}
       </ThemedText>
 
       {!isDurationBased && presenter.progressionHint && (
@@ -116,10 +116,7 @@ export function SetLogger({
         <ThemedText type="subtitle">Logged Sets</ThemedText>
         {presenter.loggedSets.map((set, idx) => (
           <View key={idx} style={styles.setRow}>
-            <ThemedText>
-              {isDurationBased ? `${set.durationSeconds}s` : `${set.reps} x ${set.weightKg}kg`}
-              {set.rpe !== null && set.rpe !== undefined ? ` RPE: ${set.rpe}` : ''}
-            </ThemedText>
+            <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
           </View>
         ))}
       </ScrollView>

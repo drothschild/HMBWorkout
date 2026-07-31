@@ -8,6 +8,13 @@ export interface SessionHistoryItem {
 }
 
 /**
+ * Format a session's set count for the history card, singular or plural.
+ */
+export function formatSetCountLabel(setCount: number): string {
+  return setCount === 1 ? '1 logged set' : `${setCount} logged sets`;
+}
+
+/**
  * Query all finished sessions (endedAt set) and format them for the history
  * list UI, most recently finished first.
  *

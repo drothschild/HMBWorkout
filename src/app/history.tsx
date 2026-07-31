@@ -8,7 +8,11 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import { deleteSession } from '@/db/repository';
-import { sessionHistoryPresenter, SessionHistoryItem } from '@/state/sessionHistoryPresenter';
+import {
+  formatSetCountLabel,
+  sessionHistoryPresenter,
+  SessionHistoryItem,
+} from '@/state/sessionHistoryPresenter';
 
 function formatSessionDate(epochMs: number): string {
   return new Date(epochMs).toLocaleDateString(undefined, {
@@ -100,7 +104,7 @@ export default function HistoryScreen() {
               >
                 <ThemedText type="subtitle">{item.routineName}</ThemedText>
                 <ThemedText type="default" style={styles.sessionMeta}>
-                  {formatSessionDate(item.endedAt)} · {item.setCount} logged sets
+                  {formatSessionDate(item.endedAt)} · {formatSetCountLabel(item.setCount)}
                 </ThemedText>
                 <ThemedText type="small" style={styles.sessionHint}>
                   Long-press to delete

@@ -127,6 +127,23 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
 
+6. **Engine state carries ids, never display data.** The Rill `RoutineEntry` alias
+   (`rules/types.lv`) is a closed record, and `toRillRoutineEntry`/`fromRillState`
+   rebuild entries field-by-field in both directions — so an extra field such as
+   `title` bolted onto the TS `RoutineEntry` survives until the first `dispatch` and
+   then silently vanishes. Anything the UI needs beyond `exerciseId` must be resolved
+   shell-side against the DB: `getExerciseTitles` (`src/db/repository.ts`) feeds the
+   optional `exerciseTitles` map on `createSessionPresenter`, which exposes
+   `currentExerciseTitle` and falls back to the raw id when an exercise is missing.
+
+7. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
+   way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,
+   `prePausePhase`/`supersetGroup` → `""` — so TS read sites can stay non-nullable.
+   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list. Presenters
+   must treat those values as *absent*: a plain null check passes `-1` through and
+   renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
+   session screen's logged-set formatting (and that filtering) lives.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
