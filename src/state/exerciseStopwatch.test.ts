@@ -6,6 +6,7 @@ import {
   formatStopwatchDisplay,
   isDurationBasedEntry,
   makeStopwatchKey,
+  StopwatchCommand,
   StopwatchRun,
 } from './exerciseStopwatch';
 
@@ -26,9 +27,13 @@ function entry(overrides: Partial<RoutineEntry> = {}): RoutineEntry {
   };
 }
 
-/** Drive the stopwatch from scratch to an absolute time, one advance. */
-function at(offsetMs: number, run?: StopwatchRun, running = true) {
-  return advanceStopwatch(run, { key: 'k', running, nowMs: T0 + offsetMs });
+/**
+ * Drive the stopwatch from scratch to an absolute time, one advance. The
+ * trailing `command` is the one-shot button press for that advance; omitting it
+ * is an ordinary tick.
+ */
+function at(offsetMs: number, run?: StopwatchRun, running = true, command?: StopwatchCommand) {
+  return advanceStopwatch(run, { key: 'k', running, nowMs: T0 + offsetMs, command });
 }
 
 /** Arm a run at T0 so tests can jump straight to the phase they care about. */
@@ -345,5 +350,288 @@ describe('advanceStopwatch — reset on key change', () => {
     expect(result.view?.isFrozen).toBe(true);
     expect(result.view?.remainingLeadInSeconds).toBe(LEAD_IN_SECONDS);
     expect(result.vibrateAtMinute).toBeUndefined();
+  });
+});
+
+/**
+ * The card's own pause button. Distinct from the session pause in the header:
+ * this one is latched onto the run, so it survives a session resume.
+ */
+describe('advanceStopwatch — local pause', () => {
+  test('a pause command freezes the clock where it stood', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    expect(paused.view?.elapsedSeconds).toBe(30);
+    expect(paused.view?.isFrozen).toBe(true);
+    expect(paused.view?.isLocallyPaused).toBe(true);
+    expect(paused.run?.control).toBe('paused');
+  });
+
+  test('the locally paused clock stands still while the session keeps running', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const later = at(95_000, paused.run);
+    expect(later.view?.elapsedSeconds).toBe(30);
+    expect(later.view?.display).toBe('0:30');
+    expect(later.view?.isFrozen).toBe(true);
+  });
+
+  test('no milestone fires while locally paused, even across a minute boundary', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const later = at(300_000, paused.run);
+    expect(paused.vibrateAtMinute).toBeUndefined();
+    expect(later.vibrateAtMinute).toBeUndefined();
+    expect(later.run?.lastMilestone).toBe(0);
+  });
+
+  test('resuming discounts the locally paused span', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const resumed = at(95_000, paused.run, true, 'resume');
+    expect(resumed.view?.isFrozen).toBe(false);
+    expect(resumed.view?.isLocallyPaused).toBe(false);
+    expect(resumed.view?.elapsedSeconds).toBe(30);
+    expect(at(96_000, resumed.run).view?.elapsedSeconds).toBe(31);
+  });
+
+  test('a milestone deferred by a local pause still fires once after resuming', () => {
+    const paused = at(64_000, armed(), true, 'pause'); // 59s elapsed, frozen
+    const resumed = at(124_000, paused.run, true, 'resume'); // still 59s of exercise time
+    expect(resumed.vibrateAtMinute).toBeUndefined();
+    expect(at(125_000, resumed.run).vibrateAtMinute).toBe(1);
+  });
+
+  test('a repeated pause command never rewinds the freeze', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const again = at(95_000, paused.run, true, 'pause');
+    expect(again.view?.elapsedSeconds).toBe(30);
+  });
+
+  test('pausing during the lead-in freezes the countdown too', () => {
+    const paused = at(2000, armed(), true, 'pause');
+    expect(paused.view?.phase).toBe('leadIn');
+    expect(paused.view?.remainingLeadInSeconds).toBe(3);
+    expect(at(60_000, paused.run).view?.remainingLeadInSeconds).toBe(3);
+
+    const resumed = at(60_000, paused.run, true, 'resume');
+    expect(resumed.view?.remainingLeadInSeconds).toBe(3);
+    expect(at(61_000, resumed.run).view?.remainingLeadInSeconds).toBe(2);
+  });
+});
+
+/**
+ * Session pause and local pause compose: either one freezes, and the clock only
+ * moves again once both are clear.
+ */
+describe('advanceStopwatch — local pause composes with the session pause', () => {
+  test('a session pause layered on a local pause keeps the single freeze instant', () => {
+    const local = at(35_000, armed(), true, 'pause');
+    const both = at(95_000, local.run, false);
+    expect(both.view?.elapsedSeconds).toBe(30);
+    expect(both.view?.isFrozen).toBe(true);
+  });
+
+  test('resuming the session leaves a locally paused stopwatch frozen', () => {
+    const local = at(35_000, armed(), true, 'pause');
+    const both = at(95_000, local.run, false);
+    const sessionResumed = at(155_000, both.run, true);
+    expect(sessionResumed.view?.isFrozen).toBe(true);
+    expect(sessionResumed.view?.isLocallyPaused).toBe(true);
+    expect(sessionResumed.view?.elapsedSeconds).toBe(30);
+
+    const localResumed = at(215_000, sessionResumed.run, true, 'resume');
+    expect(localResumed.view?.isFrozen).toBe(false);
+    expect(localResumed.view?.elapsedSeconds).toBe(30);
+    expect(at(216_000, localResumed.run).view?.elapsedSeconds).toBe(31);
+  });
+
+  test('a local resume while the session is paused leaves the clock frozen', () => {
+    const sessionPaused = at(35_000, armed(), false);
+    const local = at(40_000, sessionPaused.run, false, 'pause');
+    const localResumed = at(95_000, local.run, false, 'resume');
+    expect(localResumed.view?.isFrozen).toBe(true);
+    expect(localResumed.view?.elapsedSeconds).toBe(30);
+
+    const sessionResumed = at(155_000, localResumed.run, true);
+    expect(sessionResumed.view?.isFrozen).toBe(false);
+    expect(sessionResumed.view?.elapsedSeconds).toBe(30);
+    expect(at(156_000, sessionResumed.run).view?.elapsedSeconds).toBe(31);
+  });
+});
+
+describe('advanceStopwatch — stop records the elapsed time', () => {
+  test('stopping finalizes the clock and reports whole seconds once', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    expect(stopped.recordedSeconds).toBe(30);
+    expect(stopped.view?.phase).toBe('stopped');
+    expect(stopped.view?.isStopped).toBe(true);
+    expect(stopped.view?.elapsedSeconds).toBe(30);
+    expect(stopped.view?.display).toBe('0:30');
+    expect(stopped.run?.control).toBe('stopped');
+  });
+
+  test('an ordinary advance reports no recorded time', () => {
+    expect(at(35_000, armed()).recordedSeconds).toBeUndefined();
+  });
+
+  test('late ticks after a stop neither move the clock nor report the time again', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const later = at(300_000, stopped.run);
+    expect(later.recordedSeconds).toBeUndefined();
+    expect(later.view?.elapsedSeconds).toBe(30);
+    expect(later.view?.display).toBe('0:30');
+  });
+
+  test('a repeated stop command reports nothing the second time', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const again = at(40_000, stopped.run, true, 'stop');
+    expect(again.recordedSeconds).toBeUndefined();
+    expect(again.view?.elapsedSeconds).toBe(30);
+  });
+
+  test('no milestone fires after a stop', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const later = at(300_000, stopped.run);
+    expect(stopped.vibrateAtMinute).toBeUndefined();
+    expect(later.vibrateAtMinute).toBeUndefined();
+    expect(later.run?.lastMilestone).toBe(0);
+  });
+
+  test('stopping a locally paused stopwatch records the frozen time', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const stopped = at(300_000, paused.run, true, 'stop');
+    expect(stopped.recordedSeconds).toBe(30);
+    expect(stopped.view?.elapsedSeconds).toBe(30);
+  });
+
+  test('stopping while the session is paused records the frozen time', () => {
+    const paused = at(35_000, armed(), false);
+    const stopped = at(300_000, paused.run, false, 'stop');
+    expect(stopped.recordedSeconds).toBe(30);
+    expect(stopped.view?.isStopped).toBe(true);
+  });
+
+  test('stop is terminal: pause and resume do nothing until the set changes', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const resumed = at(40_000, stopped.run, true, 'resume');
+    expect(resumed.view?.isStopped).toBe(true);
+    expect(resumed.view?.elapsedSeconds).toBe(30);
+
+    const paused = at(45_000, resumed.run, true, 'pause');
+    expect(paused.run?.control).toBe('stopped');
+    expect(paused.view?.isStopped).toBe(true);
+    expect(paused.view?.elapsedSeconds).toBe(30);
+  });
+
+  test('stopping during the lead-in records nothing and shows a zeroed clock', () => {
+    // No exercise time happened, so there is nothing to write — and writing 0
+    // would clobber the routine's prefilled target duration for no gain.
+    const stopped = at(2000, armed(), true, 'stop');
+    expect(stopped.recordedSeconds).toBeUndefined();
+    expect(stopped.view?.phase).toBe('stopped');
+    expect(stopped.view?.elapsedSeconds).toBe(0);
+    expect(stopped.view?.remainingLeadInSeconds).toBe(0);
+    expect(stopped.view?.display).toBe('0:00');
+  });
+
+  test('stopping exactly at the lead-in boundary records zero seconds', () => {
+    const stopped = at(LEAD_IN_SECONDS * 1000, armed(), true, 'stop');
+    expect(stopped.recordedSeconds).toBe(0);
+  });
+});
+
+describe('advanceStopwatch — control availability and label', () => {
+  test('a running stopwatch offers both controls', () => {
+    const { view } = at(10_000, armed());
+    expect(view?.canPause).toBe(true);
+    expect(view?.canStop).toBe(true);
+    expect(view?.label).toBe('Elapsed');
+  });
+
+  test('the lead-in offers both controls too', () => {
+    const { view } = at(2000, armed());
+    expect(view?.canPause).toBe(true);
+    expect(view?.canStop).toBe(true);
+    expect(view?.label).toBe('Starting in');
+  });
+
+  test('a session pause labels the card paused without engaging the local pause', () => {
+    const { view } = at(35_000, armed(), false);
+    expect(view?.label).toBe('Paused');
+    expect(view?.isLocallyPaused).toBe(false);
+    // Still offered: pressing pause here latches past the session resume.
+    expect(view?.canPause).toBe(true);
+    expect(view?.canStop).toBe(true);
+  });
+
+  test('a locally paused card is labelled paused and reports its own pause', () => {
+    const { view } = at(35_000, armed(), true, 'pause');
+    expect(view?.label).toBe('Paused');
+    expect(view?.isLocallyPaused).toBe(true);
+  });
+
+  test('a stopped card is labelled stopped and offers no controls', () => {
+    const { view } = at(35_000, armed(), true, 'stop');
+    expect(view?.label).toBe('Stopped');
+    expect(view?.canPause).toBe(false);
+    expect(view?.canStop).toBe(false);
+  });
+});
+
+describe('advanceStopwatch — a new set clears the local controls', () => {
+  test('an armed run starts with its controls in the running position', () => {
+    expect(armed().control).toBe('running');
+  });
+
+  test('a new key clears a local pause', () => {
+    const paused = at(35_000, armed(), true, 'pause');
+    const next = advanceStopwatch(paused.run, { key: 'k2', running: true, nowMs: T0 + 35_000 });
+    expect(next.run?.control).toBe('running');
+    expect(next.view?.isFrozen).toBe(false);
+    expect(next.view?.phase).toBe('leadIn');
+    expect(next.view?.remainingLeadInSeconds).toBe(LEAD_IN_SECONDS);
+  });
+
+  test('a new key clears a stop', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const next = advanceStopwatch(stopped.run, { key: 'k2', running: true, nowMs: T0 + 35_000 });
+    expect(next.run?.control).toBe('running');
+    expect(next.view?.isStopped).toBe(false);
+    expect(next.view?.phase).toBe('leadIn');
+    expect(next.recordedSeconds).toBeUndefined();
+  });
+
+  test('a command landing on the same advance as a new set is dropped', () => {
+    const run = at(35_000, armed()).run!;
+    const next = advanceStopwatch(run, {
+      key: 'k2',
+      running: true,
+      nowMs: T0 + 35_000,
+      command: 'stop',
+    });
+    expect(next.run?.control).toBe('running');
+    expect(next.recordedSeconds).toBeUndefined();
+    expect(next.view?.phase).toBe('leadIn');
+  });
+
+  test('a command on the very first advance is dropped', () => {
+    const result = advanceStopwatch(undefined, {
+      key: 'k',
+      running: true,
+      nowMs: T0,
+      command: 'stop',
+    });
+    expect(result.run?.control).toBe('running');
+    expect(result.recordedSeconds).toBeUndefined();
+    expect(result.view?.phase).toBe('leadIn');
+  });
+
+  test('losing the timed exercise drops a stopped run entirely', () => {
+    const stopped = at(35_000, armed(), true, 'stop');
+    const gone = advanceStopwatch(stopped.run, {
+      key: undefined,
+      running: true,
+      nowMs: T0 + 40_000,
+    });
+    expect(gone.run).toBeUndefined();
+    expect(gone.view).toBeUndefined();
+    expect(gone.recordedSeconds).toBeUndefined();
   });
 });
