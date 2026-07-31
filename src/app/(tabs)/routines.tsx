@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ActivityIndicator, View, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -190,16 +190,22 @@ export default function RoutinesScreen() {
                   <Pressable
                     style={({ pressed }) => [styles.routineItem, pressed && styles.routineItemPressed]}
                     onPress={() => handleRoutinePress(item.id)}
-                    onLongPress={() => handleDelete(item)}
-                    delayLongPress={400}
                   >
-                    <ThemedText type="subtitle">{item.name}</ThemedText>
-                    <ThemedText type="default" style={styles.exerciseCount}>
-                      {item.exerciseCount} exercises
-                    </ThemedText>
-                    <ThemedText type="small" style={styles.routineHint}>
-                      Long-press to delete
-                    </ThemedText>
+                    <View style={styles.routineInfo}>
+                      <ThemedText type="subtitle">{item.name}</ThemedText>
+                      <ThemedText type="default" style={styles.exerciseCount}>
+                        {item.exerciseCount} exercises
+                      </ThemedText>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${item.name}`}
+                      hitSlop={8}
+                      onPress={() => handleDelete(item)}
+                      style={({ pressed }) => [styles.deleteButton, pressed && styles.deleteButtonPressed]}
+                    >
+                      <ThemedText type="default">🗑️</ThemedText>
+                    </Pressable>
                   </Pressable>
                 )}
                 scrollEnabled={true}
@@ -280,6 +286,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   routineItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.three,
     marginBottom: Spacing.two,
@@ -289,13 +297,18 @@ const styles = StyleSheet.create({
   routineItemPressed: {
     opacity: 0.6,
   },
+  routineInfo: {
+    flex: 1,
+  },
   exerciseCount: {
     opacity: 0.6,
     fontSize: 12,
     marginTop: Spacing.one,
   },
-  routineHint: {
-    opacity: 0.4,
-    marginTop: Spacing.one,
+  deleteButton: {
+    padding: Spacing.two,
+  },
+  deleteButtonPressed: {
+    opacity: 0.6,
   },
 });

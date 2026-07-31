@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, FlatList, Alert } from 'react-native';
+import { StyleSheet, Pressable, FlatList, View, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
@@ -90,19 +90,23 @@ export default function HistoryScreen() {
             keyExtractor={(item) => item.id}
             style={styles.list}
             renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [styles.sessionItem, pressed && styles.sessionItemPressed]}
-                onLongPress={() => handleDelete(item)}
-                delayLongPress={400}
-              >
-                <ThemedText type="subtitle">{item.routineName}</ThemedText>
-                <ThemedText type="default" style={styles.sessionMeta}>
-                  {formatSessionDate(item.endedAt)} · {formatSetCountLabel(item.setCount)}
-                </ThemedText>
-                <ThemedText type="small" style={styles.sessionHint}>
-                  Long-press to delete
-                </ThemedText>
-              </Pressable>
+              <View style={styles.sessionItem}>
+                <View style={styles.sessionInfo}>
+                  <ThemedText type="subtitle">{item.routineName}</ThemedText>
+                  <ThemedText type="default" style={styles.sessionMeta}>
+                    {formatSessionDate(item.endedAt)} · {formatSetCountLabel(item.setCount)}
+                  </ThemedText>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${item.routineName}`}
+                  hitSlop={8}
+                  onPress={() => handleDelete(item)}
+                  style={({ pressed }) => [styles.deleteButton, pressed && styles.deleteButtonPressed]}
+                >
+                  <ThemedText type="default">🗑️</ThemedText>
+                </Pressable>
+              </View>
             )}
           />
         )}
@@ -139,22 +143,26 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   sessionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.three,
     marginBottom: Spacing.two,
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
   },
-  sessionItemPressed: {
-    opacity: 0.6,
+  sessionInfo: {
+    flex: 1,
   },
   sessionMeta: {
     opacity: 0.6,
     fontSize: 12,
     marginTop: Spacing.one,
   },
-  sessionHint: {
-    opacity: 0.4,
-    marginTop: Spacing.one,
+  deleteButton: {
+    padding: Spacing.two,
+  },
+  deleteButtonPressed: {
+    opacity: 0.6,
   },
 });
