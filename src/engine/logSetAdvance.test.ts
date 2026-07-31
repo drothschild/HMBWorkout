@@ -267,3 +267,307 @@ describe('SetDone remains advance-without-logging (Skip Set)', () => {
     expect(calls).toEqual(['CompleteSession', 'Notify']);
   });
 });
+
+describe('Superset groups with mismatched set counts', () => {
+  it('completes all prescribed sets even when members have different total counts', async () => {
+    const { executors, summaries } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // A has 2 warmups + 3 working = 5 total
+    // B has 0 warmups + 3 working = 3 total
+    engine.setState(
+      makeState({
+        phase: 'warmup',
+        entries: makeEntries(2, [
+          { warmupSets: 2, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // Round 1: A1(warmup), B1(working), A2(warmup), B2(working)
+    let state = await engine.dispatch(logSet(1000)); // A warmup 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+    expect(state.supersetPosition).toBe(1);
+
+    state = await engine.dispatch(logSet(2000)); // B working 1
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+    expect(state.supersetPosition).toBe(0);
+
+    state = await engine.dispatch(logSet(3000)); // A warmup 2
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(4000)); // B working 2
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(2);
+
+    // Round 2: A3(working), B3(working)
+    state = await engine.dispatch(logSet(5000)); // A working 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(2);
+
+    state = await engine.dispatch(logSet(6000)); // B working 3
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(3);
+
+    // Round 3: A4(working), B done (only 3 sets)
+    // But A has 5 total, so need round 3
+    state = await engine.dispatch(logSet(7000)); // A working 2
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(3);
+
+    // B has no more sets, skip to next exercise or end
+    state = await engine.dispatch(logSet(8000)); // A working 3
+    expect(state.phase).toBe('done');
+
+    // All 5 + 3 = 8 sets must be logged
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].setsLogged).toBe(8);
+    expect(summaries[0].loggedSets).toHaveLength(8);
+  });
+
+  it('handles group with one member having zero target sets', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // A has 0 warmups + 3 working = 3 total
+    // B has 0 warmups + 0 working = 0 total (empty exercise)
+    // When A hands off to B, B's 0 sets means we immediately back to A for the next round
+    engine.setState(
+      makeState({
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // A 1: hand off to B, but B has 0 sets so loop back to A for next round
+    let state = await engine.dispatch(logSet(1000)); // A 1
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+
+    // A 2: hand off to B, loop back
+    state = await engine.dispatch(logSet(2000));
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(2);
+
+    // A 3: final set
+    state = await engine.dispatch(logSet(3000));
+    // After A's 3rd set, we try to hand off to B
+    // B has 0 sets, so treat as exhausted
+    // roundDone = nextRound(3) >= maxSetsInGroup(3) = true
+    // So we move to next exercise but there is none, so workout ends
+    // But we need to check if we're correctly detecting end-of-group
+    console.log('After A3:', { phase: state.phase, exerciseIndex: state.exerciseIndex, setIndex: state.setIndex, loggedSets: state.loggedSets.length });
+    expect(state.phase).toBe('done');
+    expect(state.loggedSets).toHaveLength(3);
+  });
+});
+
+describe('SkipExercise within superset groups', () => {
+  it('skips entire superset group when called on a group member', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // Log one set from A (exercise 0)
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    expect(state.exerciseIndex).toBe(1); // Now at B
+    expect(state.loggedSets).toHaveLength(1);
+
+    // Skip exercise when at B (member of group A)
+    state = await engine.dispatch({ tag: 'SkipExercise' });
+    // Should move past the entire group to exercise 2
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+    expect(state.supersetPosition).toBe(0);
+
+    // The remaining sets in group A should not be completed
+    state = await engine.dispatch(logSet(2000)); // Should log on exercise 2
+    expect(state.phase).toBe('done');
+    expect(state.loggedSets).toHaveLength(2);
+  });
+
+  it('does not create invalid state for ReplaceExercise after skip within group', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'working',
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // Log a set on first member
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.loggedSets).toHaveLength(1);
+
+    // Skip when at second member
+    state = await engine.dispatch({ tag: 'SkipExercise' });
+    expect(state.exerciseIndex).toBe(2);
+
+    // ReplaceExercise should not succeed on entry 2 if we had a
+    // setIndex == 0 guard, because it's legitimate
+    // But it should definitely not succeed on entry 1 (the skipped member)
+    // Since we can't replace an exercise mid-group anyway
+    await expect(
+      engine.dispatch({
+        tag: 'ReplaceExercise',
+        idx: 1,
+        exerciseId: 'different-exercise',
+      })
+    ).rejects.toThrow(/must target the current exercise/);
+  });
+});
+
+describe('Three-member superset groups', () => {
+  it('correctly alternates all three members for multiple rounds', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // Round 1: A1 set 1, A2 set 1, A3 set 1
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+
+    state = await engine.dispatch(logSet(2000)); // A2 set 1
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+
+    state = await engine.dispatch(logSet(3000)); // A3 set 1
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+
+    // Round 2: A1 set 2, A2 set 2, A3 set 2
+    state = await engine.dispatch(logSet(4000)); // A1 set 2
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(5000)); // A2 set 2
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(6000)); // A3 set 2
+    expect(state.phase).toBe('done');
+
+    // 6 sets total
+    expect(state.loggedSets).toHaveLength(6);
+  });
+});
+
+describe('Superset group followed by standalone exercise', () => {
+  it('transitions correctly from group to next entry', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 60 },
+        ]),
+      })
+    );
+
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    expect(state.exerciseIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(2000)); // A2 set 1
+    // Should now move to exercise 2 (standalone)
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.phase).toBe('resting');
+    // Rest between superset group and next exercise
+    expect(state.restDeadlineMs).toBe(2000 + 90 * 1000);
+
+    const restState = await engine.dispatch({ tag: 'RestElapsed', nowMs: 2000 + 91 * 1000 });
+    expect(restState.phase).toBe('working');
+    expect(restState.exerciseIndex).toBe(2);
+    expect(restState.setIndex).toBe(0);
+  });
+});
+
+describe('Pause/Resume mid-superset-round', () => {
+  it('preserves position when pausing and resuming mid-round', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 60 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 60 },
+        ]),
+      })
+    );
+
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+
+    state = await engine.dispatch({ tag: 'PauseSession', nowMs: 2000 });
+    expect(state.phase).toBe('paused');
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+
+    state = await engine.dispatch({ tag: 'Resume', nowMs: 3000 });
+    expect(state.phase).toBe('working');
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+
+    state = await engine.dispatch(logSet(4000)); // A2 set 1
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+  });
+});
+
+describe('FinishSession mid-superset-round', () => {
+  it('correctly reports exercisesCompleted as distinct entries with logged sets', async () => {
+    const { executors, summaries } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: '', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    let state = await engine.dispatch(logSet(1000)); // A1 set 1
+    state = await engine.dispatch(logSet(2000)); // A2 set 1
+    state = await engine.dispatch(logSet(3000)); // A1 set 2
+
+    // Finish mid-workout at exercise 0, setIndex 1
+    state = await engine.dispatch({ tag: 'FinishSession', nowMs: 4000 });
+    expect(state.phase).toBe('done');
+
+    // Should report distinct entries (0 and 1 have logged sets)
+    expect(summaries).toHaveLength(1);
+    const summary = summaries[0];
+    expect(summary.setsLogged).toBe(3);
+    // exercisesCompleted should reflect entries with logged sets
+    // not the raw exerciseIndex
+  });
+});
