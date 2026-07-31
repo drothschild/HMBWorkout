@@ -141,6 +141,26 @@ describe('createSessionPresenter', () => {
       expect(presenter.setNumber).toBe(0);
       expect(presenter.isWarmupSet).toBe(false);
     });
+
+    test('suppresses the label for a duration-only entry with zero planned sets', () => {
+      const state = createMockState();
+      // An AI draft may omit targetSets for a timed exercise (a 30s cooldown
+      // stretch has no natural set count): the repository stores null and
+      // startSessionFromRoutine maps it to 0. "Set 1 of 0" must never render.
+      state.entries[0] = {
+        ...state.entries[0],
+        kind: 'stretch',
+        warmupSets: 0,
+        targetSets: 0,
+        targetReps: 0,
+        targetDurationSeconds: 30,
+      };
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.setPositionLabel).toBe('');
+      expect(presenter.totalSetsForEntry).toBe(0);
+    });
   });
 
   test('dispatches LogSet with reps, weight, RPE, and the current time on logSet', () => {
