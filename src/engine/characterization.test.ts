@@ -705,12 +705,13 @@ describe('characterization: session engine pre-migration behavior', () => {
 
       const engine = createEngine(executors);
 
-      // Matching set counts on both members: a superset's round only has a
-      // well-defined length when every member does the same number of sets
-      // per round (an uneven pair, e.g. one member carrying a warmup set the
-      // other doesn't, is out of scope — see transition.lv's advance_after_set).
+      // Uneven pair on purpose: A carries a warmup set B doesn't (A: 1 warmup
+      // + 1 working = 2 total; B: 1 working = 1 total). advance_after_set
+      // tracks each member's own exhaustion, so B is skipped once it's done
+      // (round 1 onward) while A keeps round-robining with itself alone —
+      // every prescribed set gets logged, none silently dropped.
       const routine = makeRoutine(2, [
-        { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
+        { warmupSets: 1, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
         { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
       ]);
 
@@ -721,9 +722,25 @@ describe('characterization: session engine pre-migration behavior', () => {
         nowMs: 1000,
         routine: routine as any,
       });
-      expect(state.phase).toBe('working');
+      expect(state.phase).toBe('warmup');
 
-      // LogSet exercise 0 → exercise 1 immediately (same superset round, no rest)
+      // LogSet A's warmup set → hop to B immediately (same round, no rest)
+      state = await engine.dispatch(
+        fillEventDefaults({
+          tag: 'LogSet',
+          reps: 5,
+          weightKg: 20.0,
+          durationSeconds: 0,
+          nowMs: 10000,
+        })
+      );
+      expect(state.loggedSets[0].setType).toBe('warmup');
+      expect(state.phase).toBe('working');
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.supersetPosition).toBe(1);
+
+      // LogSet B's only set (round 0, B's total) → B is now exhausted, so the
+      // round loops back to A alone, with rest (B's restSeconds)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -731,14 +748,21 @@ describe('characterization: session engine pre-migration behavior', () => {
           weightKg: 25.0,
           durationSeconds: 0,
           rpe: 7.5,
-          nowMs: 105000,
+          nowMs: 15000,
         })
       );
-      expect(state.phase).toBe('working');
-      expect(state.exerciseIndex).toBe(1);
-      expect(state.supersetPosition).toBe(1);
+      expect(state.phase).toBe('resting');
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(1);
+      expect(state.restDeadlineMs).toBe(15000 + 90 * 1000);
 
-      // LogSet exercise 1 → done (last exercise, round complete)
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 15000 + 91 * 1000 });
+      // Round 1 for A is its working set (round 1 >= A's 1 warmup set)
+      expect(state.phase).toBe('working');
+      expect(state.exerciseIndex).toBe(0);
+
+      // LogSet A's working set (its last) → B has no set left at round 1
+      // either, so the whole group — and here, the whole workout — is done
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -750,6 +774,7 @@ describe('characterization: session engine pre-migration behavior', () => {
         })
       );
       expect(state.phase).toBe('done');
+      expect(state.loggedSets).toHaveLength(3); // A's 2 sets + B's 1 — nothing dropped
       expect(executors.onCompleteSession).toHaveBeenCalled();
     });
 

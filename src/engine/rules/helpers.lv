@@ -119,11 +119,13 @@ let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round
   ).found
 )
 
--- Count of distinct exercises with at least one logged set. Used for the
--- session-complete summary's exercisesCompleted, which must stay monotonic:
--- exerciseIndex itself moves backward each round while cycling through a
--- superset group, so it can't serve as a completion count once a group is
--- involved.
+-- Count of distinct exercises with at least one logged set — "touched", not
+-- necessarily finished (a FinishSession mid-round counts an exercise the
+-- athlete only did one round of). Used for the session-complete summary's
+-- exercisesCompleted field, which must stay monotonic: exerciseIndex itself
+-- moves backward each round while cycling through a superset group, so it
+-- can't serve as a completion count once a group is involved. This is the
+-- closest available approximation to that field's name, not a perfect one.
 let distinct_exercise_count = fn(loggedSets) -> (
   length(fold(
     [],

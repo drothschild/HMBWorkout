@@ -364,6 +364,50 @@ describe('Superset groups with mismatched set counts', () => {
   });
 });
 
+describe('Phase recovery across a superset hop when a partner has its own warmup', () => {
+  it('derives phase from the landing entry, not the entry being left', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // A: no warmup, 2 working sets. B: 1 warmup + 1 working = 2 total.
+    engine.setState(
+      makeState({
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 1, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // A1 (working, A has no warmup) hops to B — B's round 0 is its warmup.
+    let state = await engine.dispatch(logSet(1000));
+    expect(state.loggedSets[0].setType).toBe('working');
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.phase).toBe('warmup');
+
+    // B's warmup set loops back to A for round 1 — A has no warmup, so
+    // landing there must read 'working', not carry over B's 'warmup'.
+    state = await engine.dispatch(logSet(2000));
+    expect(state.loggedSets[1].setType).toBe('warmup');
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+    expect(state.phase).toBe('working');
+
+    // A2 (A's final set) hops to B's round 1 — past B's 1 warmup set, so
+    // this lands as B's working set.
+    state = await engine.dispatch(logSet(3000));
+    expect(state.loggedSets[2].setType).toBe('working');
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(1);
+    expect(state.phase).toBe('working');
+
+    // B's working set is its last — group and workout both complete.
+    state = await engine.dispatch(logSet(4000));
+    expect(state.loggedSets[3].setType).toBe('working');
+    expect(state.phase).toBe('done');
+    expect(state.loggedSets).toHaveLength(4);
+  });
+});
+
 describe('Three-member superset groups', () => {
   it('correctly alternates all three members for multiple rounds', async () => {
     const { executors } = makeRecordingExecutors();
