@@ -273,13 +273,6 @@ export function SetLogger({
         </View>
 
         <View style={styles.buttonRow}>
-          <Pressable
-            style={[styles.button, styles.warningButton, styles.rowButton]}
-            onPress={() => presenter.onSkipExercise()}
-          >
-            <ThemedText style={styles.buttonText}>Skip Exercise</ThemedText>
-          </Pressable>
-
           {(presenter.phase === 'working' || presenter.phase === 'resting') && (
             <Pressable
               style={[styles.button, styles.successButton, styles.rowButton]}

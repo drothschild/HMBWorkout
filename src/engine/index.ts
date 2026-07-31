@@ -344,9 +344,6 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'SkipRest':
           rillEvent = { tag: 'SkipRest' };
           break;
-        case 'SkipExercise':
-          rillEvent = { tag: 'SkipExercise' };
-          break;
         case 'ReplaceExercise':
           // No sentinel translation: both fields are plain, always-present
           // values. The rule rejects an empty exerciseId rather than reading

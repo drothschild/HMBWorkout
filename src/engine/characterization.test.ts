@@ -322,62 +322,6 @@ describe('characterization: session engine pre-migration behavior', () => {
   });
 
   /**
-   * C3: SkipExercise from mid-routine and from last exercise
-   */
-  describe('C3: SkipExercise behavior', () => {
-    it('should skip mid-routine exercise', async () => {
-      const engine = createEngine({});
-      const state = makeState({
-        phase: 'working',
-        exerciseIndex: 0,
-        setIndex: 0,
-        entries: makeRoutine(3).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      expect(currentState.exerciseIndex).toBe(1);
-      expect(currentState.phase).toBe('working'); // Phase unchanged
-      expect(currentState.setIndex).toBe(0); // Reset for new exercise
-      expect(currentState.restDeadlineMs).toBe(0); // No pending rest
-    });
-
-    it('should skip last exercise and complete session', async () => {
-      const engine = createEngine({
-        onCompleteSession: jest.fn(),
-        onNotify: jest.fn(),
-      });
-      const state = makeState({
-        phase: 'working',
-        exerciseIndex: 1, // Last (index 1 of 2)
-        setIndex: 0,
-        entries: makeRoutine(2).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      // Skipping last exercise should NOT auto-complete; phase stays working
-      expect(currentState.exerciseIndex).toBe(2); // Beyond array bounds
-      expect(currentState.phase).toBe('working');
-    });
-
-    it('should clear rest deadline on SkipExercise', async () => {
-      const engine = createEngine({});
-      const state = makeState({
-        phase: 'resting',
-        restDeadlineMs: 10000,
-        exerciseIndex: 0,
-        entries: makeRoutine(2).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      expect(currentState.restDeadlineMs).toBe(0);
-      expect(normalize(currentState).restDeadlineMs).toBeUndefined(); // Post-migration: undefined
-    });
-  });
-
-  /**
    * C4: LogSet with and without RPE (sentinel mapping)
    */
   describe('C4: LogSet RPE sentinel behavior', () => {
