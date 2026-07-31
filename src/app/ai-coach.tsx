@@ -213,6 +213,9 @@ export default function AiCoachScreen() {
               value={inputText}
               onChangeText={setInputText}
               multiline
+              returnKeyType="send"
+              submitBehavior="submit"
+              onSubmitEditing={handleSend}
               editable={status !== 'sending' && !accepting}
             />
             <Pressable
