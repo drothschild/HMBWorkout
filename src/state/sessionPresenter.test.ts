@@ -160,6 +160,10 @@ describe('createSessionPresenter', () => {
 
       expect(presenter.setPositionLabel).toBe('');
       expect(presenter.totalSetsForEntry).toBe(0);
+      // Suppression is display-only: the underlying position still reports
+      // the first working set, so e.g. the stopwatch key stays well-formed.
+      expect(presenter.setNumber).toBe(1);
+      expect(presenter.isWarmupSet).toBe(false);
     });
   });
 

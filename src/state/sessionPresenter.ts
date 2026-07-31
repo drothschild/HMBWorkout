@@ -4,7 +4,9 @@ import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
 
 /**
- * Session presenter - pure functions for session UI logic.
+ * Session presenter - derives session-screen view data from engine state.
+ * Shell-classified for its handler closures alone: they stamp Date.now()
+ * onto dispatched events; every derivation here is pure.
  * This satisfies AC2.2 (event dispatch on user action) and AC9.1 (RPE rendering).
  * Testable in node project without React setup.
  */
@@ -245,7 +247,8 @@ export function computeSetPrefill(
 
 /**
  * Create a session presenter from state and dispatch.
- * Pure function - no hooks, no side effects, fully testable.
+ * No hooks; the derivations are pure, and the returned handlers' only side
+ * effects are stamping Date.now() and calling the injected dispatch.
  *
  * @param progressionHint Optional progression hint (computed by store via progression_hint rule).
  *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 5 lbs").
