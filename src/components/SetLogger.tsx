@@ -2,9 +2,11 @@ import { StyleSheet, View, TextInput, ScrollView, Pressable } from 'react-native
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
+import { ExerciseStopwatch } from './ExerciseStopwatch';
 import { Spacing } from '@/constants/theme';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
+import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
 import { snapRpe, rpeHint, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
 
 // The numeric inputs carry raw text; numbers exist only past
@@ -34,7 +36,16 @@ export function SetLogger({
   onRpeChange,
   onDurationTextChange,
 }: SetLoggerProps) {
-  const isDurationBased = presenter.currentEntry?.kind === 'stretch' || presenter.currentEntry?.kind === 'cardio';
+  const isDurationBased = isDurationBasedEntry(presenter.currentEntry);
+
+  // Identity of the stopwatch run: the current entry plus its set position, so
+  // it restarts when the exercise changes or a set is logged or skipped. Pure
+  // and undefined for anything that isn't duration-based, which switches the
+  // stopwatch off. Display only — it never decides what the session does next.
+  const stopwatchKey = makeStopwatchKey(presenter.currentEntry, {
+    isWarmupSet: presenter.isWarmupSet,
+    setNumber: presenter.setNumber,
+  });
 
   // Free-form stretch cool-down: conditional rendering only — the engine
   // rejects LogSet/SetDone in this phase, so nothing can advance mid-stretch.
@@ -86,6 +97,9 @@ export function SetLogger({
 
       {isDurationBased ? (
         <View style={styles.inputGroup}>
+          {/* Counts up so the user can see how long they actually held the
+              exercise; the Duration field stays theirs to fill in. */}
+          <ExerciseStopwatch stopwatchKey={stopwatchKey} running={!presenter.isPaused} />
           <ThemedText>Duration (sec)</ThemedText>
           <TextInput
             style={styles.input}

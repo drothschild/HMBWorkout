@@ -1,5 +1,6 @@
 import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
+import { isDurationBasedEntry } from './exerciseStopwatch';
 
 /**
  * Session presenter - pure functions for session UI logic.
@@ -141,7 +142,7 @@ export function computeSetPrefill(
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return undefined;
 
-  const isDurationBased = entry.kind === 'stretch' || entry.kind === 'cardio';
+  const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
 
   let lastMatch: LoggedSet | undefined;
