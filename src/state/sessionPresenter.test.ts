@@ -286,6 +286,76 @@ describe('createSessionPresenter', () => {
     );
   });
 
+  describe('exercise progress', () => {
+    const widenToThreeEntries = (state: SessionState) => {
+      state.entries = [0, 1, 2].map((idx) => ({
+        idx,
+        exerciseId: `ex-${idx + 1}`,
+        kind: 'strength' as const,
+        warmupSets: 0,
+        targetSets: 3,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 90,
+        supersetGroup: '',
+      }));
+      return state;
+    };
+
+    test('starts at zero completed out of the routine total', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 0;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.totalExerciseCount).toBe(3);
+      expect(presenter.completedExerciseCount).toBe(0);
+      expect(presenter.exerciseProgress).toBe(0);
+    });
+
+    test('counts advanced-past exercises as completed (skips included)', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(1);
+      expect(presenter.exerciseProgress).toBeCloseTo(1 / 3);
+    });
+
+    test('shows full progress at phase done even though the engine leaves the index at length-1', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.phase = 'done';
+      state.exerciseIndex = 2; // Natural completion does not advance past the last entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(3);
+      expect(presenter.exerciseProgress).toBe(1);
+    });
+
+    test('clamps a skip past the last exercise to the total', () => {
+      const state = widenToThreeEntries(createMockState());
+      state.exerciseIndex = 3; // SkipExercise on the last entry leaves the index out of bounds
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.completedExerciseCount).toBe(3);
+      expect(presenter.exerciseProgress).toBe(1);
+    });
+
+    test('reports zero progress for an empty routine without dividing by zero', () => {
+      const state = createMockState();
+      state.entries = [];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.totalExerciseCount).toBe(0);
+      expect(presenter.completedExerciseCount).toBe(0);
+      expect(presenter.exerciseProgress).toBe(0);
+    });
+  });
+
   describe('finish confirmation copy', () => {
     const secondEntry = {
       idx: 1,
