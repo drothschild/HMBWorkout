@@ -80,6 +80,32 @@ describe('buildRestCommentaryPrompt', () => {
 
       expect(message).toContain('Warmup 1 of 2');
     });
+
+    it('omits the set position label for duration-only entries with zero total sets', () => {
+      const { message } = buildRestCommentaryPrompt(
+        promptInput({
+          exercise: {
+            ...benchPress,
+            title: 'Cooldown Stretch',
+            kind: 'stretch',
+            warmupSets: 0,
+            targetSets: 0,
+            targetReps: 0,
+            targetDurationSeconds: 30,
+            isWarmupSet: false,
+            setNumber: 1,
+          },
+        })
+      );
+
+      // The Up Next line should not contain "Set 1 of 0" — that is nonsensical
+      expect(message).not.toContain('Set 1 of 0');
+      // But the exercise, duration target, and rest should still be there
+      expect(message).toContain('Cooldown Stretch');
+      expect(message).toContain('stretch');
+      expect(message).toContain('target 30s');
+      expect(message).toContain('rest 90s');
+    });
   });
 
   describe('history', () => {
