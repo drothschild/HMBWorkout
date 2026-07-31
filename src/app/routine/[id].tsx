@@ -100,7 +100,11 @@ export default function RoutineDetailScreen() {
                     Superset: {group.label}
                   </ThemedText>
                   {group.exercises.map((exercise) => (
-                    <View key={exercise.exerciseId} style={styles.exerciseItem}>
+                    <Pressable
+                      key={exercise.exerciseId}
+                      style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
+                      onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
+                    >
                       <ThemedText type="default" style={styles.exerciseName}>
                         {exercise.title}
                       </ThemedText>
@@ -115,7 +119,12 @@ export default function RoutineDetailScreen() {
                         {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
                         {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
                       </ThemedText>
-                    </View>
+                      {exercise.description && (
+                        <ThemedText type="small" style={styles.exerciseDescription}>
+                          {exercise.description}
+                        </ThemedText>
+                      )}
+                    </Pressable>
                   ))}
                 </View>
               ))}
@@ -128,7 +137,11 @@ export default function RoutineDetailScreen() {
                 Exercises
               </ThemedText>
               {routine.standaloneExercises.map((exercise) => (
-                <View key={exercise.exerciseId} style={styles.exerciseItem}>
+                <Pressable
+                  key={exercise.exerciseId}
+                  style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
+                  onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
+                >
                   <ThemedText type="default" style={styles.exerciseName}>
                     {exercise.title}
                   </ThemedText>
@@ -143,7 +156,12 @@ export default function RoutineDetailScreen() {
                     {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
                     {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
                   </ThemedText>
-                </View>
+                  {exercise.description && (
+                    <ThemedText type="small" style={styles.exerciseDescription}>
+                      {exercise.description}
+                    </ThemedText>
+                  )}
+                </Pressable>
               ))}
             </View>
           )}
@@ -245,6 +263,13 @@ const styles = StyleSheet.create({
   exerciseItem: {
     marginBottom: Spacing.two,
     paddingHorizontal: Spacing.two,
+  },
+  exerciseItemPressed: {
+    opacity: 0.6,
+  },
+  exerciseDescription: {
+    opacity: 0.6,
+    marginTop: Spacing.one,
   },
   exerciseName: {
     fontWeight: '500',

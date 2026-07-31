@@ -2,6 +2,7 @@ import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
 import RoutineExercise from './models/RoutineExercise';
+import Exercise from './models/Exercise';
 import { validateSet } from './validation';
 
 /**
@@ -369,16 +370,23 @@ export async function getSupersetGroups(
  * Upsert an exercise (create if not exists, update if exists).
  * Exercises are keyed by slug (id).
  *
+ * `description` only applies on create — it is user-authored, so re-upserting
+ * an existing exercise (e.g. via the AI accept path, which calls this only
+ * for exercises that don't exist yet) never touches a description someone
+ * already wrote. Use updateExerciseDescription for the user edit path.
+ *
  * @param database The database instance
  * @param exerciseId The exercise slug/ID
  * @param title Human-readable title
  * @param kind Exercise kind (strength, cardio, stretch)
+ * @param description Optional user-authored description, set only on create
  */
 export async function upsertExercise(
   database: Database,
   exerciseId: string,
   title: string,
-  kind: string
+  kind: string,
+  description?: string
 ): Promise<any> {
   return await database.write(async () => {
     const exercisesTable = database.get('exercises');
@@ -397,10 +405,39 @@ export async function upsertExercise(
         e._raw.id = exerciseId;
         e.title = title;
         e.kind = kind;
+        if (description !== undefined) e.description = description;
         e._raw.created_at = Date.now();
       });
       return created;
     }
+  });
+}
+
+/**
+ * Update an exercise's user-authored description. This is the targeted edit
+ * path: it touches only the description field and never the title or kind,
+ * so it's safe for the user-facing edit screen without risking the
+ * create-only invariant the AI accept path depends on (exercises are global
+ * and shared across every routine).
+ *
+ * @param database The database instance
+ * @param exerciseId The exercise ID
+ * @param description The new description, or null to clear it
+ */
+export async function updateExerciseDescription(
+  database: Database,
+  exerciseId: string,
+  description: string | null
+): Promise<Exercise> {
+  return await database.write(async () => {
+    const exercisesTable = database.get('exercises');
+    const exercise = await exercisesTable.find(exerciseId);
+
+    await exercise.update((record: any) => {
+      record.description = description;
+    });
+
+    return exercise as Exercise;
   });
 }
 
