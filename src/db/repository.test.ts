@@ -1152,11 +1152,10 @@ describe('Repository: session and set helpers', () => {
           rpe: 8.5,
         });
 
-        // Append a drop set (should be excluded)
+        // Append a stretch set (should be excluded)
         await appendSet(database, 'session-history-1', 'routine-exercise-1', {
-          setType: 'drop',
-          reps: 15,
-          weightKg: 70,
+          setType: 'stretch',
+          durationSeconds: 60,
         });
       } finally {
         nowSpy.mockRestore();

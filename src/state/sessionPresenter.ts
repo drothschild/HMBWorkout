@@ -1,5 +1,6 @@
 import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
+import { isDurationBasedEntry } from './exerciseStopwatch';
 
 /**
  * Session presenter - pure functions for session UI logic.
@@ -81,6 +82,76 @@ export interface SessionPresenterOutput {
 }
 
 /**
+ * True when the session is in a resting or paused-mid-rest state.
+ * Encodes the presenter's combined isResting/isRestPaused predicate as one
+ * check for restCommentaryTarget's use; the presenter itself still derives
+ * the two flags separately for display.
+ */
+export function isRestingPhase(sessionState: SessionState): boolean {
+  return sessionState.phase === 'resting' || (sessionState.phase === 'paused' && Boolean(sessionState.restRemainingMs));
+}
+
+/**
+ * Derive the set position within the current entry's warmup or working segment.
+ * Both the presenter (for display) and restCommentaryTarget (for the prompt)
+ * need the same calculation: setIndex spans warmups then working sets, so the
+ * number counts within its segment.
+ * @returns { isWarmupSet, setNumber } or null if there is no current entry
+ */
+export function deriveSetPosition(
+  sessionState: SessionState,
+  entry: RoutineEntry | undefined
+): { isWarmupSet: boolean; setNumber: number } | null {
+  if (!entry) return null;
+
+  const isWarmupSet = sessionState.setIndex < entry.warmupSets;
+  const setNumber = isWarmupSet
+    ? sessionState.setIndex + 1
+    : sessionState.setIndex - entry.warmupSets + 1;
+
+  return { isWarmupSet, setNumber };
+}
+
+/**
+ * Shared formatter for logged sets across session and history detail screens.
+ * Handles sentinel conventions: rpe -1 and null reps/weight/duration mean "absent"
+ * and must be omitted, never rendered.
+ *
+ * @param setType The set type (strength/stretch/cardio/etc)
+ * @param reps Logged reps (null/undefined = absent)
+ * @param weightKg Logged weight in kg (null/undefined = absent)
+ * @param durationSeconds Logged duration (null/undefined = absent)
+ * @param rpe Logged RPE (-1 sentinel or null/undefined = absent)
+ */
+export function formatSetLine(
+  setType: string,
+  reps: number | null | undefined,
+  weightKg: number | null | undefined,
+  durationSeconds: number | null | undefined,
+  rpe: number | null | undefined
+): string {
+  const parts: string[] = [];
+
+  if (setType === 'stretch' || setType === 'cardio') {
+    if (durationSeconds != null) {
+      parts.push(`${durationSeconds}s`);
+    }
+  } else if (reps != null && weightKg != null) {
+    parts.push(`${reps} x ${formatWeightLbs(weightKg)}`);
+  } else if (reps != null) {
+    parts.push(`${reps} reps`);
+  } else if (weightKg != null) {
+    parts.push(formatWeightLbs(weightKg));
+  }
+
+  if (rpe != null && rpe !== -1) {
+    parts.push(`RPE: ${rpe}`);
+  }
+
+  return parts.length > 0 ? parts.join(' ') : '—';
+}
+
+/**
  * Format one logged set for the session screen's Logged Sets list.
  * Reps/weight/duration may legitimately be null or undefined, and rpe carries
  * the host's -1 sentinel for "not logged" (see SENTINEL_TO_OPTION_MAP in
@@ -89,25 +160,7 @@ export interface SessionPresenterOutput {
  * duration exercises renders every line correctly.
  */
 export function formatLoggedSetLine(set: LoggedSet): string {
-  const parts: string[] = [];
-
-  if (set.setType === 'stretch' || set.setType === 'cardio') {
-    if (set.durationSeconds != null) {
-      parts.push(`${set.durationSeconds}s`);
-    }
-  } else if (set.reps != null && set.weightKg != null) {
-    parts.push(`${set.reps} x ${formatWeightLbs(set.weightKg)}`);
-  } else if (set.reps != null) {
-    parts.push(`${set.reps} reps`);
-  } else if (set.weightKg != null) {
-    parts.push(formatWeightLbs(set.weightKg));
-  }
-
-  if (set.rpe != null && set.rpe !== -1) {
-    parts.push(`RPE: ${set.rpe}`);
-  }
-
-  return parts.length > 0 ? parts.join(' ') : '—';
+  return formatSetLine(set.setType, set.reps, set.weightKg, set.durationSeconds, set.rpe);
 }
 
 /**
@@ -141,7 +194,7 @@ export function computeSetPrefill(
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return undefined;
 
-  const isDurationBased = entry.kind === 'stretch' || entry.kind === 'cardio';
+  const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
 
   let lastMatch: LoggedSet | undefined;
@@ -221,12 +274,9 @@ export function createSessionPresenter(
 
   // Derived set position: setIndex spans warmups then working sets, so the
   // label counts within the current segment ("Warmup 1 of 2" / "Set 3 of 4").
-  const isWarmupSet = currentEntry ? sessionState.setIndex < currentEntry.warmupSets : false;
-  const setNumber = currentEntry
-    ? isWarmupSet
-      ? sessionState.setIndex + 1
-      : sessionState.setIndex - currentEntry.warmupSets + 1
-    : 0;
+  const setPos = deriveSetPosition(sessionState, currentEntry);
+  const isWarmupSet = setPos?.isWarmupSet ?? false;
+  const setNumber = setPos?.setNumber ?? 0;
   const totalSetsForEntry = currentEntry ? currentEntry.warmupSets + currentEntry.targetSets : 0;
   const setPositionLabel = currentEntry
     ? isWarmupSet
