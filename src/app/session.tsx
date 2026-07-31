@@ -7,7 +7,11 @@ import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
-import { createSessionPresenter } from '@/state/sessionPresenter';
+import {
+  computeSetPrefill,
+  createSessionPresenter,
+  SetInputValues,
+} from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
@@ -105,6 +109,57 @@ export default function SessionScreen() {
     // hint is per-exercise; depending on the entries array reference re-ran it
     // on every dispatch).
   }, [sessionState?.exerciseIndex]);
+
+  // Prefill the set inputs on exercise change (and on mount, which restores
+  // them after rehydration): the exercise's own last in-session set wins, then
+  // cross-session history (strength only, fetched async), then the routine
+  // targets — all decided by the pure computeSetPrefill. RPE always resets.
+  // Keyed on sessionId+exerciseIndex only, so it never clobbers values the
+  // user types between sets of the same exercise.
+  useEffect(() => {
+    if (!sessionState) return;
+    let cancelled = false;
+
+    const apply = (prefill: SetInputValues | undefined) => {
+      setCurrentReps(prefill?.reps);
+      setCurrentWeight(prefill?.weightKg);
+      setCurrentDuration(prefill?.durationSeconds);
+      setCurrentRpe(undefined);
+    };
+
+    // Synchronous prefill first (in-session sets or targets)...
+    apply(computeSetPrefill(sessionState));
+
+    // ...then upgrade with cross-session history where it applies. When the
+    // exercise already has an in-session set, computeSetPrefill ignores the
+    // fallback and re-applies identical values, so the upgrade is harmless.
+    const entry = sessionState.entries?.[sessionState.exerciseIndex];
+    if (!entry || entry.kind !== 'strength') return;
+
+    (async () => {
+      try {
+        const db = getDatabase();
+        const history = await getExerciseWorkingSetHistory(db, entry.exerciseId);
+        const latest = history[0];
+        if (cancelled || !latest) return;
+
+        const fallback: SetInputValues = {};
+        if (latest.reps != null) fallback.reps = latest.reps;
+        if (latest.weightKg != null) fallback.weightKg = latest.weightKg;
+        if (fallback.reps === undefined && fallback.weightKg === undefined) return;
+
+        apply(computeSetPrefill(sessionState, fallback));
+      } catch (error) {
+        // Prefill is best-effort; empty inputs are always a valid state.
+        console.error('Failed to prefill from history:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Primitive deps on purpose (see the progression-hint effect above).
+  }, [sessionState?.sessionId, sessionState?.exerciseIndex]);
 
   // Engine state carries only exercise ids, so titles are resolved shell-side.
   // Entries are fixed for a session's lifetime, so one load per session suffices.

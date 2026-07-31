@@ -40,6 +40,10 @@ export interface SessionPresenterOutput {
   /** 0..1 fill fraction for the progress bar; 0 for an empty routine. */
   exerciseProgress: number;
 
+  // Default input values for the next set (see computeSetPrefill). Undefined
+  // when there is nothing sensible to prefill.
+  setPrefill: SetInputValues | undefined;
+
   // Set position within the current entry (one-tap logging advances on log,
   // so the screen needs to show where the workout stands). setNumber counts
   // within the warmup or working segment; 0 when there is no current entry.
@@ -93,6 +97,69 @@ export function formatLoggedSetLine(set: LoggedSet): string {
 }
 
 /**
+ * Default input values for the next set of the current exercise.
+ *
+ * Precedence: the exercise's own last in-session set (matched by exerciseId —
+ * the engine's LoggedSet carries no entry row id, and duplicate entries of the
+ * same movement sharing a prefill is the desired behavior), then the caller's
+ * cross-session history fallback (strength only), then the routine targets.
+ * RPE is never prefilled: it is per-set perceived effort, and the -1 sentinel
+ * must not leak into an input. Zero/absent metrics are omitted rather than
+ * prefilled — the host maps 0 values to "not logged" on dispatch, so a
+ * prefilled 0 would silently vanish from the logged set.
+ */
+export function computeSetPrefill(
+  sessionState: SessionState,
+  historyFallback?: SetInputValues
+): SetInputValues | undefined {
+  const entry = sessionState.entries?.[sessionState.exerciseIndex];
+  if (!entry) return undefined;
+
+  const isDurationBased = entry.kind === 'stretch' || entry.kind === 'cardio';
+  const sets = sessionState.loggedSets ?? [];
+
+  let lastMatch: LoggedSet | undefined;
+  for (let i = sets.length - 1; i >= 0; i--) {
+    if (sets[i].exerciseId === entry.exerciseId) {
+      lastMatch = sets[i];
+      break;
+    }
+  }
+
+  const prefill: SetInputValues = {};
+  if (lastMatch) {
+    if (isDurationBased) {
+      if (lastMatch.durationSeconds != null && lastMatch.durationSeconds > 0) {
+        prefill.durationSeconds = lastMatch.durationSeconds;
+      }
+    } else {
+      if (lastMatch.reps != null && lastMatch.reps > 0) prefill.reps = lastMatch.reps;
+      if (lastMatch.weightKg != null && lastMatch.weightKg > 0) prefill.weightKg = lastMatch.weightKg;
+    }
+    return Object.keys(prefill).length > 0 ? prefill : undefined;
+  }
+
+  // First set of this exercise this session.
+  if (isDurationBased) {
+    // Cross-session history is structurally unavailable here (the history
+    // query returns working-type sets only), so targets are the only fallback.
+    return entry.targetDurationSeconds > 0
+      ? { durationSeconds: entry.targetDurationSeconds }
+      : undefined;
+  }
+  if (historyFallback) {
+    if (historyFallback.reps != null && historyFallback.reps > 0) {
+      prefill.reps = historyFallback.reps;
+    }
+    if (historyFallback.weightKg != null && historyFallback.weightKg > 0) {
+      prefill.weightKg = historyFallback.weightKg;
+    }
+    if (Object.keys(prefill).length > 0) return prefill;
+  }
+  return entry.targetReps > 0 ? { reps: entry.targetReps } : undefined;
+}
+
+/**
  * Create a session presenter from state and dispatch.
  * Pure function - no hooks, no side effects, fully testable.
  *
@@ -101,12 +168,16 @@ export function formatLoggedSetLine(set: LoggedSet): string {
  * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
  *                          Engine state carries only exercise ids (the Rill boundary strips
  *                          any extra entry fields), so titles must be looked up shell-side.
+ * @param historyPrefill Optional cross-session prefill fallback resolved by the caller
+ *                          (most recent working set of the current exercise); only used
+ *                          when the exercise has no in-session set yet.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>,
   progressionHint?: string,
-  exerciseTitles?: Record<string, string>
+  exerciseTitles?: Record<string, string>,
+  historyPrefill?: SetInputValues
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -175,6 +246,7 @@ export function createSessionPresenter(
     totalExerciseCount,
     completedExerciseCount,
     exerciseProgress,
+    setPrefill: computeSetPrefill(sessionState, historyPrefill),
     isWarmupSet,
     setNumber,
     totalSetsForEntry,
