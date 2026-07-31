@@ -1,4 +1,12 @@
-import { StyleSheet, TextInput, Pressable, ScrollView, View, useColorScheme } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+  useColorScheme,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -82,16 +90,23 @@ export default function AiCoachSettingsScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+        {/* Fixed column, no whole-screen scrolling: the three free-text boxes
+            each take flex:1 and split the leftover height, so the screen fits
+            any device without magic heights. They carry no minHeight floor on
+            purpose — a floor is what would let the column overflow and clip the
+            focused field once the keyboard squeezes it. */}
+        <KeyboardAvoidingView
+          style={styles.content}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ThemedText type="subtitle">AI Coach</ThemedText>
-          <ThemedText type="small" style={styles.caption}>
-            Changes save automatically.
-          </ThemedText>
+          <View style={styles.titleRow}>
+            <ThemedText type="default" style={styles.title}>
+              AI Coach
+            </ThemedText>
+            <ThemedText type="small" style={styles.caption}>
+              Changes save automatically.
+            </ThemedText>
+          </View>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -112,7 +127,7 @@ export default function AiCoachSettingsScreen() {
             />
           </ThemedView>
 
-          <ThemedView style={styles.formGroup}>
+          <ThemedView style={[styles.formGroup, styles.flexGroup]}>
             <ThemedText type="default" style={styles.label}>
               Your Goals
             </ThemedText>
@@ -126,11 +141,10 @@ export default function AiCoachSettingsScreen() {
                 queueSave({ aiGoals: value });
               }}
               multiline
-              numberOfLines={4}
             />
           </ThemedView>
 
-          <ThemedView style={styles.formGroup}>
+          <ThemedView style={[styles.formGroup, styles.flexGroup]}>
             <ThemedText type="default" style={styles.label}>
               Available Equipment
             </ThemedText>
@@ -144,11 +158,10 @@ export default function AiCoachSettingsScreen() {
                 queueSave({ aiEquipment: value });
               }}
               multiline
-              numberOfLines={4}
             />
           </ThemedView>
 
-          <ThemedView style={styles.formGroup}>
+          <ThemedView style={[styles.formGroup, styles.flexGroup]}>
             <ThemedText type="default" style={styles.label}>
               Coaching Style
             </ThemedText>
@@ -162,10 +175,9 @@ export default function AiCoachSettingsScreen() {
                 queueSave({ aiPersonality: value });
               }}
               multiline
-              numberOfLines={4}
             />
           </ThemedView>
-        </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -200,21 +212,31 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '500',
   },
-  scroll: {
-    width: '100%',
-  },
   content: {
+    flex: 1,
+    width: '100%',
     alignItems: 'stretch',
-    justifyContent: 'flex-start',
-    gap: Spacing.three,
+    gap: Spacing.two,
     paddingTop: Spacing.two,
-    paddingBottom: Spacing.four,
+    paddingBottom: Spacing.two,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.two,
+  },
+  title: {
+    fontWeight: '600',
   },
   caption: {
     opacity: 0.6,
+    flexShrink: 1,
   },
   formGroup: {
     gap: Spacing.one,
+  },
+  flexGroup: {
+    flex: 1,
   },
   label: {
     fontSize: 14,
@@ -229,7 +251,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   multilineInput: {
-    minHeight: 100,
+    flex: 1,
     textAlignVertical: 'top',
   },
 });
