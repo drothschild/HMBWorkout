@@ -5,11 +5,144 @@
 
 import SessionSet, { SetType } from '@/db/models/SessionSet';
 import Exercise, { ExerciseKind } from '@/db/models/Exercise';
-import { formatFlags, formatDuration } from './format';
+import { formatFlags, formatDuration, ContractError } from './format';
+
+type SessionSetRow = {
+  routineExerciseId: string;
+  /**
+   * The exercise this set was performed as (session_sets.exercise_id). Fills
+   * the line's existing identity slot in preference to the routine row's
+   * exerciseId: ReplaceExercise re-points that row, so a session still queued
+   * for sync would otherwise serialize under whatever the routine names by
+   * the time the bridge comes back. Absent on sets written before the column
+   * existed — those fall back to the row, as everywhere else.
+   */
+  exerciseId?: string;
+  setType: SetType;
+  reps?: number;
+  weightKg?: number;
+  distanceM?: number;
+  durationSeconds?: number;
+  rpe?: number;
+  position: number;
+};
+
+type RoutineExerciseRow = {
+  id: string;
+  exerciseId: string;
+  order: number;
+  supersetGroup?: string;
+  warmupSets: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  restSeconds?: number;
+  notes?: string;
+};
+
+type ExerciseRow = {
+  id: string;
+  title: string;
+  kind: ExerciseKind;
+};
+
+/**
+ * Build one logged-set line.
+ *
+ * `re` is the set's routine_exercises row, or undefined when that row no
+ * longer exists. The row supplies only the plan-level flags (superset, rest);
+ * identity comes from the set's own stamp first, falling back to the row.
+ *
+ * @throws ContractError if the set's exercise cannot be resolved. A session's
+ * vault copy must never be written silently short of a set that was logged.
+ */
+function buildSessionSetLine(
+  set: SessionSetRow,
+  re: RoutineExerciseRow | undefined,
+  exercises: ExerciseRow[],
+  sessionId: string
+): string {
+  // What the set was performed as, not what its routine row names today.
+  // The row supplies everything else on the line — the prescription belongs
+  // to the plan and survives a swap untouched — so only the identity (and
+  // the kind read off it) comes from the set.
+  const performedExerciseId = set.exerciseId || re?.exerciseId;
+  const exerciseData = performedExerciseId
+    ? exercises.find((e) => e.id === performedExerciseId)
+    : undefined;
+
+  if (!exerciseData) {
+    throw new ContractError(
+      `session ${sessionId}: cannot resolve the exercise for the set at position ` +
+        `${set.position} (routine_exercise_id=${set.routineExerciseId}` +
+        `${performedExerciseId ? `, exercise_id=${performedExerciseId}` : ', no exercise_id stamp'}` +
+        `). Refusing to export the session without it.`
+    );
+  }
+
+  // Build flags manually for sessions to always include set_type
+  const flagParts: string[] = [];
+
+  // Always add set_type for session sets
+  flagParts.push(`set_type=${set.setType}`);
+
+  // Add kind if not strength (C2)
+  if (exerciseData.kind !== 'strength') {
+    flagParts.push(`kind=${exerciseData.kind}`);
+  }
+
+  // Add rpe if present
+  if (set.rpe !== undefined) {
+    flagParts.push(`rpe=${set.rpe}`);
+  }
+
+  // Add weight if present (C1)
+  if (set.weightKg !== undefined) {
+    flagParts.push(`weight=${set.weightKg}`);
+  }
+
+  // Add distance if present (C1)
+  if (set.distanceM !== undefined) {
+    flagParts.push(`distance=${set.distanceM}`);
+  }
+
+  // Add superset if applicable
+  if (re?.supersetGroup) {
+    flagParts.push(`superset=${re.supersetGroup}`);
+  }
+
+  // Add rest (from routine_exercise level)
+  if (re?.restSeconds !== undefined) {
+    if (re.restSeconds >= 60) {
+      flagParts.push(`rest=${formatDuration(re.restSeconds)}`);
+    } else {
+      flagParts.push(`rest=${re.restSeconds}`);
+    }
+  }
+
+  // Build set description
+  // For sessions: logged sets are emitted as 1x<reps> (not target sets)
+  let setDesc = '';
+  if (set.reps !== undefined) {
+    // Strength: 1x<logged-reps>
+    setDesc = `1x${set.reps}`;
+  } else if (set.durationSeconds !== undefined) {
+    // Cardio/stretch: emit duration as flag (C2)
+    flagParts.push(`duration=${formatDuration(set.durationSeconds)}`);
+  }
+
+  const flagStr = flagParts.join(' ');
+  // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
+  const parts = [setDesc, flagStr].filter((p) => p);
+  return `- ${exerciseData.id}: ${parts.join(' ')}`;
+}
 
 /**
  * Serialize a session to markdown.
  * Includes frontmatter (type, id, date, tags, created), Tasks-plugin ✅ token, and fenced workout block.
+ *
+ * Every logged set produces a line or the call throws: a session's vault copy
+ * is never written silently short of work that was logged.
  */
 export function serializeSession(
   sessionRow: {
@@ -20,42 +153,9 @@ export function serializeSession(
     createdAt: Date;
     customSyncStatus: string;
   },
-  sets: Array<{
-    routineExerciseId: string;
-    /**
-     * The exercise this set was performed as (session_sets.exercise_id). Fills
-     * the line's existing identity slot in preference to the routine row's
-     * exerciseId: ReplaceExercise re-points that row, so a session still queued
-     * for sync would otherwise serialize under whatever the routine names by
-     * the time the bridge comes back. Absent on sets written before the column
-     * existed — those fall back to the row, as everywhere else.
-     */
-    exerciseId?: string;
-    setType: SetType;
-    reps?: number;
-    weightKg?: number;
-    distanceM?: number;
-    durationSeconds?: number;
-    rpe?: number;
-    position: number;
-  }>,
-  routineExercises: Array<{
-    id: string;
-    exerciseId: string;
-    order: number;
-    supersetGroup?: string;
-    warmupSets: number;
-    targetSets?: number;
-    targetReps?: number;
-    targetDurationSeconds?: number;
-    restSeconds?: number;
-    notes?: string;
-  }>,
-  exercises: Array<{
-    id: string;
-    title: string;
-    kind: ExerciseKind;
-  }>
+  sets: SessionSetRow[],
+  routineExercises: RoutineExerciseRow[],
+  exercises: ExerciseRow[]
 ): string {
   // Extract date from endedAt (or startedAt if no endedAt)
   const dateObj = sessionRow.endedAt || sessionRow.startedAt;
@@ -77,7 +177,7 @@ export function serializeSession(
   const workoutLines: string[] = [];
 
   // Group sets by routine_exercise_id
-  const setsByExercise = new Map<string, typeof sets>();
+  const setsByExercise = new Map<string, SessionSetRow[]>();
   for (const set of sets) {
     if (!setsByExercise.has(set.routineExerciseId)) {
       setsByExercise.set(set.routineExerciseId, []);
@@ -85,81 +185,49 @@ export function serializeSession(
     setsByExercise.get(set.routineExerciseId)!.push(set);
   }
 
+  const byPosition = (a: SessionSetRow, b: SessionSetRow) => a.position - b.position;
+
   // Build lines in order of routine_exercises
+  const visitedGroups = new Set<string>();
   for (const re of routineExercises) {
+    visitedGroups.add(re.id);
     const exerciseSets = setsByExercise.get(re.id) || [];
 
     // Get all sets for this exercise
-    const exerciseSetsInOrder = exerciseSets.sort((a, b) => a.position - b.position);
+    const exerciseSetsInOrder = [...exerciseSets].sort(byPosition);
 
     // If superset, need to group; handle adjacent superset exercises
     // For now, emit each set as a line with superset flag
     for (const set of exerciseSetsInOrder) {
-      // What the set was performed as, not what its routine row names today.
-      // The row supplies everything else on the line — the prescription belongs
-      // to the plan and survives a swap untouched — so only the identity (and
-      // the kind read off it) comes from the set.
-      const performedExerciseId = set.exerciseId || re.exerciseId;
-      const exerciseData = exercises.find(e => e.id === performedExerciseId);
+      workoutLines.push(buildSessionSetLine(set, re, exercises, sessionRow.id));
+    }
+  }
 
-      if (!exerciseData) continue;
+  // Sets whose routine_exercises row is gone. upsertRoutine's drop branch
+  // destroys the row of an exercise removed from a routine, and a finished
+  // session still queued as sync_status='local' keeps its sets — so the loop
+  // above, which walks surviving rows, would never visit them. Left
+  // unhandled, the session posts short and flips to 'synced': the vault copy
+  // is permanently missing work the user actually did.
+  //
+  // Identity survives in the set's own exercise_id stamp (schema v3), which is
+  // what buildSessionSetLine reads first anyway. The row supplied only the
+  // plan flags (superset, rest); those died with it. Everything the vault must
+  // not lose — identity, set_type, reps or duration, weight, rpe — lives on
+  // the set. An orphan with no stamp is genuinely unrecoverable and throws
+  // rather than vanishing, which leaves the session 'local' and the data
+  // on-device.
+  //
+  // Appended rather than interleaved: with no row there is no `order` to place
+  // the group by. Ordering by first-set position keeps output deterministic.
+  const orphanedGroups = [...setsByExercise.entries()]
+    .filter(([routineExerciseId]) => !visitedGroups.has(routineExerciseId))
+    .map(([, groupSets]) => [...groupSets].sort(byPosition))
+    .sort((a, b) => a[0].position - b[0].position);
 
-      // Build flags manually for sessions to always include set_type
-      const flagParts: string[] = [];
-
-      // Always add set_type for session sets
-      flagParts.push(`set_type=${set.setType}`);
-
-      // Add kind if not strength (C2)
-      if (exerciseData.kind !== 'strength') {
-        flagParts.push(`kind=${exerciseData.kind}`);
-      }
-
-      // Add rpe if present
-      if (set.rpe !== undefined) {
-        flagParts.push(`rpe=${set.rpe}`);
-      }
-
-      // Add weight if present (C1)
-      if (set.weightKg !== undefined) {
-        flagParts.push(`weight=${set.weightKg}`);
-      }
-
-      // Add distance if present (C1)
-      if (set.distanceM !== undefined) {
-        flagParts.push(`distance=${set.distanceM}`);
-      }
-
-      // Add superset if applicable
-      if (re.supersetGroup) {
-        flagParts.push(`superset=${re.supersetGroup}`);
-      }
-
-      // Add rest (from routine_exercise level)
-      if (re.restSeconds !== undefined) {
-        if (re.restSeconds >= 60) {
-          flagParts.push(`rest=${formatDuration(re.restSeconds)}`);
-        } else {
-          flagParts.push(`rest=${re.restSeconds}`);
-        }
-      }
-
-      // Build set description
-      // For sessions: logged sets are emitted as 1x<reps> (not target sets)
-      let setDesc = '';
-      if (set.reps !== undefined) {
-        // Strength: 1x<logged-reps>
-        setDesc = `1x${set.reps}`;
-      } else if (set.durationSeconds !== undefined) {
-        // Cardio/stretch: emit duration as flag (C2)
-        flagParts.push(`duration=${formatDuration(set.durationSeconds)}`);
-      }
-
-      const flagStr = flagParts.join(' ');
-      // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
-      const parts = [setDesc, flagStr].filter(p => p);
-      const line = `- ${performedExerciseId}: ${parts.join(' ')}`;
-      workoutLines.push(line);
+  for (const groupSets of orphanedGroups) {
+    for (const set of groupSets) {
+      workoutLines.push(buildSessionSetLine(set, undefined, exercises, sessionRow.id));
     }
   }
 

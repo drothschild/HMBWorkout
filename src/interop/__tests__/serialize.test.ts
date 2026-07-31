@@ -7,6 +7,7 @@ import {
   serializeSession,
   serializeRoutine,
 } from '../serialize';
+import { ContractError } from '../format';
 
 describe('serialize', () => {
   describe('AC3.2: Frontmatter and vault conventions', () => {
@@ -387,6 +388,95 @@ describe('serialize', () => {
 
       expect(markdown).toContain('- barbell-bench-press: 1x6');
       expect(markdown).toContain('- cable-fly: 1x12');
+    });
+
+    test('takes a dropped set\'s kind from the exercise it recorded', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-stretch',
+          exerciseId: 'hamstring-stretch',
+          setType: 'stretch' as const,
+          durationSeconds: 30,
+          position: 0,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        survivingRows as any,
+        [
+          ...exercises,
+          { id: 'hamstring-stretch', title: 'Hamstring Stretch', kind: 'stretch' as const },
+        ] as any
+      );
+
+      expect(markdown).toContain('- hamstring-stretch: set_type=stretch kind=stretch duration=0:30');
+    });
+
+    test('orders dropped groups by position, after the surviving rows', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-fly',
+          exerciseId: 'cable-fly',
+          setType: 'working' as const,
+          reps: 12,
+          position: 1,
+        },
+        {
+          routineExerciseId: 're-raise',
+          exerciseId: 'lateral-raise',
+          setType: 'working' as const,
+          reps: 15,
+          position: 2,
+        },
+        {
+          routineExerciseId: 're-press',
+          exerciseId: 'barbell-bench-press',
+          setType: 'working' as const,
+          reps: 6,
+          position: 0,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        survivingRows as any,
+        [
+          ...exercises,
+          { id: 'lateral-raise', title: 'Lateral Raise', kind: 'strength' as const },
+        ] as any
+      );
+
+      const emitted = markdown
+        .split('\n')
+        .filter((line) => line.startsWith('- '))
+        .map((line) => line.split(':')[0]);
+
+      expect(emitted).toEqual([
+        '- barbell-bench-press',
+        '- cable-fly',
+        '- lateral-raise',
+      ]);
+    });
+
+    test('throws rather than dropping a set whose identity cannot be recovered', () => {
+      // Pre-v3 set: no stamp, and its row is gone. Nothing names the exercise.
+      // Refusing leaves the session sync_status='local' and the data on-device;
+      // exporting anyway would write the vault copy permanently short.
+      const sets = [
+        {
+          routineExerciseId: 're-fly',
+          setType: 'working' as const,
+          reps: 12,
+          position: 0,
+        },
+      ];
+
+      expect(() =>
+        serializeSession(sessionRow as any, sets as any, survivingRows as any, exercises as any)
+      ).toThrow(ContractError);
     });
   });
 
