@@ -19,6 +19,7 @@ export default function ExerciseDetailScreen() {
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [loading, setLoading] = useState(true);
   const [description, setDescription] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadExercise = async () => {
@@ -42,9 +43,8 @@ export default function ExerciseDetailScreen() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-save: debounce keystrokes, and flush anything pending on unmount so
-  // navigating away never loses an edit. Mirrors the settings/ai.tsx pattern;
-  // an empty (or whitespace-only) description saves as null, matching the
-  // repository's "null clears it" contract instead of persisting ''.
+  // navigating away never loses an edit. The repository normalizes empty/whitespace
+  // to null, so we pass the raw value and let the backend handle normalization.
   const flush = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -53,14 +53,20 @@ export default function ExerciseDetailScreen() {
     if (!hasPendingRef.current || !id) return;
     hasPendingRef.current = false;
     const value = pendingValueRef.current;
-    updateExerciseDescription(database, id, value.trim().length > 0 ? value : null).catch((error) => {
-      console.error('Failed to save exercise description:', error);
-    });
+    updateExerciseDescription(database, id, value)
+      .then(() => {
+        setSaveError(null);
+      })
+      .catch((error) => {
+        console.error('Failed to save exercise description:', error);
+        setSaveError('Couldn\'t save — retry');
+      });
   }, [id]);
 
   const queueSave = (value: string) => {
     pendingValueRef.current = value;
     hasPendingRef.current = true;
+    setSaveError(null);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
@@ -120,6 +126,11 @@ export default function ExerciseDetailScreen() {
           <ThemedText type="small" style={styles.caption}>
             Changes save automatically.
           </ThemedText>
+          {saveError && (
+            <ThemedText type="small" style={styles.errorMessage}>
+              {saveError}
+            </ThemedText>
+          )}
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -193,6 +204,9 @@ const styles = StyleSheet.create({
   },
   caption: {
     opacity: 0.6,
+  },
+  errorMessage: {
+    color: '#ff4444',
   },
   formGroup: {
     gap: Spacing.one,

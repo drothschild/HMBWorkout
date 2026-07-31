@@ -1,6 +1,7 @@
 import { stepsForMigration } from '@nozbe/watermelondb/Schema/migrations/stepsForMigration';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
+import { createAdapter as createWebAdapter } from './adapter.web';
 
 describe('Database schema migrations', () => {
   it('has bumped the schema version to 2 for the exercises.description column', () => {
@@ -34,9 +35,20 @@ describe('Database schema migrations', () => {
     expect(steps).not.toBeNull();
     expect(steps).toHaveLength(1);
 
-    const [step] = steps as Array<{ type: string; table: string; columns: unknown }>;
+    const [step] = steps as { type: string; table: string; columns: unknown }[];
     expect(step.type).toBe('add_columns');
     expect(step.table).toBe('exercises');
     expect(step.columns).toEqual([{ name: 'description', type: 'string', isOptional: true }]);
+  });
+
+  it('pins that the web adapter carries the exact migrations object exported by migrations.ts', () => {
+    // Asserts by reference identity: if migrations is deleted or replaced with
+    // a different object, this test fails, blocking silent wipes on upgrade.
+    const adapter = createWebAdapter();
+    // LokiJS adapter is typed as any, but we can access the config that was
+    // passed to its constructor via the schema property.
+    const adapterConfig = (adapter as any).config || (adapter as any);
+    // WatermelonDB LokiJS adapter stores the migrations in the object properties
+    expect((adapter as any).migrations).toBe(migrations);
   });
 });

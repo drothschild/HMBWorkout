@@ -375,6 +375,9 @@ export async function getSupersetGroups(
  * for exercises that don't exist yet) never touches a description someone
  * already wrote. Use updateExerciseDescription for the user edit path.
  *
+ * Normalizes empty or whitespace-only descriptions to null on create, so the
+ * database always carries clean data.
+ *
  * @param database The database instance
  * @param exerciseId The exercise slug/ID
  * @param title Human-readable title
@@ -401,11 +404,12 @@ export async function upsertExercise(
       return exercise;
     } catch {
       // Not found, create new
+      const normalized = description?.trim() ? description.trim() : null;
       const created = await exercisesTable.create((e: any) => {
         e._raw.id = exerciseId;
         e.title = title;
         e.kind = kind;
-        if (description !== undefined) e.description = description;
+        if (normalized !== null) e.description = normalized;
         e._raw.created_at = Date.now();
       });
       return created;
@@ -420,6 +424,9 @@ export async function upsertExercise(
  * create-only invariant the AI accept path depends on (exercises are global
  * and shared across every routine).
  *
+ * Normalizes empty or whitespace-only strings to null, so the database always
+ * carries clean data: either a meaningful description or null, never ''.
+ *
  * @param database The database instance
  * @param exerciseId The exercise ID
  * @param description The new description, or null to clear it
@@ -433,8 +440,10 @@ export async function updateExerciseDescription(
     const exercisesTable = database.get('exercises');
     const exercise = await exercisesTable.find(exerciseId);
 
+    const normalized = description?.trim() ? description.trim() : null;
+
     await exercise.update((record: any) => {
-      record.description = description;
+      record.description = normalized;
     });
 
     return exercise as Exercise;

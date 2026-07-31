@@ -864,6 +864,54 @@ describe('Repository: session and set helpers', () => {
       const exercise = await database.get('exercises').find('exercise-clear-desc');
       expect((exercise as any).description).toBeNull();
     }, 10000);
+
+    it('updateExerciseDescription normalizes empty string to null', async () => {
+      await upsertExercise(database, 'exercise-empty-str', 'Curl', 'strength', 'Original description');
+
+      await updateExerciseDescription(database, 'exercise-empty-str', '');
+
+      const exercise = await database.get('exercises').find('exercise-empty-str');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('updateExerciseDescription normalizes whitespace-only string to null', async () => {
+      await upsertExercise(database, 'exercise-ws-str', 'Row', 'strength', 'Original description');
+
+      await updateExerciseDescription(database, 'exercise-ws-str', '   ');
+
+      const exercise = await database.get('exercises').find('exercise-ws-str');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('updateExerciseDescription trims leading and trailing whitespace', async () => {
+      await upsertExercise(database, 'exercise-trim', 'Press', 'strength', 'Original');
+
+      await updateExerciseDescription(database, 'exercise-trim', '  squat cues  ');
+
+      const exercise = await database.get('exercises').find('exercise-trim');
+      expect((exercise as any).description).toBe('squat cues');
+    }, 10000);
+
+    it('upsertExercise create normalizes empty string description to null', async () => {
+      await upsertExercise(database, 'exercise-create-empty', 'Bench', 'strength', '');
+
+      const exercise = await database.get('exercises').find('exercise-create-empty');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('upsertExercise create normalizes whitespace-only description to null', async () => {
+      await upsertExercise(database, 'exercise-create-ws', 'Squat', 'strength', '   ');
+
+      const exercise = await database.get('exercises').find('exercise-create-ws');
+      expect((exercise as any).description).toBeNull();
+    }, 10000);
+
+    it('upsertExercise create trims leading and trailing whitespace from description', async () => {
+      await upsertExercise(database, 'exercise-create-trim', 'Deadlift', 'strength', '  keep your chest up  ');
+
+      const exercise = await database.get('exercises').find('exercise-create-trim');
+      expect((exercise as any).description).toBe('keep your chest up');
+    }, 10000);
   });
 
   describe('upsertRoutine reconcile', () => {
