@@ -13,6 +13,57 @@ import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';
 import { runImportRoutines } from '@/helpers/settingsActions';
 
+interface EntryPointButtonsProps {
+  importLabel: string;
+  importing: boolean;
+  importMessage: string | null;
+  onImport: () => void;
+  onAiCoach: () => void;
+}
+
+function EntryPointButtons({ importLabel, importing, importMessage, onImport, onAiCoach }: EntryPointButtonsProps) {
+  return (
+    <>
+      <Pressable
+        style={({ pressed }) => [
+          styles.importButton,
+          importing && styles.importButtonDisabled,
+          pressed && styles.importButtonPressed,
+        ]}
+        onPress={onImport}
+        disabled={importing}
+      >
+        {importing ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <ThemedText type="default" style={styles.importButtonText}>
+            {importLabel}
+          </ThemedText>
+        )}
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [styles.importButton, pressed && styles.importButtonPressed]}
+        onPress={onAiCoach}
+      >
+        <ThemedText type="default" style={styles.importButtonText}>AI Coach</ThemedText>
+      </Pressable>
+      {importMessage && (
+        <ThemedText
+          type="default"
+          style={[
+            styles.statusText,
+            importMessage.startsWith('✓')
+              ? styles.successText
+              : styles.errorText,
+          ]}
+        >
+          {importMessage}
+        </ThemedText>
+      )}
+    </>
+  );
+}
+
 export default function RoutinesScreen() {
   const router = useRouter();
   const [routines, setRoutines] = useState<RoutineListItem[]>([]);
@@ -84,61 +135,23 @@ export default function RoutinesScreen() {
               <ThemedText type="default" style={styles.placeholder}>
                 No routines found. Import routines to get started.
               </ThemedText>
-              <Pressable
-                style={[styles.importButton, importing && styles.importButtonDisabled]}
-                onPress={handleImportRoutines}
-                disabled={importing}
-              >
-                {importing ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText type="default" style={styles.importButtonText}>
-                    Import Routines
-                  </ThemedText>
-                )}
-              </Pressable>
-              {importMessage && (
-                <ThemedText
-                  type="default"
-                  style={[
-                    styles.statusText,
-                    importMessage.startsWith('✓')
-                      ? styles.successText
-                      : styles.errorText,
-                  ]}
-                >
-                  {importMessage}
-                </ThemedText>
-              )}
+              <EntryPointButtons
+                importLabel="Import Routines"
+                importing={importing}
+                importMessage={importMessage}
+                onImport={handleImportRoutines}
+                onAiCoach={() => router.push('/ai-coach')}
+              />
             </ThemedView>
           ) : (
             <>
-              <Pressable
-                style={[styles.importButton, importing && styles.importButtonDisabled]}
-                onPress={handleImportRoutines}
-                disabled={importing}
-              >
-                {importing ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText type="default" style={styles.importButtonText}>
-                    Import More Routines
-                  </ThemedText>
-                )}
-              </Pressable>
-              {importMessage && (
-                <ThemedText
-                  type="default"
-                  style={[
-                    styles.statusText,
-                    importMessage.startsWith('✓')
-                      ? styles.successText
-                      : styles.errorText,
-                  ]}
-                >
-                  {importMessage}
-                </ThemedText>
-              )}
+              <EntryPointButtons
+                importLabel="Import More Routines"
+                importing={importing}
+                importMessage={importMessage}
+                onImport={handleImportRoutines}
+                onAiCoach={() => router.push('/ai-coach')}
+              />
               <FlatList
                 data={routines}
                 keyExtractor={(item) => item.id}
@@ -214,6 +227,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  importButtonPressed: {
+    opacity: 0.6,
   },
   statusText: {
     fontSize: 13,

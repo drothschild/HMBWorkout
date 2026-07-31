@@ -42,8 +42,11 @@ export function RestCountdown({
 
   // The presenter is recreated every render, so keep the elapsed callback in a
   // ref: the interval must not be torn down and re-armed on each parent render.
+  // The ref is written in an effect, not during render (react-hooks/refs).
   const onRestElapsedRef = useRef(onRestElapsed);
-  onRestElapsedRef.current = onRestElapsed;
+  useEffect(() => {
+    onRestElapsedRef.current = onRestElapsed;
+  });
 
   useEffect(() => {
     if (isPaused || !deadlineMs) return;
