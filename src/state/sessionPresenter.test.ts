@@ -304,18 +304,6 @@ describe('createSessionPresenter', () => {
     });
   });
 
-  test('dispatches SkipExercise on skip action', () => {
-    const state = createMockState();
-    const mockDispatch = jest.fn(async () => null);
-    const presenter = createSessionPresenter(state, mockDispatch);
-
-    presenter.onSkipExercise();
-
-    expect(mockDispatch).toHaveBeenCalledWith({
-      tag: 'SkipExercise',
-    });
-  });
-
   test('dispatches FinishSession on finish action', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);
@@ -683,9 +671,9 @@ describe('createSessionPresenter', () => {
       expect(presenter.exerciseProgress).toBe(1);
     });
 
-    test('clamps a skip past the last exercise to the total', () => {
+    test('clamps an out-of-range exerciseIndex to the total', () => {
       const state = widenToThreeEntries(createMockState());
-      state.exerciseIndex = 3; // SkipExercise on the last entry leaves the index out of bounds
+      state.exerciseIndex = 3; // defensive clamp — exerciseIndex should never exceed entries.length, but the presenter must not divide/index unsafely if it ever does
 
       const presenter = createSessionPresenter(state, jest.fn(async () => null));
 

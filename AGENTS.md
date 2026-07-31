@@ -215,6 +215,37 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    the shell as a plain `0` that display code must treat as *no plan* — see the
    zero-planned-set rule in Boundaries.
 
+9. **A superset group round-robins by set, and `setIndex` becomes a
+   group-shared round number while advancing through one.** A group is a
+   contiguous run of entries sharing a `supersetGroup` label (`h.group_end_idx`
+   in `helpers.lv`; a standalone entry is a group of one). Finishing a set
+   hands off to the next group member still owed a set *this round*
+   (`h.next_active_idx`, curried over `(afterIdx, groupEndIdx, round)`) with no
+   rest; only when nobody after the current position qualifies does the group
+   decide whether to loop back for another round or move on. A member with
+   fewer prescribed sets than its partner is simply skipped once its own
+   `warmupSets + targetSets` is exhausted — the round does *not* end early
+   just because the round's last-*visited* member is done; every remaining
+   member's sets still get logged. Because a member is visited every round up
+   to its own completion and never after, its own count of *visits* always
+   equals the shared round number for as long as it keeps being visited (this
+   is a visit count, not strictly a logged-set count — `SetDone`/"Skip Set"
+   still advances it without logging anything) — this is what keeps
+   convention 7's `setIndex == 0` guard sound for a member reached only via a
+   superset hop, with no extra state needed. `phase` is re-derived
+   (`h.phase_for`) from whichever entry is actually landed on — never carried
+   over from the entry being left — on all three ways `advance_after_set` can
+   move: the same-round hop, the next-round loop-back, and advancing to a
+   genuinely different exercise/group entirely (this last one applies to
+   standalone entries too, not just superset groups: exhausting entry A and
+   landing on B with `B.warmupSets > 0` now correctly reads `Warmup`, where
+   the pre-round-robin code carried A's last phase over). `SkipExercise`
+   existed once and was removed: its unconditional index-jump could land on a
+   group member with real logged history while resetting `setIndex` to 0,
+   which would have made that guard unsound with no clean fix (skip *this*
+   member only, or the group's whole current round?) — removing the
+   affordance was simpler than picking one.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
@@ -442,8 +473,9 @@ is now a misnomer — AI settings are in there too.
   `warmupSets + targetSets === 0`, and both consumers read that as *hide*
   (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
   from its "Up Next" line). The sum is the exact condition, not a conservative one:
-  `transition.lv` ends an entry at `allSetsForEntry = warmupSets + targetSets`, so
-  only a zero total can reach a zero denominator. `sessionDetailPresenter` is the
+  `h.next_active_idx` (`helpers.lv`) treats an entry as active for round `r` iff
+  `r < warmupSets + targetSets`, so only a zero total can reach a zero
+  denominator. `sessionDetailPresenter` is the
   third label site and needs no guard — it renders `Set N` with no total
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)

@@ -276,6 +276,65 @@ describe('ReplaceExercise: guards', () => {
   );
 });
 
+describe('ReplaceExercise: setIndex==0 guard stays sound across a superset hop', () => {
+  function makeSupersetEntries(): RoutineEntry[] {
+    return [
+      {
+        idx: 0,
+        exerciseId: 'exercise-a',
+        kind: 'strength',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 0,
+        supersetGroup: 'X',
+      },
+      {
+        idx: 1,
+        exerciseId: 'exercise-b',
+        kind: 'strength',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 8,
+        targetDurationSeconds: 0,
+        restSeconds: 0,
+        supersetGroup: 'X',
+      },
+    ];
+  }
+
+  it('accepts a swap on a partner reached only via a same-round hop (genuinely untouched)', async () => {
+    const engine = createEngine(makeExecutors());
+    engine.setState(makeState({ exerciseIndex: 0, setIndex: 0, entries: makeSupersetEntries() }));
+
+    // A1 hands off to B for the same round — B has never been logged.
+    const afterHop = await engine.dispatch({ tag: 'LogSet', reps: 8, weightKg: 20, nowMs: 1000 });
+    expect(afterHop.exerciseIndex).toBe(1);
+    expect(afterHop.setIndex).toBe(0);
+
+    const state = await engine.dispatch({ tag: 'ReplaceExercise', idx: 1, exerciseId: 'exercise-c' });
+    expect(state.entries[1].exerciseId).toBe('exercise-c');
+  });
+
+  it('rejects a swap on a member with real logged history from an earlier round', async () => {
+    const engine = createEngine(makeExecutors());
+    engine.setState(makeState({ exerciseIndex: 0, setIndex: 0, entries: makeSupersetEntries() }));
+
+    // A1 -> hop to B (round 0). B1 -> loop back to A for round 1: A now has
+    // one real logged set even though setIndex reset to a shared value.
+    await engine.dispatch({ tag: 'LogSet', reps: 8, weightKg: 20, nowMs: 1000 });
+    const backOnA = await engine.dispatch({ tag: 'LogSet', reps: 8, weightKg: 25, nowMs: 2000 });
+    expect(backOnA.exerciseIndex).toBe(0);
+    expect(backOnA.setIndex).toBe(1);
+    expect(backOnA.loggedSets).toHaveLength(2);
+
+    await expect(
+      engine.dispatch({ tag: 'ReplaceExercise', idx: 0, exerciseId: 'exercise-c' })
+    ).rejects.toThrow(/set has already been recorded/);
+  });
+});
+
 describe('ReplaceExercise: the swapped exercise is what the session then logs', () => {
   it('logs the replacement’s id, not the original’s', async () => {
     const executors = makeExecutors();

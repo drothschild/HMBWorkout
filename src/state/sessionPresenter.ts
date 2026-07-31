@@ -77,7 +77,6 @@ export interface SessionPresenterOutput {
   onResume(): void;
   onSkipRest(): void;
   onRestElapsed(): void;
-  onSkipExercise(): void;
   onStartStretching(): void;
   onStopStretching(): void;
   onFinishSession(): void;
@@ -343,8 +342,9 @@ export function createSessionPresenter(
         : `Set ${setNumber} of ${currentEntry.targetSets}`
       : '';
 
-  // Exercise progress: min clamps the skip-past-the-end index (SkipExercise on
-  // the last entry), and the done override corrects for natural completion
+  // Exercise progress: min defensively clamps exerciseIndex to the total (it
+  // should never exceed entries.length, but progress math must stay safe if
+  // it ever does), and the done override corrects for natural completion
   // leaving exerciseIndex at length-1.
   const totalExerciseCount = sessionState.entries?.length ?? 0;
   const completedExerciseCount =
@@ -451,12 +451,6 @@ export function createSessionPresenter(
       dispatch({
         tag: 'RestElapsed',
         nowMs: Date.now(),
-      });
-    },
-
-    onSkipExercise: () => {
-      dispatch({
-        tag: 'SkipExercise',
       });
     },
 
