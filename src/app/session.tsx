@@ -14,6 +14,7 @@ import {
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { formatSetInputValue } from '@/state/setInputs';
+import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
@@ -75,6 +76,9 @@ export default function SessionScreen() {
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const lastError = activeSessionStore((state: any) => state.lastError);
   const dispatch = activeSessionStore((state: any) => state.dispatch);
+
+  const restCommentary = restCommentaryStore((state) => state.text);
+  const restCommentaryPending = restCommentaryStore((state) => state.pending);
 
   // Compute progression hint when exercise changes
   useEffect(() => {
@@ -232,6 +236,27 @@ export default function SessionScreen() {
     loadRoutine();
   }, [sessionState?.sessionId]);
 
+  // Rest-screen coach commentary. The engine owns when rest happens; this only
+  // mirrors the upcoming exercise into the commentary store, which caches one
+  // comment per entry and swallows every failure — the rest screen renders the
+  // same with or without it.
+  const commentaryTarget = restCommentaryTarget(sessionState, exerciseTitles);
+  // Identity, not the object: the target is rebuilt every render, and the store
+  // no-ops on a repeat of the same entry. (Titles resolve at session start, so
+  // the id fallback here is the same one currentExerciseTitle already has.)
+  const commentaryKey = commentaryTarget
+    ? `${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`
+    : null;
+
+  useEffect(() => {
+    if (commentaryTarget) {
+      restCommentaryStore.getState().show(commentaryTarget);
+    } else {
+      restCommentaryStore.getState().hide();
+    }
+    // Primitive dep on purpose (see the effects above).
+  }, [commentaryKey]);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -337,6 +362,8 @@ export default function SessionScreen() {
             deadlineMs={presenter.restDeadlineMs}
             frozenRemainingMs={presenter.restRemainingMs}
             isPaused={presenter.isRestPaused}
+            commentary={restCommentary}
+            commentaryPending={restCommentaryPending}
             onRestElapsed={presenter.onRestElapsed}
             onSkip={presenter.onSkipRest}
             onPause={presenter.onPause}

@@ -9,6 +9,16 @@ interface RestCountdownProps {
   /** Remaining time frozen by the engine while the timer is paused */
   frozenRemainingMs: number | undefined;
   isPaused: boolean;
+  /** Coach comment about the upcoming exercise; absent when there is none */
+  commentary?: string | null;
+  /**
+   * True while the comment is still being fetched. Reserving the slot on this
+   * (rather than on the text arriving) is what keeps the countdown and controls
+   * from being shoved when it lands mid-rest. When no comment is coming at all
+   * — no API key, or a failed request — neither is set and the space is given
+   * back.
+   */
+  commentaryPending?: boolean;
   onRestElapsed: () => void;
   onSkip: () => void;
   onPause: () => void;
@@ -32,6 +42,8 @@ export function RestCountdown({
   deadlineMs,
   frozenRemainingMs,
   isPaused,
+  commentary,
+  commentaryPending,
   onRestElapsed,
   onSkip,
   onPause,
@@ -78,6 +90,16 @@ export function RestCountdown({
         <ThemedText style={styles.countdown}>{formatMs(displayMs)}</ThemedText>
       </View>
 
+      {(commentary || commentaryPending) && (
+        <View style={styles.commentary}>
+          {commentary ? (
+            <ThemedText type="small" style={styles.commentaryText}>
+              {commentary}
+            </ThemedText>
+          ) : null}
+        </View>
+      )}
+
       <View style={styles.buttonGroup}>
         {isPaused ? (
           <Pressable style={[styles.button, styles.resumeButton]} onPress={onResume}>
@@ -115,6 +137,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],
     marginTop: Spacing.two,
+  },
+  // Fixed height, not intrinsic: the slot is reserved the moment a comment is
+  // expected, so arriving text fills space that already existed.
+  commentary: {
+    minHeight: 60,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.two,
+    marginBottom: Spacing.three,
+  },
+  commentaryText: {
+    textAlign: 'center',
+    opacity: 0.75,
   },
   buttonGroup: {
     gap: Spacing.two,
