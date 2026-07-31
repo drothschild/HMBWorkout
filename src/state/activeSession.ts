@@ -51,10 +51,11 @@ export function createActiveSessionStore(
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
 
-  // Queue of pending discard promises. The rules permit at most one in-flight discard
-  // (a second AbandonSession from idle errors), which is what makes the shared queue safe.
-  // Each dispatch drains its queue upon success, ensuring all discard side effects are
-  // observed by the caller before dispatch returns.
+  // Queue of pending discard promises. The queue is shared across all dispatches and
+  // drained by whichever dispatch reaches the drain first. Safety comes from the rules
+  // permitting at most one in-flight discard (a second AbandonSession from idle errors),
+  // combined with the confirm dialog blocking user interaction during discard.
+  // This ensures all discard side effects are observed by the caller before dispatch returns.
   const pendingDiscardPromises: Promise<void>[] = [];
 
   // Create executors that interact with the database
@@ -277,6 +278,11 @@ export function createActiveSessionStore(
           lastError: null,
         });
 
+        // Deliberate asymmetry: successful dispatch returns the truthy idle state;
+        // failed dispatch (above) returns null. This is load-bearing for the screen's
+        // abandon confirmation logic: it distinguishes success (returns idle state)
+        // from failure (returns null). See abandonSession.integration.test.ts for the
+        // regression test that enforces this contract.
         return newState;
       } catch (err) {
         // TransitionError from engine: preserve the prior in-progress state and surface the error.

@@ -110,20 +110,44 @@ export default function SessionScreen() {
           text: 'Abandon',
           style: 'destructive',
           onPress: async () => {
-            // Await the abandon dispatch; if it fails (returns null), show an error dialog
-            const result = await dispatch({
-              tag: 'AbandonSession',
-            });
+            // Delegate to presenter, which handles dispatch and returns the promise
+            const result = await presenter.onAbandonSession();
 
             if (!result) {
-              // Abandon failed: show error dialog with honest copy
-              Alert.alert(
-                'Couldn\'t discard the workout',
-                'The workout data may reappear at next launch — you can abandon it again then.'
-              );
+              // Abandon failed: read store state to discriminate error type
+              const sessionState = activeSessionStore.getState().sessionState;
+
+              if (sessionState === null) {
+                // Discard failed: session row still on disk, row is inspectable
+                Alert.alert(
+                  'Couldn\'t discard the workout',
+                  'The workout data may reappear at next launch — you can abandon it again then.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => router.back(),
+                    },
+                  ]
+                );
+              } else {
+                // Transition error: workout is still live in the engine
+                Alert.alert(
+                  'Couldn\'t abandon the workout',
+                  'Try again.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => {
+                        // Do not navigate—the workout is still live
+                      },
+                    },
+                  ]
+                );
+              }
+              return;
             }
 
-            // Navigate back regardless of success or failure
+            // Success: navigate back
             router.back();
           },
         },

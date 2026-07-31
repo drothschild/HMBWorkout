@@ -181,10 +181,17 @@ describe('abandoning an in-progress workout', () => {
     expect(store.getState().sessionState).toBeNull();
 
     // lastError should contain the failure message
-    expect(store.getState().lastError).toBeDefined();
+    expect(store.getState().lastError).not.toBeNull();
     expect(store.getState().lastError).toContain('Discard failed');
 
     // The row is still on disk because discard failed (not deleted)
-    expect(await getSession(database, SESSION_ID)).toBeDefined();
+    expect(await getSession(database, SESSION_ID)).not.toBeNull();
+  });
+
+  it('a successful abandon resolves to the idle engine state, not null — the screen uses this to tell success from failure', async () => {
+    const result = await store.getState().dispatch({ tag: 'AbandonSession' });
+    expect(result).not.toBeNull();
+    expect(result?.phase).toBe('idle');
+    expect(store.getState().sessionState).toBeNull();
   });
 });

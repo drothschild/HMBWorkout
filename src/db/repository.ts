@@ -176,22 +176,14 @@ export async function getSessionSets(
 }
 
 /**
- * Discard a session outright, along with every set logged into it.
+ * Delete an in-progress session and all its logged sets.
+ * Called when a user explicitly abandons a workout. Idempotent by session id.
  *
  * This is the abandon path, and deliberately not a "delete a finished workout"
  * path: it makes no ended_at check, because the whole point is to throw away a
  * session that is still running. The persisted engine state lives on the session
  * row, so removing the row is also what stops restart recovery from rehydrating
  * the discarded workout.
- *
- * A session that is already gone is not an error — abandoning is idempotent.
- *
- * @param database The database instance
- * @param sessionId The session ID to discard
- */
-/**
- * Delete an in-progress session and all its logged sets.
- * Called when a user explicitly abandons a workout. Idempotent by session id.
  *
  * If this operation fails (e.g., database write error), the session row remains
  * on disk. On next app launch, rehydrate will restore this stale row as the active

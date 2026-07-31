@@ -252,7 +252,7 @@ describe('activeSession store', () => {
 
       // Verify engine state was saved to database
       const loadedState = await loadActiveEngineState(database);
-      expect(loadedState).toBeDefined();
+      expect(loadedState).not.toBeNull();
       expect(loadedState?.sessionId).toBe(sessionId);
       expect(loadedState?.phase).toEqual(storeState.sessionState?.phase);
     });
@@ -343,7 +343,7 @@ describe('activeSession store', () => {
       store.getState().hydrate(warmupState);
 
       // Session state should be preserved (not null)
-      expect(store.getState().sessionState).toBeDefined();
+      expect(store.getState().sessionState).not.toBeNull();
       expect(store.getState().sessionState?.phase).toBe('warmup');
       expect(store.getState().lastError).toBeNull();
     });
@@ -846,18 +846,18 @@ describe('activeSession store', () => {
 
       // Verify session is started and state is preserved
       let storeState = store.getState();
-      expect(storeState.sessionState).toBeDefined();
+      expect(storeState.sessionState).not.toBeNull();
       expect(storeState.sessionState?.phase).toBe('warmup');
       expect(storeState.lastError).toBeNull();
 
-      // Try to log a set with invalid RPE (3.3 is outside the valid range for warmup phase)
+      // Try to log a set with invalid RPE (3.3 fails the 0.5-step check, valid range is 1.0–10.0)
       // This should trigger a TransitionError from the engine
       const dispatchResult = await store.getState().dispatch({
         tag: 'LogSet',
         reps: 10,
         weightKg: 50,
         durationSeconds: 0,
-        rpe: 3.3, // Invalid RPE value (should be 1-10 or undefined)
+        rpe: 3.3, // Invalid RPE value (fails 0.5-step increment check)
       });
 
       // After invalid event:
@@ -867,13 +867,13 @@ describe('activeSession store', () => {
       expect(dispatchResult).toBeNull();
 
       // CRITICAL: sessionState should be PRESERVED (still in-progress), not nulled
-      expect(storeState.sessionState).toBeDefined();
+      expect(storeState.sessionState).not.toBeNull();
       expect(storeState.sessionState?.sessionId).toBe(sessionId);
       expect(storeState.sessionState?.phase).toBe('warmup');
 
-      // lastError should be set
-      expect(storeState.lastError).toBeDefined();
-      expect(storeState.lastError).toMatch(/invalid|rpe|value|failed/i);
+      // lastError should be set with the RPE validation message
+      expect(storeState.lastError).not.toBeNull();
+      expect(storeState.lastError).toMatch(/RPE.*0.5-step/i);
     });
   });
 

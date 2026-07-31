@@ -136,6 +136,35 @@ describe('discardInProgressSession', () => {
     expect(sessions).toHaveLength(0);
   });
 
+  // M1: Read-path fetch rejection propagates (not swallowed as not-found)
+  it('M1: propagates fetch errors from sessions query (does not treat errors as not-found)', async () => {
+    const routineExerciseId = await seedRoutine(database, 'routine-1');
+    await createSession(database, {
+      sessionId: 'session-live',
+      routineId: 'routine-1',
+      startedAtMs: 1000,
+    });
+    await appendSet(database, 'session-live', routineExerciseId, { setType: 'working', reps: 8 });
+
+    // Mock the query().fetch() to reject on sessions table
+    const sessionsTable = database.get('sessions');
+    const originalQuery = sessionsTable.query.bind(sessionsTable);
+    jest.spyOn(sessionsTable, 'query').mockImplementation(() => ({
+      ...originalQuery(),
+      fetch: jest.fn().mockRejectedValueOnce(
+        new Error('Sessions fetch failed: read error')
+      ),
+    } as any));
+
+    // Discard should reject with the fetch error (not treat it as not-found/empty)
+    await expect(discardInProgressSession(database, 'session-live')).rejects.toThrow(
+      'Sessions fetch failed: read error'
+    );
+
+    // Verify session is still on disk (discard never ran)
+    expect(await getSession(database, 'session-live')).toBeDefined();
+  });
+
   // M3c: Repository-level destroy-failure propagation
   it('M3c: propagates database batch errors (destroy failure)', async () => {
     const routineExerciseId = await seedRoutine(database, 'routine-1');

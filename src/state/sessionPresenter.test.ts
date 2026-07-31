@@ -364,21 +364,31 @@ describe('createSessionPresenter', () => {
   });
 
   describe('abandoning the workout', () => {
-    test('dispatches AbandonSession and nothing else', () => {
-      const mockDispatch = jest.fn();
+    test('returns a promise from dispatch', async () => {
+      const mockDispatch = jest.fn(async () => null);
       const presenter = createSessionPresenter(createMockState(), mockDispatch);
 
-      presenter.onAbandonSession();
+      const result = presenter.onAbandonSession();
+
+      expect(result).toBeInstanceOf(Promise);
+      await result;
+    });
+
+    test('dispatches AbandonSession and nothing else', async () => {
+      const mockDispatch = jest.fn(async () => null);
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      await presenter.onAbandonSession();
 
       expect(mockDispatch).toHaveBeenCalledTimes(1);
       expect(mockDispatch).toHaveBeenCalledWith({ tag: 'AbandonSession' });
     });
 
-    test('does not finish the session', () => {
-      const mockDispatch = jest.fn();
+    test('does not finish the session', async () => {
+      const mockDispatch = jest.fn(async () => null);
       const presenter = createSessionPresenter(createMockState(), mockDispatch);
 
-      presenter.onAbandonSession();
+      await presenter.onAbandonSession();
 
       expect(mockDispatch).not.toHaveBeenCalledWith(
         expect.objectContaining({ tag: 'FinishSession' })

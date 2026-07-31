@@ -34,7 +34,7 @@ export interface SessionPresenterOutput {
   onSkipExercise(): void;
   onStartStretching(): void;
   onFinishSession(): void;
-  onAbandonSession(): void;
+  onAbandonSession(): Promise<SessionState | null>;
 }
 
 /**
@@ -136,11 +136,11 @@ export function createSessionPresenter(
 
     // Throws the workout away. The engine decides which phases allow it and
     // emits the discard; the screen only has to confirm the intent.
-    onAbandonSession: () => {
+    // Returns the dispatch promise for the screen to await and handle success/failure.
+    onAbandonSession: () =>
       dispatch({
         tag: 'AbandonSession',
-      });
-    },
+      }),
   };
 }
 
