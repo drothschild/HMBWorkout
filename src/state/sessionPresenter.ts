@@ -14,6 +14,7 @@ export interface SetInputValues {
 
 export interface SessionPresenterOutput {
   currentExerciseId: string;
+  currentExerciseTitle: string;
   currentEntry: RoutineEntry | undefined;
   phase: string;
   isPaused: boolean;
@@ -73,16 +74,21 @@ export function formatLoggedSetLine(set: LoggedSet): string {
  *
  * @param progressionHint Optional progression hint (computed by store via progression_hint rule).
  *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 2.5 kg").
+ * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
+ *                          Engine state carries only exercise ids (the Rill boundary strips
+ *                          any extra entry fields), so titles must be looked up shell-side.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>,
-  progressionHint?: string
+  progressionHint?: string,
+  exerciseTitles?: Record<string, string>
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
   const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
   const currentExerciseId = currentEntry?.exerciseId || '';
+  const currentExerciseTitle = exerciseTitles?.[currentExerciseId] || currentExerciseId;
 
   // Host sentinel boundary: 0 means "no value" for both rest fields
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
@@ -90,6 +96,7 @@ export function createSessionPresenter(
 
   return {
     currentExerciseId,
+    currentExerciseTitle,
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',

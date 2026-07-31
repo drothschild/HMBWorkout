@@ -34,7 +34,7 @@ export function SetLogger({
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="subtitle">
-        {presenter.currentEntry?.exerciseId || 'Exercise'}
+        {presenter.currentExerciseTitle || 'Exercise'}
       </ThemedText>
 
       {!isDurationBased && presenter.progressionHint && (

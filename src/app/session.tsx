@@ -9,7 +9,7 @@ import { RestCountdown } from '@/components/RestCountdown';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 import { Spacing } from '@/constants/theme';
-import { getExerciseWorkingSetHistory } from '@/db/repository';
+import { getExerciseTitles, getExerciseWorkingSetHistory } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
 // Defer import until needed to avoid loading database singleton at module load time
@@ -34,6 +34,7 @@ export default function SessionScreen() {
   const [currentRpe, setCurrentRpe] = useState<number | undefined>();
   const [currentDuration, setCurrentDuration] = useState<number | undefined>();
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
+  const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
 
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const lastError = activeSessionStore((state: any) => state.lastError);
@@ -83,6 +84,28 @@ export default function SessionScreen() {
     // on every dispatch).
   }, [sessionState?.exerciseIndex]);
 
+  // Engine state carries only exercise ids, so titles are resolved shell-side.
+  // Entries are fixed for a session's lifetime, so one load per session suffices.
+  useEffect(() => {
+    const loadTitles = async () => {
+      if (!sessionState) {
+        setExerciseTitles({});
+        return;
+      }
+
+      try {
+        const db = getDatabase();
+        const ids = (sessionState.entries ?? []).map((entry: any) => entry.exerciseId);
+        setExerciseTitles(await getExerciseTitles(db, ids));
+      } catch (error) {
+        console.error('Failed to load exercise titles:', error);
+        setExerciseTitles({});
+      }
+    };
+
+    loadTitles();
+  }, [sessionState?.sessionId]);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -96,7 +119,7 @@ export default function SessionScreen() {
     );
   }
 
-  const presenter = createSessionPresenter(sessionState, dispatch, progressionHint);
+  const presenter = createSessionPresenter(sessionState, dispatch, progressionHint, exerciseTitles);
 
   // Destructive and unrecoverable: the workout and its logged sets are deleted
   // and never reach the vault, so it takes an explicit confirmation.

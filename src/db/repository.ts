@@ -274,6 +274,33 @@ export async function deleteSession(
 }
 
 /**
+ * Resolve exercise titles for a set of exercise ids.
+ * Ids whose exercise no longer exists are omitted from the map, so callers
+ * can fall back to showing the raw id.
+ *
+ * @param database The database instance
+ * @param exerciseIds Exercise ids to resolve
+ * @returns Map of exerciseId → title for every id that still exists
+ */
+export async function getExerciseTitles(
+  database: Database,
+  exerciseIds: string[]
+): Promise<Record<string, string>> {
+  const titles: Record<string, string> = {};
+
+  for (const exerciseId of exerciseIds) {
+    try {
+      const exercise = await database.get('exercises').find(exerciseId);
+      titles[exerciseId] = (exercise as any).title;
+    } catch {
+      // Exercise no longer exists; leave it out so the caller falls back to the id.
+    }
+  }
+
+  return titles;
+}
+
+/**
  * Get all working-type sets for an exercise across all sessions (prior history).
  * Used for progression hint evaluation: rules compute hints based on prior working sets,
  * not current-session sets.
