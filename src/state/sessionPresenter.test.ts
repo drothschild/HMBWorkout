@@ -363,4 +363,26 @@ describe('createSessionPresenter', () => {
     });
   });
 
+  describe('abandoning the workout', () => {
+    test('dispatches AbandonSession and nothing else', () => {
+      const mockDispatch = jest.fn();
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      presenter.onAbandonSession();
+
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+      expect(mockDispatch).toHaveBeenCalledWith({ tag: 'AbandonSession' });
+    });
+
+    test('does not finish the session', () => {
+      const mockDispatch = jest.fn();
+      const presenter = createSessionPresenter(createMockState(), mockDispatch);
+
+      presenter.onAbandonSession();
+
+      expect(mockDispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ tag: 'FinishSession' })
+      );
+    });
+  });
 });
