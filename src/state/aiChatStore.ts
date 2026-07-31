@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { Database } from '@nozbe/watermelondb';
-import { AiTurn, RoutineDraft, DraftValidationError } from '@/ai/draftSchema';
+import {
+  AiTurn,
+  RoutineDraft,
+  DraftValidationError,
+  SettingsProposal,
+  validateSettingsProposal,
+} from '@/ai/draftSchema';
 import { acceptDraft as acceptDraftFn } from '@/ai/acceptDraft';
 import {
   AnthropicHttpError,
@@ -9,7 +15,7 @@ import {
   AiChatMessage,
 } from '@/ai/anthropicClient';
 import { buildSystem as buildSystemFn, AiCoachMode } from '@/ai/contextBuilder';
-import { getSettings } from '@/state/settings';
+import { getSettings, setSettings } from '@/state/settings';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
@@ -29,12 +35,15 @@ interface AiChatState {
   mode: AiCoachMode;
   messages: AiDisplayMessage[];
   pendingDraft: RoutineDraft | null;
+  pendingSettingsProposal: SettingsProposal | null;
   status: 'idle' | 'sending' | 'error';
   error: AiChatError | null;
   reset(mode: AiCoachMode): void;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
   acceptDraft(): Promise<string | null>;
+  approveSettingsProposal(): void;
+  declineSettingsProposal(): void;
 }
 
 export interface AiChatDeps {
@@ -43,6 +52,7 @@ export interface AiChatDeps {
   buildSystem: typeof buildSystemFn;
   accept: typeof acceptDraftFn;
   getSettings: typeof getSettings;
+  setSettings: typeof setSettings;
 }
 
 function mapError(error: unknown): AiChatError {
@@ -66,6 +76,17 @@ export function createAiChatStore(deps: AiChatDeps) {
   let cachedSystem: string | null = null;
   // Generation counter to discard stale responses after reset() invalidates ongoing requests
   let generation = 0;
+  // Epoch counter for the prompt cache alone. It advances on every event that
+  // makes the cached prompt wrong, which is a strictly larger set than the events
+  // that invalidate a conversation: reset() does both, while an approved settings
+  // change only stales the prompt and must leave in-flight responses alone.
+  let systemEpoch = 0;
+
+  function invalidateCachedSystem() {
+    cachedSystem = null;
+    systemEpoch++;
+  }
+
   // Synchronous in-flight latch for acceptDraft: same-frame double-taps pass the
   // screen's render-snapshot guard, so the store must refuse re-entry itself
   let acceptInFlight = false;
@@ -73,9 +94,12 @@ export function createAiChatStore(deps: AiChatDeps) {
   async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string, gen: number): Promise<AiTurn> {
     let system = cachedSystem;
     if (system === null) {
+      const epoch = systemEpoch;
       system = await deps.buildSystem(deps.db, mode);
-      // A reset() during the build must not repopulate the cache it just cleared.
-      if (generation === gen) cachedSystem = system;
+      // A reset() or an approved settings write during the build must not
+      // repopulate the cache it just cleared. This request still uses the prompt
+      // it started with — it is already committed — but the next one rebuilds.
+      if (systemEpoch === epoch) cachedSystem = system;
     }
 
     // If generation changed during buildSystem, abort before creating billable client.
@@ -111,6 +135,9 @@ export function createAiChatStore(deps: AiChatDeps) {
           ],
           status: 'idle',
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+          pendingSettingsProposal: turn.settingsProposal
+            ? turn.settingsProposal
+            : currentState.pendingSettingsProposal,
         }));
       } catch (error) {
         if (generation !== gen) return;
@@ -125,16 +152,18 @@ export function createAiChatStore(deps: AiChatDeps) {
       mode: { kind: 'create' },
       messages: [],
       pendingDraft: null,
+      pendingSettingsProposal: null,
       status: 'idle',
       error: null,
 
       reset(mode: AiCoachMode) {
-        cachedSystem = null;
+        invalidateCachedSystem();
         generation++;
         set({
           mode,
           messages: [],
           pendingDraft: null,
+          pendingSettingsProposal: null,
           status: 'idle',
           error: null,
         });
@@ -214,6 +243,39 @@ export function createAiChatStore(deps: AiChatDeps) {
           acceptInFlight = false;
         }
       },
+
+      approveSettingsProposal() {
+        const state = get();
+
+        if (state.pendingSettingsProposal === null) {
+          throw new Error('No pending settings proposal to approve');
+        }
+
+        // Validate twice: structured output is not a guarantee, and this is the
+        // last point before the values reach persistent storage. Throwing here
+        // leaves the proposal pending so the card stays on screen.
+        const proposal = validateSettingsProposal(state.pendingSettingsProposal);
+
+        // Build the patch from present fields only — spreading an explicit
+        // `undefined` over the settings cache would blank the other field.
+        const patch: Parameters<typeof setSettings>[0] = {};
+        if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
+        if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
+
+        deps.setSettings(patch);
+
+        // The cached prompt embeds goals and equipment, so it is now stale. Clear
+        // it without bumping `generation`: the conversation carries on and an
+        // in-flight response must still be committed.
+        invalidateCachedSystem();
+
+        set({ pendingSettingsProposal: null });
+      },
+
+      declineSettingsProposal() {
+        // Nothing was written, so the cached prompt is still accurate.
+        set({ pendingSettingsProposal: null });
+      },
     };
   });
 }
@@ -239,6 +301,7 @@ export function getAiChatStore() {
       buildSystem: buildSystemFn,
       accept: acceptDraftFn,
       getSettings,
+      setSettings,
     });
   }
   return globalStore;

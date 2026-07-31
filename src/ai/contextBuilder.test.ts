@@ -2,6 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, upsertRoutineExercise } from '@/db/repository';
 import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
+import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 import { buildSystem, type AiCoachMode } from './contextBuilder';
 
 describe('buildSystem: AI Coach context builder', () => {
@@ -73,6 +74,53 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
+    }, 30000);
+  });
+
+  // These sentences restate the bounds validateSettingsProposal enforces. They are
+  // pinned as exact strings so that changing a bound in draftSchema.ts without
+  // rewording the persona fails here instead of drifting silently.
+  describe('Settings proposal persona', () => {
+    it('names settingsProposal in the response structure', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('"settingsProposal"');
+    }, 30000);
+
+    it('includes constraint that a proposal must carry at least one field', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('A settings proposal must include at least one of "goals" or "equipment"');
+    }, 30000);
+
+    it('includes the non-empty and maximum-length bounds on proposal fields', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        `goals, equipment: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
+      );
+    }, 30000);
+
+    it('states that a proposed field replaces the current value wholesale', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        "Each field is a full replacement for the user's current value, not an addition to it"
+      );
+    }, 30000);
+
+    it('states that proposals are only for explicit user requests', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'Never include a settingsProposal unless the user asked to change their goals or equipment'
+      );
+    }, 30000);
+
+    it('states that the user must approve a proposal before it takes effect', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
     }, 30000);
   });
 

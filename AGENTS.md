@@ -132,11 +132,12 @@ misnomer — AI settings are in there too.
   the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
   jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
   `AnthropicHttpError`), matching the sync convention.
-- **One turn shape, three declarations.** The `{ reply, draft? }` contract is stated in
-  `AI_TURN_SCHEMA` (what the API enforces), in the `AiTurn`/`RoutineDraft` types plus
-  `validateRoutineDraft` (what the app enforces), and in `personaSection()` prose in
-  `contextBuilder.ts` (what the model reads). Changing the draft shape means changing
-  all three — same hazard class as the copied markdown contract.
+- **One turn shape, three declarations.** The `{ reply, draft?, settingsProposal? }`
+  contract is stated in `AI_TURN_SCHEMA` (what the API enforces), in the
+  `AiTurn`/`RoutineDraft`/`SettingsProposal` types plus `validateRoutineDraft` and
+  `validateSettingsProposal` (what the app enforces), and in `personaSection()` prose in
+  `contextBuilder.ts` (what the model reads). Changing either payload shape means
+  changing all three — same hazard class as the copied markdown contract.
 - **The persona restates the validator's rules, not just its shape.** `personaSection()`
   spells out the bounds `validateRoutineDraft` enforces (non-empty name, ≥1 exercise,
   title must slugify to something non-empty, `targetSets`/`targetReps` ≥ 1, and
@@ -162,14 +163,24 @@ misnomer — AI settings are in there too.
   every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
   exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a
   regression test in `contextBuilder.test.ts` asserts this.
-- **`aiChatStore` is ephemeral with generation-counter invalidation.** `reset(mode)`
-  clears the cached system prompt and bumps `generation`; a request that resolves after
-  a reset is discarded rather than appended, and cannot repopulate the cache it just
-  cleared. That counter looks removable and is not. `acceptDraft` re-entry is latched in
-  the store — a second same-frame call returns `null` instead of writing a
-  duplicate routine; the screen's `accepting` state is cosmetic, so the latch
-  also looks removable and is not. Deps are injected (`AiChatDeps`) so
-  the whole turn path tests without network or DB.
+- **A `settingsProposal` is proposed, never applied.** The model may propose new
+  `aiGoals`/`aiEquipment` when the user asks, but `approveSettingsProposal` is the only
+  path to `setSettings`, and it validates the proposal a second time first. Fields are
+  full replacements, so the patch is built from *present* keys only — spreading an
+  explicit `undefined` would blank the other field. `declineSettingsProposal` writes
+  nothing. The screen holds no approve/decline logic; it is not jest-covered.
+- **`aiChatStore` is ephemeral, with two counters that are not interchangeable.**
+  `generation` scopes the *conversation*: `reset(mode)` bumps it so a request resolving
+  afterwards is discarded rather than appended. `systemEpoch` scopes the *prompt cache*
+  alone and guards cache repopulation, so a `buildSystem` already in flight cannot write
+  a stale prompt back. `reset` advances both; an approved settings write advances only
+  `systemEpoch` — the cached prompt embeds goals and equipment and must be rebuilt, but
+  the conversation continues and an in-flight response still lands. Collapsing the two
+  back into one counter reintroduces exactly that bug. `acceptDraft` re-entry is latched
+  in the store — a second same-frame call returns `null` instead of writing a duplicate
+  routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
+  and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
+  network or DB.
 
 ## Testing gotchas
 
@@ -203,7 +214,8 @@ misnomer — AI settings are in there too.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
-- AI draft shape *and* validation bounds must be mirrored across `AI_TURN_SCHEMA`, the
-  draft validators, and the persona prompt (all in `src/ai`)
+- AI turn payload shapes *and* validation bounds must be mirrored across
+  `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
+- An AI-proposed settings change must be approved by the user before it is written
 - Do not touch generated Rill dist or the `../rill-lang` tarball dependency by hand
