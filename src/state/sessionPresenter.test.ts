@@ -286,6 +286,76 @@ describe('createSessionPresenter', () => {
     );
   });
 
+  describe('finish confirmation copy', () => {
+    const secondEntry = {
+      idx: 1,
+      exerciseId: 'ex-2',
+      kind: 'strength' as const,
+      warmupSets: 0,
+      targetSets: 3,
+      targetReps: 8,
+      targetDurationSeconds: 0,
+      restSeconds: 90,
+      supersetGroup: '',
+    };
+
+    test('reports logged sets and remaining planned exercises', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        secondEntry,
+        { ...secondEntry, idx: 2, exerciseId: 'ex-3' },
+      ];
+      state.exerciseIndex = 1;
+      state.loggedSets = Array.from({ length: 5 }, () => ({
+        exerciseId: 'ex-1',
+        setType: 'working' as const,
+        reps: 8,
+        weightKg: 25,
+        durationSeconds: null,
+        rpe: null,
+      }));
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.title).toBe('Finish workout?');
+      expect(presenter.finishConfirmation.message).toContain('5 sets');
+      expect(presenter.finishConfirmation.message).toContain('2 planned exercises remain');
+    });
+
+    test('uses singular wording for one set and one remaining exercise', () => {
+      const state = createMockState();
+      state.exerciseIndex = 0;
+      // createMockState logs exactly one set and has one entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.message).toContain('1 set');
+      expect(presenter.finishConfirmation.message).not.toContain('1 sets');
+      expect(presenter.finishConfirmation.message).toContain('1 planned exercise remains');
+    });
+
+    test('omits the remaining clause when no planned exercises remain', () => {
+      const state = createMockState();
+      state.exerciseIndex = 1; // Skipped past the only entry
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.message).not.toContain('remain');
+      expect(presenter.finishConfirmation.message.length).toBeGreaterThan(0);
+    });
+
+    test('is stable and non-empty for a fresh session with nothing logged', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.finishConfirmation.title.length).toBeGreaterThan(0);
+      expect(presenter.finishConfirmation.message).toContain('0 sets');
+    });
+  });
+
   test('returns current entry for exerciseIndex', () => {
     const state = createMockState();
     const mockDispatch = jest.fn();
