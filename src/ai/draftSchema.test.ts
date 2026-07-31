@@ -579,6 +579,39 @@ describe('draftSchema', () => {
         targetDurationSeconds: 0,
       });
     });
+
+    test('accepts an exercise with a description string', () => {
+      const draft = {
+        name: 'Cooldown',
+        exercises: [
+          {
+            title: 'Pigeon Stretch (Left)',
+            kind: 'stretch' as const,
+            targetDurationSeconds: 30,
+            description: 'From all fours, bring the left shin forward and lower the hips toward the floor.',
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect((result.exercises[0] as any).description).toBe(
+        'From all fours, bring the left shin forward and lower the hips toward the floor.'
+      );
+    });
+
+    test('rejects a non-string exercise description', () => {
+      const draft = {
+        name: 'Cooldown',
+        exercises: [
+          { title: 'Pigeon Stretch', kind: 'stretch' as const, description: 42 },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+      expect(() => validateRoutineDraft(draft)).toThrow(
+        'exercise description, when present, must be a string'
+      );
+    });
   });
 
   describe('slugifyTitle', () => {
@@ -652,6 +685,13 @@ describe('draftSchema', () => {
       const draftSchema = (AI_TURN_SCHEMA.properties as any).draft;
       const exerciseSchema = draftSchema.properties.exercises.items;
       expect(exerciseSchema.properties.kind.enum).toEqual(['strength', 'cardio', 'stretch']);
+    });
+
+    test('allows an optional string description on exercises', () => {
+      const draftSchema = (AI_TURN_SCHEMA.properties as any).draft;
+      const exerciseSchema = draftSchema.properties.exercises.items;
+      expect(exerciseSchema.properties.description).toEqual({ type: 'string' });
+      expect(exerciseSchema.required).not.toContain('description');
     });
 
     test('does not require settingsProposal at root level', () => {

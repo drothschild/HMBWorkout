@@ -79,6 +79,14 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
     }, 30000);
+
+    it('documents the exercise description field and its create-only application', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description'
+      );
+    }, 30000);
   });
 
   // These sentences restate the bounds validateSettingsProposal enforces. They are
