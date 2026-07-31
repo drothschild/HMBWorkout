@@ -1,4 +1,5 @@
 import { TodayRoutineChoice, TodayStartOptions } from './todayStartPresenter';
+import { canStartSession } from './canStartSession';
 
 /**
  * Render-branch decision for the Today screen.
@@ -31,7 +32,7 @@ export interface TodayViewStateInput {
 export function todayViewState(input: TodayViewStateInput): TodayViewState {
   const { hasActiveSession, loading, loadError, startOptions } = input;
 
-  if (hasActiveSession) {
+  if (!canStartSession(hasActiveSession)) {
     return { kind: 'resume' };
   }
 
