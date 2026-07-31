@@ -256,9 +256,15 @@ is now a misnomer — AI settings are in there too.
   rows by `exerciseId` (oldest `order` first, so duplicated exercises match
   deterministically) and survivors keep their row ids. That stability is
   load-bearing: `session_sets.routine_exercise_id` references those rows and
-  `getExerciseWorkingSetHistory` joins by row id, so editing a routine never
-  orphans logged history. An exercise the draft omits *is* deleted, which is why
-  the persona demands the full exercise list.
+  `getExerciseWorkingSetHistory` falls back to that join for any set written
+  before schema v3, which carries no `exercise_id` of its own — for those the
+  row is the only record of what was performed. An exercise the draft omits
+  *is* deleted, which is why the persona demands the full exercise list; its
+  row's still-unstamped sets are therefore stamped with the row's outgoing
+  `exercise_id` in the same transaction, just before the destroy. Dropping an
+  exercise from the *plan* must never erase what was already *done* — the same
+  layer-2 defense `updateRoutineExerciseExerciseId` applies before re-pointing
+  a row, and for the same reason.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -349,6 +355,13 @@ is now a misnomer — AI settings are in there too.
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
   `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
   therefore surface it (`ExerciseDetail.routineExerciseId`)
+- That row is also the *fallback* exercise identity for every `session_sets` row
+  written before schema v3, so any path that destroys or re-points one must first
+  stamp its still-unstamped sets with the row's outgoing `exercise_id`, in the
+  same transaction. Two paths do (`upsertRoutine`'s drop branch and
+  `updateRoutineExerciseExerciseId`); a third would have to as well.
+  `deleteRoutine` needs no stamp — it deliberately retains the rows as history
+  carriers rather than destroying them
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)

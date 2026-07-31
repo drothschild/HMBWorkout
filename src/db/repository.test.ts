@@ -1670,6 +1670,44 @@ describe('Repository: session and set helpers', () => {
         history.map((s: any) => s.weightKg).sort((a: number, b: number) => a - b)
       ).toEqual([20, 22.5]);
     }, 15000);
+
+    it('leaves an already-stamped set at the identity it was earned under', async () => {
+      // A set logged under one exercise, on a row later re-pointed at another
+      // (ReplaceExercise), then dropped from the routine. The freeze must skip
+      // it: stamping it with the row's *current* exercise would hand the
+      // substitute history it never earned — the very re-attribution the stamp
+      // exists to prevent.
+      const routineId = 'routine-drop-stamped';
+      await upsertExercise(database, 'ex-earned', 'Earned It', 'strength');
+      await upsertExercise(database, 'ex-substitute', 'Substitute', 'strength');
+
+      await upsertRoutine(database, routineId, 'Original', [
+        { exerciseId: 'ex-substitute', order: 0, targetSets: 3, targetReps: 8 },
+      ]);
+
+      const [row] = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      await createSession(database, {
+        sessionId: 'session-stamped',
+        routineId,
+        startedAtMs: Date.now() - 60000,
+      });
+      await appendSet(database, 'session-stamped', row.id, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 60,
+        exerciseId: 'ex-earned',
+      });
+
+      // Drop the entry entirely.
+      await upsertRoutine(database, routineId, 'Edited', []);
+
+      expect(await getExerciseWorkingSetHistory(database, 'ex-earned')).toHaveLength(1);
+      expect(await getExerciseWorkingSetHistory(database, 'ex-substitute')).toHaveLength(0);
+    }, 15000);
   });
 
   describe('getRecentSessionSummaries', () => {

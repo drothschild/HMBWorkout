@@ -1102,9 +1102,39 @@ export async function upsertRoutine(
       }
     }
 
-    // Delete only rows whose exercise is no longer in the routine.
+    // Delete only rows whose exercise is no longer in the routine — but freeze
+    // each one's history before it goes. A set written before schema v3 records
+    // no identity of its own, so the row being destroyed is the only thing that
+    // says what it was performed as; `getExerciseWorkingSetHistory` resolves
+    // those through the routine_exercises join. Stamping them with the row's
+    // outgoing exercise id first is the same layer-2 defense
+    // `updateRoutineExerciseExerciseId` applies before it re-points a row, and
+    // for the same reason: the row is shared by every past session, so dropping
+    // it from the *plan* must not erase what was already *done*. Sets that
+    // already carry an identity are untouched — they were never at risk.
+    // Both writes are inside this transaction, so they cannot come apart.
     for (const leftovers of unclaimed.values()) {
       for (const removed of leftovers) {
+        const outgoingExerciseId = (removed as any)._raw.exercise_id as string | null;
+        if (outgoingExerciseId) {
+          const unstamped = ((await database
+            .get('session_sets')
+            .query(Q.where('routine_exercise_id', (removed as any).id))
+            .fetch()) as SessionSet[]).filter(
+            (set) => ((set as any)._raw.exercise_id ?? null) === null
+          );
+
+          if (unstamped.length > 0) {
+            await database.batch(
+              ...unstamped.map((set) =>
+                set.prepareUpdate((record: any) => {
+                  record.exerciseId = outgoingExerciseId;
+                })
+              )
+            );
+          }
+        }
+
         await removed.destroyPermanently();
       }
     }
