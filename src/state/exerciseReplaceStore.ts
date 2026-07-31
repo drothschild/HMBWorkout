@@ -35,6 +35,7 @@ import {
   validateExerciseAlternate,
 } from '@/ai/alternatesSchema';
 import { applyAlternateToRoutine, ensureAlternateExercise } from '@/ai/acceptAlternate';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import type { Event, ExerciseKind, SessionState } from '@/engine/types';
 
@@ -186,6 +187,14 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           goals: settings.aiGoals,
           equipment: settings.aiEquipment,
           personality: settings.aiPersonality,
+          // The non-negotiable tier only. Suggesting a substitute is coaching,
+          // so the safety rules bind here exactly as they do in the chat —
+          // `buildAlternatesPrompt` renders them last, after every
+          // user-controlled section, to keep that precedence. The overridable
+          // tier is deliberately left out: it is about how to *compose a
+          // routine* (warmups, cooldowns, stretch splitting) and says nothing
+          // about substituting one movement for another.
+          directives: IMMUTABLE_DIRECTIVES,
         });
 
         const result = await deps.createClient({ apiKey }).suggest(prompt);

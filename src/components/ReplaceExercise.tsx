@@ -85,6 +85,9 @@ export function ReplaceExercise({
             <ScrollView style={styles.list}>
               {alternates.map((alternate) => (
                 <Pressable
+                  // Safe as a key because validateExerciseAlternates rejects
+                  // duplicate titles — the athlete picks by title, so two
+                  // options sharing one would not be two options anyway.
                   key={alternate.title}
                   accessibilityRole="button"
                   disabled={busy}

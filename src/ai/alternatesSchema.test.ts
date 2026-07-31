@@ -15,8 +15,32 @@ const ALTERNATE = {
     'Lie on the floor with a dumbbell in each hand, elbows at 45 degrees. Press to lockout, then lower until the triceps touch the floor.',
 };
 
+/** Distinct by title, as the validator now requires. */
+const OTHER_ALTERNATES = [
+  {
+    title: 'Machine Chest Press',
+    description: 'Set the seat so the handles sit at mid-chest, then press to lockout under control.',
+  },
+  {
+    title: 'Push-Up',
+    description: 'Hands under the shoulders, body in one line. Lower until the chest grazes the floor.',
+  },
+  {
+    title: 'Incline Dumbbell Press',
+    description: 'Set the bench to 30 degrees and press the dumbbells from chest level to lockout.',
+  },
+  {
+    title: 'Cable Chest Press',
+    description: 'Stand in a split stance between two cable stacks and press the handles forward.',
+  },
+];
+
+function distinctAlternates(count: number) {
+  return [ALTERNATE, ...OTHER_ALTERNATES].slice(0, count);
+}
+
 function payload(overrides?: Record<string, unknown>) {
-  return { alternates: [ALTERNATE, ALTERNATE, ALTERNATE], ...overrides };
+  return { alternates: distinctAlternates(3), ...overrides };
 }
 
 describe('validateExerciseAlternate', () => {
@@ -75,7 +99,10 @@ describe('validateExerciseAlternates', () => {
   });
 
   it(`rejects more than ${EXERCISE_ALTERNATES_MAX} alternates — the picker is a short list`, () => {
-    const alternates = new Array(EXERCISE_ALTERNATES_MAX + 1).fill(ALTERNATE);
+    const alternates = [
+      ...distinctAlternates(EXERCISE_ALTERNATES_MAX),
+      { title: 'One Too Many', description: 'A sixth option nobody asked for.' },
+    ];
     expect(() => validateExerciseAlternates({ alternates })).toThrow(
       new RegExp(`at most ${EXERCISE_ALTERNATES_MAX}`)
     );
@@ -85,6 +112,26 @@ describe('validateExerciseAlternates', () => {
     expect(() =>
       validateExerciseAlternates({ alternates: [ALTERNATE, { title: 'No Description' }] })
     ).toThrow(/description/);
+  });
+
+  it('rejects duplicate titles — the athlete picks by title, and the picker keys by it', () => {
+    expect(() => validateExerciseAlternates({ alternates: [ALTERNATE, ALTERNATE] })).toThrow(
+      /distinct/i
+    );
+  });
+
+  it('treats titles differing only by case or surrounding space as the same title', () => {
+    expect(() =>
+      validateExerciseAlternates({
+        alternates: [ALTERNATE, { ...ALTERNATE, title: '  dumbbell floor press ' }],
+      })
+    ).toThrow(/distinct/i);
+  });
+
+  it('names the offending title so a rejection reads as a model mistake', () => {
+    expect(() => validateExerciseAlternates({ alternates: [ALTERNATE, ALTERNATE] })).toThrow(
+      /Dumbbell Floor Press/
+    );
   });
 });
 

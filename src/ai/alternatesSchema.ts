@@ -136,7 +136,25 @@ export function validateExerciseAlternates(value: unknown): ExerciseAlternates {
     );
   }
 
-  return { alternates: obj.alternates.map(validateExerciseAlternate) };
+  const alternates = obj.alternates.map(validateExerciseAlternate);
+
+  // Titles are the choice. The athlete picks by title and nothing else, the
+  // picker keys its list by title, and exercise identity is
+  // slugifyTitle(title) — so two alternates sharing one are not two options.
+  // Compared case- and whitespace-insensitively, because "Push Up" and
+  // "push up" read as one option and resolve to one exercise id.
+  const seen = new Set<string>();
+  for (const alternate of alternates) {
+    const key = alternate.title.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(key)) {
+      throw new DraftValidationError(
+        `alternates must be distinct; "${alternate.title}" appears more than once`
+      );
+    }
+    seen.add(key);
+  }
+
+  return { alternates };
 }
 
 export function parseExerciseAlternates(text: string): ExerciseAlternates {

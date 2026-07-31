@@ -45,6 +45,11 @@ describe('buildAlternatesPrompt', () => {
     const { system } = buildAlternatesPrompt(input());
 
     expect(system).toContain('Every alternate needs a non-empty title and a non-empty description.');
+    // validateExerciseAlternates rejects duplicate titles; the prose says so,
+    // or the rejection reads as a surprise rather than a model mistake.
+    expect(system).toContain(
+      'Every title must be different from the others. Two options with the same title are one option, and the response is rejected.'
+    );
   });
 
   it('renders a duration prescription for duration-based work', () => {

@@ -99,7 +99,8 @@ Rules:
 - Every alternate needs a non-empty title and a non-empty description.
 - The title is the exercise name alone — no set or rep counts, and at most ${ALTERNATE_TITLE_MAX_LENGTH} characters.
 - The description says how to perform it and why it substitutes for the original. Two or three sentences. This is all the athlete has to choose from, so make it concrete.
-- Give ${EXERCISE_ALTERNATES_REQUESTED} distinct options; never more than ${EXERCISE_ALTERNATES_MAX}.`,
+- Give ${EXERCISE_ALTERNATES_REQUESTED} options; never more than ${EXERCISE_ALTERNATES_MAX}.
+- Every title must be different from the others. Two options with the same title are one option, and the response is rejected.`,
     section('Training Goals', input.goals),
     section('Available Equipment', input.equipment),
     section('Coaching Style', input.personality),

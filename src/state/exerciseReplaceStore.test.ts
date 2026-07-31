@@ -14,6 +14,7 @@
  */
 
 import { createExerciseAlternatesClient } from '@/ai/alternatesClient';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import type { SessionState, RoutineEntry } from '@/engine/types';
 import { getSettings, injectSettingsStorage, resetForTesting, setSettings } from '@/state/settings';
 import {
@@ -283,6 +284,37 @@ describe('createExerciseReplaceStore', () => {
 
       expect(store.getState().status).toBe('idle');
       expect(store.getState().alternates).toEqual([]);
+    });
+
+    it('carries the immutable coach directives — the safety rules bind here too', async () => {
+      const store = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      for (const line of IMMUTABLE_DIRECTIVES.split('\n')) {
+        expect(body.system).toContain(line.replace(/^-\s*/, ''));
+      }
+    });
+
+    it('places the directives after every section built from user text', async () => {
+      // Precedence against injection: goals, equipment and coaching style are
+      // user-controlled free text, and the directives must outrank them.
+      setSettings({
+        anthropicKey: 'sk-ant-test',
+        aiGoals: 'Bigger bench',
+        aiEquipment: 'Barbell, dumbbells',
+        aiPersonality: 'Blunt',
+      });
+      const store = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      const system: string = JSON.parse(mockFetch.mock.calls[0][1].body).system;
+      const firstDirective = IMMUTABLE_DIRECTIVES.split('\n')[0].replace(/^-\s*/, '');
+      expect(system.indexOf(firstDirective)).toBeGreaterThan(system.indexOf('Bigger bench'));
+      expect(system.indexOf(firstDirective)).toBeGreaterThan(system.indexOf('Barbell, dumbbells'));
+      expect(system.indexOf(firstDirective)).toBeGreaterThan(system.indexOf('Blunt'));
     });
 
     it('never puts the anthropic key, bridge token, or baseUrl in the prompt', async () => {
