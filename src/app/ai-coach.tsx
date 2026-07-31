@@ -20,7 +20,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { getSettings } from '@/state/settings';
-import { RoutineDraft, DraftExercise } from '@/ai/draftSchema';
+import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
 export default function AiCoachScreen() {
   const router = useRouter();
@@ -49,6 +49,7 @@ export default function AiCoachScreen() {
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
+  const pendingSettingsProposal = store((s) => s.pendingSettingsProposal);
   const status = store((s) => s.status);
   const error = store((s) => s.error);
 
@@ -71,7 +72,7 @@ export default function AiCoachScreen() {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
     }
-  }, [messages, status, pendingDraft, acceptError]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -105,6 +106,25 @@ export default function AiCoachScreen() {
     }
   };
 
+  // Approval is the whole point of a proposal: nothing is written until this runs.
+  const handleApproveSettings = () => {
+    if (pendingSettingsProposal === null) {
+      return;
+    }
+    setAcceptError(null);
+    try {
+      store.getState().approveSettingsProposal();
+    } catch (err) {
+      console.error('Failed to approve settings proposal:', err);
+      setAcceptError('Could not apply those settings. Try again.');
+    }
+  };
+
+  const handleDeclineSettings = () => {
+    setAcceptError(null);
+    store.getState().declineSettingsProposal();
+  };
+
   // Build footer element to avoid remounting on each render
   const footerItems: React.ReactNode[] = [];
 
@@ -121,6 +141,20 @@ export default function AiCoachScreen() {
 
   if (pendingDraft) {
     footerItems.push(<DraftCard key="draft" draft={pendingDraft} onAccept={handleAccept} accepting={accepting} sending={status === 'sending'} />);
+  }
+
+  if (pendingSettingsProposal) {
+    const settings = getSettings();
+    footerItems.push(
+      <SettingsProposalCard
+        key="settingsProposal"
+        proposal={pendingSettingsProposal}
+        currentGoals={settings.aiGoals}
+        currentEquipment={settings.aiEquipment}
+        onApprove={handleApproveSettings}
+        onDecline={handleDeclineSettings}
+      />
+    );
   }
 
   if (acceptError) {
@@ -335,6 +369,80 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
           {accepting ? 'Accepting...' : 'Accept'}
         </ThemedText>
       </Pressable>
+    </View>
+  );
+}
+
+interface SettingsProposalCardProps {
+  proposal: SettingsProposal;
+  currentGoals: string;
+  currentEquipment: string;
+  onApprove: () => void;
+  onDecline: () => void;
+}
+
+function SettingsProposalCard({
+  proposal,
+  currentGoals,
+  currentEquipment,
+  onApprove,
+  onDecline,
+}: SettingsProposalCardProps) {
+  const theme = useTheme();
+
+  const rows: { label: string; current: string; proposed: string }[] = [];
+
+  if (proposal.goals !== undefined) {
+    rows.push({ label: 'Goals', current: currentGoals, proposed: proposal.goals });
+  }
+
+  if (proposal.equipment !== undefined) {
+    rows.push({ label: 'Equipment', current: currentEquipment, proposed: proposal.equipment });
+  }
+
+  return (
+    <View style={[styles.draftCard, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText type="subtitle" style={styles.draftName}>
+        Update coach settings
+      </ThemedText>
+      <ThemedText type="default" style={styles.draftNotes}>
+        Nothing changes until you approve.
+      </ThemedText>
+
+      {rows.map((row) => (
+        <View key={row.label} style={styles.proposalRow}>
+          <ThemedText type="smallBold" style={styles.proposalLabel}>
+            {row.label}
+          </ThemedText>
+          {row.current.trim() !== '' && (
+            <ThemedText type="small" style={styles.proposalCurrent}>
+              Now: {row.current}
+            </ThemedText>
+          )}
+          <ThemedText type="default" style={styles.proposalProposed}>
+            {row.proposed}
+          </ThemedText>
+        </View>
+      ))}
+
+      <View style={styles.proposalActions}>
+        <Pressable
+          style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}
+          onPress={onDecline}
+        >
+          <ThemedText type="default" style={styles.declineButtonText}>
+            Decline
+          </ThemedText>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.approveButton, pressed && styles.pressed]}
+          onPress={onApprove}
+        >
+          <ThemedText type="default" style={styles.acceptButtonText}>
+            Approve
+          </ThemedText>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -586,6 +694,48 @@ const styles = StyleSheet.create({
   },
   acceptButtonText: {
     color: '#fff',
+    fontWeight: '600',
+  },
+  proposalRow: {
+    marginTop: Spacing.two,
+  },
+  proposalLabel: {
+    opacity: 0.7,
+    fontSize: 12,
+    marginBottom: Spacing.one,
+  },
+  proposalCurrent: {
+    opacity: 0.5,
+    fontSize: 12,
+    marginBottom: Spacing.one,
+  },
+  proposalProposed: {
+    fontWeight: '500',
+  },
+  proposalActions: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.three,
+  },
+  approveButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButtonText: {
+    color: '#007AFF',
     fontWeight: '600',
   },
   errorBubble: {

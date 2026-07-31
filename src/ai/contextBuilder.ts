@@ -4,6 +4,7 @@ import { routineListPresenter, type RoutineListItem } from '@/state/routineListP
 import { routineDetailPresenter, type RoutineDetail, ExerciseDetail } from '@/state/routineDetailPresenter';
 import SessionSet from '@/db/models/SessionSet';
 import { getExerciseWorkingSetHistory } from '@/db/repository';
+import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 
 export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string };
 
@@ -58,7 +59,8 @@ function personaSection(): string {
 Every response must be valid JSON with this structure:
 {
   "reply": "Your conversational message to the user",
-  "draft": { /* only when proposing a new routine or revision */ }
+  "draft": { /* only when proposing a new routine or revision */ },
+  "settingsProposal": { /* only when proposing new goals or equipment */ }
 }
 
 The "draft" field is included ONLY when proposing a complete new routine or a complete revision of an existing routine. A draft always contains the full exercise list (not a diff).
@@ -73,6 +75,14 @@ Exercise schema (inside draft.exercises):
 - supersetGroup: use the same string on grouped exercises for supersets
 - targetSets, targetReps: when present, must be integers >= 1
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
+
+The "settingsProposal" field proposes new values for the "User Goals" and "Available Equipment" sections below. Never include a settingsProposal unless the user asked to change their goals or equipment — a workout question is not such a request. The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.
+
+Settings proposal constraints:
+- A settings proposal must include at least one of "goals" or "equipment"
+- goals, equipment: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
+- Each field is a full replacement for the user's current value, not an addition to it, so carry over any part of the current wording that should survive the change
+- Omit the field you are not changing rather than repeating its current value
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
