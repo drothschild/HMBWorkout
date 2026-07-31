@@ -301,6 +301,19 @@ export async function getExerciseTitles(
 }
 
 /**
+ * Normalize a raw routine notes value for display: trim it, and collapse
+ * missing or whitespace-only notes to null so read sites can treat null as
+ * "absent", matching the exercise description convention.
+ *
+ * @param notes The raw notes value from the routines.notes column
+ * @returns The trimmed notes, or null when there is nothing to show
+ */
+export function normalizeNotes(notes: string | null | undefined): string | null {
+  const trimmed = notes?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
  * Resolve a routine's display fields by id. Engine session state carries only
  * routineId (the Rill boundary strips display data), so the session screen
  * resolves the name and description shell-side, the way getExerciseTitles
@@ -317,11 +330,10 @@ export async function getRoutineDisplay(
 ): Promise<{ name: string; notes: string | null } | null> {
   try {
     const routine = (await database.get('routines').find(routineId)) as any;
-    const trimmedNotes = (routine.notes as string | undefined)?.trim();
 
     return {
       name: routine.name,
-      notes: trimmedNotes ? trimmedNotes : null,
+      notes: normalizeNotes(routine.notes as string | undefined),
     };
   } catch {
     // Routine no longer exists; the caller falls back to generic chrome.

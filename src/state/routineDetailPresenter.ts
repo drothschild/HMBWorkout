@@ -1,4 +1,5 @@
 import { Database, Q } from '@nozbe/watermelondb';
+import { normalizeNotes } from '@/db/repository';
 
 export interface ExerciseDetail {
   /** Unique routine_exercises row id — the only stable identity when a routine repeats an exercise. */
@@ -102,14 +103,12 @@ export async function routineDetailPresenter(
       })
     );
 
-    // Normalize whitespace-only notes to null, matching the exercise
-    // description convention, so read sites can treat null as "absent".
-    const trimmedNotes = ((routine as any).notes as string | undefined)?.trim();
-
     return {
       id: routineId,
       name: (routine as any).name,
-      notes: trimmedNotes ? trimmedNotes : null,
+      // Whitespace-only notes normalize to null, matching the exercise
+      // description convention, so read sites can treat null as "absent".
+      notes: normalizeNotes((routine as any).notes as string | undefined),
       supersetGroups: supersetGroupsArray,
       standaloneExercises,
     };
