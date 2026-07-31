@@ -995,6 +995,28 @@ describe('createSessionPresenter', () => {
       expect(presenter.routineNotes).toBeUndefined();
     });
 
+    test('still shows the notes at the beginning when entries[0] plans zero sets and the engine landed on entries[1]', () => {
+      // Engine convention 10: StartSession skips a zero-set entries[0], so the
+      // session can legitimately begin already sitting on exerciseIndex 1.
+      const state = createMockState();
+      state.loggedSets = [];
+      state.exerciseIndex = 1;
+      state.entries = [
+        { ...state.entries[0], warmupSets: 0, targetSets: 0 },
+        state.entries[0],
+      ];
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        display
+      );
+
+      expect(presenter.routineNotes).toBe('Focus on bar speed today.');
+    });
+
     test('hides the notes when the session is done', () => {
       const state = createMockState();
       state.loggedSets = [];

@@ -354,11 +354,18 @@ export function createSessionPresenter(
   const exerciseProgress =
     totalExerciseCount > 0 ? completedExerciseCount / totalExerciseCount : 0;
 
-  // The routine description shows only at the beginning of the workout —
-  // first exercise, nothing logged, session not done — then yields the space
-  // back. Null notes stay undefined so the screen never renders a blank line.
+  // The routine description shows only at the beginning of the workout — the
+  // entry the engine actually lands a fresh session on, nothing logged,
+  // session not done — then yields the space back. Null notes stay undefined
+  // so the screen never renders a blank line. The starting index is not
+  // hardcoded to 0: engine convention 10 has StartSession skip a leading
+  // zero-set entry, so a session can legitimately begin already sitting on a
+  // later index. -1 (an all-zero routine) never equals a real exerciseIndex,
+  // which is harmless here since that case is also always phase 'done'.
+  const startingExerciseIndex =
+    sessionState.entries?.findIndex((entry) => entry.warmupSets + entry.targetSets > 0) ?? 0;
   const atBeginning =
-    sessionState.exerciseIndex === 0 &&
+    sessionState.exerciseIndex === startingExerciseIndex &&
     (sessionState.loggedSets ?? []).length === 0 &&
     sessionState.phase !== 'done';
   const routineNotes = atBeginning ? routineDisplay?.notes ?? undefined : undefined;
