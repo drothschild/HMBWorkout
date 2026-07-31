@@ -151,6 +151,17 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    The module sits outside `_layout.tsx` so the node jest project covers it (screens are
    not jest-covered), and it takes the store structurally rather than importing the
    global one, so tests can pass a `createActiveSessionStore` instance.
+   The kill case is the only one the boot path owns. A warm foreground (backgrounded,
+   not killed) past the deadline needs no `AppState` listener: `RestCountdown`
+   (`src/components/RestCountdown.tsx`) derives remaining time from the wall clock
+   (`deadlineMs - Date.now()`), ticks synchronously on mount and every 250ms while a
+   rest is on screen, and dispatches `RestElapsed` on the first tick at or past the
+   deadline. The session screen stays mounted across backgrounding, and a dismissed
+   session modal re-ticks on remount, so every warm path reconciles as soon as a rest
+   is visible again — and nothing outside the session screen reads the phase in the
+   meantime. Do not "fix" the warm case with a foreground `Resume` dispatch:
+   Resume-in-Paused would silently un-pause a deliberately paused workout on every
+   app switch, and Resume in any other phase is the error-banner trap above.
 
    The *foreground* sibling of that boot path is `AppForegrounded`
    (`src/state/foregroundReconcile.ts`, wired to an AppState listener in
