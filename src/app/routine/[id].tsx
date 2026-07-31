@@ -281,7 +281,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   exerciseItemPressed: {
     opacity: 0.6,

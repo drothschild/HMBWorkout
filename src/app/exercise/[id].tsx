@@ -54,7 +54,7 @@ export default function ExerciseDetailScreen() {
     const value = pendingValueRef.current;
     updateExerciseDescription(database, id, value)
       .then(() => {
-        hasPendingRef.current = false;
+        if (pendingValueRef.current === value) hasPendingRef.current = false;
         setSaveError(null);
       })
       .catch((error) => {

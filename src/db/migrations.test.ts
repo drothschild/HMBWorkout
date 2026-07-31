@@ -1,6 +1,7 @@
 import { stepsForMigration } from '@nozbe/watermelondb/Schema/migrations/stepsForMigration';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
+import { createAdapter as createWebAdapter } from './adapter.web';
 
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
@@ -47,14 +48,10 @@ describe('Database schema migrations', () => {
     // a different object, this test fails, blocking silent wipes on upgrade.
     // Mocking LokiJSAdapter prevents creating a live IndexedDB handle that would
     // hang the test; instead we verify the migrations object was passed as a constructor argument.
-    const LokiJSAdapter = require('@nozbe/watermelondb/adapters/lokijs').default;
-    new LokiJSAdapter({
-      schema: databaseSchema,
-      migrations,
-      useWebWorker: false,
-      useIncrementalIndexedDB: true,
-    });
-    expect(((LokiJSAdapter as unknown) as jest.Mock).mock.calls[0][0].migrations).toBe(migrations);
+    createWebAdapter();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() necessary after jest.mock() to get mocked adapter
+    const LokiJSAdapter = jest.mocked(require('@nozbe/watermelondb/adapters/lokijs').default);
+    expect(LokiJSAdapter.mock.calls[0][0].migrations).toBe(migrations);
   });
 
 });
