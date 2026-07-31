@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, getRecentSessionSummaries, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1918,6 +1918,35 @@ describe('Repository: session and set helpers', () => {
 
       expect(zeroSummaries).toEqual([]);
       expect(negativeSummaries).toEqual([]);
+    }, 15000);
+  });
+
+  describe('getExerciseTitles', () => {
+    it('maps exercise ids to titles, skipping ids that no longer exist', async () => {
+      await database.write(async () => {
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-1';
+          e.title = 'Demo Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-2';
+          e.title = 'Overhead Press';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      const titles = await getExerciseTitles(database, ['ex-1', 'ex-2', 'ex-gone']);
+
+      expect(titles).toEqual({ 'ex-1': 'Demo Exercise', 'ex-2': 'Overhead Press' });
+    }, 15000);
+
+    it('returns an empty map for an empty id list', async () => {
+      const titles = await getExerciseTitles(database, []);
+
+      expect(titles).toEqual({});
     }, 15000);
   });
 });

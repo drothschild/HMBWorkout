@@ -395,6 +395,30 @@ describe('createSessionPresenter', () => {
       );
     });
   });
+
+  describe('exercise title resolution', () => {
+    test('resolves the current exercise title from the titles map', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn(), undefined, {
+        'ex-1': 'Demo Exercise',
+      });
+
+      expect(presenter.currentExerciseTitle).toBe('Demo Exercise');
+    });
+
+    test('falls back to the exercise id when no titles map is provided', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn());
+
+      expect(presenter.currentExerciseTitle).toBe('ex-1');
+    });
+
+    test('falls back to the exercise id when the map has no entry for it', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn(), undefined, {
+        'ex-other': 'Something Else',
+      });
+
+      expect(presenter.currentExerciseTitle).toBe('ex-1');
+    });
+  });
 });
 
 describe('formatLoggedSetLine', () => {
