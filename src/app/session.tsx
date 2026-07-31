@@ -13,6 +13,7 @@ import {
   currentExerciseHasLoggedSet,
   SetInputValues,
 } from '@/state/sessionPresenter';
+import { formatSetInputValue } from '@/state/setInputs';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
@@ -57,10 +58,14 @@ function ExerciseProgress({
  */
 export default function SessionScreen() {
   const router = useRouter();
-  const [currentReps, setCurrentReps] = useState<number | undefined>();
-  const [currentWeight, setCurrentWeight] = useState<number | undefined>();
+  // Raw text state for the numeric inputs: what the user typed is what
+  // renders. Numbers exist only past buildLogSetValues in SetLogger — a
+  // parse-per-keystroke here is what produced the stuck "NaN" field
+  // (see src/state/setInputs.ts).
+  const [repsText, setRepsText] = useState('');
+  const [weightText, setWeightText] = useState('');
   const [currentRpe, setCurrentRpe] = useState<number | undefined>();
-  const [currentDuration, setCurrentDuration] = useState<number | undefined>();
+  const [durationText, setDurationText] = useState('');
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
@@ -126,9 +131,11 @@ export default function SessionScreen() {
     let cancelled = false;
 
     const apply = (prefill: SetInputValues | undefined) => {
-      setCurrentReps(prefill?.reps);
-      setCurrentWeight(prefill?.weightLbs);
-      setCurrentDuration(prefill?.durationSeconds);
+      // Prefill numbers become the input's text state here; absent prefills
+      // render as empty fields (placeholder), never "0" or "NaN".
+      setRepsText(formatSetInputValue(prefill?.reps));
+      setWeightText(formatSetInputValue(prefill?.weightLbs));
+      setDurationText(formatSetInputValue(prefill?.durationSeconds));
       setCurrentRpe(undefined);
     };
 
@@ -391,14 +398,14 @@ export default function SessionScreen() {
             {presenter.phase !== 'done' && (
               <SetLogger
                 presenter={presenter}
-                currentReps={currentReps}
-                currentWeight={currentWeight}
+                repsText={repsText}
+                weightText={weightText}
                 currentRpe={currentRpe}
-                currentDuration={currentDuration}
-                onRepsChange={setCurrentReps}
-                onWeightChange={setCurrentWeight}
+                durationText={durationText}
+                onRepsTextChange={setRepsText}
+                onWeightTextChange={setWeightText}
                 onRpeChange={setCurrentRpe}
-                onDurationChange={setCurrentDuration}
+                onDurationTextChange={setDurationText}
               />
             )}
           </View>
