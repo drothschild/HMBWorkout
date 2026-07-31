@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, getRecentSessionSummaries, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1489,6 +1489,435 @@ describe('Repository: session and set helpers', () => {
       const added = after.find((re) => re.exerciseId === 'ex-add');
       expect(added).toBeDefined();
       expect(added.order).toBe(0);
+    }, 15000);
+  });
+
+  describe('getRecentSessionSummaries', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const JULY_29 = Date.parse('2026-07-29T18:00:00.000Z');
+
+    interface SeedSessionOptions {
+      sessionId: string;
+      routineId: string;
+      routineName?: string;
+      /** Omit to leave the session in progress. */
+      endedAtMs?: number;
+      exercises?: { exerciseId: string; workingSets: number; warmupSets?: number }[];
+    }
+
+    async function seedSession(options: SeedSessionOptions): Promise<void> {
+      const {
+        sessionId,
+        routineId,
+        routineName = routineId,
+        endedAtMs,
+        exercises = [],
+      } = options;
+
+      await database.write(async () => {
+        try {
+          await database.get('routines').find(routineId);
+        } catch {
+          await database.get('routines').create((r: any) => {
+            r._raw.id = routineId;
+            r.name = routineName;
+            r._raw.created_at = Date.now();
+            r._raw.updated_at = Date.now();
+          });
+        }
+      });
+
+      const routineExerciseIds: string[] = [];
+      for (const [index, entry] of exercises.entries()) {
+        await upsertExercise(database, entry.exerciseId, entry.exerciseId, 'strength');
+        const routineExercise = await upsertRoutineExercise(database, routineId, {
+          exerciseId: entry.exerciseId,
+          order: index,
+        });
+        routineExerciseIds.push((routineExercise as any).id);
+      }
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: (endedAtMs ?? Date.now()) - 3600000,
+      });
+
+      for (const [index, entry] of exercises.entries()) {
+        for (let i = 0; i < entry.workingSets; i++) {
+          await appendSet(database, sessionId, routineExerciseIds[index], {
+            setType: 'working',
+            reps: 8,
+          });
+        }
+        for (let i = 0; i < (entry.warmupSets ?? 0); i++) {
+          await appendSet(database, sessionId, routineExerciseIds[index], {
+            setType: 'warmup',
+            reps: 5,
+          });
+        }
+      }
+
+      if (endedAtMs !== undefined) {
+        await database.write(async () => {
+          const session = await database.get('sessions').find(sessionId);
+          await session.update((record: any) => {
+            record._raw.ended_at = endedAtMs;
+          });
+        });
+      }
+    }
+
+    it('returns an empty list when no session has been completed', async () => {
+      await seedSession({ sessionId: 'session-open', routineId: 'routine-a' });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries).toEqual([]);
+    }, 15000);
+
+    it('orders completed sessions most recent first, whatever order they were seeded in', async () => {
+      // Seeded out of chronological order on purpose: insertion order must not
+      // be what makes this pass.
+      await seedSession({
+        sessionId: 'session-middle',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29 - DAY_MS,
+      });
+      await seedSession({
+        sessionId: 'session-oldest',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29 - 2 * DAY_MS,
+      });
+      await seedSession({
+        sessionId: 'session-newest',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29,
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries.map((s) => s.sessionId)).toEqual([
+        'session-newest',
+        'session-middle',
+        'session-oldest',
+      ]);
+      expect(summaries[0].endedAtMs).toBe(JULY_29);
+    }, 15000);
+
+    it('excludes a session that has not ended', async () => {
+      await seedSession({
+        sessionId: 'session-done',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29,
+      });
+      await seedSession({ sessionId: 'session-in-progress', routineId: 'routine-a' });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries.map((s) => s.sessionId)).toEqual(['session-done']);
+    }, 15000);
+
+    it('respects the limit, dropping the sessions beyond it', async () => {
+      await seedSession({
+        sessionId: 'session-1',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29 - 2 * DAY_MS,
+      });
+      await seedSession({
+        sessionId: 'session-2',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29 - DAY_MS,
+      });
+      await seedSession({
+        sessionId: 'session-3',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29,
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 2);
+
+      expect(summaries.map((s) => s.sessionId)).toEqual(['session-3', 'session-2']);
+    }, 15000);
+
+    it('names the routine that was performed', async () => {
+      await seedSession({
+        sessionId: 'session-named',
+        routineId: 'routine-upper',
+        routineName: 'Upper Body',
+        endedAtMs: JULY_29,
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].routineName).toBe('Upper Body');
+      expect(summaries[0].routineId).toBe('routine-upper');
+    }, 15000);
+
+    it('falls back to the routine id when the routine has been deleted', async () => {
+      await seedSession({
+        sessionId: 'session-orphan',
+        routineId: 'routine-gone',
+        routineName: 'Deleted Routine',
+        endedAtMs: JULY_29,
+      });
+
+      await database.write(async () => {
+        const routine = await database.get('routines').find('routine-gone');
+        await routine.destroyPermanently();
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].routineName).toBe('routine-gone');
+    }, 15000);
+
+    it('MINOR 7: falls back to the routine id when the routine name is blank', async () => {
+      await seedSession({
+        sessionId: 'session-blank-name',
+        routineId: 'routine-blank-name',
+        routineName: 'Will Be Blanked',
+        endedAtMs: JULY_29,
+      });
+
+      // Blank the routine name
+      await database.write(async () => {
+        const routine = await database.get('routines').find('routine-blank-name');
+        await routine.update((record: any) => {
+          record.name = '';
+        });
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].routineName).toBe('routine-blank-name');
+    }, 15000);
+
+    it('counts distinct exercises and working sets, ignoring warmups', async () => {
+      await seedSession({
+        sessionId: 'session-volume',
+        routineId: 'routine-volume',
+        endedAtMs: JULY_29,
+        exercises: [
+          { exerciseId: 'bench', workingSets: 3, warmupSets: 2 },
+          { exerciseId: 'rows', workingSets: 4 },
+        ],
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].exerciseCount).toBe(2);
+      expect(summaries[0].workingSetCount).toBe(7);
+    }, 15000);
+
+    it('counts an exercise the routine repeats as one exercise trained', async () => {
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-repeat';
+          r.name = 'Repeats';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      });
+
+      // Two rows for the same exercise: upsertRoutineExercise keys on
+      // (routine, exercise) and would collapse them, so create them directly.
+      const routineExerciseIds = await database.write(async () => {
+        const first = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = 'routine-repeat';
+          re.exerciseId = 'bench';
+          re.order = 0;
+          re.warmupSets = 0;
+        });
+        const second = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = 'routine-repeat';
+          re.exerciseId = 'bench';
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        return [first.id, second.id];
+      });
+
+      await createSession(database, {
+        sessionId: 'session-repeat',
+        routineId: 'routine-repeat',
+        startedAtMs: JULY_29 - 3600000,
+      });
+      for (const routineExerciseId of routineExerciseIds) {
+        await appendSet(database, 'session-repeat', routineExerciseId, {
+          setType: 'working',
+          reps: 8,
+        });
+      }
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-repeat');
+        await session.update((record: any) => {
+          record._raw.ended_at = JULY_29;
+        });
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].exerciseCount).toBe(1);
+      expect(summaries[0].workingSetCount).toBe(2);
+    }, 15000);
+
+    it('reports zero volume for a completed session with nothing logged', async () => {
+      await seedSession({
+        sessionId: 'session-bailed',
+        routineId: 'routine-bailed',
+        endedAtMs: JULY_29,
+        exercises: [{ exerciseId: 'bench', workingSets: 0, warmupSets: 2 }],
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].exerciseCount).toBe(0);
+      expect(summaries[0].workingSetCount).toBe(0);
+    }, 15000);
+
+    it('IMPORTANT 3: counts orphaned routine_exercise as its own distinct exercise', async () => {
+      const routineId = 'routine-orphan-test';
+      const exerciseId = 'exercise-orphan-test';
+
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Orphan Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = `${exerciseId}-b`;
+          e.title = 'Squat';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      // TWO routine_exercise rows (distinct exercises — upsertRoutineExercise
+      // is keyed on routine+exercise): with both orphaned, distinct-counting
+      // (2) and collapsing-all-orphans-to-one (1) become distinguishable — a
+      // single orphan cannot discriminate the semantic this test pins.
+      const routineExerciseA = await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 0,
+      });
+      const routineExerciseB = await upsertRoutineExercise(database, routineId, {
+        exerciseId: `${exerciseId}-b`,
+        order: 1,
+      });
+      const routineExerciseIdA = routineExerciseA.id;
+      const routineExerciseIdB = routineExerciseB.id;
+
+      await createSession(database, {
+        sessionId: 'session-orphan-test',
+        routineId,
+        startedAtMs: JULY_29 - 3600000,
+      });
+
+      // Log a set against each routine_exercise
+      await appendSet(database, 'session-orphan-test', routineExerciseIdA, {
+        setType: 'working',
+        reps: 8,
+      });
+      await appendSet(database, 'session-orphan-test', routineExerciseIdB, {
+        setType: 'working',
+        reps: 8,
+      });
+
+      // End the session
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-orphan-test');
+        await session.update((record: any) => {
+          record._raw.ended_at = JULY_29;
+        });
+      });
+
+      // Destroy both routine_exercise rows (both sets become orphaned)
+      await database.write(async () => {
+        const reA = await database.get('routine_exercises').find(routineExerciseIdA);
+        await reA.destroyPermanently();
+        const reB = await database.get('routine_exercises').find(routineExerciseIdB);
+        await reB.destroyPermanently();
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      // Each orphaned set keeps its routine_exercise id as residual identity, so
+      // the two orphans count as TWO distinct exercises. Collapsing orphans into
+      // a shared bucket would report 1 and fail here.
+      expect(summaries[0].exerciseCount).toBe(2);
+      expect(summaries[0].workingSetCount).toBe(2);
+    }, 15000);
+
+    it('MINOR 4: breaks tiebreak on ended_at using started_at as secondary sort', async () => {
+      // Two sessions ending at exactly the same time, but different start times
+      const sharedEndTime = JULY_29;
+      const startTime1 = sharedEndTime - 7200000; // 2 hours before end
+      const startTime2 = sharedEndTime - 3600000; // 1 hour before end
+
+      // Seed them in ascending started_at order; the query must return them descending
+      // when both ended at the same time
+      await database.write(async () => {
+        const sessionsTable = database.get('sessions');
+        const routinesTable = database.get('routines');
+
+        // Create the routine first
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-tie';
+          r.name = 'Tiebreak Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        // Seed session 1 (earlier start)
+        await sessionsTable.create((s: any) => {
+          s._raw.id = 'session-tie-1';
+          s._raw.routine_id = 'routine-tie';
+          s._raw.started_at = startTime1;
+          s._raw.ended_at = sharedEndTime;
+        });
+
+        // Seed session 2 (later start) — inserted second; the sort, not insertion order, must put it first
+        await sessionsTable.create((s: any) => {
+          s._raw.id = 'session-tie-2';
+          s._raw.routine_id = 'routine-tie';
+          s._raw.started_at = startTime2;
+          s._raw.ended_at = sharedEndTime;
+        });
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      // Should be ordered by started_at descending: session 2 (later start) first
+      expect(summaries.map((s) => s.sessionId)).toEqual([
+        'session-tie-2',
+        'session-tie-1',
+      ]);
+    }, 15000);
+
+    it('MINOR 5: returns empty array when limit is zero or negative', async () => {
+      await seedSession({
+        sessionId: 'session-1',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29,
+      });
+
+      const zeroSummaries = await getRecentSessionSummaries(database, 0);
+      const negativeSummaries = await getRecentSessionSummaries(database, -5);
+
+      expect(zeroSummaries).toEqual([]);
+      expect(negativeSummaries).toEqual([]);
     }, 15000);
   });
 });

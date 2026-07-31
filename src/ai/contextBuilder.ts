@@ -5,7 +5,9 @@ import { routineDetailPresenter, type RoutineDetail, ExerciseDetail } from '@/st
 import SessionSet from '@/db/models/SessionSet';
 import {
   getExerciseWorkingSetHistory,
+  getRecentSessionSummaries,
   getSessionExerciseLog,
+  type RecentSessionSummary,
   type SessionExerciseLogEntry,
 } from '@/db/repository';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
@@ -24,11 +26,19 @@ type RoutineWithDetail = { routine: RoutineListItem; detail: RoutineDetail | nul
 export const HISTORY_SETS_PER_EXERCISE = 5;
 
 /**
+ * How many completed sessions the "Recent Workouts" section carries. Together
+ * with one line per session this is the whole bound on that section: a user
+ * with five years of training costs the same prompt as one with five workouts.
+ */
+export const RECENT_WORKOUTS_IN_PROMPT = 10;
+
+/**
  * Build the system prompt for Claude by composing user context:
  * - Coach persona and JSON response schema
  * - User goals and available equipment
  * - All existing routines and exercises
- * - Recent working set history (capped at 5 per exercise)
+ * - The last RECENT_WORKOUTS_IN_PROMPT completed workouts, one line each
+ * - Recent working set history (capped at 5 per exercise, each set dated)
  * - Edit-mode instructions (if editing a specific routine)
  * - The just-finished session (if debriefing one)
  *
@@ -53,6 +63,7 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
   }
 
   sections.push(routinesSection(routineDetails));
+  sections.push(await recentWorkoutsSection(db));
   sections.push(await historySection(db, routineDetails));
 
   if (mode.kind === 'edit') {
@@ -102,7 +113,12 @@ Settings proposal constraints:
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
-- All numeric values must be integers`;
+- All numeric values must be integers
+
+Planning from history:
+- The "Recent Workouts" section below lists the last ${RECENT_WORKOUTS_IN_PROMPT} completed sessions, so read training frequency and recovery from it rather than assuming a schedule
+- Every set in "Recent Training History" carries the date it was logged, so read load progression over time from it instead of only echoing the last weight
+- Plan against that history: pace progression from what actually moved, and suggest a lighter week when recent sessions have been both frequent and heavy`;
 
   if (mode.kind !== 'debrief') {
     return persona;
@@ -246,6 +262,90 @@ function formatSetMetrics(set: SessionSet): string {
   return parts.join(' ');
 }
 
+/**
+ * A workout's calendar day, derived the way `src/interop/serialize.ts` dates
+ * the same session for the vault: the UTC day of the timestamp. Keeping the two
+ * views of one workout on the same date matters more than the local-time edge
+ * it costs, where a late-evening session west of UTC reads as the next day.
+ * Accepted trade-off: a late-evening session west of UTC can collapse into the
+ * next UTC day, accepted because determinism and vault-date symmetry outweigh
+ * local-time frequency context.
+ */
+function isoDate(timestampMs: number): string {
+  return new Date(timestampMs).toISOString().split('T')[0];
+}
+
+/**
+ * Format a UTC date with its weekday, e.g., "2026-07-29 (Tue)".
+ * Weekdays are derived from the UTC date to maintain determinism.
+ */
+function isoDateWithWeekday(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const iso = date.toISOString();
+  const weekday = iso.split('T')[0];
+  const dayOfWeek = date.getUTCDay();
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return `${weekday} (${weekdays[dayOfWeek]})`;
+}
+
+function countOf(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/**
+ * When the user trained, on what, and how much of it — the cross-session view
+ * the per-exercise history cannot give. One line per session and capped at
+ * RECENT_WORKOUTS_IN_PROMPT, so this section has a fixed maximum size.
+ * Includes a "Today:" anchor with the current date so the model has a reference
+ * point for recency reasoning.
+ */
+async function recentWorkoutsSection(db: Database): Promise<string> {
+  const summaries = await getRecentSessionSummaries(db, RECENT_WORKOUTS_IN_PROMPT);
+
+  if (summaries.length === 0) {
+    return `## Recent Workouts
+
+No completed workouts yet.`;
+  }
+
+  const today = isoDateWithWeekday(Date.now());
+  const lines = [
+    `Today: ${today}`,
+    ...summaries.map(
+      (summary) =>
+        `  ${isoDateWithWeekday(summary.endedAtMs)} | ${summary.routineName} | ${describeSessionVolume(summary)}`
+    ),
+  ];
+
+  return `## Recent Workouts\n\n${lines.join('\n')}`;
+}
+
+function describeSessionVolume(summary: RecentSessionSummary): string {
+  // A session can be finished with nothing logged; saying "0 exercises, 0
+  // working sets" reads as a data glitch rather than a workout that was bailed.
+  if (summary.workingSetCount === 0) {
+    return 'no working sets logged';
+  }
+
+  return `${countOf(summary.exerciseCount, 'exercise', 'exercises')}, ${countOf(
+    summary.workingSetCount,
+    'working set',
+    'working sets'
+  )}`;
+}
+
+/**
+ * The date a set was logged. Defensive check for null/missing timestamp;
+ * created_at is non-optional on local writes.
+ */
+function loggedDate(set: SessionSet): string | null {
+  const createdAtMs = (set as any)._raw.created_at;
+
+  return typeof createdAtMs === 'number' && createdAtMs > 0
+    ? isoDate(createdAtMs)
+    : null;
+}
+
 async function historySection(db: Database, routineDetails: RoutineWithDetail[]): Promise<string> {
   // Collect all distinct exerciseIds and titles from pre-built routine details
   const exerciseTitleMap = new Map<string, string>();
@@ -278,8 +378,17 @@ async function historySection(db: Database, routineDetails: RoutineWithDetail[])
     // Take the 5 most recent sets (they're already sorted most-recent-first)
     const recentSets = sets.slice(0, HISTORY_SETS_PER_EXERCISE);
 
-    // Format set details
-    const setDescriptions = recentSets.map(formatSetMetrics);
+    // Date each set so the line reads as a progression over time rather than an
+    // undated pile of numbers — the whole point of showing more than the last one.
+    const setDescriptions = recentSets.map((set) => {
+      const metrics = formatSetMetrics(set);
+      if (metrics === '') {
+        return '';
+      }
+
+      const date = loggedDate(set);
+      return date ? `${metrics} (${date})` : metrics;
+    });
 
     // A set can be logged with every metric left blank; drop the empty
     // descriptions so the line doesn't render dangling commas

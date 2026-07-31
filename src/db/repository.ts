@@ -1,9 +1,9 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
+import Routine from './models/Routine';
 import RoutineExercise from './models/RoutineExercise';
 import Exercise from './models/Exercise';
-import Routine from './models/Routine';
 import { validateSet } from './validation';
 
 /**
@@ -332,6 +332,143 @@ export async function getExerciseWorkingSetHistory(
   });
 
   return allSets;
+}
+
+/**
+ * One finished workout, reduced to what a coach needs to see a training
+ * pattern: when it happened, what was performed, and how much of it there was.
+ */
+export interface RecentSessionSummary {
+  sessionId: string;
+  routineId: string;
+  /** The routine's name, or the raw routine id if the routine has been deleted. */
+  routineName: string;
+  endedAtMs: number;
+  /** Distinct exercises with at least one working set logged. */
+  exerciseCount: number;
+  workingSetCount: number;
+}
+
+/**
+ * The user's most recent completed workouts, newest first.
+ *
+ * Only sessions that ended count — an abandoned or in-progress session says
+ * nothing about training frequency. Volume is counted from working sets alone,
+ * matching `getExerciseWorkingSetHistory`: warmups inflate a session without
+ * telling you anything about the work done.
+ *
+ * Costs four queries whatever the limit is: sessions, their working sets, the
+ * exercises behind those sets, and the routines behind the sessions. Fanning
+ * out per session would make the caller's bound the query count.
+ *
+ * @param database The database instance
+ * @param limit How many sessions to return at most
+ * @returns Completed sessions, most recent first, capped at `limit`
+ */
+export async function getRecentSessionSummaries(
+  database: Database,
+  limit: number
+): Promise<RecentSessionSummary[]> {
+  if (limit <= 0) {
+    return [];
+  }
+
+  const sessions = (await database
+    .get('sessions')
+    .query(
+      Q.where('ended_at', Q.notEq(null)),
+      Q.sortBy('ended_at', Q.desc),
+      // Two sessions ending on the same millisecond still need a stable order.
+      Q.sortBy('started_at', Q.desc),
+      Q.take(limit)
+    )
+    .fetch()) as Session[];
+
+  if (sessions.length === 0) {
+    return [];
+  }
+
+  const workingSets = (await database
+    .get('session_sets')
+    .query(
+      Q.and(
+        Q.where('set_type', 'working'),
+        Q.where('session_id', Q.oneOf(sessions.map((session) => session.id)))
+      )
+    )
+    .fetch()) as SessionSet[];
+
+  const exerciseIdByRoutineExerciseId = await mapRoutineExercisesToExercises(
+    database,
+    workingSets
+  );
+
+  const routineIds = [...new Set(sessions.map((session) => session.routineId))];
+  const routines = (await database
+    .get('routines')
+    .query(Q.where('id', Q.oneOf(routineIds)))
+    .fetch()) as Routine[];
+  const routineNameById = new Map<string, string>(
+    routines.map((routine) => [
+      routine.id,
+      routine.name && routine.name.trim() ? routine.name : routine.id,
+    ])
+  );
+
+  const volumeBySessionId = new Map<string, { exercises: Set<string>; setCount: number }>();
+  for (const set of workingSets) {
+    const sessionId = (set as any).sessionId as string;
+    let volume = volumeBySessionId.get(sessionId);
+    if (!volume) {
+      volume = { exercises: new Set<string>(), setCount: 0 };
+      volumeBySessionId.set(sessionId, volume);
+    }
+
+    volume.setCount += 1;
+
+    // A routine that lists the same exercise twice is still one exercise
+    // trained. If the routine_exercise row is gone its id is the only identity
+    // the set has left, so it counts as its own exercise.
+    const routineExerciseId = (set as any).routineExerciseId as string;
+    volume.exercises.add(
+      exerciseIdByRoutineExerciseId.get(routineExerciseId) ?? routineExerciseId
+    );
+  }
+
+  return sessions.map((session) => {
+    const volume = volumeBySessionId.get(session.id);
+
+    return {
+      sessionId: session.id,
+      routineId: session.routineId,
+      routineName: routineNameById.get(session.routineId) ?? session.routineId,
+      endedAtMs: (session as any)._raw.ended_at as number,
+      exerciseCount: volume?.exercises.size ?? 0,
+      workingSetCount: volume?.setCount ?? 0,
+    };
+  });
+}
+
+async function mapRoutineExercisesToExercises(
+  database: Database,
+  sets: SessionSet[]
+): Promise<Map<string, string>> {
+  const routineExerciseIds = [
+    ...new Set(sets.map((set) => (set as any).routineExerciseId as string)),
+  ];
+
+  if (routineExerciseIds.length === 0) {
+    return new Map();
+  }
+
+  const routineExercises = (await database
+    .get('routine_exercises')
+    .query(Q.where('id', Q.oneOf(routineExerciseIds)))
+    .fetch()) as RoutineExercise[];
+
+  return new Map(
+    routineExercises.map((re) => [re.id, (re as any)._raw.exercise_id as string])
+  );
 }
 
 /**
