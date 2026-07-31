@@ -592,9 +592,12 @@ export async function upsertRoutine(
  * copy was already posted and stays untouched, and the history screen's
  * presenter falls back to the raw routine id when the routine is missing.
  *
- * Atomicity: check-and-delete is one critical section — guards and
- * deletion happen in a single writer transaction via database.batch so an
- * app kill mid-loop cannot leave a partially-deleted routine.
+ * Atomicity: check-and-delete is one critical section — guards and the
+ * single-row destroy happen inside one writer transaction via database.batch.
+ *
+ * The routine's vault markdown also survives (local-first, matching
+ * deleteSession): tapping "Import Routines" later will re-create the routine
+ * from the vault and re-adopt the retained routine_exercise rows.
  *
  * @param database The database instance
  * @param routineId The routine ID to delete
@@ -607,10 +610,12 @@ export async function deleteRoutine(
 ): Promise<void> {
   await database.write(async () => {
     const routinesTable = database.get('routines');
-    let routine: Routine;
-    try {
-      routine = await routinesTable.find(routineId) as Routine;
-    } catch {
+    // Query rather than find: a missing row yields [], while a genuine read
+    // failure propagates as itself instead of masquerading as not-found.
+    const [routine] = (await routinesTable
+      .query(Q.where('id', routineId))
+      .fetch()) as Routine[];
+    if (!routine) {
       throw new Error(`cannot delete routine ${routineId}: not found`);
     }
 

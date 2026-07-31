@@ -520,6 +520,9 @@ describe('Repository: session and set helpers', () => {
       await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
         RoutineHasUnsyncedSessionsError
       );
+      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
+        'cannot delete routine routine-del-6: unsynced sessions reference it'
+      );
 
       const routine = await database.get('routines').find('routine-del-6');
       expect(routine).toBeDefined();
@@ -548,6 +551,9 @@ describe('Repository: session and set helpers', () => {
       await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
         RoutineHasUnsyncedSessionsError
       );
+      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
+        'cannot delete routine routine-del-7: unsynced sessions reference it'
+      );
 
       const routine = await database.get('routines').find('routine-del-7');
       expect(routine).toBeDefined();
@@ -559,7 +565,7 @@ describe('Repository: session and set helpers', () => {
       );
     }, 10000);
 
-    it('I1: preserves working-set history when routine is deleted after session is synced', async () => {
+    it('retains working-set history after the routine is deleted', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-history-test',
         exerciseId: 'exercise-history-test',
@@ -581,16 +587,11 @@ describe('Repository: session and set helpers', () => {
       });
 
       // End and sync the session
-      await database.write(async () => {
-        const session = await database.get('sessions').find('session-history-test');
-        await (session as any).update((record: any) => {
-          record._raw.ended_at = Date.now();
-          record._raw.sync_status = 'synced';
-        });
-      });
+      await endSession('session-history-test');
+      await markSessionSynced('session-history-test');
 
       // Get history before deletion to verify it exists
-      let historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
+      const historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
       expect(historyBefore).toHaveLength(1);
 
       // Delete the routine
@@ -601,10 +602,10 @@ describe('Repository: session and set helpers', () => {
       expect(historyAfter).toHaveLength(1);
 
       // Verify the routine_exercises rows still exist (not deleted)
-      const routineExercises = (await database
+      const routineExercises = await database
         .get('routine_exercises')
         .query(Q.where('routine_id', 'routine-history-test'))
-        .fetch()) as any[];
+        .fetch();
       expect(routineExercises).toHaveLength(1);
 
       // Verify the session_sets rows still exist
