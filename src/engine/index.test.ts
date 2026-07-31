@@ -827,3 +827,83 @@ describe('engine: Stretching phase via StartStretching', () => {
     expect(newState.phase).toBe('done');
   });
 });
+
+describe('engine: leaving the stretch cool-down via StopStretching', () => {
+  it('returns to working when the upcoming set is a working set', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 1, // Past the single warmup set of makeRoutine's first entry
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    const newState = await engine.dispatch({ tag: 'StopStretching' } as Event);
+    expect(newState.phase).toBe('working');
+    expect(newState.setIndex).toBe(1); // Position untouched — stretching never advances
+  });
+
+  it('returns to warmup when the upcoming set is still a warmup set', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 0,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    const newState = await engine.dispatch({ tag: 'StopStretching' } as Event);
+    expect(newState.phase).toBe('warmup');
+  });
+
+  it('rejects StopStretching outside the stretching phase', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({ phase: 'working', entries: makeRoutine(1).entries })
+    );
+
+    await expect(
+      engine.dispatch({ tag: 'StopStretching' } as Event)
+    ).rejects.toThrow(/invalid event StopStretching in phase working/);
+  });
+
+  it('rejects SetDone while stretching — a stray Skip Set must not advance the workout', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 1,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    await expect(
+      engine.dispatch({ tag: 'SetDone', nowMs: 5000 } as Event)
+    ).rejects.toThrow(/invalid event SetDone in phase stretching/);
+    expect(engine.getState().phase).toBe('stretching');
+  });
+
+  it('rejects LogSet while stretching — logging advances, and stretching must not', async () => {
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 1,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    await expect(
+      engine.dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 20.0,
+        durationSeconds: 0,
+        nowMs: 5000,
+      } as Event)
+    ).rejects.toThrow(/invalid event LogSet in phase stretching/);
+    expect(engine.getState().phase).toBe('stretching');
+  });
+});
