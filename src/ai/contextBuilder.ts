@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { Database } from '@nozbe/watermelondb';
 import { getSettings } from '@/state/settings';
 import { routineListPresenter, type RoutineListItem } from '@/state/routineListPresenter';
@@ -213,6 +214,7 @@ Settings proposal constraints:
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
 - All numeric values must be integers
+- Give every duration-based exercise (targetDurationSeconds instead of reps) targetSets: 1 unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
 
 Planning from history:
 - The "Recent Workouts" section below lists the last ${RECENT_WORKOUTS_IN_PROMPT} completed sessions, so read training frequency and recovery from it rather than assuming a schedule
