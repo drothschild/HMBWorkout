@@ -300,6 +300,65 @@ describe('createSessionPresenter', () => {
     );
   });
 
+  describe('current exercise logged sets', () => {
+    const set = (exerciseId: string, reps: number): LoggedSet => ({
+      exerciseId,
+      setType: 'working',
+      reps,
+      weightKg: 40,
+      durationSeconds: null,
+      rpe: null,
+    });
+
+    const twoExerciseState = (): SessionState => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      return state;
+    };
+
+    test('returns only the current exercise sets, newest first', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets.map((s) => s.reps)).toEqual([6, 8]);
+      expect(presenter.currentExerciseLoggedSets.every((s) => s.exerciseId === 'ex-1')).toBe(true);
+    });
+
+    test('is empty when only other exercises have sets', () => {
+      const state = twoExerciseState();
+      state.exerciseIndex = 1;
+      state.loggedSets = [set('ex-1', 8), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets).toEqual([]);
+    });
+
+    test('drops the previous exercise sets after advancement', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5)];
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.currentExerciseLoggedSets.map((s) => s.exerciseId)).toEqual(['ex-2']);
+    });
+
+    test('counts every set in the session, not just the current exercise', () => {
+      const state = twoExerciseState();
+      state.loggedSets = [set('ex-1', 8), set('ex-2', 5), set('ex-1', 6)];
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.loggedSetCount).toBe(3);
+    });
+  });
+
   describe('set input prefill', () => {
     const workingSet = (exerciseId: string, reps: number, weightKg: number): LoggedSet => ({
       exerciseId,
