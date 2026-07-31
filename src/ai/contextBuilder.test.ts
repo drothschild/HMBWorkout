@@ -843,6 +843,68 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(lineFor(prompt, 'Bench Press')).not.toContain('999kg');
     }, 30000);
 
+    it('keeps a repeated exercise as two separate entries', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Upper Body';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-bench';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Same exercise twice in one routine: distinct rows, so upsert would
+      // collapse them — create them directly, as the session engine's
+      // routine_exercise lookup does by (routine, order).
+      let second: any;
+      await database.write(async () => {
+        await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-bench';
+          re.order = 0;
+          re.warmupSets = 0;
+          re.targetSets = 3;
+          re.targetReps = 8;
+        });
+        second = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-bench';
+          re.order = 1;
+          re.warmupSets = 0;
+          re.targetSets = 1;
+          re.targetReps = 20;
+        });
+      });
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+      await appendSet(database, sessionId, second.id, {
+        setType: 'working',
+        reps: 20,
+        weightKg: 40,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      const benchLines = prompt
+        .split('\n')
+        .filter((line) => line.trimStart().startsWith('Bench Press ('));
+
+      expect(benchLines).toEqual([
+        '  Bench Press (target 3x8): no sets logged',
+        '  Bench Press (target 1x20): 20 reps @ 40kg',
+      ]);
+    }, 30000);
+
     it('leaves the just-finished summary out of a create conversation', async () => {
       await seedFinishedWorkout();
 

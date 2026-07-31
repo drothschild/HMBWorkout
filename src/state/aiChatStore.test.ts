@@ -396,26 +396,34 @@ describe('aiChatStore', () => {
     it('discards a reply that was in flight when the debrief opened', async () => {
       const { store, fakeChat } = makeStore();
 
-      let resolveFirst: (turn: AiTurn) => void = () => {};
+      // Warm the cached system prompt so the deferred below is armed on the
+      // send under test rather than on a later request.
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first' });
+      await store.getState().send('hello');
+
+      let resolveStale: (turn: AiTurn) => void = () => {};
       fakeChat.mockReturnValueOnce(
         new Promise<AiTurn>((resolve) => {
-          resolveFirst = resolve;
+          resolveStale = resolve;
         })
       );
-
-      store.getState().reset({ kind: 'create' });
       const inFlight = store.getState().send('build me something');
+
+      // The deferred must be genuinely in flight — otherwise this is vacuous
+      expect(fakeChat).toHaveBeenCalledTimes(2);
 
       fakeChat.mockResolvedValue({ reply: 'How did that go?' });
       const opening = store.getState().openDebrief(debrief);
 
-      resolveFirst({ reply: 'stale answer' });
+      resolveStale({ reply: 'stale answer' });
       await inFlight;
       await opening;
 
-      const state = store.getState();
-      expect(state.messages).toHaveLength(2);
-      expect(state.messages.some((message) => message.content.includes('stale answer'))).toBe(false);
+      expect(store.getState().messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
     });
 
     it('reports a missing key without leaving a half-open conversation', async () => {

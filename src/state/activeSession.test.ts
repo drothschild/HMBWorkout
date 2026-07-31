@@ -888,7 +888,22 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       };
     }
 
-    async function finishWorkout(store: ReturnType<typeof createActiveSessionStore>) {
+    function tick(): Promise<void> {
+      return new Promise((resolve) => setImmediate(resolve));
+    }
+
+    async function waitUntil(condition: () => boolean, description: string) {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        if (condition()) return;
+        await tick();
+      }
+      throw new Error(`timed out waiting for ${description}`);
+    }
+
+    async function finishWorkout(
+      store: ReturnType<typeof createActiveSessionStore>,
+      healthKitDeps: ReturnType<typeof makeHealthKitDeps>
+    ) {
       const sessionId = 'session-debrief';
 
       await store.getState().dispatch({
@@ -915,22 +930,34 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
 
       await store.getState().dispatch({ tag: 'FinishSession', nowMs: Date.now() });
 
+      // Effect executors are fire-and-forget: a resolved dispatch only means the
+      // transition happened, while onCompleteSession is still running. Wait for
+      // the Health write it performs just before the debrief, then let the
+      // remaining ticks drain so "never opened" is a real observation.
+      await waitUntil(
+        () => healthKitDeps.saveWorkoutSample.mock.calls.length > 0,
+        'the HealthKit write'
+      );
+      await tick();
+      await tick();
+
       return sessionId;
     }
 
     it('opens a debrief chat for the routine and session just finished', async () => {
       setSettings({ anthropicKey: 'sk-test' });
       const openDebriefChat = jest.fn();
+      const healthKitDeps = makeHealthKitDeps();
 
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
         makeSyncFn(),
-        makeHealthKitDeps(),
+        healthKitDeps,
         openDebriefChat
       );
 
-      const sessionId = await finishWorkout(store);
+      const sessionId = await finishWorkout(store, healthKitDeps);
 
       expect(openDebriefChat).toHaveBeenCalledWith({
         kind: 'debrief',
@@ -941,16 +968,17 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
 
     it('opens nothing when no Anthropic key is configured', async () => {
       const openDebriefChat = jest.fn();
+      const healthKitDeps = makeHealthKitDeps();
 
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
         makeSyncFn(),
-        makeHealthKitDeps(),
+        healthKitDeps,
         openDebriefChat
       );
 
-      await finishWorkout(store);
+      await finishWorkout(store, healthKitDeps);
 
       expect(openDebriefChat).not.toHaveBeenCalled();
     });
@@ -969,7 +997,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
         openDebriefChat
       );
 
-      const sessionId = await finishWorkout(store);
+      const sessionId = await finishWorkout(store, healthKitDeps);
 
       const session = (await database.get('sessions').find(sessionId)) as any;
       expect(session._raw.ended_at).toBeTruthy();
@@ -986,16 +1014,17 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       const openDebriefChat = jest.fn(() => {
         throw new Error('navigation failed');
       });
+      const healthKitDeps = makeHealthKitDeps();
 
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
         makeSyncFn(),
-        makeHealthKitDeps(),
+        healthKitDeps,
         openDebriefChat
       );
 
-      const sessionId = await finishWorkout(store);
+      const sessionId = await finishWorkout(store, healthKitDeps);
 
       expect(store.getState().sessionState?.phase).toBe('done');
       const session = (await database.get('sessions').find(sessionId)) as any;

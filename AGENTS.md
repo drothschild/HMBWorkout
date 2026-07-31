@@ -156,9 +156,22 @@ misnomer — AI settings are in there too.
   every `routine_exercise` row, so accepting an edit draft that omits an exercise
   removes it. The persona demands the full exercise list for this reason.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
-  `routine-<epoch>` in create mode and forces `mode.routineId` in edit mode; drafts
-  carry no routine id. Accepting in edit mode always overwrites the routine named by
-  the route param.
+  `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
+  mode; drafts carry no routine id. Accepting in either of those always overwrites the
+  routine named by the route param.
+- **A finished workout opens a debrief conversation.** The `debrief` mode carries the
+  routine plus the session that was just performed, and the prompt gains a
+  "Just-Finished Workout" section (every planned exercise against the sets actually
+  logged, warmups included — unlike the history section). The coach speaks first:
+  `aiChatStore.openDebrief` resets and sends `DEBRIEF_OPENING_MESSAGE` for the user,
+  because the Messages API needs a user turn before a reply. The hook is the *last*
+  thing `onCompleteSession` does — after the session record is closed and sync and the
+  HealthKit write are under way — and every failure there is swallowed: finishing a
+  workout must never depend on the chat. Effect executors are fire-and-forget, so a
+  resolved `dispatch` does not mean the debrief has opened; tests must wait for it.
+  `planPostWorkoutDebrief` (no key = no chat) and the route-param encoding live in
+  `src/state/postWorkoutDebrief.ts` so they test in the node project;
+  `debriefNavigation.ts` exists only to keep `expo-router` out of that file.
 - **The prompt carries data, never secrets.** `buildSystem` composes goals, equipment,
   every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
   exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a

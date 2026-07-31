@@ -14,8 +14,9 @@ import {
   createAnthropicClient,
   AiChatMessage,
 } from '@/ai/anthropicClient';
-import { buildSystem as buildSystemFn, AiCoachMode } from '@/ai/contextBuilder';
+import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
 import { getSettings, setSettings } from '@/state/settings';
+import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
@@ -39,6 +40,7 @@ interface AiChatState {
   status: 'idle' | 'sending' | 'error';
   error: AiChatError | null;
   reset(mode: AiCoachMode): void;
+  openDebrief(mode: DebriefMode): Promise<void>;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
   acceptDraft(): Promise<string>;
@@ -163,6 +165,14 @@ export function createAiChatStore(deps: AiChatDeps) {
           status: 'idle',
           error: null,
         });
+      },
+
+      async openDebrief(mode: DebriefMode) {
+        // A debrief is a conversation the coach starts, so the opening turn is
+        // sent for the user. Going through reset() first keeps the generation
+        // and prompt-cache rules identical to every other conversation start.
+        get().reset(mode);
+        await get().send(DEBRIEF_OPENING_MESSAGE);
       },
 
       async send(text: string) {

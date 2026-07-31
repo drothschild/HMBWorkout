@@ -5,6 +5,9 @@ import { SessionState, Event, LoggedSet } from '@/engine/types';
 import { createSession, appendSet, getSessionSets } from '@/db/repository';
 import { saveEngineState } from '@/db/engineState';
 import type { HealthKitSaveDeps } from '@/health/saveWorkout';
+import type { DebriefMode } from '@/ai/contextBuilder';
+import { planPostWorkoutDebrief } from '@/state/postWorkoutDebrief';
+import { getSettings } from '@/state/settings';
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: Database | null = null;
@@ -40,13 +43,15 @@ export type HealthKitDeps = HealthKitSaveDeps;
  * @param overrideExecutors Optional executor overrides for testing
  * @param syncFn Optional injectable sync function for testing; if provided, used instead of real sync logic in onCompleteSession
  * @param healthKitDeps Optional injectable HealthKit dependencies for testing; if provided, used instead of real HealthKit imports in onCompleteSession
+ * @param openDebriefChat Optional injectable debrief navigator for testing; if provided, used instead of the real expo-router navigation in onCompleteSession
  * @returns The Zustand store with dispatch, getState
  */
 export function createActiveSessionStore(
   database: Database,
   overrideExecutors?: Partial<EffectExecutors>,
   syncFn?: () => Promise<void>,
-  healthKitDeps?: HealthKitDeps
+  healthKitDeps?: HealthKitDeps,
+  openDebriefChat?: (mode: DebriefMode) => void
 ) {
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
@@ -126,7 +131,11 @@ export function createActiveSessionStore(
     async onCompleteSession(summary: unknown) {
       if (!currentSessionState) return;
 
+      // Read both halves of the finished workout up front: the executor awaits
+      // several times below, and by the end currentSessionState may already
+      // belong to a different session.
       const sessionId = currentSessionState.sessionId;
+      const finishedRoutineId = currentSessionState.routineId;
 
       // Set ended_at and clear engine_state on the session in a single transaction
       // (using a fresh find() inside the write to ensure latest session instance)
@@ -190,6 +199,28 @@ export function createActiveSessionStore(
       } catch (error) {
         // HealthKit is write-only; errors must not affect session state
         console.error('HealthKit write failed:', error);
+      }
+
+      // Aftermath, deliberately last: the session record is already closed and
+      // sync and the Health write are under way, so nothing about finishing a
+      // workout depends on the chat opening — or on it working.
+      try {
+        const debrief = planPostWorkoutDebrief(
+          { routineId: finishedRoutineId, sessionId },
+          getSettings()
+        );
+
+        if (debrief) {
+          if (openDebriefChat) {
+            // Injected navigator (for testing)
+            openDebriefChat(debrief);
+          } else {
+            const { navigateToDebrief } = await import('@/state/debriefNavigation');
+            navigateToDebrief(debrief);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to open post-workout debrief:', error);
       }
     },
 

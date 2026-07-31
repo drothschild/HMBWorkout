@@ -233,6 +233,88 @@ export async function getExerciseWorkingSetHistory(
 }
 
 /**
+ * One planned exercise of a routine, paired with the sets a single session
+ * actually logged against it.
+ */
+export interface SessionExerciseLogEntry {
+  exerciseId: string;
+  title: string;
+  order: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  sets: SessionSet[];
+}
+
+/**
+ * Lay one session's sets out against the routine that was performed: every
+ * planned exercise in routine order, each carrying the sets logged for it.
+ *
+ * An exercise the user skipped comes back with an empty `sets` array — that it
+ * was planned and never logged is part of how the workout went. Sets pointing
+ * at a routine_exercise that no longer belongs to this routine are dropped;
+ * they can only exist if the routine was edited after the session ended.
+ *
+ * @param database The database instance
+ * @param sessionId The finished session to read sets from
+ * @param routineId The routine that session performed
+ * @returns Planned exercises in order, each with its logged sets
+ */
+export async function getSessionExerciseLog(
+  database: Database,
+  sessionId: string,
+  routineId: string
+): Promise<SessionExerciseLogEntry[]> {
+  const routineExercises = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  routineExercises.sort((a, b) => (a as any)._raw.order - (b as any)._raw.order);
+
+  if (routineExercises.length === 0) {
+    return [];
+  }
+
+  const exerciseIds = [...new Set(routineExercises.map((re) => (re as any)._raw.exercise_id))];
+  const exercises = await database
+    .get('exercises')
+    .query(Q.where('id', Q.oneOf(exerciseIds)))
+    .fetch();
+
+  const titleById = new Map<string, string>(
+    exercises.map((exercise) => [exercise.id, (exercise as any).title as string])
+  );
+
+  const sets = await getSessionSets(database, sessionId);
+  const setsByRoutineExerciseId = new Map<string, SessionSet[]>();
+  for (const set of sets) {
+    const key = (set as any).routineExerciseId as string;
+    const existing = setsByRoutineExerciseId.get(key);
+    if (existing) {
+      existing.push(set);
+    } else {
+      setsByRoutineExerciseId.set(key, [set]);
+    }
+  }
+
+  return routineExercises.map((re) => {
+    const raw = (re as any)._raw;
+    const exerciseId = raw.exercise_id as string;
+
+    return {
+      exerciseId,
+      title: titleById.get(exerciseId) ?? exerciseId,
+      order: raw.order as number,
+      targetSets: raw.target_sets ?? undefined,
+      targetReps: raw.target_reps ?? undefined,
+      targetDurationSeconds: raw.target_duration_seconds ?? undefined,
+      sets: setsByRoutineExerciseId.get((re as any).id) ?? [],
+    };
+  });
+}
+
+/**
  * Upsert a routine exercise with structured properties (superset, warmup sets, duration target, etc).
  * Creates a new RoutineExercise or updates an existing one if already present for this routine+exercise.
  *
