@@ -14,6 +14,7 @@ import {
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { formatSetInputValue } from '@/state/setInputs';
+import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
@@ -75,6 +76,10 @@ export default function SessionScreen() {
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const lastError = activeSessionStore((state: any) => state.lastError);
   const dispatch = activeSessionStore((state: any) => state.dispatch);
+
+  const restCommentary = restCommentaryStore((state) => state.text);
+  const restCommentaryPending = restCommentaryStore((state) => state.pending);
+  const restCommentaryAttempted = restCommentaryStore((state) => state.attempted);
 
   // Compute progression hint when exercise changes
   useEffect(() => {
@@ -232,6 +237,45 @@ export default function SessionScreen() {
     loadRoutine();
   }, [sessionState?.sessionId]);
 
+  // Rest-screen coach commentary. The engine owns when rest happens; this only
+  // mirrors the upcoming exercise into the commentary store, which caches one
+  // comment per entry and swallows every failure — the rest screen renders the
+  // same with or without it.
+  const commentaryTarget = restCommentaryTarget(sessionState, exerciseTitles);
+  // Identity, not the object: the target is rebuilt every render, and the store
+  // no-ops on a repeat of the same entry. Titles are async-loaded; skip the show
+  // if the title hasn't resolved yet to avoid caching a comment keyed by raw id.
+  // The effect will re-fire once titles load and commentaryKey includes the real
+  // title. (Titles resolve at session start, so the id fallback here is the same
+  // one currentExerciseTitle already has once resolved.)
+  const commentaryKey = commentaryTarget
+    ? `${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`
+    : null;
+  const shouldShowCommentary =
+    commentaryTarget &&
+    // Skip if title hasn't resolved yet (async load in flight at rehydration)
+    !(
+      commentaryTarget.exerciseTitle === commentaryTarget.exerciseId &&
+      Object.keys(exerciseTitles).length === 0
+    );
+
+  useEffect(() => {
+    if (shouldShowCommentary) {
+      restCommentaryStore.getState().show(commentaryTarget!).catch(() => {});
+    } else {
+      restCommentaryStore.getState().hide();
+    }
+    // Primitive dep on purpose (see the effects above).
+  }, [commentaryKey, shouldShowCommentary]);
+
+  // Clean up the rest commentary store on unmount to avoid stale state if the
+  // screen is ever unmounted and remounted (e.g., navigation away and back).
+  useEffect(() => {
+    return () => {
+      restCommentaryStore.getState().hide();
+    };
+  }, []);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -337,6 +381,9 @@ export default function SessionScreen() {
             deadlineMs={presenter.restDeadlineMs}
             frozenRemainingMs={presenter.restRemainingMs}
             isPaused={presenter.isRestPaused}
+            commentary={restCommentary}
+            commentaryPending={restCommentaryPending}
+            commentaryAttempted={restCommentaryAttempted}
             onRestElapsed={presenter.onRestElapsed}
             onSkip={presenter.onSkipRest}
             onPause={presenter.onPause}

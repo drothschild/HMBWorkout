@@ -82,6 +82,37 @@ export interface SessionPresenterOutput {
 }
 
 /**
+ * True when the session is in a resting or paused-mid-rest state.
+ * Encodes the presenter's combined isResting/isRestPaused predicate as one
+ * check for restCommentaryTarget's use; the presenter itself still derives
+ * the two flags separately for display.
+ */
+export function isRestingPhase(sessionState: SessionState): boolean {
+  return sessionState.phase === 'resting' || (sessionState.phase === 'paused' && Boolean(sessionState.restRemainingMs));
+}
+
+/**
+ * Derive the set position within the current entry's warmup or working segment.
+ * Both the presenter (for display) and restCommentaryTarget (for the prompt)
+ * need the same calculation: setIndex spans warmups then working sets, so the
+ * number counts within its segment.
+ * @returns { isWarmupSet, setNumber } or null if there is no current entry
+ */
+export function deriveSetPosition(
+  sessionState: SessionState,
+  entry: RoutineEntry | undefined
+): { isWarmupSet: boolean; setNumber: number } | null {
+  if (!entry) return null;
+
+  const isWarmupSet = sessionState.setIndex < entry.warmupSets;
+  const setNumber = isWarmupSet
+    ? sessionState.setIndex + 1
+    : sessionState.setIndex - entry.warmupSets + 1;
+
+  return { isWarmupSet, setNumber };
+}
+
+/**
  * Shared formatter for logged sets across session and history detail screens.
  * Handles sentinel conventions: rpe -1 and null reps/weight/duration mean "absent"
  * and must be omitted, never rendered.
@@ -243,12 +274,9 @@ export function createSessionPresenter(
 
   // Derived set position: setIndex spans warmups then working sets, so the
   // label counts within the current segment ("Warmup 1 of 2" / "Set 3 of 4").
-  const isWarmupSet = currentEntry ? sessionState.setIndex < currentEntry.warmupSets : false;
-  const setNumber = currentEntry
-    ? isWarmupSet
-      ? sessionState.setIndex + 1
-      : sessionState.setIndex - currentEntry.warmupSets + 1
-    : 0;
+  const setPos = deriveSetPosition(sessionState, currentEntry);
+  const isWarmupSet = setPos?.isWarmupSet ?? false;
+  const setNumber = setPos?.setNumber ?? 0;
   const totalSetsForEntry = currentEntry ? currentEntry.warmupSets + currentEntry.targetSets : 0;
   const setPositionLabel = currentEntry
     ? isWarmupSet
