@@ -1,4 +1,5 @@
 import { stepsForMigration } from '@nozbe/watermelondb/Schema/migrations/stepsForMigration';
+import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
 import { createAdapter as createWebAdapter } from './adapter.web';
@@ -49,9 +50,7 @@ describe('Database schema migrations', () => {
     // Mocking LokiJSAdapter prevents creating a live IndexedDB handle that would
     // hang the test; instead we verify the migrations object was passed as a constructor argument.
     createWebAdapter();
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() necessary after jest.mock() to get mocked adapter
-    const LokiJSAdapter = jest.mocked(require('@nozbe/watermelondb/adapters/lokijs').default);
-    expect(LokiJSAdapter.mock.calls[0][0].migrations).toBe(migrations);
+    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBe(migrations);
   });
 
 });

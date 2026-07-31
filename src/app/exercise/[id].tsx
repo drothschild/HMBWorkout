@@ -54,8 +54,13 @@ export default function ExerciseDetailScreen() {
     const value = pendingValueRef.current;
     updateExerciseDescription(database, id, value)
       .then(() => {
-        if (pendingValueRef.current === value) hasPendingRef.current = false;
-        setSaveError(null);
+        // Only this save's value being current makes the clear (and the
+        // banner reset) truthful — an older save resolving late must not
+        // wipe a newer failure's state.
+        if (pendingValueRef.current === value) {
+          hasPendingRef.current = false;
+          setSaveError(null);
+        }
       })
       .catch((error) => {
         // Re-mark pending so the next flush (typing or unmount) will retry the same value
