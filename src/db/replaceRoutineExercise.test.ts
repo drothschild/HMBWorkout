@@ -22,6 +22,7 @@ import {
   createSession,
   findRoutineExerciseIdByOrder,
   getExerciseWorkingSetHistory,
+  getRecentSessionSummaries,
   getSessionExerciseLog,
   updateRoutineExerciseExerciseId,
 } from './repository';
@@ -418,6 +419,112 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
         [secondRowId, ORIGINAL_EXERCISE],
       ]);
       expect(log.every((entry) => entry.sets.length === 1)).toBe(true);
+    });
+  });
+
+  describe('getRecentSessionSummaries after a swap', () => {
+    // exerciseCount is a count of DISTINCT exercises trained. Resolving that
+    // through the routine_exercises join collapses two entries onto one
+    // exercise the moment a swap makes them name the same movement — so a
+    // finished workout that trained two exercises retroactively reports one.
+    it('counts the exercises a past session actually trained, not the ones its routine names now', async () => {
+      let secondRowId = '';
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = ROUTINE_ID;
+          re.exerciseId = REPLACEMENT_EXERCISE;
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        secondRowId = (row as any).id;
+      });
+
+      await createSession(database, {
+        sessionId: 'session-week-1',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-week-1', rowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await appendSet(database, 'session-week-1', secondRowId, {
+        setType: 'working',
+        reps: 10,
+        exerciseId: REPLACEMENT_EXERCISE,
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      // Both entries now name the same exercise.
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(2);
+      expect(summary.workingSetCount).toBe(2);
+    });
+
+    it('still counts a routine’s duplicate entries as one exercise trained', async () => {
+      // The rule the join was there to enforce, and which must survive: the
+      // same movement listed twice is one exercise trained, not two.
+      let secondRowId = '';
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = ROUTINE_ID;
+          re.exerciseId = ORIGINAL_EXERCISE;
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        secondRowId = (row as any).id;
+      });
+
+      await createSession(database, {
+        sessionId: 'session-week-1',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-week-1', rowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await appendSet(database, 'session-week-1', secondRowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(1);
+      expect(summary.workingSetCount).toBe(2);
+    });
+
+    it('falls back to the join for legacy sets, the priority order used everywhere', async () => {
+      await logPastSessions(undefined, ['session-week-1']);
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(1);
+      expect(summary.workingSetCount).toBe(2);
     });
   });
 

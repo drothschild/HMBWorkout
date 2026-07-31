@@ -546,11 +546,18 @@ export async function getRecentSessionSummaries(
     volume.setCount += 1;
 
     // A routine that lists the same exercise twice is still one exercise
-    // trained. If the routine_exercise row is gone its id is the only identity
-    // the set has left, so it counts as its own exercise.
+    // trained — so the count is over exercise identities, not rows. Which
+    // makes the identity the load-bearing part: the set's own exercise_id
+    // wins, because a swap can make two rows name the same exercise and
+    // collapse a workout that genuinely trained two. The join is the fallback
+    // for sets written before that column, and if the routine_exercise row is
+    // gone too, the row id is the only identity the set has left.
     const routineExerciseId = (set as any).routineExerciseId as string;
+    const performedExerciseId = (set as any)._raw.exercise_id as string | null;
     volume.exercises.add(
-      exerciseIdByRoutineExerciseId.get(routineExerciseId) ?? routineExerciseId
+      performedExerciseId ??
+        exerciseIdByRoutineExerciseId.get(routineExerciseId) ??
+        routineExerciseId
     );
   }
 
