@@ -1,13 +1,18 @@
 import { create } from 'zustand';
 import { Database } from '@nozbe/watermelondb';
-import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
+import { createEngine, EffectExecutors } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
-import { createSession, appendSet, getSessionSets } from '@/db/repository';
+import { createSession, appendSet, discardInProgressSession } from '@/db/repository';
 import { saveEngineState } from '@/db/engineState';
 import type { HealthKitSaveDeps } from '@/health/saveWorkout';
 import type { DebriefMode } from '@/ai/contextBuilder';
 import { planPostWorkoutDebrief } from '@/state/postWorkoutDebrief';
 import { getSettings } from '@/state/settings';
+
+// Discriminates a failed discard from an engine rejection in lastError. The
+// session screen gates its recovery copy on this exact prefix — producer,
+// consumer, and tests must all reference this constant, never a literal.
+export const DISCARD_FAILURE_PREFIX = 'discard failed: ';
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: Database | null = null;
@@ -55,6 +60,13 @@ export function createActiveSessionStore(
 ) {
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
+
+  // Queue of pending discard promises. The queue is shared across all dispatches and
+  // drained by whichever dispatch reaches the drain first. Safety comes from the rules
+  // permitting at most one in-flight discard (a second AbandonSession from idle errors),
+  // combined with the confirm dialog blocking user interaction during discard.
+  // This ensures all discard side effects are observed by the caller before dispatch returns.
+  const pendingDiscardPromises: Promise<void>[] = [];
 
   // Create executors that interact with the database
   const executors: Partial<EffectExecutors> = {
@@ -114,6 +126,15 @@ export function createActiveSessionStore(
         durationSeconds: set.durationSeconds ?? undefined,
         rpe: set.rpe ?? undefined,
       });
+    },
+
+    onDiscardSession(sessionId: string) {
+      // Abandon: delete the session and its sets outright. Sync and HealthKit
+      // are untouched here by construction — both hang off onCompleteSession,
+      // which an abandoned workout never emits.
+      const p = discardInProgressSession(database, sessionId);
+      pendingDiscardPromises.push(p);
+      return p;
     },
 
     async onScheduleRest(deadlineMs: number) {
@@ -238,8 +259,11 @@ export function createActiveSessionStore(
       // Update both the store state and the engine's internal state
       currentSessionState = state;
       engine.setState(state);
+      // Apply the same idle→null mapping as dispatch(): the store's null and the
+      // engine's idle phase represent the same state (no active workout).
+      const hasSession = state.phase !== 'idle';
       set({
-        sessionState: state,
+        sessionState: hasSession ? state : null,
         lastError: null,
       });
     },
@@ -252,28 +276,60 @@ export function createActiveSessionStore(
         // Track current state for executors
         currentSessionState = newState;
 
-        // After successful transition, save the engine state
-        // (but not if session is done — onCompleteSession clears it)
-        if (newState && newState.phase !== 'done') {
+        // Settle any pending discards from this dispatch (queued by onDiscardSession).
+        // This ensures a caller that awaits dispatch observes all side effects completed.
+        // If a discard fails, it's caught by its own try/catch below.
+        try {
+          while (pendingDiscardPromises.length > 0) {
+            const p = pendingDiscardPromises.shift()!;
+            await p;
+          }
+        } catch (drainErr) {
+          // Discard failure: roll the store FORWARD to match the engine's reality
+          // (which has transitioned to idle), rather than preserving the old in-progress
+          // state. This prevents store/engine disagreement. The error is surfaced via
+          // lastError so the UI can inform the user; the row remains on disk for later
+          // inspection and cleanup. Prefix with 'discard failed:' to discriminate from
+          // engine rejection errors (which also null sessionState but have different root causes).
+          const message = drainErr instanceof Error ? drainErr.message : String(drainErr);
+          set({
+            sessionState: null,
+            lastError: `${DISCARD_FAILURE_PREFIX}${message}`,
+          });
+          return null;
+        }
+
+        // Neither an abandoned nor a completed session has a live row to persist
+        // into: abandon deletes the row, and onCompleteSession clears the column.
+        const hasSession = newState.phase !== 'idle';
+        if (hasSession && newState.phase !== 'done') {
           await saveEngineState(database, newState.sessionId, newState);
         }
 
-        // Update store state
+        // The store's `null` and the engine's `idle` phase are one state in two
+        // encodings — no workout in progress. Abandon returns the engine to idle,
+        // and the screens gate their start/resume affordances on the null.
         set({
-          sessionState: newState,
+          sessionState: hasSession ? newState : null,
           lastError: null,
         });
 
+        // Deliberate asymmetry: successful dispatch returns the truthy idle state;
+        // failed dispatch (above) returns null. This is load-bearing for the screen's
+        // abandon confirmation logic: it distinguishes success (returns idle state)
+        // from failure (returns null). See abandonSession.integration.test.ts for the
+        // regression test that enforces this contract.
         return newState;
       } catch (err) {
-        // Handle TransitionError
+        // TransitionError from engine: preserve the prior in-progress state and surface the error.
+        // The engine rejected the event (e.g., invalid LogSet), but the session is still active
+        // and should remain visible in the store.
         const message = err instanceof Error ? err.message : String(err);
 
-        // Set error but preserve prior state
-        set((state) => ({
+        set({
           lastError: message,
-          sessionState: state.sessionState, // Keep existing state
-        }));
+          // sessionState is NOT changed here — preserved as-is
+        });
 
         return null;
       }

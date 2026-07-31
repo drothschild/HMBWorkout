@@ -45,6 +45,7 @@ export interface EffectExecutors {
   onNotify(message: string): void | Promise<void>;
   onPersistSet(set: LoggedSet): void | Promise<void>;
   onCompleteSession(summary: unknown): void | Promise<void>;
+  onDiscardSession(sessionId: string): void | Promise<void>;
 }
 
 /**
@@ -228,6 +229,15 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         console.error(`Effect executor failed for CompleteSession: ${message}`);
       }
     },
+    DiscardSession: (payload: unknown) => {
+      try {
+        const p = payload as any;
+        return executors.onDiscardSession?.(p.sessionId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Effect executor failed for DiscardSession: ${message}`);
+      }
+    },
   };
 
   // Create the initial state in Rill format
@@ -347,6 +357,11 @@ export function createEngine(executors: Partial<EffectExecutors>) {
           break;
         case 'FinishSession':
           rillEvent = { tag: 'FinishSession', value: { nowMs: e.nowMs } };
+          break;
+        case 'AbandonSession':
+          // No payload: the id of the session to discard comes from state, so
+          // the host cannot abandon a session other than the running one.
+          rillEvent = { tag: 'AbandonSession' };
           break;
         default:
           throw new Error(`Unknown event tag: ${e.tag}`);
