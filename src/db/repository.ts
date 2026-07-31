@@ -542,8 +542,13 @@ async function mapRoutineExercisesToExercises(
 /**
  * One planned exercise of a routine, paired with the sets a single session
  * actually logged against it.
+ *
+ * routineExerciseId identifies this entry (the routine_exercises row id), not
+ * exerciseId: a routine may list the same exercise more than once, so
+ * exerciseId alone cannot serve as a unique key (AGENTS.md boundary rule).
  */
 export interface SessionExerciseLogEntry {
+  routineExerciseId: string;
   exerciseId: string;
   title: string;
   order: number;
@@ -610,6 +615,7 @@ export async function getSessionExerciseLog(
     const exerciseId = raw.exercise_id as string;
 
     return {
+      routineExerciseId: (re as any).id as string,
       exerciseId,
       title: titleById.get(exerciseId) ?? exerciseId,
       order: raw.order as number,
