@@ -266,14 +266,31 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
     within-group sites: it presumes `fromIdx` is itself a group boundary (0,
     or one past a prior group's end), which is the one thing both call sites
     guarantee and a within-group hop would not. `None` means every entry from
-    `fromIdx` on plans zero sets — `advance_after_set` ends the workout, and
-    `StartSession` on an all-zero routine emits `CreateSession` **and**
-    `CompleteSession`/`Notify` in the same dispatch, so a routine that plans
-    nothing still creates a session and drives the whole completion path
-    (vault sync, HealthKit, the debrief hook) with zero logged sets. That is
-    the existing end-of-routine arm reused rather than a special case, and it
-    is the deliberate choice over erroring: a routine the athlete can build is
-    a routine the engine must start.
+    `fromIdx` on plans zero sets. In `advance_after_set` that is the ordinary
+    end of the workout — the existing end-of-routine arm, unchanged. At
+    `StartSession` it is `Err`, not a special "instant completion": emitting
+    `CreateSession` and `CompleteSession` in the same dispatch has no ordering
+    guarantee the host can honor (`activeSession.ts` swaps in the new session
+    state only after `dispatch` returns, so effects race against whatever
+    session was current a moment earlier) — an earlier version of this fix
+    tried the instant-completion arm and it either stranded the new session
+    forever on a fresh store, or, starting from `phase: Done`, re-completed
+    and re-exported to HealthKit whatever the *previous* session was. Rejecting
+    an all-zero routine outright, the same as the empty-routine guard one line
+    above, was simpler than teaching the host a new effect-ordering contract
+    for a shape a real routine should not produce anyway.
+
+    One more consequence: `landing.idx` is no longer necessarily adjacent to
+    `groupEndIdx`, so the group-exhausted branch stopped calling
+    `h.rest_duration` for its rest decision (deleted from helpers.lv — this
+    was its only caller). `rest_duration`'s "same superset" check was a label
+    comparison, sound only between genuinely adjacent entries — group labels
+    are contiguous, not routine-unique (`h.group_end_idx`'s own docstring), so
+    a landing that skips a zero-set entry can reach a *later* entry that
+    happens to reuse an earlier group's label. Landing here already proves the
+    current group is exhausted, so `currentEntry.restSeconds` applies
+    unconditionally instead — the same value `rest_duration` always resolved
+    to at this call site anyway, once nextEntry was guaranteed adjacent.
 
 ## The vault markdown contract (`src/interop`)
 

@@ -360,10 +360,15 @@ export function createSessionPresenter(
   // so the screen never renders a blank line. The starting index is not
   // hardcoded to 0: engine convention 10 has StartSession skip a leading
   // zero-set entry, so a session can legitimately begin already sitting on a
-  // later index. -1 (an all-zero routine) never equals a real exerciseIndex,
-  // which is harmless here since that case is also always phase 'done'.
-  const startingExerciseIndex =
-    sessionState.entries?.findIndex((entry) => entry.warmupSets + entry.targetSets > 0) ?? 0;
+  // later index. findIndex returns -1 when entries is empty or every entry
+  // plans zero sets — both now rejected at StartSession, so unreachable via a
+  // real session — but Math.max keeps this defensively correct (falls back
+  // to 0, matching the prior hardcoded behavior) rather than leaning on that
+  // guarantee holding forever.
+  const startingExerciseIndex = Math.max(
+    0,
+    sessionState.entries?.findIndex((entry) => entry.warmupSets + entry.targetSets > 0) ?? 0
+  );
   const atBeginning =
     sessionState.exerciseIndex === startingExerciseIndex &&
     (sessionState.loggedSets ?? []).length === 0 &&

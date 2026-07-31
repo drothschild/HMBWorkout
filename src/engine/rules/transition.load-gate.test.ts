@@ -51,7 +51,7 @@ describe('Rules load gate', () => {
     // Should have let bindings for functions
     expect(helpersSource).toContain('let phase_to_string = fn');
     expect(helpersSource).toContain('let validate_set = fn');
-    expect(helpersSource).toContain('let rest_duration = fn');
+    expect(helpersSource).toContain('let next_active_landing = fn');
 
     // Should end with trailing expression
     expect(helpersSource.trim()).toMatch(/\n0\s*$/);

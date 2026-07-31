@@ -79,7 +79,17 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
               }),
               Some(landing) -> (
                 let nextEntry = at(landing.idx, s.entries)?
-                let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
+                -- Not h.rest_duration: its "same superset" check is a label
+                -- comparison, safe only when nextEntry is truly adjacent to
+                -- currentEntry's group (group labels repeat only after a
+                -- non-adjacent gap, never within one — h.group_end_idx already
+                -- guarantees that). Landing here means the whole current
+                -- group is exhausted, so landing.idx is always past
+                -- groupEndIdx and therefore never in this group, regardless
+                -- of what label it happens to carry — currentEntry.restSeconds
+                -- applies unconditionally, the same way it would if
+                -- nextEntry's label simply didn't match.
+                let restSeconds = currentEntry.restSeconds
                 let restDeadlineMs = nowMs + restSeconds * 1000
                 let nextSupersetPosition = landing.idx - landing.groupStart
 
@@ -132,25 +142,14 @@ match event {
       -- entries[0] may itself plan zero total sets (or be the first member
       -- of a group that entirely does) — land on whatever h.next_active_landing
       -- says is actually active, same as advance_after_set's own landing sites.
+      -- A routine where NOTHING is active (every entry plans zero sets) is
+      -- rejected outright, same as an empty routine one line up: emitting
+      -- CreateSession and CompleteSession in the same dispatch has no
+      -- ordering guarantee the host can honor (effects run before the host
+      -- has swapped in the new state), so it either stranded the new session
+      -- or re-completed whatever session was current before this dispatch.
       match h.next_active_landing(entries)(0) {
-        None -> Ok({
-          state: {
-            sessionId: p.sessionId,
-            routineId: p.routine.id,
-            phase: Done,
-            exerciseIndex: 0,
-            setIndex: 0,
-            supersetPosition: 0,
-            restDeadlineMs: None,
-            restRemainingMs: None,
-            prePausePhase: None,
-            loggedSets: [],
-            lastLoggedSet: None,
-            startedAtMs: p.nowMs,
-            entries: entries
-          },
-          effects: [CreateSession({ sessionId: p.sessionId, routineId: p.routine.id, startedAtMs: p.nowMs }), CompleteSession({ summary: { startMs: p.nowMs, endMs: p.nowMs, exercisesCompleted: 0, setsLogged: 0, loggedSets: [] } }), Notify({ message: "Workout complete" })]
-        }),
+        None -> Err("routine has no entry with any sets to perform"),
         Some(landing) -> (
           let firstEntry = at(landing.idx, entries)?
           let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working

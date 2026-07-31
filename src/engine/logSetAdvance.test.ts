@@ -421,27 +421,34 @@ describe('Zero-set entries are skipped when landed on fresh, not just when loope
     expect(state.loggedSets).toHaveLength(0);
   });
 
-  it('StartSession completes immediately when every entry plans zero total sets', async () => {
+  it('StartSession rejects a routine where every entry plans zero total sets', async () => {
+    // Not the "instant completion" arm this once was: CreateSession and
+    // CompleteSession in the same dispatch has no ordering guarantee the
+    // shell can honor (the store assigns currentSessionState only after
+    // dispatch returns), so a real store either strands the new session row
+    // forever or re-completes whatever the PREVIOUS session was — including
+    // a duplicate HealthKit export. Rejecting outright, the same way an
+    // empty routine already is, avoids the hazard entirely.
     const { executors, summaries } = makeRecordingExecutors();
     const engine = createEngine(executors);
 
-    const state = await engine.dispatch({
-      tag: 'StartSession',
-      sessionId: 'session-all-zero',
-      nowMs: 1000,
-      routine: {
-        id: 'routine-all-zero',
-        entries: makeEntries(2, [
-          { warmupSets: 0, targetSets: 0, restSeconds: 60 },
-          { warmupSets: 0, targetSets: 0, restSeconds: 60 },
-        ]),
-      },
-    } as any);
+    await expect(
+      engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'session-all-zero',
+        nowMs: 1000,
+        routine: {
+          id: 'routine-all-zero',
+          entries: makeEntries(2, [
+            { warmupSets: 0, targetSets: 0, restSeconds: 60 },
+            { warmupSets: 0, targetSets: 0, restSeconds: 60 },
+          ]),
+        },
+      } as any)
+    ).rejects.toThrow(/routine has no entry with any sets to perform/);
 
-    expect(state.phase).toBe('done');
-    expect(state.loggedSets).toHaveLength(0);
-    expect(summaries).toHaveLength(1);
-    expect(summaries[0].setsLogged).toBe(0);
+    expect(executors.onCreateSession).not.toHaveBeenCalled();
+    expect(summaries).toHaveLength(0);
   });
 
   it('advance_after_set skips a standalone zero-set entry reached via the next-group branch', async () => {
@@ -505,6 +512,33 @@ describe('Zero-set entries are skipped when landed on fresh, not just when loope
     expect(state.setIndex).toBe(0);
     expect(state.supersetPosition).toBe(1);
     expect(state.loggedSets).toHaveLength(1);
+  });
+
+  it('does not drop the prescribed rest when a landing skips ahead to an entry that reuses an earlier group label', async () => {
+    // Group labels are only required to be contiguous, not unique routine-wide
+    // (h.group_end_idx already treats a non-adjacent label repeat as a new
+    // group). A landing that now skips a zero-set entry in between must not
+    // mistake that label reuse for "still the same superset" and drop the
+    // rest — entries[0] and entries[2] both use label 'A', but entries[1]
+    // (label 'B') separates them into two unrelated one-member groups.
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 60 },
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'B', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(1000)); // final (only) set of entries[0]
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+    expect(state.phase).toBe('resting');
+    expect(state.restDeadlineMs).toBe(1000 + 60 * 1000);
+    expect(executors.onScheduleRest).toHaveBeenCalledWith(61000);
   });
 });
 

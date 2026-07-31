@@ -53,21 +53,6 @@ let phase_for = fn(entry) -> fn(setIndex) -> (
   if (setIndex < entry.warmupSets) then Warmup else Working
 )
 
--- Compute prescribed rest duration based on superset groups (curried for 3 args)
-let rest_duration = fn(currentEntry) -> fn(nextEntry) -> fn(isLastExercise) -> (
-  if (isLastExercise)
-  then 0
-  else (
-    let sameSuperset = match (currentEntry.supersetGroup, nextEntry.supersetGroup) {
-      (Some(curr), Some(next)) -> curr == next,
-      _ -> false
-    }
-    if (sameSuperset)
-    then 0
-    else currentEntry.restSeconds
-  )
-)
-
 -- Last index (inclusive), starting from groupStartIdx, of the contiguous run
 -- of entries sharing `label` (interop's groupSupersets only ever collapses
 -- *adjacent* same-label lines into one group, so a group is always a
