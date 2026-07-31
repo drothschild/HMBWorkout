@@ -334,7 +334,10 @@ is now a misnomer — AI settings are in there too.
   `getExerciseWorkingSetHistory` joins by row id for pre-v3 sets (see the
   Boundaries stamp rule — stamped sets carry their own identity), so editing a
   routine never orphans logged history. An exercise the draft omits *is* deleted,
-  which is why the persona demands the full exercise list.
+  which is why the persona demands the full exercise list; that row's
+  still-unstamped sets are stamped with its outgoing `exercise_id` first, in the
+  same transaction, so dropping an exercise from the *plan* never erases what was
+  already *done*.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -467,14 +470,17 @@ is now a misnomer — AI settings are in there too.
   `getExerciseWorkingSetHistory`, `getSessionExerciseLog`,
   `getRecentSessionSummaries`, the vault export — resolves stamp-first,
   join-fallback. `updateRoutineExerciseExerciseId` is the ONLY path allowed to
-  re-point a row, and it must keep its layer-2 defense: inside the same
+  re-point a row, and the same layer-2 defense binds it and `upsertRoutine`'s
+  drop branch — the only other path that invalidates the join: inside the same
   `database.write`, stamp every attached null-stamped set with the row's outgoing
-  identity *before* re-pointing. A new reader that resolves a set's exercise
-  through the row alone reintroduces the PR #65 history-corruption bug. One
-  rendering consequence: a swapped row's sets can span two performed identities,
-  so session-detail entries key on the `(routineExerciseId, exerciseId)` pair
-  (`sessionDetailPresenter` exposes both; `workout/[id].tsx` keys on the pair),
-  not the row id alone
+  identity *before* re-pointing or destroying the row. Any future path that does
+  either owes the same stamp. `deleteRoutine` is exempt only because it
+  deliberately retains the rows as history carriers rather than destroying them.
+  A new reader that resolves a set's exercise through the row alone reintroduces
+  the PR #65 history-corruption bug. One rendering consequence: a swapped row's
+  sets can span two performed identities, so session-detail entries key on the
+  `(routineExerciseId, exerciseId)` pair (`sessionDetailPresenter` exposes both;
+  `workout/[id].tsx` keys on the pair), not the row id alone
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)
