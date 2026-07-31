@@ -398,12 +398,12 @@ describe('engine: dispatch loop with effect executors', () => {
 
   describe('state retention across phases: invalid events preserve state (M4)', () => {
     const phaseTests = [
-      { phase: 'idle' as const, validEvent: (s: any) => ({ tag: 'StartSession' as const, sessionId: 's', nowMs: 1000, routine: { id: 'r', entries: [] } }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
-      { phase: 'warmup' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
-      { phase: 'working' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
-      { phase: 'resting' as const, validEvent: (s: any) => ({ tag: 'RestElapsed' as const, nowMs: s.restDeadlineMs + 1 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
-      { phase: 'paused' as const, validEvent: (s: any) => ({ tag: 'Resume' as const, nowMs: 5000 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
-      { phase: 'done' as const, validEvent: (s: any) => undefined, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },
+      { phase: 'idle' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
+      { phase: 'warmup' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
+      { phase: 'working' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
+      { phase: 'resting' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
+      { phase: 'paused' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
+      { phase: 'done' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },
     ];
 
     for (const tc of phaseTests) {
@@ -883,6 +883,26 @@ describe('engine: leaving the stretch cool-down via StopStretching', () => {
       engine.dispatch({ tag: 'SetDone', nowMs: 5000 } as Event)
     ).rejects.toThrow(/invalid event SetDone in phase stretching/);
     expect(engine.getState().phase).toBe('stretching');
+  });
+
+  it('rejects SkipExercise while stretching — advancing exerciseIndex would strand StopStretching', async () => {
+    // Symmetry with LogSet/SetDone: the stretch cool-down must never advance
+    // the workout. On the last exercise, SkipExercise would push exerciseIndex
+    // out of range and StopStretching's at() lookup would then fail.
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 1,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    await expect(
+      engine.dispatch({ tag: 'SkipExercise' } as Event)
+    ).rejects.toThrow(/invalid event SkipExercise in phase stretching/);
+    expect(engine.getState().phase).toBe('stretching');
+    expect(engine.getState().exerciseIndex).toBe(0);
   });
 
   it('rejects LogSet while stretching — logging advances, and stretching must not', async () => {

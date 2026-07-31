@@ -1,4 +1,9 @@
-import { computeSetPrefill, createSessionPresenter, formatLoggedSetLine } from './sessionPresenter';
+import {
+  computeSetPrefill,
+  createSessionPresenter,
+  currentExerciseHasLoggedSet,
+  formatLoggedSetLine,
+} from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
 
@@ -429,6 +434,27 @@ describe('createSessionPresenter', () => {
       expect(computeSetPrefill(state)).toEqual({ reps: 12 });
     });
 
+    test('a fully-empty logged set falls through to the history/target fallbacks', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state, { reps: 5, weightLbs: 80 })).toEqual({ reps: 5, weightLbs: 80 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 8 }); // targetReps from the mock entry
+    });
+
+    test('a fully-empty duration set falls through to targetDurationSeconds', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.entries[0].targetDurationSeconds = 60;
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      expect(computeSetPrefill(state)).toEqual({ durationSeconds: 60 });
+    });
+
     test('duration entries prefill from the last in-session duration', () => {
       const state = createMockState();
       state.entries[0].kind = 'stretch';
@@ -472,19 +498,35 @@ describe('createSessionPresenter', () => {
       expect(computeSetPrefill(state)).toBeUndefined();
     });
 
-    test('is exposed on the presenter output with the history fallback applied', () => {
+    test('is not a presenter field — computeSetPrefill is the sole prefill contract', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn(async () => null));
+
+      expect(presenter).not.toHaveProperty('setPrefill');
+    });
+  });
+
+  describe('currentExerciseHasLoggedSet', () => {
+    test('true when the current exercise has an in-session set', () => {
+      // createMockState logs one warmup set for ex-1, the current exercise
+      expect(currentExerciseHasLoggedSet(createMockState())).toBe(true);
+    });
+
+    test('false when only other exercises have sets', () => {
       const state = createMockState();
-      state.loggedSets = [];
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
 
-      const presenter = createSessionPresenter(
-        state,
-        jest.fn(async () => null),
-        undefined,
-        undefined,
-        { reps: 5, weightLbs: 80 }
-      );
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
+    });
 
-      expect(presenter.setPrefill).toEqual({ reps: 5, weightLbs: 80 });
+    test('false when the exercise index is out of bounds', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5;
+
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
     });
   });
 
@@ -823,7 +865,6 @@ describe('createSessionPresenter', () => {
         jest.fn(),
         undefined,
         undefined,
-        undefined,
         display
       );
 
@@ -836,7 +877,6 @@ describe('createSessionPresenter', () => {
       const presenter = createSessionPresenter(
         createMockState(),
         jest.fn(),
-        undefined,
         undefined,
         undefined,
         display
@@ -856,7 +896,6 @@ describe('createSessionPresenter', () => {
         jest.fn(),
         undefined,
         undefined,
-        undefined,
         display
       );
 
@@ -873,7 +912,6 @@ describe('createSessionPresenter', () => {
         jest.fn(),
         undefined,
         undefined,
-        undefined,
         display
       );
 
@@ -884,7 +922,7 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      const presenter = createSessionPresenter(state, jest.fn(), undefined, undefined, undefined, {
+      const presenter = createSessionPresenter(state, jest.fn(), undefined, undefined, {
         name: 'Push Day',
         notes: null,
       });

@@ -10,6 +10,7 @@ import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSessio
 import {
   computeSetPrefill,
   createSessionPresenter,
+  currentExerciseHasLoggedSet,
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { kgToLbs } from '@/state/weightUnits';
@@ -134,9 +135,9 @@ export default function SessionScreen() {
     // Synchronous prefill first (in-session sets or targets)...
     apply(computeSetPrefill(sessionState));
 
-    // ...then upgrade with cross-session history where it applies. When the
-    // exercise already has an in-session set, computeSetPrefill ignores the
-    // fallback and re-applies identical values, so the upgrade is harmless.
+    // ...then upgrade with cross-session history where it applies. The async
+    // continuation re-reads fresh store state before applying, so a set logged
+    // while the query was in flight is never clobbered by the stale closure.
     const entry = sessionState.entries?.[sessionState.exerciseIndex];
     if (!entry || entry.kind !== 'strength') return;
 
@@ -153,7 +154,21 @@ export default function SessionScreen() {
         if (latest.weightKg != null) fallback.weightLbs = kgToLbs(latest.weightKg);
         if (fallback.reps === undefined && fallback.weightLbs === undefined) return;
 
-        apply(computeSetPrefill(sessionState, fallback));
+        // The closure's sessionState is a snapshot from when the effect ran,
+        // and dispatches during the query don't re-run this effect (deps are
+        // sessionId+exerciseIndex only). Bail unless fresh store state still
+        // matches the effect keys and the exercise has no in-session set.
+        const fresh = activeSessionStore.getState().sessionState;
+        if (
+          !fresh ||
+          fresh.sessionId !== sessionState.sessionId ||
+          fresh.exerciseIndex !== sessionState.exerciseIndex ||
+          currentExerciseHasLoggedSet(fresh)
+        ) {
+          return;
+        }
+
+        apply(computeSetPrefill(fresh, fallback));
       } catch (error) {
         // Prefill is best-effort; empty inputs are always a valid state.
         console.error('Failed to prefill from history:', error);
@@ -228,7 +243,6 @@ export default function SessionScreen() {
     dispatch,
     progressionHint,
     exerciseTitles,
-    undefined,
     routineDisplay
   );
 

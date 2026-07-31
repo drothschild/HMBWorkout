@@ -58,10 +58,6 @@ export interface SessionPresenterOutput {
   /** 0..1 fill fraction for the progress bar; 0 for an empty routine. */
   exerciseProgress: number;
 
-  // Default input values for the next set (see computeSetPrefill). Undefined
-  // when there is nothing sensible to prefill.
-  setPrefill: SetInputValues | undefined;
-
   // Set position within the current entry (one-tap logging advances on log,
   // so the screen needs to show where the workout stands). setNumber counts
   // within the warmup or working segment; 0 when there is no current entry.
@@ -115,6 +111,18 @@ export function formatLoggedSetLine(set: LoggedSet): string {
 }
 
 /**
+ * True when the current exercise already has a set logged this session
+ * (matched by exerciseId, same as computeSetPrefill). The session screen's
+ * async history-upgrade uses this on fresh store state to bail out instead
+ * of clobbering a prefill derived from a set logged while it was in flight.
+ */
+export function currentExerciseHasLoggedSet(sessionState: SessionState): boolean {
+  const entry = sessionState.entries?.[sessionState.exerciseIndex];
+  if (!entry) return false;
+  return (sessionState.loggedSets ?? []).some((set) => set.exerciseId === entry.exerciseId);
+}
+
+/**
  * Default input values for the next set of the current exercise.
  *
  * Precedence: the exercise's own last in-session set (matched by exerciseId —
@@ -156,10 +164,12 @@ export function computeSetPrefill(
         prefill.weightLbs = kgToLbs(lastMatch.weightKg);
       }
     }
-    return Object.keys(prefill).length > 0 ? prefill : undefined;
+    if (Object.keys(prefill).length > 0) return prefill;
+    // A fully-empty logged set contributed nothing; fall through to the
+    // fallbacks below rather than returning an all-undefined prefill.
   }
 
-  // First set of this exercise this session.
+  // No usable in-session set for this exercise.
   if (isDurationBased) {
     // Cross-session history is structurally unavailable here (the history
     // query returns working-type sets only), so targets are the only fallback.
@@ -188,9 +198,6 @@ export function computeSetPrefill(
  * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
  *                          Engine state carries only exercise ids (the Rill boundary strips
  *                          any extra entry fields), so titles must be looked up shell-side.
- * @param historyPrefill Optional cross-session prefill fallback resolved by the caller
- *                          (most recent working set of the current exercise); only used
- *                          when the exercise has no in-session set yet.
  * @param routineDisplay Optional routine name/description resolved by the caller
  *                          (getRoutineDisplay) — engine state carries only routineId,
  *                          so display fields must be looked up shell-side.
@@ -200,7 +207,6 @@ export function createSessionPresenter(
   dispatch: (event: Event) => Promise<SessionState | null>,
   progressionHint?: string,
   exerciseTitles?: Record<string, string>,
-  historyPrefill?: SetInputValues,
   routineDisplay?: { name: string; notes: string | null }
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
@@ -285,7 +291,6 @@ export function createSessionPresenter(
     totalExerciseCount,
     completedExerciseCount,
     exerciseProgress,
-    setPrefill: computeSetPrefill(sessionState, historyPrefill),
     isWarmupSet,
     setNumber,
     totalSetsForEntry,
