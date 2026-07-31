@@ -136,28 +136,30 @@ export function SetLogger({
         </View>
       )}
 
-      <View style={styles.inputGroup}>
-        <View style={styles.rpeHeader}>
-          <ThemedText>{currentRpe !== undefined ? `RPE: ${currentRpe}` : 'RPE (optional)'}</ThemedText>
+      {!isDurationBased && (
+        <View style={styles.inputGroup}>
+          <View style={styles.rpeHeader}>
+            <ThemedText>{currentRpe !== undefined ? `RPE: ${currentRpe}` : 'RPE (optional)'}</ThemedText>
+            {currentRpe !== undefined && (
+              <Pressable onPress={() => onRpeChange(undefined)} hitSlop={8}>
+                <ThemedText style={styles.rpeClearText}>Clear</ThemedText>
+              </Pressable>
+            )}
+          </View>
+          <Slider
+            style={styles.rpeSlider}
+            minimumValue={RPE_MIN}
+            maximumValue={RPE_MAX}
+            step={RPE_STEP}
+            value={currentRpe ?? RPE_MIN}
+            onValueChange={(value) => onRpeChange(snapRpe(value))}
+            minimumTrackTintColor="#007AFF"
+          />
           {currentRpe !== undefined && (
-            <Pressable onPress={() => onRpeChange(undefined)} hitSlop={8}>
-              <ThemedText style={styles.rpeClearText}>Clear</ThemedText>
-            </Pressable>
+            <ThemedText style={styles.rpeHintText}>{rpeHint(currentRpe)}</ThemedText>
           )}
         </View>
-        <Slider
-          style={styles.rpeSlider}
-          minimumValue={RPE_MIN}
-          maximumValue={RPE_MAX}
-          step={RPE_STEP}
-          value={currentRpe ?? RPE_MIN}
-          onValueChange={(value) => onRpeChange(snapRpe(value))}
-          minimumTrackTintColor="#007AFF"
-        />
-        {currentRpe !== undefined && (
-          <ThemedText style={styles.rpeHintText}>{rpeHint(currentRpe)}</ThemedText>
-        )}
-      </View>
+      )}
 
       {/* The one scroller on the session screen: only the current exercise's
           sets, newest first, bounded by the fixed chrome around it. */}
