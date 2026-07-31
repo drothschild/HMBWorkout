@@ -1,4 +1,4 @@
-import { SessionState } from '@/engine/types';
+import type { SessionState } from '@/engine/types';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { saveEngineState, loadActiveEngineState } from '@/db/engineState';

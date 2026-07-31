@@ -1,4 +1,6 @@
+import type { SessionState } from '@/engine/types';
 import { TodayRoutineChoice, TodayStartOptions } from './todayStartPresenter';
+import { canStartSession } from './canStartSession';
 
 /**
  * Render-branch decision for the Today screen.
@@ -22,16 +24,16 @@ export type TodayViewState =
   | { kind: 'choose-routine'; routines: TodayRoutineChoice[] };
 
 export interface TodayViewStateInput {
-  hasActiveSession: boolean;
+  sessionState: SessionState | null;
   loading: boolean;
   loadError: string | null;
   startOptions: TodayStartOptions | null;
 }
 
 export function todayViewState(input: TodayViewStateInput): TodayViewState {
-  const { hasActiveSession, loading, loadError, startOptions } = input;
+  const { sessionState, loading, loadError, startOptions } = input;
 
-  if (hasActiveSession) {
+  if (!canStartSession(sessionState)) {
     return { kind: 'resume' };
   }
 

@@ -1,6 +1,5 @@
 import { createTestDatabase } from '@/db/test-helpers';
 import { startSessionFromRoutine } from './startSessionFromRoutine';
-import { SessionState } from '@/engine/types';
 
 describe('startSessionFromRoutine', () => {
   it('builds StartSession event from a routine', async () => {

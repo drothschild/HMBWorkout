@@ -1,6 +1,6 @@
 import { createActiveSessionStore } from './activeSession';
 import type { HealthKitDeps } from './activeSession';
-import { SessionState } from '@/engine/types';
+import type { SessionState } from '@/engine/types';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession } from '@/db/repository';
 import { Database } from '@nozbe/watermelondb';

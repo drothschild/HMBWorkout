@@ -10,10 +10,12 @@ import { database } from '@/db';
 import { routineDetailPresenter, RoutineDetail } from '@/state/routineDetailPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
 import { activeSessionStore } from '@/state/activeSession';
+import { routineStartMode } from '@/state/routineStartMode';
 
 export default function RoutineDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const sessionState = activeSessionStore((state: any) => state.sessionState);
   const [routine, setRoutine] = useState<RoutineDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -43,16 +45,26 @@ export default function RoutineDetailScreen() {
     setStarting(true);
     try {
       const event = await startSessionFromRoutine(database, id, `session-${Date.now()}`);
-      await activeSessionStore.getState().dispatch(event);
+      const next = await activeSessionStore.getState().dispatch(event);
+      // dispatch returns null when the engine rejected the event or when
+      // persisting the accepted transition failed. A successful StartSession
+      // always resolves to the new in-progress state, so null here means the
+      // start did not take effect — do not navigate.
+      if (!next) {
+        setStartError('Could not start that routine. Try again, or check it still has exercises.');
+        return;
+      }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
       setStartError('Could not start that routine. Try again, or check it still has exercises.');
+    } finally {
       setStarting(false);
     }
   };
 
-  const isRoutineStartable = routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
+  const isRoutineStartable = !!routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
+  const startMode = routineStartMode({ sessionState, isRoutineStartable });
 
   if (!id || loading) {
     return (
@@ -193,19 +205,33 @@ export default function RoutineDetailScreen() {
             {startError}
           </ThemedText>
         )}
-        <Pressable
-          style={({ pressed }) => [
-            styles.startButton,
-            pressed && styles.startButtonPressed,
-            (starting || !isRoutineStartable) && styles.startButtonDisabled,
-          ]}
-          onPress={handleStartSession}
-          disabled={starting || !isRoutineStartable}
-        >
-          <ThemedText type="default" style={styles.startButtonText}>
-            {starting ? 'Starting...' : 'Start from this routine'}
-          </ThemedText>
-        </Pressable>
+        {startMode.kind === 'resume' ? (
+          // A session is already active: offering "Start from this routine" here
+          // would only be rejected by the engine, so this screen tells the truth
+          // and offers to resume instead — same destination as Today's resume.
+          <Pressable
+            style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+            onPress={() => router.push('/session')}
+          >
+            <ThemedText type="default" style={styles.startButtonText}>
+              Resume Session
+            </ThemedText>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [
+              styles.startButton,
+              pressed && styles.startButtonPressed,
+              (starting || !startMode.enabled) && styles.startButtonDisabled,
+            ]}
+            onPress={handleStartSession}
+            disabled={starting || !startMode.enabled}
+          >
+            <ThemedText type="default" style={styles.startButtonText}>
+              {starting ? 'Starting...' : 'Start from this routine'}
+            </ThemedText>
+          </Pressable>
+        )}
         <Pressable
           style={({ pressed }) => [
             styles.aiEditButton,

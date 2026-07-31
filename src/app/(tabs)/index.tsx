@@ -70,7 +70,15 @@ export default function TodayScreen() {
     setStartingId(routineId);
     try {
       const event = await startSessionFromRoutine(database, routineId, `session-${Date.now()}`);
-      await activeSessionStore.getState().dispatch(event);
+      const next = await activeSessionStore.getState().dispatch(event);
+      // dispatch returns null when the engine rejected the event or when
+      // persisting the accepted transition failed. A successful StartSession
+      // always resolves to the new in-progress state, so null here means the
+      // start did not take effect — do not navigate.
+      if (!next) {
+        setStartError('Could not start that routine. Try another one.');
+        return;
+      }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
@@ -102,7 +110,7 @@ export default function TodayScreen() {
   );
 
   const viewState = todayViewState({
-    hasActiveSession: !!sessionState,
+    sessionState,
     loading,
     loadError,
     startOptions,

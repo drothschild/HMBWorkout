@@ -1,6 +1,6 @@
 import { loadRules, RuleLoadError } from './loadRules';
 import { checkRuleSource } from 'rill-lang';
-import { SessionState } from './types';
+import type { SessionState } from './types';
 
 describe('engine: loadRules', () => {
   describe('AC10.2: Boot-time rule loading and validation', () => {
