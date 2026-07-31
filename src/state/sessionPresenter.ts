@@ -103,6 +103,18 @@ export function formatLoggedSetLine(set: LoggedSet): string {
 }
 
 /**
+ * True when the current exercise already has a set logged this session
+ * (matched by exerciseId, same as computeSetPrefill). The session screen's
+ * async history-upgrade uses this on fresh store state to bail out instead
+ * of clobbering a prefill derived from a set logged while it was in flight.
+ */
+export function currentExerciseHasLoggedSet(sessionState: SessionState): boolean {
+  const entry = sessionState.entries?.[sessionState.exerciseIndex];
+  if (!entry) return false;
+  return (sessionState.loggedSets ?? []).some((set) => set.exerciseId === entry.exerciseId);
+}
+
+/**
  * Default input values for the next set of the current exercise.
  *
  * Precedence: the exercise's own last in-session set (matched by exerciseId —

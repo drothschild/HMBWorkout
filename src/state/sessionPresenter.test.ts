@@ -1,4 +1,9 @@
-import { computeSetPrefill, createSessionPresenter, formatLoggedSetLine } from './sessionPresenter';
+import {
+  computeSetPrefill,
+  createSessionPresenter,
+  currentExerciseHasLoggedSet,
+  formatLoggedSetLine,
+} from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
 
@@ -497,6 +502,31 @@ describe('createSessionPresenter', () => {
       const presenter = createSessionPresenter(createMockState(), jest.fn(async () => null));
 
       expect(presenter).not.toHaveProperty('setPrefill');
+    });
+  });
+
+  describe('currentExerciseHasLoggedSet', () => {
+    test('true when the current exercise has an in-session set', () => {
+      // createMockState logs one warmup set for ex-1, the current exercise
+      expect(currentExerciseHasLoggedSet(createMockState())).toBe(true);
+    });
+
+    test('false when only other exercises have sets', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
+
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
+    });
+
+    test('false when the exercise index is out of bounds', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5;
+
+      expect(currentExerciseHasLoggedSet(state)).toBe(false);
     });
   });
 
