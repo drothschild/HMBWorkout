@@ -5,7 +5,7 @@
  */
 
 import { createEngine } from './index';
-import { SessionState, Event, Effect } from './types';
+import type { SessionState, Event, Effect } from './types';
 
 /**
  * Fixture helper: minimal state

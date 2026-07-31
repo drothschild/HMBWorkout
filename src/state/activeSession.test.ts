@@ -2,7 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { createSessionPresenter } from './sessionPresenter';
-import { SessionState } from '@/engine/types';
+import type { SessionState } from '@/engine/types';
 import { getSession, getSessionSets, upsertRoutineExercise } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
 

@@ -1,6 +1,6 @@
 import { createSessionPresenter } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
-import { SessionState } from '@/engine/types';
+import type { SessionState } from '@/engine/types';
 
 /**
  * Test: Session presenter logic

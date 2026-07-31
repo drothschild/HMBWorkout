@@ -1,17 +1,7 @@
 import { todayViewState, TodayViewStateInput } from './todayViewState';
-import { SessionState } from '@/engine/types';
+import { mockSessionState } from './test-utils';
 
 describe('todayViewState', () => {
-  const mockSessionState = (phase: string): SessionState => ({
-    sessionId: 'test-session',
-    routineId: 'test-routine',
-    phase: phase as any,
-    exerciseIndex: 0,
-    setIndex: 0,
-    loggedSets: [],
-    startedAtMs: 0,
-    entries: [],
-  });
 
   describe('guard precedence', () => {
     it('shows resume when sessionState is in-progress (highest priority)', () => {
@@ -202,6 +192,20 @@ describe('todayViewState', () => {
           startOptions: { kind: 'choose-routine', routines: [] },
         },
         expected: 'choose-routine',
+      },
+      {
+        // Idle phase in-store is unreachable by construction: the store maps idle→null on
+        // the sibling branch, and boot hydrate only loads non-done states. This row pins
+        // fail-closed behavior if idle ever surfaces: treat it as a session in progress
+        // (cannot start new workout during an idle session, though this should not occur).
+        name: 'idle phase (unreachable production case) blocks starting',
+        input: {
+          sessionState: mockSessionState('idle'),
+          loading: false,
+          loadError: null,
+          startOptions: { kind: 'choose-routine', routines: [] },
+        },
+        expected: 'resume',
       },
     ];
 

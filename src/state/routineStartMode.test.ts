@@ -1,17 +1,7 @@
 import { routineStartMode } from './routineStartMode';
-import { SessionState } from '@/engine/types';
+import { mockSessionState } from './test-utils';
 
 describe('routineStartMode', () => {
-  const mockSessionState = (phase: string): SessionState => ({
-    sessionId: 'test-session',
-    routineId: 'test-routine',
-    phase: phase as any,
-    exerciseIndex: 0,
-    setIndex: 0,
-    loggedSets: [],
-    startedAtMs: 0,
-    entries: [],
-  });
 
   it('resumes when a session is in-progress, even if this routine is startable', () => {
     const result = routineStartMode({ sessionState: mockSessionState('working'), isRoutineStartable: true });

@@ -70,7 +70,13 @@ export default function TodayScreen() {
     setStartingId(routineId);
     try {
       const event = await startSessionFromRoutine(database, routineId, `session-${Date.now()}`);
-      await activeSessionStore.getState().dispatch(event);
+      const next = await activeSessionStore.getState().dispatch(event);
+      // dispatch returns null on TransitionError (engine rejected the event).
+      // This is belt-and-braces: C1 fix lets Done→Idle work, but guard here anyway.
+      if (!next) {
+        setStartError('Could not start that routine. Try another one.');
+        return;
+      }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);

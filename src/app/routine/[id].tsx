@@ -43,11 +43,18 @@ export default function RoutineDetailScreen() {
     setStarting(true);
     try {
       const event = await startSessionFromRoutine(database, id, `session-${Date.now()}`);
-      await activeSessionStore.getState().dispatch(event);
+      const next = await activeSessionStore.getState().dispatch(event);
+      // dispatch returns null on TransitionError (engine rejected the event).
+      // This is belt-and-braces: C1 fix lets Done→Idle work, but guard here anyway.
+      if (!next) {
+        setStartError('Could not start that routine. Try again, or check it still has exercises.');
+        return;
+      }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
       setStartError('Could not start that routine. Try again, or check it still has exercises.');
+    } finally {
       setStarting(false);
     }
   };

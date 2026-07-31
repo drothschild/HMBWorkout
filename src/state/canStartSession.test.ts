@@ -1,18 +1,7 @@
 import { canStartSession } from './canStartSession';
-import { SessionState } from '@/engine/types';
+import { mockSessionState } from './test-utils';
 
 describe('canStartSession', () => {
-  const mockSessionState = (phase: string): SessionState => ({
-    sessionId: 'test-session',
-    routineId: 'test-routine',
-    phase: phase as any,
-    exerciseIndex: 0,
-    setIndex: 0,
-    loggedSets: [],
-    startedAtMs: 0,
-    entries: [],
-  });
-
   it('returns true when sessionState is null (no active session)', () => {
     expect(canStartSession(null)).toBe(true);
   });
