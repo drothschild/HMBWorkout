@@ -1217,13 +1217,29 @@ describe('Repository: session and set helpers', () => {
           e.kind = 'strength';
           e._raw.created_at = Date.now();
         });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = `${exerciseId}-b`;
+          e.title = 'Squat';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
       });
 
-      const routineExercise = await upsertRoutineExercise(database, routineId, {
+      // TWO routine_exercise rows (distinct exercises — upsertRoutineExercise
+      // is keyed on routine+exercise): with both orphaned, distinct-counting
+      // (2) and collapsing-all-orphans-to-one (1) become distinguishable — a
+      // single orphan cannot discriminate the semantic this test pins.
+      const routineExerciseA = await upsertRoutineExercise(database, routineId, {
         exerciseId,
         order: 0,
       });
-      const routineExerciseId = (routineExercise as any).id;
+      const routineExerciseB = await upsertRoutineExercise(database, routineId, {
+        exerciseId: `${exerciseId}-b`,
+        order: 1,
+      });
+      const routineExerciseIdA = (routineExerciseA as any).id;
+      const routineExerciseIdB = (routineExerciseB as any).id;
 
       await createSession(database, {
         sessionId: 'session-orphan-test',
@@ -1231,8 +1247,12 @@ describe('Repository: session and set helpers', () => {
         startedAtMs: JULY_29 - 3600000,
       });
 
-      // Log a set against the routine_exercise
-      await appendSet(database, 'session-orphan-test', routineExerciseId, {
+      // Log a set against each routine_exercise
+      await appendSet(database, 'session-orphan-test', routineExerciseIdA, {
+        setType: 'working',
+        reps: 8,
+      });
+      await appendSet(database, 'session-orphan-test', routineExerciseIdB, {
         setType: 'working',
         reps: 8,
       });
@@ -1245,18 +1265,21 @@ describe('Repository: session and set helpers', () => {
         });
       });
 
-      // Destroy the routine_exercise row (exercise becomes orphaned)
+      // Destroy both routine_exercise rows (both sets become orphaned)
       await database.write(async () => {
-        const re = await database.get('routine_exercises').find(routineExerciseId);
-        await re.destroyPermanently();
+        const reA = await database.get('routine_exercises').find(routineExerciseIdA);
+        await reA.destroyPermanently();
+        const reB = await database.get('routine_exercises').find(routineExerciseIdB);
+        await reB.destroyPermanently();
       });
 
       const summaries = await getRecentSessionSummaries(database, 10);
 
-      // Even though routine_exercise is gone, the set still exists and should be
-      // counted as its own distinct exercise (using routineExerciseId as residual identity)
-      expect(summaries[0].exerciseCount).toBe(1);
-      expect(summaries[0].workingSetCount).toBe(1);
+      // Each orphaned set keeps its routine_exercise id as residual identity, so
+      // the two orphans count as TWO distinct exercises. Collapsing orphans into
+      // a shared bucket would report 1 and fail here.
+      expect(summaries[0].exerciseCount).toBe(2);
+      expect(summaries[0].workingSetCount).toBe(2);
     }, 15000);
 
     it('MINOR 4: breaks tiebreak on ended_at using started_at as secondary sort', async () => {
