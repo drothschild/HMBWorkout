@@ -23,12 +23,19 @@ export interface SessionDetailSetLine {
  * twice, so exerciseId alone cannot key a React list (AGENTS.md boundary
  * rule) — see routineDetailPresenter.ts for the same convention.
  *
+ * `title`/`exerciseId` describe what the sets were *performed* as, which after
+ * a ReplaceExercise swap is not what the routine entry names today. One row can
+ * therefore carry more than one entry, so a React key must be the
+ * `(routineExerciseId, exerciseId)` pair rather than the row id alone.
+ *
  * An empty `sets` array means the exercise was planned but skipped; the
  * screen renders that state rather than omitting the exercise, matching
  * getSessionExerciseLog's own documented convention.
  */
 export interface SessionDetailExercise {
   routineExerciseId: string;
+  /** The exercise these sets were performed as. */
+  exerciseId: string;
   title: string;
   targetSets?: number;
   targetReps?: number;
@@ -45,13 +52,18 @@ export interface SessionDetail {
    *  for ended sessions before rendering this detail, per sessionHistoryPresenter convention). */
   endedAt: number | null;
   /**
-   * Planned exercises in routine order, paired with logged sets. Note that this
-   * list reflects the routine's CURRENT composition, not the session's. If an
-   * exercise was added to the routine after this session ended, it will appear
-   * here with zero logged sets. Conversely, if an exercise was removed from the
-   * routine, its logged sets will appear in otherSets instead. Full fidelity is
-   * unrecoverable because session_sets carries only routine_exercise_id, not
-   * exercise_id (routines are deletable, history is preserved).
+   * Planned exercises in routine order, paired with logged sets. The *spine* of
+   * this list is the routine's CURRENT composition, not the session's: an
+   * exercise added to the routine after this session ended appears here with
+   * zero logged sets, and one removed from the routine has its sets fall into
+   * otherSets instead.
+   *
+   * The titles, however, are the session's own: each entry is named by what its
+   * sets were performed as (session_sets.exercise_id), so a ReplaceExercise
+   * swap does not retitle finished workouts. Sets written before that column
+   * existed still resolve through the routine_exercises row, and for those the
+   * old caveat holds — a swap after the fact would have rewritten them, which
+   * is why updateRoutineExerciseExerciseId stamps them before re-pointing.
    */
   exercises: SessionDetailExercise[];
   /**
@@ -59,9 +71,13 @@ export interface SessionDetail {
    * only happens when the routine was edited (not deleted) after the
    * session ended: upsertRoutine destroys the row for any exercise a draft
    * omits, and getSessionExerciseLog silently drops sets pointing at a
-   * gone row. Exercise identity is unrecoverable once that row is gone —
-   * session_sets carries only routine_exercise_id, never exercise_id — so
-   * these render as a flat, generically-labeled list instead of being lost.
+   * gone row. These render as a flat, generically-labeled list instead of
+   * being lost.
+   *
+   * A set written before session_sets.exercise_id existed genuinely has no
+   * identity left once its row is gone. A stamped one still does — surfacing
+   * that here (titling orphans by their recorded exercise) is a worthwhile
+   * follow-up, not something this list does today.
    */
   otherSets: SessionDetailSetLine[];
 }
@@ -137,6 +153,7 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
 
     return {
       routineExerciseId: entry.routineExerciseId,
+      exerciseId: entry.exerciseId,
       title: entry.title,
       targetSets: entry.targetSets,
       targetReps: entry.targetReps,

@@ -143,7 +143,12 @@ export default function SessionDetailScreen() {
           {detail.exercises.map((exercise) => {
             const targetLabel = formatTargetLabel(exercise.targetSets, exercise.targetReps, exercise.targetDurationSeconds);
             return (
-              <View key={exercise.routineExerciseId} style={styles.exerciseSection}>
+              // The pair, not the row id alone: one routine entry can carry
+              // sets from more than one exercise once it has been swapped.
+              <View
+                key={`${exercise.routineExerciseId}:${exercise.exerciseId}`}
+                style={styles.exerciseSection}
+              >
                 <View style={styles.exerciseHeaderRow}>
                   <ThemedText type="subtitle" style={styles.exerciseName}>
                     {exercise.title}
