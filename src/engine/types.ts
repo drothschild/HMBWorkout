@@ -64,6 +64,7 @@ export type Event =
   | { tag: 'SkipExercise' }
   | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'StartStretching' }
+  | { tag: 'StopStretching' }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'FinishSession'; nowMs: number }
   | { tag: 'AbandonSession' };

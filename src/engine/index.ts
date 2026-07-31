@@ -353,6 +353,9 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'StartStretching':
           rillEvent = { tag: 'StartStretching' };
           break;
+        case 'StopStretching':
+          rillEvent = { tag: 'StopStretching' };
+          break;
         case 'Resume':
           rillEvent = { tag: 'Resume', value: { nowMs: e.nowMs } };
           break;

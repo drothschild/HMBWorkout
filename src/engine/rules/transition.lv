@@ -103,7 +103,9 @@ match event {
       })
     ),
   StartSession(p) -> Err("invalid event StartSession in phase " ++ h.phase_to_string(state.phase)),
-  LogSet(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+  -- Stretching is excluded: logging advances the workout, and the stretch
+  -- cool-down must never advance anything (exit is StopStretching).
+  LogSet(p) if state.phase != Idle && state.phase != Done && state.phase != Paused && state.phase != Stretching -> (
       let setInput = { reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe }
       let _ = h.validate_set(setInput)?
       let currentEntry = at(state.exerciseIndex, state.entries)?
@@ -126,7 +128,7 @@ match event {
       })
     ),
   LogSet(p) -> Err("invalid event LogSet in phase " ++ h.phase_to_string(state.phase)),
-  SetDone(p) if state.phase != Idle && state.phase != Done && state.phase != Paused -> (
+  SetDone(p) if state.phase != Idle && state.phase != Done && state.phase != Paused && state.phase != Stretching -> (
       advance_after_set(state)(p.nowMs)
     ),
   SetDone(p) -> Err("invalid event SetDone in phase " ++ h.phase_to_string(state.phase)),
@@ -195,6 +197,17 @@ match event {
       })
     ),
   StartStretching -> Err("invalid event StartStretching in phase " ++ h.phase_to_string(state.phase)),
+  -- Exit the cool-down where it was entered: the phase is recovered from the
+  -- position (the SkipRest/RestElapsed idiom), and the position is untouched.
+  StopStretching if state.phase == Stretching -> (
+      let currentEntry = at(state.exerciseIndex, state.entries)?
+      let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
+      Ok({
+        state: { state | phase: nextPhase },
+        effects: []
+      })
+    ),
+  StopStretching -> Err("invalid event StopStretching in phase " ++ h.phase_to_string(state.phase)),
   Resume(p) if state.phase == Paused -> (
       match state.restRemainingMs {
         Some(r) -> (
