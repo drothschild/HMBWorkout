@@ -885,6 +885,26 @@ describe('engine: leaving the stretch cool-down via StopStretching', () => {
     expect(engine.getState().phase).toBe('stretching');
   });
 
+  it('rejects SkipExercise while stretching — advancing exerciseIndex would strand StopStretching', async () => {
+    // Symmetry with LogSet/SetDone: the stretch cool-down must never advance
+    // the workout. On the last exercise, SkipExercise would push exerciseIndex
+    // out of range and StopStretching's at() lookup would then fail.
+    const engine = createEngine({});
+    engine.setState(
+      makeState({
+        phase: 'stretching',
+        setIndex: 1,
+        entries: makeRoutine(1).entries,
+      })
+    );
+
+    await expect(
+      engine.dispatch({ tag: 'SkipExercise' } as Event)
+    ).rejects.toThrow(/invalid event SkipExercise in phase stretching/);
+    expect(engine.getState().phase).toBe('stretching');
+    expect(engine.getState().exerciseIndex).toBe(0);
+  });
+
   it('rejects LogSet while stretching — logging advances, and stretching must not', async () => {
     const engine = createEngine({});
     engine.setState(
