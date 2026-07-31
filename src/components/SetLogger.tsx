@@ -105,13 +105,17 @@ export function SetLogger({
 
       {isDurationBased ? (
         <View style={styles.inputGroup}>
-          {/* Counts up so the user can see how long they actually held the
-              exercise. Its stop button writes the elapsed seconds into the
-              Duration field below; the field stays theirs to edit either way,
-              and Log Set records it through the same path as a typed value. */}
+          {/* Counts down from the entry's target duration once one is set, so
+              the user can see time remaining; entries with no target keep
+              counting up. Either way its stop button (manual, or the
+              countdown reaching 0:00 on its own) writes the elapsed seconds
+              into the Duration field below; the field stays theirs to edit
+              either way, and Log Set records it through the same path as a
+              typed value. */}
           <ExerciseStopwatch
             stopwatchKey={stopwatchKey}
             running={!presenter.isPaused}
+            targetDurationSeconds={presenter.currentEntry?.targetDurationSeconds}
             onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
           />
           <ThemedText>Duration (sec)</ThemedText>
