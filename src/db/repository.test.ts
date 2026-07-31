@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1918,6 +1918,62 @@ describe('Repository: session and set helpers', () => {
 
       expect(zeroSummaries).toEqual([]);
       expect(negativeSummaries).toEqual([]);
+    }, 15000);
+  });
+
+  describe('getRoutineDisplay', () => {
+    it('returns the routine name and notes', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Push Day';
+          r._raw.notes = 'Focus on bar speed today.';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      });
+
+      const display = await getRoutineDisplay(database, 'routine-1');
+
+      expect(display).toEqual({ name: 'Push Day', notes: 'Focus on bar speed today.' });
+    }, 15000);
+
+    it('returns null notes when the routine has none', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-2';
+          r.name = 'Pull Day';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      });
+
+      const display = await getRoutineDisplay(database, 'routine-2');
+
+      expect(display).toEqual({ name: 'Pull Day', notes: null });
+    }, 15000);
+
+    it('normalizes whitespace-only notes to null', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-3';
+          r.name = 'Leg Day';
+          // Raw write bypasses the model's trim, so the helper must normalize.
+          r._raw.notes = '   ';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      });
+
+      const display = await getRoutineDisplay(database, 'routine-3');
+
+      expect(display).toEqual({ name: 'Leg Day', notes: null });
+    }, 15000);
+
+    it('returns null when the routine does not exist', async () => {
+      const display = await getRoutineDisplay(database, 'routine-gone');
+
+      expect(display).toBeNull();
     }, 15000);
   });
 

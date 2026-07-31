@@ -811,6 +811,99 @@ describe('createSessionPresenter', () => {
     });
   });
 
+  describe('routine display', () => {
+    const display = { name: 'Push Day', notes: 'Focus on bar speed today.' };
+
+    test('exposes routine name and notes at the beginning of the workout', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        display
+      );
+
+      expect(presenter.routineName).toBe('Push Day');
+      expect(presenter.routineNotes).toBe('Focus on bar speed today.');
+    });
+
+    test('hides the notes once a set has been logged, but keeps the name', () => {
+      // createMockState carries one logged warmup set on the first exercise.
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        display
+      );
+
+      expect(presenter.routineNotes).toBeUndefined();
+      expect(presenter.routineName).toBe('Push Day');
+    });
+
+    test('hides the notes past the first exercise even with nothing logged', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        display
+      );
+
+      expect(presenter.routineNotes).toBeUndefined();
+    });
+
+    test('hides the notes when the session is done', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.phase = 'done';
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        display
+      );
+
+      expect(presenter.routineNotes).toBeUndefined();
+    });
+
+    test('maps null notes to undefined instead of rendering them', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const presenter = createSessionPresenter(state, jest.fn(), undefined, undefined, undefined, {
+        name: 'Push Day',
+        notes: null,
+      });
+
+      expect(presenter.routineName).toBe('Push Day');
+      expect(presenter.routineNotes).toBeUndefined();
+    });
+
+    test('leaves both undefined when no routine display is provided', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const presenter = createSessionPresenter(state, jest.fn());
+
+      expect(presenter.routineName).toBeUndefined();
+      expect(presenter.routineNotes).toBeUndefined();
+    });
+  });
+
   describe('exercise title resolution', () => {
     test('resolves the current exercise title from the titles map', () => {
       const presenter = createSessionPresenter(createMockState(), jest.fn(), undefined, {

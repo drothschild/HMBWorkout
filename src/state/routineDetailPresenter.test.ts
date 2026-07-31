@@ -209,6 +209,44 @@ describe('routineDetailPresenter', () => {
     });
   });
 
+  it('includes routine notes when present, and null when absent or whitespace-only', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-noted';
+        r.name = 'Deload Week';
+        r._raw.notes = 'Keep everything light; stop two reps shy of failure.';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-plain';
+        r.name = 'No Notes';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-blank';
+        r.name = 'Blank Notes';
+        // Raw write bypasses the model's trim, so the presenter must normalize.
+        r._raw.notes = '   ';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+    });
+
+    const noted = await routineDetailPresenter(db, 'routine-noted');
+    const plain = await routineDetailPresenter(db, 'routine-plain');
+    const blank = await routineDetailPresenter(db, 'routine-blank');
+
+    expect(noted!.notes).toBe('Keep everything light; stop two reps shy of failure.');
+    expect(plain!.notes).toBeNull();
+    expect(blank!.notes).toBeNull();
+  });
+
   it('exposes a distinct routineExerciseId per row when the same exercise repeats', async () => {
     const db = await createTestDatabase();
 
