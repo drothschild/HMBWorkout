@@ -48,7 +48,6 @@ export default function AiCoachScreen() {
   const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
   const startedModeRef = useRef<string | null>(null);
 
-
   // Start the conversation before paint on first mount (and whenever the params
   // name a different one). A layout effect rather than a render-body write:
   // writing the store mid-render makes React 19 log a setState-during-render
@@ -85,6 +84,9 @@ export default function AiCoachScreen() {
   const flatListRef = useRef<FlatList>(null);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
+  // Re-check the key on every focus, not just mount: the gate must lift when
+  // the user returns from Settings after adding a key (this hook was once
+  // deleted and that dead-ended the missing-key screen — keep it).
   useFocusEffect(
     useCallback(() => {
       const settings = getSettings();
