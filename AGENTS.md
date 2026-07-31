@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-29
+Last verified: 2026-07-31
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -64,17 +64,26 @@ everything else only shapes payloads and runs side effects.
 
 These exist to work around Rill's type system and have no analog in ordinary TS:
 
-1. **Uniform-record effects.** Rill's checker cannot unify a heterogeneous list, so
-   the engine emits every effect as the *same* record shape
-   `{ kind: String, deadline_ms: Int, message: String }`. The host
-   (`engine/index.ts` `mapUniformEffect`) enriches each uniform record into the typed
-   `Effect` union, pulling payloads from state. Adding an effect = add a `kind` string
-   in `transition.lv` **and** a case in `mapUniformEffect`; never widen the Rill record.
+1. **Typed effect variants, not a uniform record.** `Effect` is a tagged union
+   declared in `types.lv` — `CreateSession`, `ScheduleRest`, `CancelRest`, `Notify`,
+   `PersistSet`, `CompleteSession`, `DiscardSession` — mirrored by the TS `Effect`
+   union in `engine/types.ts`. The host (`engine/index.ts`) maps each tag to a
+   handler in the `rillExecutors` table, unpacking that variant's own payload and
+   forwarding it to the matching `EffectExecutors` method inside a try/catch so one
+   failing executor never crashes `dispatch`. Adding an effect means adding a variant
+   to `types.lv` **and** `engine/types.ts`, plus a case in `rillExecutors` — there is
+   no shared record shape left to widen. `DiscardSession` is its own variant rather
+   than a case of `CompleteSession` on purpose: `CompleteSession` is what drives
+   vault sync and the HealthKit export, so an abandoned session (`AbandonSession`)
+   must emit `DiscardSession` so the session is deleted instead of synced or
+   exported.
 
-2. **Host-appended `loggedSets`.** Rill has no list-append. The `LogSet` rule writes a
-   single `lastLoggedSet` onto the returned state; the host appends it to
-   `loggedSets` when it sees a `persist_set` effect. Do not expect the core to grow
-   the list — that is the shell's job, and it is the reason `lastLoggedSet` exists.
+2. **`transition.lv` appends to `loggedSets` itself.** Rill does have a list-append
+   builtin, and the `LogSet` rule uses it: `loggedSets: append(state.loggedSets,
+   [theSet])` on the returned state, so the host never rebuilds the list. The same
+   rule also writes `theSet` onto `lastLoggedSet`; `engine/index.ts` only carries
+   that field across the sentinel boundary (rpe -1.0 ⇄ `undefined`, etc.) — nothing
+   else in the codebase currently reads it.
 
 3. **`idx` is 0-based order, host-assigned.** Rill indexed list access uses head/tail
    recursion, so entries must carry an explicit `idx`. The host pre-indexes
@@ -175,9 +184,12 @@ misnomer — AI settings are in there too.
   `src/state/postWorkoutDebrief.ts` so they test in the node project;
   `debriefNavigation.ts` exists only to keep `expo-router` out of that file.
 - **The prompt carries data, never secrets.** `buildSystem` composes goals, equipment,
-  every routine, and working-set history (`HISTORY_SETS_PER_EXERCISE` most recent per
-  exercise, warmups excluded). `anthropicKey`/`token`/`baseUrl` must never appear — a
-  regression test in `contextBuilder.test.ts` asserts this.
+  every routine, a `## Recent Workouts` section (the last `RECENT_WORKOUTS_IN_PROMPT`
+  (10) completed sessions, one line each dated in UTC with weekday, preceded by a
+  `Today:` anchor line so the model has a recency reference point), and working-set
+  history (`HISTORY_SETS_PER_EXERCISE` most recent per exercise, warmups excluded,
+  each set dated to the UTC day it was logged). `anthropicKey`/`token`/`baseUrl` must
+  never appear — a regression test in `contextBuilder.test.ts` asserts this.
 - **A `settingsProposal` is proposed, never applied.** The model may propose new
   `aiGoals`/`aiEquipment` when the user asks, but `approveSettingsProposal` is the only
   path to `setSettings`, and it validates the proposal a second time first. Fields are
