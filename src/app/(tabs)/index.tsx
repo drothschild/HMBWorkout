@@ -1,105 +1,83 @@
-import { StyleSheet, Pressable, View } from 'react-native';
+import { StyleSheet, Pressable, FlatList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
-import { upsertRoutineExercise } from '@/db/repository';
+import {
+  todayStartPresenter,
+  TodayRoutineChoice,
+  TodayStartOptions,
+} from '@/state/todayStartPresenter';
+import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
 
 export default function TodayScreen() {
   const router = useRouter();
   const sessionState = activeSessionStore((state: any) => state.sessionState);
+  const [startOptions, setStartOptions] = useState<TodayStartOptions | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
 
-  const handleStartSession = async () => {
-    // I1a: Seed routine and routine_exercises before dispatching StartSession
-    // This ensures onPersistSet can find the routine_exercises row by (routineId, order)
-    await seedDemoRoutine();
+  // Reload on focus rather than once on mount: routines arrive from the AI
+  // Coach, the vault import, and the Routines tab, all of which the user
+  // reaches and returns from without this screen unmounting.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    // Demo routine for now (Phase 9 adds real routine import)
-    const demoRoutine = {
-      id: 'demo-routine',
-      name: 'Demo Workout',
-      entries: [
-        {
-          exerciseId: 'ex-1',
-          kind: 'strength' as const,
-          warmupSets: 1,
-          targetSets: 3,
-          targetReps: 8,
-          targetDurationSeconds: 0,
-          restSeconds: 90,
-          supersetGroup: '',
-        },
-      ],
-    };
+      todayStartPresenter(database)
+        .then((options) => {
+          if (!cancelled) setStartOptions(options);
+        })
+        .catch((error) => {
+          console.error('Failed to load routines for Today:', error);
+        });
 
-    await activeSessionStore.getState().dispatch({
-      tag: 'StartSession',
-      sessionId: `session-${Date.now()}`,
-      nowMs: Date.now(),
-      routine: demoRoutine,
-    });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
-    router.push('/session');
+  const handleStartRoutine = async (routineId: string) => {
+    setStartError(null);
+    setStartingId(routineId);
+    try {
+      const event = await startSessionFromRoutine(database, routineId, `session-${Date.now()}`);
+      await activeSessionStore.getState().dispatch(event);
+      router.push('/session');
+    } catch (error) {
+      console.error('Failed to start session:', error);
+      setStartError('Could not start that routine. Try another one.');
+    } finally {
+      setStartingId(null);
+    }
   };
 
-  /**
-   * Seed the demo routine and its exercises to the database.
-   * Ensures routine_exercises rows exist for onPersistSet to find by (routineId, order).
-   * Uses upsertRoutineExercise to idempotently create/update the routine_exercises rows.
-   */
-  async function seedDemoRoutine() {
-    try {
-      // Seed routine if it doesn't exist
-      const existingRoutine = await database.get('routines').query().fetch();
-      const demoRoutineExists = (existingRoutine as any[]).some(
-        (r: any) => r._raw.id === 'demo-routine'
-      );
-
-      if (!demoRoutineExists) {
-        await database.write(async () => {
-          await database.get('routines').create((r: any) => {
-            r._raw.id = 'demo-routine';
-            r.name = 'Demo Workout';
-            r._raw.created_at = Date.now();
-            r._raw.updated_at = Date.now();
-          });
-
-          // Create exercise if it doesn't exist
-          const exercises = await database.get('exercises').query().fetch();
-          const demoExerciseExists = (exercises as any[]).some(
-            (e: any) => e._raw.id === 'ex-1'
-          );
-          if (!demoExerciseExists) {
-            await database.get('exercises').create((e: any) => {
-              e._raw.id = 'ex-1';
-              e.title = 'Demo Exercise';
-              e.kind = 'strength';
-              e._raw.created_at = Date.now();
-            });
-          }
-        });
-      }
-
-      // Seed routine_exercises: order = idx (0-based) per engine pre-indexing
-      // Entry idx 0 maps to routine_exercises.order = 0
-      await upsertRoutineExercise(database, 'demo-routine', {
-        exerciseId: 'ex-1',
-        order: 0, // Matches entry idx
-        warmupSets: 1,
-        targetSets: 3,
-        targetReps: 8,
-        targetDurationSeconds: 0,
-        restSeconds: 90,
-      });
-    } catch (error) {
-      // Log but don't crash — if seeding fails, let the user see the error later
-      console.error('Failed to seed demo routine:', error);
-    }
-  }
+  const renderRoutine = (item: TodayRoutineChoice) => (
+    <Pressable
+      style={({ pressed }) => [
+        styles.routineItem,
+        !item.startable && styles.routineItemDisabled,
+        pressed && item.startable && styles.pressed,
+      ]}
+      onPress={() => handleStartRoutine(item.id)}
+      disabled={!item.startable || startingId !== null}
+    >
+      <ThemedText type="subtitle">{item.name}</ThemedText>
+      <ThemedText type="default" style={styles.routineDetail}>
+        {startingId === item.id
+          ? 'Starting...'
+          : item.startable
+            ? `${item.exerciseCount} exercises`
+            : 'No exercises yet'}
+      </ThemedText>
+    </Pressable>
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -110,20 +88,54 @@ export default function TodayScreen() {
           </ThemedText>
 
           {sessionState ? (
-            <View style={styles.buttonContainer}>
-              <Pressable style={[styles.button, styles.resumeButton]} onPress={() => router.push('/session')}>
+            <View style={styles.centered}>
+              <Pressable
+                style={({ pressed }) => [styles.resumeButton, pressed && styles.pressed]}
+                onPress={() => router.push('/session')}
+              >
                 <ThemedText style={styles.buttonText}>Resume Session</ThemedText>
               </Pressable>
             </View>
-          ) : (
-            <View style={styles.buttonContainer}>
-              <Pressable style={[styles.button, styles.startButton]} onPress={handleStartSession}>
-                <ThemedText style={styles.buttonText}>Start Session</ThemedText>
-              </Pressable>
-              <ThemedText type="default" style={styles.placeholder}>
-                Begin logging a new workout
-              </ThemedText>
+          ) : startOptions === null ? (
+            <View style={styles.centered}>
+              <ThemedText type="default">Loading routines...</ThemedText>
             </View>
+          ) : startOptions.kind === 'no-routines' ? (
+            <View style={styles.centered}>
+              <ThemedText type="default" style={styles.placeholder}>
+                No routines yet. Build one with the AI Coach, or import your routines from
+                the vault.
+              </ThemedText>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => router.push('/ai-coach')}
+              >
+                <ThemedText style={styles.buttonText}>AI Coach</ThemedText>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => router.navigate('/routines')}
+              >
+                <ThemedText style={styles.buttonText}>Go to Routines</ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <ThemedText type="default" style={styles.placeholder}>
+                Choose a routine to start
+              </ThemedText>
+              {startError && (
+                <ThemedText type="default" style={styles.errorText}>
+                  {startError}
+                </ThemedText>
+              )}
+              <FlatList
+                data={startOptions.routines}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => renderRoutine(item)}
+                style={styles.list}
+              />
+            </>
           )}
         </ThemedView>
       </SafeAreaView>
@@ -140,42 +152,75 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    alignItems: 'center',
     gap: Spacing.three,
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
+    width: '100%',
   },
   content: {
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    flex: 1,
+    gap: Spacing.three,
+    width: '100%',
+  },
+  centered: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    gap: Spacing.four,
+    gap: Spacing.three,
   },
   title: {
     textAlign: 'center',
   },
-  buttonContainer: {
-    alignItems: 'center',
-    gap: Spacing.three,
+  placeholder: {
+    textAlign: 'center',
+    opacity: 0.6,
   },
-  button: {
+  errorText: {
+    textAlign: 'center',
+    color: '#FF6B6B',
+  },
+  resumeButton: {
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
-  },
-  startButton: {
-    backgroundColor: '#007AFF',
-  },
-  resumeButton: {
     backgroundColor: '#34C759',
+  },
+  linkButton: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 6,
+    backgroundColor: '#208AEF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 44,
   },
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
   },
-  placeholder: {
-    textAlign: 'center',
+  pressed: {
     opacity: 0.6,
+  },
+  list: {
+    flex: 1,
+    width: '100%',
+  },
+  routineItem: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.three,
+    marginBottom: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  routineItemDisabled: {
+    opacity: 0.4,
+  },
+  routineDetail: {
+    opacity: 0.6,
+    fontSize: 12,
+    marginTop: Spacing.one,
   },
 });

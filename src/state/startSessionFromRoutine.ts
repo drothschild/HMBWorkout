@@ -10,7 +10,7 @@ import { Event, RoutineEntry, ExerciseKind } from '@/engine/types';
  * @param routineId ID of routine to start
  * @param sessionId ID for new session
  * @returns StartSession event (tag already set)
- * @throws Error if routine not found
+ * @throws Error if the routine is not found or has no exercises
  */
 export async function startSessionFromRoutine(
   db: Database,
@@ -51,6 +51,12 @@ export async function startSessionFromRoutine(
       restSeconds: re._raw.rest_seconds || 0,
       supersetGroup: re._raw.superset_group || '',
     });
+  }
+
+  // A routine with no exercises would start an empty session the user can only
+  // abandon. Refuse it here so no caller can create one, however it navigated.
+  if (entries.length === 0) {
+    throw new Error(`Cannot start session: routine ${routineId} has no exercises`);
   }
 
   return {
