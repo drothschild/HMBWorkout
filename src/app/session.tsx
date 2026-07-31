@@ -23,6 +23,28 @@ function getDatabase() {
   return database;
 }
 
+/** Render-only exercise progress bar; all numbers come from the presenter. */
+function ExerciseProgress({
+  completed,
+  total,
+  progress,
+}: {
+  completed: number;
+  total: number;
+  progress: number;
+}) {
+  return (
+    <View style={styles.progressBlock}>
+      <ThemedText style={styles.progressLabel}>
+        {`${completed} of ${total} exercises`}
+      </ThemedText>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+      </View>
+    </View>
+  );
+}
+
 /**
  * Session screen - modal route for active workout logging.
  * Pure rendering; all logic delegated to presenter.
@@ -196,6 +218,11 @@ export default function SessionScreen() {
               <ThemedText style={styles.errorText}>{lastError}</ThemedText>
             </View>
           )}
+          <ExerciseProgress
+            completed={presenter.completedExerciseCount}
+            total={presenter.totalExerciseCount}
+            progress={presenter.exerciseProgress}
+          />
           <RestCountdown
             deadlineMs={presenter.restDeadlineMs}
             frozenRemainingMs={presenter.restRemainingMs}
@@ -226,6 +253,11 @@ export default function SessionScreen() {
               <ThemedText style={styles.pauseText}>Pause</ThemedText>
             </Pressable>
           )}
+          <ExerciseProgress
+            completed={presenter.completedExerciseCount}
+            total={presenter.totalExerciseCount}
+            progress={presenter.exerciseProgress}
+          />
         </View>
 
         {lastError && (
@@ -303,6 +335,25 @@ const styles = StyleSheet.create({
   },
   pauseText: {
     color: '#FF9500',
+  },
+  progressBlock: {
+    marginTop: Spacing.two,
+  },
+  progressLabel: {
+    fontSize: 13,
+    opacity: 0.7,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#e0e0e0',
+    marginTop: Spacing.one,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34C759',
   },
   resumeText: {
     color: '#34C759',

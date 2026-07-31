@@ -32,6 +32,14 @@ export interface SessionPresenterOutput {
   // early finish reads as an informed choice. Derived here to stay jest-covered.
   finishConfirmation: { title: string; message: string };
 
+  // Exercise progress through the routine. A skipped exercise counts as
+  // completed (exerciseIndex advances on skip, so the bar tracks position);
+  // at phase done the bar reads full regardless of index.
+  totalExerciseCount: number;
+  completedExerciseCount: number;
+  /** 0..1 fill fraction for the progress bar; 0 for an empty routine. */
+  exerciseProgress: number;
+
   // Set position within the current entry (one-tap logging advances on log,
   // so the screen needs to show where the workout stands). setNumber counts
   // within the warmup or working segment; 0 when there is no current entry.
@@ -125,9 +133,20 @@ export function createSessionPresenter(
       : `Set ${setNumber} of ${currentEntry.targetSets}`
     : '';
 
+  // Exercise progress: min clamps the skip-past-the-end index (SkipExercise on
+  // the last entry), and the done override corrects for natural completion
+  // leaving exerciseIndex at length-1.
+  const totalExerciseCount = sessionState.entries?.length ?? 0;
+  const completedExerciseCount =
+    sessionState.phase === 'done'
+      ? totalExerciseCount
+      : Math.min(sessionState.exerciseIndex, totalExerciseCount);
+  const exerciseProgress =
+    totalExerciseCount > 0 ? completedExerciseCount / totalExerciseCount : 0;
+
   // Finish-confirmation copy: the engine decides which phases allow
   // FinishSession; the screen only confirms intent, with this message.
-  const totalEntries = sessionState.entries?.length ?? 0;
+  const totalEntries = totalExerciseCount;
   const remainingEntries = Math.max(0, totalEntries - sessionState.exerciseIndex);
   const loggedCount = (sessionState.loggedSets ?? []).length;
   const remainingClause =
@@ -153,6 +172,9 @@ export function createSessionPresenter(
     loggedSets: sessionState.loggedSets ?? [],
     progressionHint,
     finishConfirmation,
+    totalExerciseCount,
+    completedExerciseCount,
+    exerciseProgress,
     isWarmupSet,
     setNumber,
     totalSetsForEntry,
