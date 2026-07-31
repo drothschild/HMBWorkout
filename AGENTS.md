@@ -131,9 +131,19 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
    Rehydrating is a `hydrate` call, not a dispatch, and the boot path
    (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
-   **only when the saved phase is `paused`** — `transition.lv` accepts `Resume` in that
-   one phase and returns `Err` everywhere else, and a session killed mid-warmup or
-   mid-rest has no frozen deadline to reconcile anyway. Rejections are never silent:
+   **only when the saved phase is `paused` or `resting`** — the two phases where
+   `transition.lv` defines a meaning for it. Paused resumes into a re-armed rest when
+   one was frozen (`restRemainingMs`), otherwise back to `prePausePhase`. Resting is
+   the kill-mid-rest case: a live deadline re-emits `ScheduleRest`, an expired one gets
+   the same phase-from-position recovery `RestElapsed` would have made. That re-emit
+   leans on a shell guarantee — rest alerts schedule under a fixed OS notification
+   identifier (`REST_NOTIFICATION_ID` in `executors/restTimer.ts`), so the boot re-arm
+   *replaces* the pre-kill alert rather than double-notifying, and `CancelRest` can
+   silence an alert this process never scheduled. The pair is exhaustive by
+   construction rather than enumeration: every rule writing `restDeadlineMs: Some(...)`
+   also sets `phase: Resting`, and `PauseSession`/`StartStretching` clear it on the way
+   out — no other phase can hold a deadline to reconcile. Every other phase returns
+   `Err`, and rejections are never silent:
    any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
    `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.
    So an unconditional Resume at boot greets the user with a red banner rather than

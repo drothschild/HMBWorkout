@@ -8,9 +8,11 @@ import { NotificationAPIs } from './restTimer';
 export function createRealNotificationApis(): NotificationAPIs {
   return {
     scheduleNotificationAsync: async (payload: any) => {
-      // Payload format: { content: { title, sound }, trigger: { type: 'DATE', date } | null }
-      // Convert to expo-notifications format
+      // Payload format: { identifier?, content: { title, sound }, trigger: { type: 'DATE', date } | null }
+      // Convert to expo-notifications format. The identifier rides through so a
+      // re-schedule under the same one replaces the pending notification.
       const request: any = {
+        identifier: payload.identifier,
         content: {
           title: payload.content.title,
           sound: payload.content.sound ? true : undefined,

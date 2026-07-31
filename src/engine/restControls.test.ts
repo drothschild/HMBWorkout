@@ -225,3 +225,62 @@ describe('PauseSession during rest: freeze the remaining time', () => {
     expect(executors.onScheduleRest).not.toHaveBeenCalled();
   });
 });
+
+describe('Resume during resting: relaunch reconciliation', () => {
+  // A process kill mid-rest (not paused) rehydrates Resting with its
+  // wall-clock deadline intact but no cancelable alert in the new process.
+  // The boot rehydrate (rehydrateActiveSession) dispatches Resume for exactly
+  // this phase and Paused, so Resume is where the engine must reconcile:
+  // re-arm a live rest, recover the phase from an expired one. The UI's
+  // Resume buttons render only while paused, so this arm is boot-only.
+
+  it('should re-arm the rest alert when the deadline is still in the future', async () => {
+    const executors = makeExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({ phase: 'resting', restDeadlineMs: 10000, exerciseIndex: 1 })
+    );
+
+    const state = await engine.dispatch({ tag: 'Resume', nowMs: 4000 });
+
+    // The deadline is wall-clock, so it survives unchanged; only the alert is
+    // re-armed for the process that lost it.
+    expect(state.phase).toBe('resting');
+    expect(state.restDeadlineMs).toBe(10000);
+    expect(executors.onScheduleRest).toHaveBeenCalledWith(10000);
+  });
+
+  it('should recover to working when the deadline expired while the process was dead', async () => {
+    const executors = makeExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({ phase: 'resting', restDeadlineMs: 10000, exerciseIndex: 1 })
+    );
+
+    const state = await engine.dispatch({ tag: 'Resume', nowMs: 25000 });
+
+    expect(state.phase).toBe('working');
+    expect(state.restDeadlineMs).toBe(0); // Sentinel: no active deadline
+    expect(executors.onCancelRest).toHaveBeenCalled();
+    expect(executors.onScheduleRest).not.toHaveBeenCalled();
+  });
+
+  it('should recover to warmup when the upcoming set is still a warmup set', async () => {
+    const engine = createEngine(makeExecutors());
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 10000,
+        exerciseIndex: 0,
+        setIndex: 1,
+        entries: makeEntries(2, [{ warmupSets: 2, targetSets: 1, restSeconds: 60 }]),
+      })
+    );
+
+    // nowMs == deadline counts as elapsed, matching RestElapsed's guard.
+    const state = await engine.dispatch({ tag: 'Resume', nowMs: 10000 });
+
+    expect(state.phase).toBe('warmup');
+    expect(state.setIndex).toBe(1); // Position preserved, phase recovered from it
+  });
+});

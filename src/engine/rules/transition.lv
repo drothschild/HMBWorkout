@@ -227,6 +227,30 @@ match event {
         })
       }
     ),
+  -- A kill mid-rest (not paused) rehydrates Resting with its wall-clock
+  -- deadline intact but no cancelable alert in the new process. The boot
+  -- rehydrate (src/state/sessionRehydrate.ts) dispatches Resume for exactly
+  -- this phase and Paused, so reconcile both directions here: a live deadline
+  -- re-arms the alert (the shell's fixed notification identity makes the
+  -- re-emit replace, not duplicate, a pre-kill alert); an expired one gets
+  -- the same phase-from-position recovery RestElapsed would have made. The
+  -- UI's Resume buttons render only while paused, so this arm is boot-only.
+  Resume(p) if state.phase == Resting -> (
+      match state.restDeadlineMs {
+        Some(d) ->
+          if (p.nowMs < d)
+          then Ok({ state: state, effects: [ScheduleRest({ deadlineMs: d })] })
+          else (
+            let currentEntry = at(state.exerciseIndex, state.entries)?
+            let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
+            Ok({
+              state: { state | phase: nextPhase, restDeadlineMs: None },
+              effects: [CancelRest]
+            })
+          ),
+        None -> Ok({ state: state, effects: [] })
+      }
+    ),
   Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase)),
   FinishSession(p) if state.phase != Idle && state.phase != Done -> (
       let effects = if (state.phase == Resting)

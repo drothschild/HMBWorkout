@@ -34,8 +34,29 @@ describe('createRestTimerExecutor', () => {
     );
   });
 
-  test('cancels notification by stored id', async () => {
-    const mockSchedule = jest.fn(async () => 'stored-id-123');
+  test('schedules under a stable identifier so re-arming replaces a pending alert', async () => {
+    // A relaunch re-emits ScheduleRest for a still-live deadline while the
+    // pre-kill process's notification is still pending in the OS scheduler.
+    // The fixed identifier makes the OS replace it instead of stacking a
+    // second alert at the same deadline.
+    const mockSchedule = jest.fn(async () => 'rest-timer');
+
+    const executor = createRestTimerExecutor({
+      scheduleNotificationAsync: mockSchedule,
+      cancelScheduledNotificationAsync: jest.fn(),
+      setNotificationHandler: jest.fn(),
+      requestPermission: jest.fn(async () => 'granted'),
+    });
+
+    await executor.onScheduleRest(Date.now() + 90000);
+
+    expect(mockSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({ identifier: 'rest-timer' })
+    );
+  });
+
+  test('cancels by the stable identifier after scheduling', async () => {
+    const mockSchedule = jest.fn(async () => 'rest-timer');
     const mockCancel = jest.fn(async () => undefined);
 
     const executor = createRestTimerExecutor({
@@ -48,7 +69,25 @@ describe('createRestTimerExecutor', () => {
     await executor.onScheduleRest(Date.now() + 90000);
     await executor.onCancelRest();
 
-    expect(mockCancel).toHaveBeenCalledWith('stored-id-123');
+    expect(mockCancel).toHaveBeenCalledWith('rest-timer');
+  });
+
+  test('cancels an alert scheduled by a previous process', async () => {
+    // Relaunch: this executor never scheduled anything, but the pre-kill
+    // process's alert is still pending under the stable identifier. Skipping
+    // rest after a relaunch must still silence it.
+    const mockCancel = jest.fn(async () => undefined);
+
+    const executor = createRestTimerExecutor({
+      scheduleNotificationAsync: jest.fn(async () => 'rest-timer'),
+      cancelScheduledNotificationAsync: mockCancel,
+      setNotificationHandler: jest.fn(),
+      requestPermission: jest.fn(async () => 'granted'),
+    });
+
+    await executor.onCancelRest();
+
+    expect(mockCancel).toHaveBeenCalledWith('rest-timer');
   });
 
   test('schedules immediate notification on onNotify', async () => {
