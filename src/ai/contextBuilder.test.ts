@@ -3,8 +3,10 @@ import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, upsertExercise, upsertRoutineExercise } from '@/db/repository';
 import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
+import { OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES } from './coachDirectives';
 import {
   buildSystem,
+  directivesSections,
   RECENT_WORKOUTS_IN_PROMPT,
   type AiCoachMode,
 } from './contextBuilder';
@@ -1591,6 +1593,30 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('bridge-token-12345');
       expect(prompt).not.toContain('bridge.local');
+    }, 30000);
+  });
+
+  describe('Coach directives', () => {
+    it('ships both directive constants empty', () => {
+      expect(OVERRIDABLE_DIRECTIVES).toBe('');
+      expect(IMMUTABLE_DIRECTIVES).toBe('');
+    });
+
+    it('weaves the shipped (empty) directives into no sections at all', () => {
+      // The shipped constants must contribute nothing: no header, no blank
+      // section. This is what keeps today's composed prompt byte-identical.
+      expect(directivesSections(OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES)).toEqual(['', '']);
+    });
+
+    it('leaves the composed prompt unchanged when directives are empty', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).not.toMatch(/Coach Directives/);
+      expect(prompt).not.toMatch(/may override/i);
+      expect(prompt).not.toMatch(/precedence over ANY user preference/);
+      // An empty section must not even show up as a blank paragraph between
+      // the sections that do render.
+      expect(prompt).not.toMatch(/\n{3,}/);
     }, 30000);
   });
 });
