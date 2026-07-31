@@ -451,6 +451,19 @@ is now a misnomer — AI settings are in there too.
   `emitDecoratorMetadata`. WatermelonDB models rely on legacy decorator semantics;
   class-fields-define would shadow the `@field`/`@relation` getters and silently break
   the models. Do not "modernize" these compiler options.
+- `npx tsc --noEmit` can report a false-positive route error on a **brand-new dynamic
+  route** — e.g. an "argument of type `/workout/${string}` is not assignable to
+  parameter of type ... 52 more ..." on a correct ``router.push(`/workout/${id}`)``.
+  Expo Router's typed routes come from `.expo/types/router.d.ts`, which is gitignored
+  and regenerated per-machine by Metro only when it notices the `src/app` route tree
+  change; a checkout that hasn't run `npm start`/`npm run ios` since a new `[id].tsx`
+  route landed is still type-checking against the old route set, so a structurally
+  correct template-literal push (the established pattern — see the existing
+  `/routine/${id}` and `/exercise/${id}` pushes) gets rejected as if the route didn't
+  exist. There is no CI job running `tsc`, so this only ever surfaces locally. Before
+  changing code to chase a route-shaped tsc error, regenerate types (run the dev
+  server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
+  re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
 
 ## Structure
 

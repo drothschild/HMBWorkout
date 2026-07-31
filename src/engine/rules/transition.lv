@@ -30,6 +30,13 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
     let currentEntry = at(s.exerciseIndex, s.entries)?
     let groupStartIdx = s.exerciseIndex - s.supersetPosition
     let groupEndIdx = h.group_end_idx(s.entries)(groupStartIdx)(currentEntry.supersetGroup)
+    -- LogSet/SetDone are accepted while Resting (e.g. logging a set early
+    -- from the rest screen), so any exit that doesn't immediately schedule a
+    -- new rest must cancel the one already scheduled, or its alert outlives
+    -- the state it was scheduled for. The two ScheduleRest branches below
+    -- need no cancel first: rescheduling under the same fixed notification id
+    -- replaces the pending alert rather than doubling it (see restTimer.ts).
+    let cancelRestEffects = if (s.phase == Resting) then [CancelRest] else []
 
     match h.next_active_idx(s.entries)(s.exerciseIndex)(groupEndIdx)(s.setIndex) {
       Some(nextIdx) -> (
@@ -39,7 +46,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
         let nextEntry = at(nextIdx, s.entries)?
         Ok({
           state: { s | phase: h.phase_for(nextEntry)(s.setIndex), exerciseIndex: nextIdx, supersetPosition: nextIdx - groupStartIdx, restDeadlineMs: None },
-          effects: []
+          effects: cancelRestEffects
         })
       ),
       None -> (
@@ -64,7 +71,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
             )
             else Ok({
               state: { s | phase: h.phase_for(firstActiveEntry)(nextRound), exerciseIndex: firstActiveIdx, setIndex: nextRound, supersetPosition: firstActiveIdx - groupStartIdx, restDeadlineMs: None },
-              effects: []
+              effects: cancelRestEffects
             })
           ),
           None -> (
@@ -75,7 +82,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
             match h.next_active_landing(s.entries)(groupEndIdx + 1) {
               None -> Ok({
                 state: { s | phase: Done, restDeadlineMs: None },
-                effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: h.distinct_exercise_count(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
+                effects: append(cancelRestEffects, [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: h.distinct_exercise_count(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })])
               }),
               Some(landing) -> (
                 let nextEntry = at(landing.idx, s.entries)?
@@ -100,7 +107,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
                 })
                 else Ok({
                   state: { s | phase: h.phase_for(nextEntry)(0), exerciseIndex: landing.idx, setIndex: 0, supersetPosition: nextSupersetPosition, restDeadlineMs: None },
-                  effects: []
+                  effects: cancelRestEffects
                 })
               )
             }
