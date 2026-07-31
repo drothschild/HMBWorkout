@@ -70,10 +70,10 @@ describe('Integration: StartSession from Done phase (C1)', () => {
       undefined,
       async () => {},
       {
-        ensureAuthorized: jest.fn(async () => 'authorized'),
+        ensureAuthorized: jest.fn(async () => 'authorized' as const),
         requestAuthorization: jest.fn(async () => true),
         saveWorkoutSample: jest.fn(async () => {}),
-      } as any
+      }
     );
 
     // === First session: Start and finish ===
