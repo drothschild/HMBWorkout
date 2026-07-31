@@ -604,6 +604,108 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
     });
   });
 
+  describe('engine-written set_type values round-trip', () => {
+    // The engine logs non-strength sets with their kind as the set type
+    // (transition.lv: setType = entry.kind for stretch/cardio), so serialized
+    // sessions carry set_type=stretch and set_type=cardio.
+    const sessionRow = {
+      id: 'sess-kind-settype',
+      routineId: 'full-body',
+      startedAt: new Date('2026-07-08T10:00:00Z'),
+      endedAt: new Date('2026-07-08T10:30:00Z'),
+      createdAt: new Date('2026-07-08T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    test('a stretch set logged as set_type=stretch survives serialize → parse', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-stretch-001',
+          setType: 'stretch' as const,
+          reps: undefined,
+          weightKg: undefined,
+          distanceM: undefined,
+          durationSeconds: 30,
+          rpe: undefined,
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-stretch-001',
+          exerciseId: 'chest-stretch',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 30,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        { id: 'chest-stretch', title: 'Chest Stretch', kind: 'stretch' as const },
+      ];
+
+      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
+      const parsed = parseSession(markdown);
+
+      expect(parsed.exercises).toHaveLength(1);
+      const stretchSet = parsed.exercises[0] as WorkoutLine;
+      expect(stretchSet.setType).toBe('stretch');
+      expect(stretchSet.kind).toBe('stretch');
+      expect(stretchSet.targetDurationSeconds).toBe(30);
+    });
+
+    test('a cardio set logged as set_type=cardio survives serialize → parse', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-cardio-001',
+          setType: 'cardio' as const,
+          reps: undefined,
+          weightKg: undefined,
+          distanceM: 2500,
+          durationSeconds: 300,
+          rpe: 6,
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-cardio-001',
+          exerciseId: 'cycling',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: undefined,
+          targetReps: undefined,
+          targetDurationSeconds: 300,
+          restSeconds: undefined,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        { id: 'cycling', title: 'Cycling', kind: 'cardio' as const },
+      ];
+
+      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
+      const parsed = parseSession(markdown);
+
+      expect(parsed.exercises).toHaveLength(1);
+      const cardioSet = parsed.exercises[0] as WorkoutLine;
+      expect(cardioSet.setType).toBe('cardio');
+      expect(cardioSet.kind).toBe('cardio');
+      expect(cardioSet.targetDurationSeconds).toBe(300);
+      expect(cardioSet.distance).toBe(2500);
+      expect(cardioSet.rpe).toBe(6);
+    });
+  });
+
   describe('AC9.2: RPE round-trip', () => {
     test('preserves RPE with 0.5 steps', () => {
       const sessionRow = {
