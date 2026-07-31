@@ -1,6 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
+import Routine from './models/Routine';
 import RoutineExercise from './models/RoutineExercise';
 import { validateSet } from './validation';
 
@@ -302,12 +303,15 @@ export async function getRecentSessionSummaries(
   );
 
   const routineIds = [...new Set(sessions.map((session) => session.routineId))];
-  const routines = await database
+  const routines = (await database
     .get('routines')
     .query(Q.where('id', Q.oneOf(routineIds)))
-    .fetch();
+    .fetch()) as Routine[];
   const routineNameById = new Map<string, string>(
-    routines.map((routine) => [routine.id, (routine as any).name as string])
+    routines.map((routine) => [
+      routine.id,
+      routine.name && routine.name.trim() ? routine.name : routine.id,
+    ])
   );
 
   const volumeBySessionId = new Map<string, { exercises: Set<string>; setCount: number }>();

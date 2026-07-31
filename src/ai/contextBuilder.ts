@@ -267,9 +267,25 @@ function formatSetMetrics(set: SessionSet): string {
  * the same session for the vault: the UTC day of the timestamp. Keeping the two
  * views of one workout on the same date matters more than the local-time edge
  * it costs, where a late-evening session west of UTC reads as the next day.
+ * Accepted trade-off: a late-evening session west of UTC can collapse into the
+ * next UTC day, accepted because determinism and vault-date symmetry outweigh
+ * local-time frequency context.
  */
 function isoDate(timestampMs: number): string {
   return new Date(timestampMs).toISOString().split('T')[0];
+}
+
+/**
+ * Format a UTC date with its weekday, e.g., "2026-07-29 (Tue)".
+ * Weekdays are derived from the UTC date to maintain determinism.
+ */
+function isoDateWithWeekday(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const iso = date.toISOString();
+  const weekday = iso.split('T')[0];
+  const dayOfWeek = date.getUTCDay();
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return `${weekday} (${weekdays[dayOfWeek]})`;
 }
 
 function countOf(count: number, singular: string, plural: string): string {
@@ -280,6 +296,8 @@ function countOf(count: number, singular: string, plural: string): string {
  * When the user trained, on what, and how much of it — the cross-session view
  * the per-exercise history cannot give. One line per session and capped at
  * RECENT_WORKOUTS_IN_PROMPT, so this section has a fixed maximum size.
+ * Includes a "Today:" anchor with the current date so the model has a reference
+ * point for recency reasoning.
  */
 async function recentWorkoutsSection(db: Database): Promise<string> {
   const summaries = await getRecentSessionSummaries(db, RECENT_WORKOUTS_IN_PROMPT);
@@ -290,10 +308,14 @@ async function recentWorkoutsSection(db: Database): Promise<string> {
 No completed workouts yet.`;
   }
 
-  const lines = summaries.map(
-    (summary) =>
-      `  ${isoDate(summary.endedAtMs)} | ${summary.routineName} | ${describeSessionVolume(summary)}`
-  );
+  const today = isoDateWithWeekday(Date.now());
+  const lines = [
+    `Today: ${today}`,
+    ...summaries.map(
+      (summary) =>
+        `  ${isoDateWithWeekday(summary.endedAtMs)} | ${summary.routineName} | ${describeSessionVolume(summary)}`
+    ),
+  ];
 
   return `## Recent Workouts\n\n${lines.join('\n')}`;
 }
@@ -313,8 +335,8 @@ function describeSessionVolume(summary: RecentSessionSummary): string {
 }
 
 /**
- * The date a set was logged, or null if the record carries no usable timestamp
- * — an undated set is still worth showing, just without a date.
+ * The date a set was logged. Defensive check for null/missing timestamp;
+ * created_at is non-optional on local writes.
  */
 function loggedDate(set: SessionSet): string | null {
   const createdAtMs = (set as any)._raw.created_at;

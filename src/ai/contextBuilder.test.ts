@@ -1122,6 +1122,26 @@ describe('buildSystem: AI Coach context builder', () => {
         .filter((line) => line.trim().length > 0);
     }
 
+    it('IMPORTANT 1,2: includes "Today:" anchor with UTC date and weekday', async () => {
+      await seedSession({
+        sessionId: 'session-test',
+        routineId: 'routine-test',
+        routineName: 'Test',
+        endedAtMs: JULY_29,
+        exercises: [{ exerciseId: 'bench', title: 'Bench Press', workingSets: 1 }],
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
+
+      // Should have at least the "Today:" line
+      expect(lines.length).toBeGreaterThan(0);
+      // First line should be the "Today:" anchor
+      expect(lines[0]).toMatch(/^Today: \d{4}-\d{2}-\d{2} \([A-Z][a-z]{2}\)$/);
+      // The anchor should show today's date, not JULY_29
+      expect(lines[0]).toContain('Today:');
+    }, 30000);
+
     it('says so when nothing has been completed', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
@@ -1142,9 +1162,12 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Upper Body | 2 exercises, 7 working sets',
+      // Skip the "Today:" line and check session lines
+      const sessionLines = lines.slice(1);
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Upper Body | 2 exercises, 7 working sets',
       ]);
     }, 30000);
 
@@ -1158,9 +1181,11 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Solo | 1 exercise, 1 working set',
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Solo | 1 exercise, 1 working set',
       ]);
     }, 30000);
 
@@ -1173,9 +1198,11 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Bailed | no working sets logged',
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Bailed | no working sets logged',
       ]);
     }, 30000);
 
@@ -1194,10 +1221,12 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Upper Body | no working sets logged',
-        '  2026-07-28 | Lower Body | no working sets logged',
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Upper Body | no working sets logged',
+        '  2026-07-28 (Tue) | Lower Body | no working sets logged',
       ]);
     }, 30000);
 
@@ -1229,9 +1258,11 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | routine-gone | no working sets logged',
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | routine-gone | no working sets logged',
       ]);
     }, 30000);
 
@@ -1248,7 +1279,8 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
       const lines = recentWorkoutLines(prompt);
 
-      expect(lines).toHaveLength(RECENT_WORKOUTS_IN_PROMPT);
+      // First line is "Today:", remaining lines are sessions
+      expect(lines).toHaveLength(1 + RECENT_WORKOUTS_IN_PROMPT);
       // The (N+1)th session back is the one that must not survive the bound.
       const droppedDate = new Date(JULY_29 - RECENT_WORKOUTS_IN_PROMPT * DAY_MS)
         .toISOString()
@@ -1271,8 +1303,11 @@ describe('buildSystem: AI Coach context builder', () => {
         sessionId: 'session-done',
       });
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Upper Body | 1 exercise, 3 working sets',
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
+
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Upper Body | 1 exercise, 3 working sets',
       ]);
     }, 30000);
 
@@ -1290,8 +1325,11 @@ describe('buildSystem: AI Coach context builder', () => {
         routineId: 'routine-upper',
       });
 
-      expect(recentWorkoutLines(prompt)).toEqual([
-        '  2026-07-29 | Upper Body | 1 exercise, 3 working sets',
+      const lines = recentWorkoutLines(prompt);
+      const sessionLines = lines.slice(1);
+
+      expect(sessionLines).toEqual([
+        '  2026-07-29 (Wed) | Upper Body | 1 exercise, 3 working sets',
       ]);
     }, 30000);
   });

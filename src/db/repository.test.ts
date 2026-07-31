@@ -1094,6 +1094,27 @@ describe('Repository: session and set helpers', () => {
       expect(summaries[0].routineName).toBe('routine-gone');
     }, 15000);
 
+    it('MINOR 7: falls back to the routine id when the routine name is blank', async () => {
+      await seedSession({
+        sessionId: 'session-blank-name',
+        routineId: 'routine-blank-name',
+        routineName: 'Will Be Blanked',
+        endedAtMs: JULY_29,
+      });
+
+      // Blank the routine name
+      await database.write(async () => {
+        const routine = await database.get('routines').find('routine-blank-name');
+        await routine.update((record: any) => {
+          record.name = '';
+        });
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      expect(summaries[0].routineName).toBe('routine-blank-name');
+    }, 15000);
+
     it('counts distinct exercises and working sets, ignoring warmups', async () => {
       await seedSession({
         sessionId: 'session-volume',
@@ -1176,6 +1197,126 @@ describe('Repository: session and set helpers', () => {
 
       expect(summaries[0].exerciseCount).toBe(0);
       expect(summaries[0].workingSetCount).toBe(0);
+    }, 15000);
+
+    it('IMPORTANT 3: counts orphaned routine_exercise as its own distinct exercise', async () => {
+      const routineId = 'routine-orphan-test';
+      const exerciseId = 'exercise-orphan-test';
+
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Orphan Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      const routineExercise = await upsertRoutineExercise(database, routineId, {
+        exerciseId,
+        order: 0,
+      });
+      const routineExerciseId = (routineExercise as any).id;
+
+      await createSession(database, {
+        sessionId: 'session-orphan-test',
+        routineId,
+        startedAtMs: JULY_29 - 3600000,
+      });
+
+      // Log a set against the routine_exercise
+      await appendSet(database, 'session-orphan-test', routineExerciseId, {
+        setType: 'working',
+        reps: 8,
+      });
+
+      // End the session
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-orphan-test');
+        await session.update((record: any) => {
+          record._raw.ended_at = JULY_29;
+        });
+      });
+
+      // Destroy the routine_exercise row (exercise becomes orphaned)
+      await database.write(async () => {
+        const re = await database.get('routine_exercises').find(routineExerciseId);
+        await re.destroyPermanently();
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      // Even though routine_exercise is gone, the set still exists and should be
+      // counted as its own distinct exercise (using routineExerciseId as residual identity)
+      expect(summaries[0].exerciseCount).toBe(1);
+      expect(summaries[0].workingSetCount).toBe(1);
+    }, 15000);
+
+    it('MINOR 4: breaks tiebreak on ended_at using started_at as secondary sort', async () => {
+      // Two sessions ending at exactly the same time, but different start times
+      const sharedEndTime = JULY_29;
+      const startTime1 = sharedEndTime - 7200000; // 2 hours before end
+      const startTime2 = sharedEndTime - 3600000; // 1 hour before end
+
+      // Seed them out of chronological order to verify they're sorted by start time
+      // when both ended at the same time
+      await database.write(async () => {
+        const sessionsTable = database.get('sessions');
+        const routinesTable = database.get('routines');
+
+        // Create the routine first
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-tie';
+          r.name = 'Tiebreak Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        // Seed session 1 (earlier start)
+        await sessionsTable.create((s: any) => {
+          s._raw.id = 'session-tie-1';
+          s._raw.routine_id = 'routine-tie';
+          s._raw.started_at = startTime1;
+          s._raw.ended_at = sharedEndTime;
+        });
+
+        // Seed session 2 (later start) - inserted first to verify ordering works
+        await sessionsTable.create((s: any) => {
+          s._raw.id = 'session-tie-2';
+          s._raw.routine_id = 'routine-tie';
+          s._raw.started_at = startTime2;
+          s._raw.ended_at = sharedEndTime;
+        });
+      });
+
+      const summaries = await getRecentSessionSummaries(database, 10);
+
+      // Should be ordered by started_at descending: session 2 (later start) first
+      expect(summaries.map((s) => s.sessionId)).toEqual([
+        'session-tie-2',
+        'session-tie-1',
+      ]);
+    }, 15000);
+
+    it('MINOR 5: returns empty array when limit is zero or negative', async () => {
+      await seedSession({
+        sessionId: 'session-1',
+        routineId: 'routine-a',
+        endedAtMs: JULY_29,
+      });
+
+      const zeroSummaries = await getRecentSessionSummaries(database, 0);
+      const negativeSummaries = await getRecentSessionSummaries(database, -5);
+
+      expect(zeroSummaries).toEqual([]);
+      expect(negativeSummaries).toEqual([]);
     }, 15000);
   });
 });
