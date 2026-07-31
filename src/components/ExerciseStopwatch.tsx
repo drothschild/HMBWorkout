@@ -30,8 +30,10 @@ interface ExerciseStopwatchProps {
   /**
    * The stop button's recorded exercise time, in whole seconds. Fires at most
    * once per run — the caller writes it into the Duration field, which Log Set
-   * then records through the ordinary path. A stop during the lead-in reports
-   * nothing at all rather than a 0 that would clobber the prefilled target.
+   * then records through the ordinary path. A stop before the first whole
+   * second of exercise time has elapsed (anywhere in the lead-in or the first
+   * running second) reports nothing at all rather than a 0 that would clobber
+   * the prefilled target.
    */
   onStop?: (elapsedSeconds: number) => void;
 }

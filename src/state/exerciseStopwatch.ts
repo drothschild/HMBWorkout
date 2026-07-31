@@ -66,7 +66,11 @@ export interface StopwatchView {
   remainingLeadInSeconds: number;
   /** Whole seconds of exercise time, excluding the lead-in; 0 during it. */
   elapsedSeconds: number;
-  /** Lead-in renders as a bare count ("5"); the running clock as "m:ss". */
+  /**
+   * Lead-in renders as a bare count ("5"); the running clock as "m:ss"; a
+   * stop that recorded nothing renders "—" so the card never asserts a
+   * duration it did not record.
+   */
   display: string;
   /** Heading above the clock — 'Starting in', 'Elapsed', 'Paused', 'Stopped'. */
   label: string;

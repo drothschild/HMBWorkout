@@ -537,6 +537,14 @@ describe('advanceStopwatch — stop records the elapsed time', () => {
     expect(stopped.recordedSeconds).toBeUndefined();
     expect(stopped.view?.display).toBe('—');
   });
+
+  test('stopping at the first whole second of exercise time records 1', () => {
+    // The 0→1 transition is where the record guard lives: one second past the
+    // lead-in boundary is the earliest stop that writes anything.
+    const stopped = at(LEAD_IN_SECONDS * 1000 + 1000, armed(), true, 'stop');
+    expect(stopped.recordedSeconds).toBe(1);
+    expect(stopped.view?.display).toBe('0:01');
+  });
 });
 
 describe('advanceStopwatch — control availability and label', () => {
