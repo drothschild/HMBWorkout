@@ -499,6 +499,36 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingDraft).toBeNull();
     });
 
+    it('a new draft can be accepted after a successful accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draftA: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'first', draft: draftA });
+      await store.getState().send('create');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-1');
+      await store.getState().acceptDraft();
+
+      const draftB: RoutineDraft = {
+        name: 'Routine B',
+        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'second', draft: draftB });
+      await store.getState().send('another');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
+      expect(fakeAccept).toHaveBeenLastCalledWith({}, draftB, { kind: 'create' });
+    });
+
     it('send during in-flight retry is a no-op', async () => {
       const { store, fakeChat } = makeStore();
 
@@ -624,6 +654,31 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingDraft).toBeNull();
 
       await expect(store.getState().acceptDraft()).rejects.toThrow('No pending draft to accept');
+    });
+
+    it('accept can be retried after a failed accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+
+      fakeAccept.mockRejectedValueOnce(new Error('db write failed'));
+      await expect(store.getState().acceptDraft()).rejects.toThrow('db write failed');
+
+      // The draft survives the failure and a second accept goes through.
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
     });
   });
 
