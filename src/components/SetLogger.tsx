@@ -24,6 +24,15 @@ interface SetLoggerProps {
   onWeightTextChange: (text: string) => void;
   onRpeChange: (rpe: number | undefined) => void;
   onDurationTextChange: (text: string) => void;
+  /** Hidden without a configured Anthropic key — see exerciseQuestionStore.ts. */
+  showQuestionButton?: boolean;
+  /** True while the "?" answer block is expanded for the current exercise. */
+  questionExpanded?: boolean;
+  /** The fetched answer, or null while pending/absent. Render-only — never persisted. */
+  questionText?: string | null;
+  /** True while the one-shot answer is being fetched. */
+  questionPending?: boolean;
+  onToggleQuestion?: () => void;
 }
 
 export function SetLogger({
@@ -36,6 +45,11 @@ export function SetLogger({
   onWeightTextChange,
   onRpeChange,
   onDurationTextChange,
+  showQuestionButton,
+  questionExpanded,
+  questionText,
+  questionPending,
+  onToggleQuestion,
 }: SetLoggerProps) {
   const theme = useTheme();
   // TextInput is not a Themed* component, so its text and border colors must
@@ -89,9 +103,42 @@ export function SetLogger({
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText style={styles.exerciseTitle}>
-        {presenter.currentExerciseTitle || 'Exercise'}
-      </ThemedText>
+      <View style={styles.exerciseTitleRow}>
+        <ThemedText style={styles.exerciseTitle}>
+          {presenter.currentExerciseTitle || 'Exercise'}
+        </ThemedText>
+        {showQuestionButton && (
+          <Pressable
+            style={[styles.questionButton, { borderColor: theme.text }]}
+            onPress={onToggleQuestion}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Ask about this exercise"
+          >
+            <ThemedText style={styles.questionButtonText}>?</ThemedText>
+          </Pressable>
+        )}
+      </View>
+
+      {questionExpanded && (questionPending || questionText) && (
+        <View style={[styles.questionAnswer, { borderColor: theme.backgroundSelected }]}>
+          <ScrollView
+            scrollEnabled={true}
+            style={styles.questionAnswerScroll}
+            contentContainerStyle={styles.questionAnswerContent}
+          >
+            {questionPending ? (
+              <ThemedText type="small" style={styles.questionPendingText}>
+                Loading…
+              </ThemedText>
+            ) : (
+              <ThemedText type="small" style={styles.questionAnswerText}>
+                {questionText}
+              </ThemedText>
+            )}
+          </ScrollView>
+        </View>
+      )}
 
       {presenter.setPositionLabel !== '' && (
         <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
@@ -105,13 +152,17 @@ export function SetLogger({
 
       {isDurationBased ? (
         <View style={styles.inputGroup}>
-          {/* Counts up so the user can see how long they actually held the
-              exercise. Its stop button writes the elapsed seconds into the
-              Duration field below; the field stays theirs to edit either way,
-              and Log Set records it through the same path as a typed value. */}
+          {/* Counts down from the entry's target duration once one is set, so
+              the user can see time remaining; entries with no target keep
+              counting up. Either way its stop button (manual, or the
+              countdown reaching 0:00 on its own) writes the elapsed seconds
+              into the Duration field below; the field stays theirs to edit
+              either way, and Log Set records it through the same path as a
+              typed value. */}
           <ExerciseStopwatch
             stopwatchKey={stopwatchKey}
             running={!presenter.isPaused}
+            targetDurationSeconds={presenter.currentEntry?.targetDurationSeconds}
             onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
           />
           <ThemedText>Duration (sec)</ThemedText>
@@ -248,10 +299,51 @@ const styles = StyleSheet.create({
     // The screen already pads horizontally; extra padding here would double up
     flex: 1,
   },
+  exerciseTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   exerciseTitle: {
+    flexShrink: 1,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '600',
+  },
+  questionButton: {
+    // borderColor is theme-resolved inline
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: Spacing.two,
+  },
+  questionButtonText: {
+    fontWeight: '600',
+  },
+  questionAnswer: {
+    // borderColor is theme-resolved inline
+    marginTop: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 4,
+  },
+  questionAnswerScroll: {
+    // The height bound lives on the scroller, NOT as flex/maxHeight on the
+    // wrapper: flex:1 inside an auto-height parent collapses to 0 in Yoga,
+    // and a wrapper maxHeight is only a ceiling, never a height source.
+    maxHeight: 220,
+  },
+  questionAnswerContent: {
+    padding: Spacing.two,
+  },
+  questionPendingText: {
+    opacity: 0.7,
+  },
+  questionAnswerText: {
+    opacity: 0.85,
+    lineHeight: 20,
   },
   setPositionText: {
     marginTop: Spacing.one,

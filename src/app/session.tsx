@@ -16,6 +16,8 @@ import {
 } from '@/state/sessionPresenter';
 import { formatSetInputValue } from '@/state/setInputs';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
+import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasAnthropicKey } from '@/state/exerciseQuestionStore';
+import { getSettings } from '@/state/settings';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -84,6 +86,10 @@ export default function SessionScreen() {
   const restCommentary = restCommentaryStore((state) => state.text);
   const restCommentaryPending = restCommentaryStore((state) => state.pending);
   const restCommentaryAttempted = restCommentaryStore((state) => state.attempted);
+
+  const questionExpandedKey = exerciseQuestionStore((state) => state.expandedKey);
+  const questionText = exerciseQuestionStore((state) => state.text);
+  const questionPending = exerciseQuestionStore((state) => state.pending);
 
   // Compute progression hint when exercise changes
   useEffect(() => {
@@ -287,6 +293,26 @@ export default function SessionScreen() {
     };
   }, []);
 
+  // Exercise-question "?" button: tap-to-expand detailed how-to for the
+  // current exercise (see exerciseQuestionStore.ts). The store owns the
+  // ephemeral cache and fetch; this only derives which entry the button
+  // currently applies to and collapses the block whenever that changes —
+  // never on every render, only on an actual exercise change or unmount.
+  const questionTarget = exerciseQuestionTarget(sessionState, exerciseTitles);
+  const questionKey = questionTarget ? exerciseQuestionKey(questionTarget) : null;
+  const isQuestionExpanded = questionKey !== null && questionExpandedKey === questionKey;
+  // Non-reactive read: the button is hidden if no key is set at this moment, but
+  // adding a key mid-session won't reveal it until an unrelated re-render happens.
+  // This is accepted behavior — the primary flow is to configure the key before starting.
+  const canAskQuestion = questionTarget !== null && hasAnthropicKey(getSettings());
+
+  useEffect(() => {
+    return () => {
+      exerciseQuestionStore.getState().collapse();
+    };
+    // Primitive dep on purpose (see the effects above).
+  }, [questionKey]);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -467,6 +493,15 @@ export default function SessionScreen() {
                 onWeightTextChange={setWeightText}
                 onRpeChange={setCurrentRpe}
                 onDurationTextChange={setDurationText}
+                showQuestionButton={canAskQuestion}
+                questionExpanded={isQuestionExpanded}
+                questionText={questionText}
+                questionPending={questionPending}
+                onToggleQuestion={() => {
+                  if (questionTarget) {
+                    exerciseQuestionStore.getState().toggle(questionTarget).catch(() => {});
+                  }
+                }}
               />
             )}
           </View>
