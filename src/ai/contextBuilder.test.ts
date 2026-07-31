@@ -5,7 +5,6 @@ import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/set
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 import {
   buildSystem,
-  directivesSections,
   RECENT_WORKOUTS_IN_PROMPT,
   type AiCoachMode,
 } from './contextBuilder';
@@ -1667,19 +1666,51 @@ describe('buildSystem: AI Coach context builder', () => {
         expect(prompt).not.toMatch(/\n{3,}/);
       }, 30000);
 
-      it('catches placement bugs by detecting section order changes', async () => {
-        const prompt = await buildSystem(database, { kind: 'create' }, {
-          overridable: '- OVERRIDABLE_MARKER',
-          immutable: '- IMMUTABLE_MARKER',
+      it('ends with immutable directives in debrief mode, after the workout addendum', async () => {
+        // Debrief appends the most user-authored text (routine name, exercise
+        // titles) after everything else — the immutable section must still land
+        // last, or the anti-injection ordering silently breaks for this mode.
+        await database.write(async () => {
+          await database.get('routines').create((r: any) => {
+            r._raw.id = 'routine-place-debrief';
+            r.name = 'Placement Day';
+            r.created_at = Date.now();
+            r.updated_at = Date.now();
+          });
+          await database.get('exercises').create((e: any) => {
+            e._raw.id = 'exercise-place-bench';
+            e.title = 'Bench Press';
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        });
+        const re = await upsertRoutineExercise(database, 'routine-place-debrief', {
+          exerciseId: 'exercise-place-bench',
+          order: 0,
+          targetSets: 3,
+          targetReps: 8,
+        });
+        await createSession(database, {
+          sessionId: 'session-place-debrief',
+          routineId: 'routine-place-debrief',
+          startedAtMs: Date.now() - 3600000,
+        });
+        await appendSet(database, 'session-place-debrief', (re as any).id, {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
         });
 
-        const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
-        const goalsIdx = prompt.indexOf('## User Goals');
-        const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+        const prompt = await buildSystem(
+          database,
+          { kind: 'debrief', routineId: 'routine-place-debrief', sessionId: 'session-place-debrief' },
+          { overridable: '', immutable: '- IMMUTABLE_MARKER' }
+        );
 
-        // The invariant: overridable < goals < immutable
-        expect(overridableIdx).toBeLessThan(goalsIdx);
-        expect(goalsIdx).toBeLessThan(immutableIdx);
+        expect(prompt.indexOf('Bench Press')).toBeLessThan(
+          prompt.indexOf('## Coach Directives (Non-Negotiable)')
+        );
+        expect(prompt.trimEnd().endsWith('- IMMUTABLE_MARKER')).toBe(true);
       }, 30000);
     });
   });
