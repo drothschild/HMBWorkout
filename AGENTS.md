@@ -255,6 +255,11 @@ misnomer — AI settings are in there too.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
+- A routine may list the same exercise more than once, so a routine *entry* is
+  identified by its `routine_exercises` row id, never by `exercise_id` — React list
+  keys, logged-set attribution (`session_sets.routine_exercise_id`), and
+  `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
+  therefore surface it (`ExerciseDetail.routineExerciseId`)
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
