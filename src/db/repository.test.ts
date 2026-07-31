@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine, deleteSession } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -333,6 +333,285 @@ describe('Repository: session and set helpers', () => {
         'cannot delete session session-does-not-exist: not found'
       );
     }, 10000);
+  });
+
+  describe('deleteRoutine', () => {
+    const setupRoutineWithExercise = async (options: {
+      routineId: string;
+      exerciseId: string;
+      routineExerciseId: string;
+    }) => {
+      const { routineId, exerciseId, routineExerciseId } = options;
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = routineExerciseId;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseId;
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+    };
+
+    const endSession = async (sessionId: string) => {
+      await database.write(async () => {
+        const session = await database.get('sessions').find(sessionId);
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+    };
+
+    const markSessionSynced = async (sessionId: string) => {
+      await database.write(async () => {
+        const session = await database.get('sessions').find(sessionId);
+        await (session as any).update((record: any) => {
+          record._raw.sync_status = 'synced';
+        });
+      });
+    };
+
+    it('deletes the routine but retains routine_exercises as history carriers', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-1',
+        exerciseId: 'exercise-del-1',
+        routineExerciseId: 'routine-exercise-del-1',
+      });
+
+      await deleteRoutine(database, 'routine-del-1');
+
+      await expect(database.get('routines').find('routine-del-1')).rejects.toThrow();
+
+      // routine_exercises are retained (not deleted) to preserve session_set history
+      const remainingRoutineExercises = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', 'routine-del-1'))
+        .fetch();
+      expect(remainingRoutineExercises).toHaveLength(1);
+    }, 15000);
+
+    it('does not delete the shared exercise', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-2',
+        exerciseId: 'exercise-del-2',
+        routineExerciseId: 'routine-exercise-del-2',
+      });
+
+      await deleteRoutine(database, 'routine-del-2');
+
+      const exercise = await database.get('exercises').find('exercise-del-2');
+      expect(exercise).toBeDefined();
+    }, 15000);
+
+    it('leaves other routines and their routine_exercise rows untouched', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-3a',
+        exerciseId: 'exercise-del-3',
+        routineExerciseId: 'routine-exercise-del-3a',
+      });
+
+      // A second routine sharing the same exercise.
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-del-3b';
+          r.name = 'Other Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-del-3b';
+          re._raw.routine_id = 'routine-del-3b';
+          re._raw.exercise_id = 'exercise-del-3';
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      await deleteRoutine(database, 'routine-del-3a');
+
+      const survivorRoutine = await database.get('routines').find('routine-del-3b');
+      expect(survivorRoutine).toBeDefined();
+
+      const survivorRoutineExercises = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', 'routine-del-3b'))
+        .fetch();
+      expect(survivorRoutineExercises).toHaveLength(1);
+    }, 15000);
+
+    it('leaves referencing sessions intact when deletion is allowed', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-4',
+        exerciseId: 'exercise-del-4',
+        routineExerciseId: 'routine-exercise-del-4',
+      });
+
+      await createSession(database, {
+        sessionId: 'session-del-4',
+        routineId: 'routine-del-4',
+        startedAtMs: Date.now() - 60000,
+      });
+      await endSession('session-del-4');
+      await markSessionSynced('session-del-4');
+
+      await deleteRoutine(database, 'routine-del-4');
+
+      const survivorSession = await getSession(database, 'session-del-4');
+      expect(survivorSession).toBeDefined();
+      expect((survivorSession as any).customSyncStatus).toBe('synced');
+    }, 15000);
+
+    it('allows deletion when every referencing session is already synced', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-5',
+        exerciseId: 'exercise-del-5',
+        routineExerciseId: 'routine-exercise-del-5',
+      });
+
+      await createSession(database, {
+        sessionId: 'session-del-5',
+        routineId: 'routine-del-5',
+        startedAtMs: Date.now() - 60000,
+      });
+      await endSession('session-del-5');
+      await markSessionSynced('session-del-5');
+
+      await deleteRoutine(database, 'routine-del-5');
+
+      await expect(database.get('routines').find('routine-del-5')).rejects.toThrow();
+    }, 15000);
+
+    it('blocks deletion when a local unsynced finished session references the routine, and deletes nothing', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-6',
+        exerciseId: 'exercise-del-6',
+        routineExerciseId: 'routine-exercise-del-6',
+      });
+
+      await createSession(database, {
+        sessionId: 'session-del-6',
+        routineId: 'routine-del-6',
+        startedAtMs: Date.now() - 60000,
+      });
+      await endSession('session-del-6');
+      // customSyncStatus defaults to 'local' from createSession and is never flipped.
+
+      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
+        RoutineHasUnsyncedSessionsError
+      );
+      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
+        'cannot delete routine routine-del-6: unsynced sessions reference it'
+      );
+
+      const routine = await database.get('routines').find('routine-del-6');
+      expect(routine).toBeDefined();
+
+      const routineExercises = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', 'routine-del-6'))
+        .fetch();
+      expect(routineExercises).toHaveLength(1);
+    }, 15000);
+
+    it('blocks deletion when an in-progress session references the routine', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-del-7',
+        exerciseId: 'exercise-del-7',
+        routineExerciseId: 'routine-exercise-del-7',
+      });
+
+      await createSession(database, {
+        sessionId: 'session-del-7',
+        routineId: 'routine-del-7',
+        startedAtMs: Date.now() - 60000,
+      });
+      // Not ended: still in progress. sync_status defaults to 'local'.
+
+      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
+        RoutineHasUnsyncedSessionsError
+      );
+      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
+        'cannot delete routine routine-del-7: unsynced sessions reference it'
+      );
+
+      const routine = await database.get('routines').find('routine-del-7');
+      expect(routine).toBeDefined();
+    }, 15000);
+
+    it('throws when the routine does not exist', async () => {
+      await expect(deleteRoutine(database, 'routine-does-not-exist')).rejects.toThrow(
+        'cannot delete routine routine-does-not-exist: not found'
+      );
+    }, 10000);
+
+    it('retains working-set history after the routine is deleted', async () => {
+      await setupRoutineWithExercise({
+        routineId: 'routine-history-test',
+        exerciseId: 'exercise-history-test',
+        routineExerciseId: 'routine-exercise-history-test',
+      });
+
+      // Create and complete a session
+      await createSession(database, {
+        sessionId: 'session-history-test',
+        routineId: 'routine-history-test',
+        startedAtMs: Date.now() - 60000,
+      });
+
+      // Log a working set
+      await appendSet(database, 'session-history-test', 'routine-exercise-history-test', {
+        setType: 'working',
+        reps: 10,
+        weightKg: 100,
+      });
+
+      // End and sync the session
+      await endSession('session-history-test');
+      await markSessionSynced('session-history-test');
+
+      // Get history before deletion to verify it exists
+      const historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
+      expect(historyBefore).toHaveLength(1);
+
+      // Delete the routine
+      await deleteRoutine(database, 'routine-history-test');
+
+      // History should still be accessible after routine deletion
+      const historyAfter = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
+      expect(historyAfter).toHaveLength(1);
+
+      // Verify the routine_exercises rows still exist (not deleted)
+      const routineExercises = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', 'routine-history-test'))
+        .fetch();
+      expect(routineExercises).toHaveLength(1);
+
+      // Verify the session_sets rows still exist
+      const sets = await getSessionSets(database, 'session-history-test');
+      expect(sets).toHaveLength(1);
+    }, 15000);
   });
 
   describe('upsertRoutineExercise and getSupersetGroups', () => {
