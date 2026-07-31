@@ -86,20 +86,29 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    else in the codebase currently reads it.
 
 3. **`idx` is 0-based order, host-assigned.** Rill indexed list access uses head/tail
-   recursion, so entries must carry an explicit `idx`. The host pre-indexes
-   `routine.entries` (`idx = array position`) inside `dispatch` before handing the
-   event to Rill. Callers pass routines *without* `idx`; never author `idx` by hand.
+   recursion, so entries must carry an explicit `idx`. Rill's own `RoutineEntry`
+   alias (`types.lv`) has no `idx` field — `toRillRoutineEntry` strips it before an
+   entry crosses into Rill — so the host supplies it on both sides of a `dispatch`
+   call: `fromRillState` re-derives `idx` as array position after every transition
+   returns (`entries.map((entry, idx) => ({ idx, ... }))`), and, going the other way,
+   `startSessionFromRoutine.ts` assigns `idx: re._raw.order` — the DB's canonical
+   0-based order, not a loop counter — when building a `StartSession` event's
+   `routine.entries`, so it matches `routine_exercises.order` for `onPersistSet`'s
+   later lookup. Callers pass routines *without* `idx`; never author `idx` by hand.
 
 4. **Rules are inlined, not module-loaded.** `.lv` files are imported as strings
    (babel inline-import). Metro's transform cache keys on the *importing* TS file,
    not the `.lv` content — after editing any `.lv` file, restart Metro with
    `npx expo start --clear` or modules that inline the same rules can end up with
    mixed old/new copies (e.g. `loadRules.ts` validating different sources than
-   `engine/index.ts` executes). `loadRules.ts` splices `validate_set`/`rest_duration` helper
-   bodies into `transition` as let-bindings to build `transitionCompositeSource`.
-   `loadRules()` (type-check gate) must run from the boot effect in `_layout.tsx`,
-   **not** at module-init — a module-init throw crashes before the RuleErrorScreen can
-   render. Keep it that way.
+   `engine/index.ts` executes, since each file has its own `import ... from
+   './rules/*.lv'` statements). `loadRules()` type-checks the bundled rules
+   directly — `checkRuleSource(transitionSource, { resolve })`, where `resolve`
+   serves the same inlined `types.lv`/`helpers.lv`/`transition.lv` sources
+   `engine/index.ts` uses — it does not assemble or splice rule text together.
+   `loadRules()` (the type-check gate) must run from the boot effect in
+   `_layout.tsx`, **not** at module-init — a module-init throw crashes before the
+   RuleErrorScreen can render. Keep it that way.
 
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
