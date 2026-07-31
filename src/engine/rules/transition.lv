@@ -76,6 +76,29 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
     )
   )
 
+-- Wall-clock reconciliation of an in-flight rest, for the arms that find
+-- Resting with a deadline of unknown freshness (boot Resume, foreground
+-- AppForegrounded) so the recovery paths can never disagree. A live deadline
+-- re-arms the alert — the shell's fixed notification identity makes the
+-- re-emit replace, not duplicate, a pending alert; an expired one gets the
+-- same phase-from-position recovery RestElapsed would have made.
+let reconcile_resting_deadline = fn(s) -> fn(nowMs) -> (
+    match s.restDeadlineMs {
+      Some(d) ->
+        if (nowMs < d)
+        then Ok({ state: s, effects: [ScheduleRest({ deadlineMs: d })] })
+        else (
+          let currentEntry = at(s.exerciseIndex, s.entries)?
+          let nextPhase = if (s.setIndex < currentEntry.warmupSets) then Warmup else Working
+          Ok({
+            state: { s | phase: nextPhase, restDeadlineMs: None },
+            effects: [CancelRest]
+          })
+        ),
+      None -> Ok({ state: s, effects: [] })
+    }
+  )
+
 match event {
   -- Accept StartSession from Idle (no prior session) or Done (terminal residue can be replaced).
   -- A finished session is inert data already persisted; starting a new one replaces it completely.
@@ -147,6 +170,14 @@ match event {
         })
       )
     ),
+  -- A straggler timer tick for a rest that no longer exists: the session
+  -- screen's countdown dispatches RestElapsed from a closure with a local
+  -- latch, so on foreground its pending tick and AppForegrounded's
+  -- reconciliation land in unspecified order — whichever arrives second must
+  -- not turn an already-recovered phase into an error banner. Benign only in
+  -- the two phases that recovery lands in; anywhere else RestElapsed still
+  -- signals a bug and errs.
+  RestElapsed(p) if state.phase == Warmup || state.phase == Working -> Ok({ state: state, effects: [] }),
   RestElapsed(p) -> Err("invalid event RestElapsed in phase " ++ h.phase_to_string(state.phase)),
   SkipRest if state.phase == Resting -> (
       let currentEntry = at(state.exerciseIndex, state.entries)?
@@ -272,28 +303,22 @@ match event {
   -- A kill mid-rest (not paused) rehydrates Resting with its wall-clock
   -- deadline intact but no cancelable alert in the new process. The boot
   -- rehydrate (src/state/sessionRehydrate.ts) dispatches Resume for exactly
-  -- this phase and Paused, so reconcile both directions here: a live deadline
-  -- re-arms the alert (the shell's fixed notification identity makes the
-  -- re-emit replace, not duplicate, a pre-kill alert); an expired one gets
-  -- the same phase-from-position recovery RestElapsed would have made. The
-  -- UI's Resume buttons render only while paused, so this arm is boot-only.
-  Resume(p) if state.phase == Resting -> (
-      match state.restDeadlineMs {
-        Some(d) ->
-          if (p.nowMs < d)
-          then Ok({ state: state, effects: [ScheduleRest({ deadlineMs: d })] })
-          else (
-            let currentEntry = at(state.exerciseIndex, state.entries)?
-            let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
-            Ok({
-              state: { state | phase: nextPhase, restDeadlineMs: None },
-              effects: [CancelRest]
-            })
-          ),
-        None -> Ok({ state: state, effects: [] })
-      }
-    ),
+  -- this phase and Paused, and the shared reconciliation covers both
+  -- directions: re-arm a live deadline, recover an expired one. The UI's
+  -- Resume buttons render only while paused, so this arm is boot-only —
+  -- the same recovery on OS foreground is AppForegrounded's Resting arm.
+  Resume(p) if state.phase == Resting -> reconcile_resting_deadline(state)(p.nowMs),
   Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase)),
+  -- Foreground reconciliation: the shell dispatches AppForegrounded blind on
+  -- every OS foreground with a workout in progress
+  -- (src/state/foregroundReconcile.ts). A shell-side phase gate would read
+  -- the store's asynchronously-updated view and race the session screen's own
+  -- dispatches, so the engine — whose transitions apply synchronously — makes
+  -- the whole decision here: mid-rest, reconcile the wall-clock deadline;
+  -- every other phase is a benign no-op. Paused stays paused on purpose —
+  -- foregrounding the app is not the user asking to resume (contrast Resume).
+  AppForegrounded(p) if state.phase == Resting -> reconcile_resting_deadline(state)(p.nowMs),
+  AppForegrounded(p) -> Ok({ state: state, effects: [] }),
   FinishSession(p) if state.phase != Idle && state.phase != Done -> (
       let effects = if (state.phase == Resting)
         then [CancelRest, CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: state.exerciseIndex, setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]

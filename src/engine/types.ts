@@ -71,6 +71,7 @@ export type Event =
   | { tag: 'StartStretching' }
   | { tag: 'StopStretching' }
   | { tag: 'Resume'; nowMs: number }
+  | { tag: 'AppForegrounded'; nowMs: number }
   | { tag: 'FinishSession'; nowMs: number }
   | { tag: 'AbandonSession' };
 

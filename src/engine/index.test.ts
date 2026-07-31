@@ -399,8 +399,10 @@ describe('engine: dispatch loop with effect executors', () => {
   describe('state retention across phases: invalid events preserve state (M4)', () => {
     const phaseTests = [
       { phase: 'idle' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
-      { phase: 'warmup' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
-      { phase: 'working' as const, invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
+      // Not RestElapsed here: a straggler rest tick is benign in warmup/working
+      // (see appForegrounded.test.ts), so it no longer represents an invalid event.
+      { phase: 'warmup' as const, invalidEvent: () => ({ tag: 'StopStretching' as const }), description: 'warmup' },
+      { phase: 'working' as const, invalidEvent: () => ({ tag: 'StopStretching' as const }), description: 'working' },
       { phase: 'resting' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
       { phase: 'paused' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
       { phase: 'done' as const, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },

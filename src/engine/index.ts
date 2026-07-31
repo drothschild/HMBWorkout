@@ -365,6 +365,9 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'Resume':
           rillEvent = { tag: 'Resume', value: { nowMs: e.nowMs } };
           break;
+        case 'AppForegrounded':
+          rillEvent = { tag: 'AppForegrounded', value: { nowMs: e.nowMs } };
+          break;
         case 'FinishSession':
           rillEvent = { tag: 'FinishSession', value: { nowMs: e.nowMs } };
           break;
