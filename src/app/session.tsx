@@ -12,6 +12,7 @@ import {
   createSessionPresenter,
   SetInputValues,
 } from '@/state/sessionPresenter';
+import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
@@ -122,7 +123,7 @@ export default function SessionScreen() {
 
     const apply = (prefill: SetInputValues | undefined) => {
       setCurrentReps(prefill?.reps);
-      setCurrentWeight(prefill?.weightKg);
+      setCurrentWeight(prefill?.weightLbs);
       setCurrentDuration(prefill?.durationSeconds);
       setCurrentRpe(undefined);
     };
@@ -145,8 +146,9 @@ export default function SessionScreen() {
 
         const fallback: SetInputValues = {};
         if (latest.reps != null) fallback.reps = latest.reps;
-        if (latest.weightKg != null) fallback.weightKg = latest.weightKg;
-        if (fallback.reps === undefined && fallback.weightKg === undefined) return;
+        // Stored kg converts to display lbs on the way into the input
+        if (latest.weightKg != null) fallback.weightLbs = kgToLbs(latest.weightKg);
+        if (fallback.reps === undefined && fallback.weightLbs === undefined) return;
 
         apply(computeSetPrefill(sessionState, fallback));
       } catch (error) {

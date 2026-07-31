@@ -110,7 +110,7 @@ export function SetLogger({
           </View>
 
           <View style={styles.inputGroup}>
-            <ThemedText>Weight (kg)</ThemedText>
+            <ThemedText>Weight (lbs)</ThemedText>
             <TextInput
               style={styles.input}
               placeholder="Weight"
@@ -164,7 +164,8 @@ export function SetLogger({
             const values: any = {};
             if (!isDurationBased) {
               if (currentReps !== undefined) values.reps = currentReps;
-              if (currentWeight !== undefined) values.weightKg = currentWeight;
+              // Display unit: the presenter converts lbs to canonical kg
+              if (currentWeight !== undefined) values.weightLbs = currentWeight;
             } else {
               if (currentDuration !== undefined) values.durationSeconds = currentDuration;
             }

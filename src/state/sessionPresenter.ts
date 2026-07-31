@@ -1,4 +1,5 @@
 import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
+import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 
 /**
  * Session presenter - pure functions for session UI logic.
@@ -7,7 +8,8 @@ import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
  */
 export interface SetInputValues {
   reps?: number;
-  weightKg?: number;
+  /** Display unit: the weight input carries lbs; kg stays canonical past the presenter. */
+  weightLbs?: number;
   rpe?: number;
   durationSeconds?: number;
 }
@@ -82,11 +84,11 @@ export function formatLoggedSetLine(set: LoggedSet): string {
       parts.push(`${set.durationSeconds}s`);
     }
   } else if (set.reps != null && set.weightKg != null) {
-    parts.push(`${set.reps} x ${set.weightKg}kg`);
+    parts.push(`${set.reps} x ${formatWeightLbs(set.weightKg)}`);
   } else if (set.reps != null) {
     parts.push(`${set.reps} reps`);
   } else if (set.weightKg != null) {
-    parts.push(`${set.weightKg}kg`);
+    parts.push(formatWeightLbs(set.weightKg));
   }
 
   if (set.rpe != null && set.rpe !== -1) {
@@ -134,7 +136,9 @@ export function computeSetPrefill(
       }
     } else {
       if (lastMatch.reps != null && lastMatch.reps > 0) prefill.reps = lastMatch.reps;
-      if (lastMatch.weightKg != null && lastMatch.weightKg > 0) prefill.weightKg = lastMatch.weightKg;
+      if (lastMatch.weightKg != null && lastMatch.weightKg > 0) {
+        prefill.weightLbs = kgToLbs(lastMatch.weightKg);
+      }
     }
     return Object.keys(prefill).length > 0 ? prefill : undefined;
   }
@@ -151,8 +155,8 @@ export function computeSetPrefill(
     if (historyFallback.reps != null && historyFallback.reps > 0) {
       prefill.reps = historyFallback.reps;
     }
-    if (historyFallback.weightKg != null && historyFallback.weightKg > 0) {
-      prefill.weightKg = historyFallback.weightKg;
+    if (historyFallback.weightLbs != null && historyFallback.weightLbs > 0) {
+      prefill.weightLbs = historyFallback.weightLbs;
     }
     if (Object.keys(prefill).length > 0) return prefill;
   }
@@ -164,7 +168,7 @@ export function computeSetPrefill(
  * Pure function - no hooks, no side effects, fully testable.
  *
  * @param progressionHint Optional progression hint (computed by store via progression_hint rule).
- *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 2.5 kg").
+ *                          Phase 4 Task 3: display-only hint for strength exercises (e.g., "Increase weight by 5 lbs").
  * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
  *                          Engine state carries only exercise ids (the Rill boundary strips
  *                          any extra entry fields), so titles must be looked up shell-side.
@@ -257,7 +261,8 @@ export function createSessionPresenter(
       dispatch({
         tag: 'LogSet',
         reps: values.reps,
-        weightKg: values.weightKg,
+        // The input carries display lbs; the engine, DB, and vault stay kg
+        weightKg: values.weightLbs !== undefined ? lbsToKg(values.weightLbs) : undefined,
         rpe: values.rpe,
         durationSeconds: values.durationSeconds,
         nowMs: Date.now(),
