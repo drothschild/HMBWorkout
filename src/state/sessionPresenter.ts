@@ -26,6 +26,14 @@ export interface SessionPresenterOutput {
   restDeadlineMs: number | undefined;
   restRemainingMs: number | undefined;
   loggedSets: LoggedSet[];
+  // The current exercise's sets only, newest first, for the session screen's
+  // internally-scrolling list (the fixed chrome must fit a phone screen).
+  // Matched by exerciseId — a routine listing the same exercise twice merges
+  // both entries' sets here, since the engine's LoggedSet carries no entry row
+  // id; that matches how progression hints already key on exerciseId.
+  currentExerciseLoggedSets: LoggedSet[];
+  /** Total sets logged this session across all exercises. */
+  loggedSetCount: number;
   progressionHint: string | undefined;
 
   // Copy for the finish-confirmation dialog. Finishing is irreversible (it
@@ -245,6 +253,10 @@ export function createSessionPresenter(
     restDeadlineMs,
     restRemainingMs,
     loggedSets: sessionState.loggedSets ?? [],
+    currentExerciseLoggedSets: (sessionState.loggedSets ?? [])
+      .filter((set) => set.exerciseId === currentExerciseId)
+      .reverse(),
+    loggedSetCount: (sessionState.loggedSets ?? []).length,
     progressionHint,
     finishConfirmation,
     totalExerciseCount,

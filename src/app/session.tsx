@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Alert, StyleSheet, View, Pressable, ScrollView } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, StyleSheet, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -294,75 +294,89 @@ export default function SessionScreen() {
     );
   }
 
+  // Fixed column, no whole-screen scrolling: the only scroller is the
+  // logged-set list inside SetLogger. Without the outer ScrollView the
+  // KeyboardAvoidingView is mandatory or the keyboard covers the inputs.
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <ThemedText type="title">Active Session</ThemedText>
-          <ThemedText type="default">{presenter.phase}</ThemedText>
-          {presenter.isPaused && (
-            <Pressable onPress={() => presenter.onResume()}>
-              <ThemedText style={styles.resumeText}>Resume</ThemedText>
-            </Pressable>
-          )}
-          {!presenter.isPaused && presenter.phase !== 'done' && (
-            <Pressable onPress={() => presenter.onPause()}>
-              <ThemedText style={styles.pauseText}>Pause</ThemedText>
-            </Pressable>
-          )}
-          <ExerciseProgress
-            completed={presenter.completedExerciseCount}
-            total={presenter.totalExerciseCount}
-            progress={presenter.exerciseProgress}
-          />
-        </View>
-
-        {lastError && (
-          <View style={styles.errorBanner}>
-            <ThemedText style={styles.errorText}>{lastError}</ThemedText>
-          </View>
-        )}
-
-        <ScrollView style={styles.content}>
-          {presenter.phase !== 'done' && (
-            <SetLogger
-              presenter={presenter}
-              currentReps={currentReps}
-              currentWeight={currentWeight}
-              currentRpe={currentRpe}
-              currentDuration={currentDuration}
-              onRepsChange={setCurrentReps}
-              onWeightChange={setCurrentWeight}
-              onRpeChange={setCurrentRpe}
-              onDurationChange={setCurrentDuration}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <ThemedText type="smallBold">Active Session</ThemedText>
+              <View style={styles.headerControls}>
+                <ThemedText type="small" style={styles.phaseText}>
+                  {presenter.phase}
+                </ThemedText>
+                {presenter.isPaused && (
+                  <Pressable onPress={() => presenter.onResume()}>
+                    <ThemedText style={styles.resumeText}>Resume</ThemedText>
+                  </Pressable>
+                )}
+                {!presenter.isPaused && presenter.phase !== 'done' && (
+                  <Pressable onPress={() => presenter.onPause()}>
+                    <ThemedText style={styles.pauseText}>Pause</ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+            <ExerciseProgress
+              completed={presenter.completedExerciseCount}
+              total={presenter.totalExerciseCount}
+              progress={presenter.exerciseProgress}
             />
-          )}
-        </ScrollView>
+          </View>
 
-        <View style={styles.footer}>
-          {presenter.phase === 'done' ? (
-            <Pressable
-              style={[styles.button, styles.finishButton]}
-              onPress={() => {
-                router.back();
-              }}
-            >
-              <ThemedText style={styles.buttonText}>Close</ThemedText>
-            </Pressable>
-          ) : (
-            <>
+          {lastError && (
+            <View style={styles.errorBanner}>
+              <ThemedText style={styles.errorText}>{lastError}</ThemedText>
+            </View>
+          )}
+
+          <View style={styles.content}>
+            {presenter.phase !== 'done' && (
+              <SetLogger
+                presenter={presenter}
+                currentReps={currentReps}
+                currentWeight={currentWeight}
+                currentRpe={currentRpe}
+                currentDuration={currentDuration}
+                onRepsChange={setCurrentReps}
+                onWeightChange={setCurrentWeight}
+                onRpeChange={setCurrentRpe}
+                onDurationChange={setCurrentDuration}
+              />
+            )}
+          </View>
+
+          <View style={styles.footer}>
+            {presenter.phase === 'done' ? (
               <Pressable
                 style={[styles.button, styles.finishButton]}
-                onPress={confirmFinish}
+                onPress={() => {
+                  router.back();
+                }}
               >
-                <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                <ThemedText style={styles.buttonText}>Close</ThemedText>
               </Pressable>
-              <Pressable style={styles.button} onPress={confirmAbandon}>
-                <ThemedText style={styles.abandonText}>Abandon workout</ThemedText>
-              </Pressable>
-            </>
-          )}
-        </View>
+            ) : (
+              <View style={styles.footerRow}>
+                <Pressable
+                  style={[styles.button, styles.finishButton, styles.footerButton]}
+                  onPress={confirmFinish}
+                >
+                  <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                </Pressable>
+                <Pressable style={[styles.button, styles.footerButton]} onPress={confirmAbandon}>
+                  <ThemedText style={styles.abandonText}>Abandon</ThemedText>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -376,10 +390,26 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing.three,
   },
+  flex: {
+    flex: 1,
+  },
   header: {
-    paddingVertical: Spacing.three,
+    paddingVertical: Spacing.two,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  phaseText: {
+    opacity: 0.7,
   },
   errorBanner: {
     backgroundColor: '#FF3B30',
@@ -417,12 +447,19 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginVertical: Spacing.three,
+    marginVertical: Spacing.two,
   },
   footer: {
-    paddingVertical: Spacing.three,
+    paddingVertical: Spacing.two,
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
+  },
+  footerRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  footerButton: {
+    flex: 1,
   },
   button: {
     paddingVertical: Spacing.two,

@@ -37,13 +37,13 @@ export function SetLogger({
   if (presenter.isStretching) {
     return (
       <ThemedView style={styles.container}>
-        <ThemedText type="subtitle">Stretching</ThemedText>
+        <ThemedText style={styles.exerciseTitle}>Stretching</ThemedText>
         <ThemedText style={styles.stretchingHint}>
           Take your time — the workout is paused where you left it.
         </ThemedText>
 
         <ScrollView style={styles.loggedSets}>
-          <ThemedText type="subtitle">Logged Sets</ThemedText>
+          <ThemedText type="smallBold">{`Logged sets (${presenter.loggedSetCount})`}</ThemedText>
           {presenter.loggedSets.map((set, idx) => (
             <View key={idx} style={styles.setRow}>
               <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
@@ -65,7 +65,7 @@ export function SetLogger({
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="subtitle">
+      <ThemedText style={styles.exerciseTitle}>
         {presenter.currentExerciseTitle || 'Exercise'}
       </ThemedText>
 
@@ -94,8 +94,9 @@ export function SetLogger({
           />
         </View>
       ) : (
-        <>
-          <View style={styles.inputGroup}>
+        // Side-by-side to keep the fixed chrome inside one phone screen
+        <View style={styles.inputRow}>
+          <View style={[styles.inputGroup, styles.inputRowItem]}>
             <ThemedText>Reps</ThemedText>
             <TextInput
               style={styles.input}
@@ -109,7 +110,7 @@ export function SetLogger({
             />
           </View>
 
-          <View style={styles.inputGroup}>
+          <View style={[styles.inputGroup, styles.inputRowItem]}>
             <ThemedText>Weight (lbs)</ThemedText>
             <TextInput
               style={styles.input}
@@ -122,7 +123,7 @@ export function SetLogger({
               }}
             />
           </View>
-        </>
+        </View>
       )}
 
       <View style={styles.inputGroup}>
@@ -148,9 +149,13 @@ export function SetLogger({
         )}
       </View>
 
+      {/* The one scroller on the session screen: only the current exercise's
+          sets, newest first, bounded by the fixed chrome around it. */}
       <ScrollView style={styles.loggedSets}>
-        <ThemedText type="subtitle">Logged Sets</ThemedText>
-        {presenter.loggedSets.map((set, idx) => (
+        <ThemedText type="smallBold">
+          {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
+        </ThemedText>
+        {presenter.currentExerciseLoggedSets.map((set, idx) => (
           <View key={idx} style={styles.setRow}>
             <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
           </View>
@@ -158,37 +163,50 @@ export function SetLogger({
       </ScrollView>
 
       <View style={styles.buttonGroup}>
-        <Pressable
-          style={[styles.button, styles.primaryButton]}
-          onPress={() => {
-            const values: any = {};
-            if (!isDurationBased) {
-              if (currentReps !== undefined) values.reps = currentReps;
-              // Display unit: the presenter converts lbs to canonical kg
-              if (currentWeight !== undefined) values.weightLbs = currentWeight;
-            } else {
-              if (currentDuration !== undefined) values.durationSeconds = currentDuration;
-            }
-            if (currentRpe !== undefined && currentRpe > 0) values.rpe = currentRpe;
-            presenter.onLogSet(values);
-          }}
-        >
-          <ThemedText style={styles.buttonText}>Log Set</ThemedText>
-        </Pressable>
-
-        <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipSet()}>
-          <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
-        </Pressable>
-
-        <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipExercise()}>
-          <ThemedText style={styles.buttonText}>Skip Exercise</ThemedText>
-        </Pressable>
-
-        {(presenter.phase === 'working' || presenter.phase === 'resting') && (
-          <Pressable style={[styles.button, styles.successButton]} onPress={() => presenter.onStartStretching()}>
-            <ThemedText style={styles.buttonText}>Stretch</ThemedText>
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[styles.button, styles.primaryButton, styles.rowButton]}
+            onPress={() => {
+              const values: any = {};
+              if (!isDurationBased) {
+                if (currentReps !== undefined) values.reps = currentReps;
+                // Display unit: the presenter converts lbs to canonical kg
+                if (currentWeight !== undefined) values.weightLbs = currentWeight;
+              } else {
+                if (currentDuration !== undefined) values.durationSeconds = currentDuration;
+              }
+              if (currentRpe !== undefined && currentRpe > 0) values.rpe = currentRpe;
+              presenter.onLogSet(values);
+            }}
+          >
+            <ThemedText style={styles.buttonText}>Log Set</ThemedText>
           </Pressable>
-        )}
+
+          <Pressable
+            style={[styles.button, styles.warningButton, styles.rowButton]}
+            onPress={() => presenter.onSkipSet()}
+          >
+            <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
+          </Pressable>
+        </View>
+
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={[styles.button, styles.warningButton, styles.rowButton]}
+            onPress={() => presenter.onSkipExercise()}
+          >
+            <ThemedText style={styles.buttonText}>Skip Exercise</ThemedText>
+          </Pressable>
+
+          {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+            <Pressable
+              style={[styles.button, styles.successButton, styles.rowButton]}
+              onPress={() => presenter.onStartStretching()}
+            >
+              <ThemedText style={styles.buttonText}>Stretch</ThemedText>
+            </Pressable>
+          )}
+        </View>
       </View>
     </ThemedView>
   );
@@ -196,8 +214,13 @@ export function SetLogger({
 
 const styles = StyleSheet.create({
   container: {
+    // The screen already pads horizontally; extra padding here would double up
     flex: 1,
-    padding: Spacing.three,
+  },
+  exerciseTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '600',
   },
   setPositionText: {
     marginTop: Spacing.one,
@@ -219,8 +242,15 @@ const styles = StyleSheet.create({
     color: '#1565C0',
     fontWeight: '500',
   },
+  inputRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  inputRowItem: {
+    flex: 1,
+  },
   inputGroup: {
-    marginVertical: Spacing.two,
+    marginVertical: Spacing.one,
   },
   input: {
     borderWidth: 1,
@@ -248,7 +278,7 @@ const styles = StyleSheet.create({
   },
   loggedSets: {
     flex: 1,
-    marginVertical: Spacing.three,
+    marginVertical: Spacing.two,
   },
   setRow: {
     paddingVertical: Spacing.one,
@@ -257,7 +287,14 @@ const styles = StyleSheet.create({
   },
   buttonGroup: {
     gap: Spacing.two,
-    marginTop: Spacing.three,
+    marginTop: Spacing.two,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  rowButton: {
+    flex: 1,
   },
   button: {
     paddingVertical: Spacing.two,
