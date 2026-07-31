@@ -152,4 +152,26 @@ describe('buildLogSetValues', () => {
     });
     expect(zeroRpe).toEqual({ reps: 5 });
   });
+
+  test('duration-based sets never carry rpe, even when a value is present (stretches/cardio have no RPE)', () => {
+    const values = buildLogSetValues({
+      isDurationBased: true,
+      repsText: '',
+      weightText: '',
+      durationText: '30',
+      rpe: 8.5,
+    });
+    expect(values).toEqual({ durationSeconds: 30 });
+  });
+
+  test('strength sets still carry rpe unchanged (regression guard alongside the duration-based strip)', () => {
+    const values = buildLogSetValues({
+      isDurationBased: false,
+      repsText: '5',
+      weightText: '100',
+      durationText: '',
+      rpe: 7,
+    });
+    expect(values).toEqual({ reps: 5, weightLbs: 100, rpe: 7 });
+  });
 });
