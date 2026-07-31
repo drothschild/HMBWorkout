@@ -157,6 +157,8 @@ describe('abandoning an in-progress workout', () => {
     expect(result).toBeNull();
     expect(store.getState().lastError).toContain('AbandonSession');
     expect(store.getState().sessionState).toBeNull();
+    // Rejection error does NOT have the discard failure prefix (used to discriminate from discard failure)
+    expect(store.getState().lastError).not.toMatch(/^discard failed:/i);
   });
 
   it('I1: when discard fails, rolls the store forward to match the idle engine: nulls sessionState, surfaces error, leaves row inspectable', async () => {
@@ -180,12 +182,12 @@ describe('abandoning an in-progress workout', () => {
     // Store has rolled forward: sessionState is null to match engine's idle phase
     expect(store.getState().sessionState).toBeNull();
 
-    // lastError should contain the failure message
+    // lastError should contain the discard failure prefix (discriminates from rejection)
     expect(store.getState().lastError).not.toBeNull();
-    expect(store.getState().lastError).toContain('Discard failed');
+    expect(store.getState().lastError).toMatch(/^discard failed:/i);
 
     // The row is still on disk because discard failed (not deleted)
-    expect(await getSession(database, SESSION_ID)).not.toBeNull();
+    expect(await getSession(database, SESSION_ID)).toBeDefined();
   });
 
   it('a successful abandon resolves to the idle engine state, not null — the screen uses this to tell success from failure', async () => {

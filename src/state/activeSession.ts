@@ -254,11 +254,12 @@ export function createActiveSessionStore(
           // (which has transitioned to idle), rather than preserving the old in-progress
           // state. This prevents store/engine disagreement. The error is surfaced via
           // lastError so the UI can inform the user; the row remains on disk for later
-          // inspection and cleanup.
+          // inspection and cleanup. Prefix with 'discard failed:' to discriminate from
+          // engine rejection errors (which also null sessionState but have different root causes).
           const message = drainErr instanceof Error ? drainErr.message : String(drainErr);
           set({
             sessionState: null,
-            lastError: message,
+            lastError: `discard failed: ${message}`,
           });
           return null;
         }

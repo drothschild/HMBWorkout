@@ -149,7 +149,7 @@ describe('discardInProgressSession', () => {
     // Mock the query().fetch() to reject on sessions table
     const sessionsTable = database.get('sessions');
     const originalQuery = sessionsTable.query.bind(sessionsTable);
-    jest.spyOn(sessionsTable, 'query').mockImplementation(() => ({
+    const querySpy = jest.spyOn(sessionsTable, 'query').mockImplementation(() => ({
       ...originalQuery(),
       fetch: jest.fn().mockRejectedValueOnce(
         new Error('Sessions fetch failed: read error')
@@ -163,6 +163,8 @@ describe('discardInProgressSession', () => {
 
     // Verify session is still on disk (discard never ran)
     expect(await getSession(database, 'session-live')).toBeDefined();
+
+    querySpy.mockRestore();
   });
 
   // M3c: Repository-level destroy-failure propagation

@@ -115,9 +115,9 @@ export default function SessionScreen() {
 
             if (!result) {
               // Abandon failed: read store state to discriminate error type
-              const sessionState = activeSessionStore.getState().sessionState;
+              const postDispatchLastError = activeSessionStore.getState().lastError;
 
-              if (sessionState === null) {
+              if (postDispatchLastError?.startsWith('discard failed')) {
                 // Discard failed: session row still on disk, row is inspectable
                 Alert.alert(
                   'Couldn\'t discard the workout',
@@ -130,16 +130,14 @@ export default function SessionScreen() {
                   ]
                 );
               } else {
-                // Transition error: workout is still live in the engine
+                // Transition error (rejection): workout is still live in the engine, or no session existed
+                // Do not navigate—let the user stay in the session if it's still live
                 Alert.alert(
                   'Couldn\'t abandon the workout',
                   'Try again.',
                   [
                     {
                       text: 'OK',
-                      onPress: () => {
-                        // Do not navigate—the workout is still live
-                      },
                     },
                   ]
                 );
