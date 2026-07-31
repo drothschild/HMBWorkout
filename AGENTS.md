@@ -157,7 +157,10 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list. Presenters
    must treat those values as *absent*: a plain null check passes `-1` through and
    renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
-   session screen's logged-set formatting (and that filtering) lives.
+   session screen's logged-set formatting (and that filtering) lives. The hazard
+   class is wider than the sentinel map: a `null` `target_sets` column also reaches
+   the shell as a plain `0` that display code must treat as *no plan* — see the
+   zero-planned-set rule in Boundaries.
 
 ## The vault markdown contract (`src/interop`)
 
@@ -208,7 +211,11 @@ is now a misnomer — AI settings are in there too.
   `warmupSets`/`targetDurationSeconds`/`restSeconds` ≥ 0), so a rejected draft reads as
   a model mistake rather than a surprise. `contextBuilder.test.ts` asserts those
   sentences as *exact strings*: loosening or tightening a bound in `draftSchema.ts`
-  without rewording the prose fails those tests rather than silently drifting.
+  without rewording the prose fails those tests rather than silently drifting. Not
+  every pinned sentence is a bound restatement: the `targetSets: 1` guidance for
+  duration-based exercises has no validator counterpart — it steers the model away
+  from the zero-planned-set drafts that force the display guards in Boundaries — so
+  don't delete it as unenforced.
 - **Validate twice; structured output is not a guarantee.** `parseAiTurn` validates on
   receipt and `acceptDraft` validates again before writing. Keep both.
 - **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
@@ -315,6 +322,19 @@ is now a misnomer — AI settings are in there too.
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
   `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
   therefore surface it (`ExerciseDetail.routineExerciseId`)
+- A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
+  `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
+  display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)
+  feeds *two* independent label builders: `createSessionPresenter`'s
+  `setPositionLabel`, and `setPosition` in `src/ai/restCommentaryPrompt.ts`, which
+  reaches the derivation through `restCommentaryTarget` and never touches the
+  presenter — so a guard on one does not cover the other. Both return `''` when
+  `warmupSets + targetSets === 0`, and both consumers read that as *hide*
+  (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
+  from its "Up Next" line). The sum is the exact condition, not a conservative one:
+  `transition.lv` ends an entry at `allSetsForEntry = warmupSets + targetSets`, so
+  only a zero total can reach a zero denominator. `sessionDetailPresenter` is the
+  third label site and needs no guard — it renders `Set N` with no total
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
