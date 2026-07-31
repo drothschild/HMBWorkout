@@ -165,7 +165,7 @@ export default function AiCoachScreen() {
             <ThemedText type="default" style={styles.missingKeyMessage}>
               Add your Anthropic API key in Settings to use the AI Coach
             </ThemedText>
-            <Pressable style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]} onPress={() => router.push('/settings')}>
+            <Pressable style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]} onPress={() => router.push('/settings/ai')}>
               <ThemedText type="default" style={styles.settingsButtonText}>
                 Open Settings
               </ThemedText>
@@ -386,7 +386,7 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
         {errorMessage}
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
-        <Pressable onPress={() => router.push('/settings')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
+        <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
           <ThemedText type="link" style={styles.errorLinkText}>
             Open Settings
           </ThemedText>
