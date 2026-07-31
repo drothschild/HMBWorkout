@@ -80,6 +80,14 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
     }, 30000);
 
+    it('includes guidance to set targetSets: 1 on duration-based exercises', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'Give every duration-based exercise (targetDurationSeconds instead of reps) targetSets: 1 unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow'
+      );
+    }, 30000);
+
     it('documents the exercise description field and its create-only application', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
