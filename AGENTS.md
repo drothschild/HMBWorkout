@@ -227,10 +227,19 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    `warmupSets + targetSets` is exhausted — the round does *not* end early
    just because the round's last-*visited* member is done; every remaining
    member's sets still get logged. Because a member is visited every round up
-   to its own completion and never after, its own count of logged sets always
-   equals the shared round number for as long as it keeps being visited —
-   this is what keeps convention 7's `setIndex == 0` guard sound for a member
-   reached only via a superset hop, with no extra state needed. `SkipExercise`
+   to its own completion and never after, its own count of *visits* always
+   equals the shared round number for as long as it keeps being visited (this
+   is a visit count, not strictly a logged-set count — `SetDone`/"Skip Set"
+   still advances it without logging anything) — this is what keeps
+   convention 7's `setIndex == 0` guard sound for a member reached only via a
+   superset hop, with no extra state needed. `phase` is re-derived
+   (`h.phase_for`) from whichever entry is actually landed on — never carried
+   over from the entry being left — on all three ways `advance_after_set` can
+   move: the same-round hop, the next-round loop-back, and advancing to a
+   genuinely different exercise/group entirely (this last one applies to
+   standalone entries too, not just superset groups: exhausting entry A and
+   landing on B with `B.warmupSets > 0` now correctly reads `Warmup`, where
+   the pre-round-robin code carried A's last phase over). `SkipExercise`
    existed once and was removed: its unconditional index-jump could land on a
    group member with real logged history while resetting `setIndex` to 0,
    which would have made that guard unsound with no clean fix (skip *this*
