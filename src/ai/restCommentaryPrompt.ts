@@ -179,14 +179,14 @@ ${neutralizeForPrompt(directives)}`);
   }
 
   const exercise = input.exercise;
-  // Neutralize the title like personality/directives: model-authored titles
-  // could contain newlines that fabricate prompt sections.
   const metricSegments = [
     setPosition(exercise),
     targetSummary(exercise),
     `rest ${exercise.restSeconds}s`,
   ].filter((segment) => segment.length > 0);
 
+  // Neutralize the title like personality/directives: model-authored titles
+  // could contain newlines that fabricate prompt sections.
   const upNext = [
     `${neutralizeForPrompt(exercise.title)} (${exercise.kind})`,
     ...metricSegments,
