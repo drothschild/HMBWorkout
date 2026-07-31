@@ -8,6 +8,7 @@ import {
   validateExerciseAlternates,
 } from './alternatesSchema';
 import { DraftValidationError, slugifyTitle } from './draftSchema';
+import { expectStructuredOutputSafe } from './structuredOutputSubset';
 
 const ALTERNATE = {
   title: 'Dumbbell Floor Press',
@@ -167,61 +168,12 @@ describe('ALTERNATES_SCHEMA', () => {
     expect(Object.keys(item.properties).sort()).toEqual(['description', 'title']);
   });
 
-  // The structured-output endpoint compiles this schema and rejects the whole
-  // request — a 400, every time — if it carries a keyword the JSON-schema
-  // subset does not support: numeric bounds, string lengths, array counts.
-  // The official SDKs strip those before sending and re-check them client-side;
-  // `alternatesClient.ts` is a hand-rolled fetch by design (see AGENTS.md), so
-  // nothing strips them for us. A `minItems`/`maxItems` pair here is what made
-  // the Replace button fail on every tap: the request never reached the model,
-  // so there was never an alternate to show.
-  //
-  // The bounds are not lost — `validateExerciseAlternates` enforces both, which
-  // is exactly where the SDKs put them.
+  // A `minItems`/`maxItems` pair here is what made the Replace button fail on
+  // every tap: the endpoint rejected the whole request, so there was never an
+  // alternate to show. The bounds are not lost — `validateExerciseAlternates`
+  // enforces both (covered above), which is where the SDKs put the keywords
+  // they strip. See `structuredOutputSubset.ts`.
   it('carries no keyword the structured-output schema subset rejects', () => {
-    const UNSUPPORTED = [
-      'minItems',
-      'maxItems',
-      'uniqueItems',
-      'minLength',
-      'maxLength',
-      'pattern',
-      'minimum',
-      'maximum',
-      'exclusiveMinimum',
-      'exclusiveMaximum',
-      'multipleOf',
-      'minProperties',
-      'maxProperties',
-    ];
-
-    const found: string[] = [];
-    const walk = (node: unknown, path: string) => {
-      if (!node || typeof node !== 'object') return;
-      if (Array.isArray(node)) {
-        node.forEach((child, i) => walk(child, `${path}[${i}]`));
-        return;
-      }
-      for (const [key, value] of Object.entries(node)) {
-        if (UNSUPPORTED.includes(key)) found.push(`${path}.${key}`);
-        walk(value, `${path}.${key}`);
-      }
-    };
-    walk(ALTERNATES_SCHEMA, 'ALTERNATES_SCHEMA');
-
-    expect(found).toEqual([]);
-  });
-
-  it('leaves the array bounds to the validator', () => {
-    expect(() =>
-      parseExerciseAlternates(
-        JSON.stringify({
-          alternates: Array.from({ length: EXERCISE_ALTERNATES_MAX + 1 }, (_, i) => ({
-            title: `Alternate ${i}`,
-            description: 'How to perform it.',
-          })),
-        })
-      )
-    ).toThrow(/at most/);
+    expectStructuredOutputSafe(ALTERNATES_SCHEMA);
   });
 });
