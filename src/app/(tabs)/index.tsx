@@ -238,9 +238,6 @@ export default function TodayScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ThemedView style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            Today
-          </ThemedText>
           {renderContent()}
         </ThemedView>
       </SafeAreaView>
@@ -274,9 +271,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.three,
-  },
-  title: {
-    textAlign: 'center',
   },
   placeholder: {
     textAlign: 'center',

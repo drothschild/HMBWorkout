@@ -76,10 +76,6 @@ export default function HistoryScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedText type="title" style={styles.title}>
-          History
-        </ThemedText>
-
         {loading ? (
           <ThemedText type="default">Loading history...</ThemedText>
         ) : sessions.length === 0 ? (
@@ -127,10 +123,6 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
-  },
-  title: {
-    marginTop: Spacing.two,
-    marginBottom: Spacing.four,
   },
   placeholder: {
     textAlign: 'center',

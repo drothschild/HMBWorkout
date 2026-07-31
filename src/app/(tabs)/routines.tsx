@@ -159,9 +159,6 @@ export default function RoutinesScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ThemedView style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            Routines
-          </ThemedText>
           {loading ? (
             <ThemedText type="default">Loading routines...</ThemedText>
           ) : routines.length === 0 ? (
@@ -236,9 +233,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.four,
     width: '100%',
-  },
-  title: {
-    textAlign: 'center',
   },
   placeholder: {
     textAlign: 'center',
