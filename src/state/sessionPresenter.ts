@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
@@ -274,15 +275,20 @@ export function createSessionPresenter(
 
   // Derived set position: setIndex spans warmups then working sets, so the
   // label counts within the current segment ("Warmup 1 of 2" / "Set 3 of 4").
+  // A zero total is legitimate — an AI draft may omit targetSets for a timed
+  // exercise (stored null, mapped to 0 by startSessionFromRoutine) — and must
+  // suppress the label: "Set 1 of 0" is nonsense, and SetLogger already hides
+  // the empty string.
   const setPos = deriveSetPosition(sessionState, currentEntry);
   const isWarmupSet = setPos?.isWarmupSet ?? false;
   const setNumber = setPos?.setNumber ?? 0;
   const totalSetsForEntry = currentEntry ? currentEntry.warmupSets + currentEntry.targetSets : 0;
-  const setPositionLabel = currentEntry
-    ? isWarmupSet
-      ? `Warmup ${setNumber} of ${currentEntry.warmupSets}`
-      : `Set ${setNumber} of ${currentEntry.targetSets}`
-    : '';
+  const setPositionLabel =
+    currentEntry && totalSetsForEntry > 0
+      ? isWarmupSet
+        ? `Warmup ${setNumber} of ${currentEntry.warmupSets}`
+        : `Set ${setNumber} of ${currentEntry.targetSets}`
+      : '';
 
   // Exercise progress: min clamps the skip-past-the-end index (SkipExercise on
   // the last entry), and the done override corrects for natural completion
