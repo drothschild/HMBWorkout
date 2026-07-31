@@ -564,3 +564,65 @@ export async function upsertRoutine(
     return routine;
   });
 }
+
+/**
+ * Delete a routine and all of its routine_exercise rows.
+ *
+ * Exercises are never touched: they are global and shared across routines
+ * and logged history (AGENTS.md), so deleting a routine must never delete
+ * the exercises it references.
+ *
+ * Sync safety guard: refuses to delete a routine while any session that
+ * references it (including one still in progress) has sync_status='local'.
+ * syncNow() (src/sync/syncService.ts) resolves each session's routine at
+ * post time via database.get('routines').find(session.routineId); if the
+ * routine is gone, that lookup throws and the per-session catch swallows
+ * the failure and continues, so the session would never sync again. A
+ * session that is already 'synced' does not block deletion — its vault
+ * copy was already posted and stays untouched, and the history screen's
+ * presenter falls back to the raw routine id when the routine is missing.
+ *
+ * Atomicity: check-and-delete is one critical section — guards and
+ * deletion happen in a single writer transaction via database.batch so an
+ * app kill mid-loop cannot leave a partially-deleted routine.
+ *
+ * @param database The database instance
+ * @param routineId The routine ID to delete
+ * @throws Error if the routine does not exist or an unsynced session references it
+ */
+export async function deleteRoutine(
+  database: Database,
+  routineId: string
+): Promise<void> {
+  await database.write(async () => {
+    const routinesTable = database.get('routines');
+    let routine: any;
+    try {
+      routine = await routinesTable.find(routineId);
+    } catch {
+      throw new Error(`cannot delete routine ${routineId}: not found`);
+    }
+
+    const referencingSessions = (await database
+      .get('sessions')
+      .query(Q.where('routine_id', routineId))
+      .fetch()) as Session[];
+
+    const hasUnsyncedSession = referencingSessions.some(
+      (session) => (session as any).customSyncStatus === 'local'
+    );
+    if (hasUnsyncedSession) {
+      throw new Error(`cannot delete routine ${routineId}: unsynced sessions reference it`);
+    }
+
+    const routineExercises = (await database
+      .get('routine_exercises')
+      .query(Q.where('routine_id', routineId))
+      .fetch()) as RoutineExercise[];
+
+    await database.batch(
+      ...routineExercises.map((re) => re.prepareDestroyPermanently()),
+      routine.prepareDestroyPermanently()
+    );
+  });
+}
