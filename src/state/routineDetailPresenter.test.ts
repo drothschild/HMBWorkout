@@ -208,4 +208,52 @@ describe('routineDetailPresenter', () => {
       description: null,
     });
   });
+
+  it('exposes a distinct routineExerciseId per row when the same exercise repeats', async () => {
+    const db = await createTestDatabase();
+
+    let firstRowId = '';
+    let secondRowId = '';
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-4';
+        r.name = 'Swing EMOM';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'kb-swing';
+        e.title = 'Kettlebell Swing';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      // Same exercise twice — repeated entries are a modeled reality, so each
+      // row must stay individually addressable in the presented detail.
+      const first = await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-4';
+        re._raw.exercise_id = 'kb-swing';
+        re._raw.order = 0;
+        re._raw.target_sets = 1;
+        re._raw.target_reps = 15;
+      });
+      const second = await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-4';
+        re._raw.exercise_id = 'kb-swing';
+        re._raw.order = 1;
+        re._raw.target_sets = 1;
+        re._raw.target_reps = 15;
+      });
+      firstRowId = (first as any).id;
+      secondRowId = (second as any).id;
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-4');
+
+    expect(firstRowId).not.toBe(secondRowId);
+    expect(detail!.standaloneExercises).toHaveLength(2);
+    expect(detail!.standaloneExercises[0].routineExerciseId).toBe(firstRowId);
+    expect(detail!.standaloneExercises[1].routineExerciseId).toBe(secondRowId);
+  });
 });

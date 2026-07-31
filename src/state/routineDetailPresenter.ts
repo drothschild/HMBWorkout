@@ -1,6 +1,8 @@
 import { Database, Q } from '@nozbe/watermelondb';
 
 export interface ExerciseDetail {
+  /** Unique routine_exercises row id — the only stable identity when a routine repeats an exercise. */
+  routineExerciseId: string;
   exerciseId: string;
   title: string;
   order: number;
@@ -66,6 +68,7 @@ export async function routineDetailPresenter(
       const exerciseInfo = exerciseMap.get(exerciseId);
 
       const detail: ExerciseDetail = {
+        routineExerciseId: re.id,
         exerciseId,
         title: exerciseInfo?.title || exerciseId,
         order: re._raw.order,
