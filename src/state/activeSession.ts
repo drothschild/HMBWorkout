@@ -81,8 +81,8 @@ export function createActiveSessionStore(
       try {
         await p;
       } catch (err) {
-        // The persist's own failure is already logged by the executor wrapper;
-        // completion must proceed regardless.
+        // The persist's own rejection is already logged by the engine host's
+        // onExecutorError handler; completion must proceed regardless.
       }
     }
   }
@@ -150,8 +150,13 @@ export function createActiveSessionStore(
     onDiscardSession(sessionId: string) {
       // Abandon: delete the session and its sets outright. Sync and HealthKit
       // are untouched here by construction — both hang off onCompleteSession,
-      // which an abandoned workout never emits.
-      const p = discardInProgressSession(database, sessionId);
+      // which an abandoned workout never emits. An in-flight LogSet persist
+      // must land before the delete (mirroring onCompleteSession's drain), or
+      // it would land afterwards and orphan a session_sets row for a session
+      // that no longer exists.
+      const p = drainPendingPersists().then(() =>
+        discardInProgressSession(database, sessionId)
+      );
       pendingDiscardPromises.push(p);
       return p;
     },
