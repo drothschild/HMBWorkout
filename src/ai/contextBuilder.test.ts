@@ -1131,15 +1131,22 @@ describe('buildSystem: AI Coach context builder', () => {
         exercises: [{ exerciseId: 'bench', title: 'Bench Press', workingSets: 1 }],
       });
 
+      // Two-window derivation makes the value assertion midnight-safe: the
+      // real "today" at build time is one of the two captured values.
+      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const todayWithWeekday = (ms: number) =>
+        `${new Date(ms).toISOString().split('T')[0]} (${weekdays[new Date(ms).getUTCDay()]})`;
+
+      const before = todayWithWeekday(Date.now());
       const prompt = await buildSystem(database, { kind: 'create' });
+      const after = todayWithWeekday(Date.now());
       const lines = recentWorkoutLines(prompt);
 
-      // Should have at least the "Today:" line
+      // First line is the "Today:" anchor carrying the CURRENT date (not the
+      // session's) — pinned by value so a regression to the newest session's
+      // date fails here.
       expect(lines.length).toBeGreaterThan(0);
-      // First line should be the "Today:" anchor
-      expect(lines[0]).toMatch(/^Today: \d{4}-\d{2}-\d{2} \([A-Z][a-z]{2}\)$/);
-      // The anchor should show today's date, not JULY_29
-      expect(lines[0]).toContain('Today:');
+      expect([`Today: ${before}`, `Today: ${after}`]).toContain(lines[0]);
     }, 30000);
 
     it('says so when nothing has been completed', async () => {

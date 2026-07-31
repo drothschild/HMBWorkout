@@ -1238,8 +1238,8 @@ describe('Repository: session and set helpers', () => {
         exerciseId: `${exerciseId}-b`,
         order: 1,
       });
-      const routineExerciseIdA = (routineExerciseA as any).id;
-      const routineExerciseIdB = (routineExerciseB as any).id;
+      const routineExerciseIdA = routineExerciseA.id;
+      const routineExerciseIdB = routineExerciseB.id;
 
       await createSession(database, {
         sessionId: 'session-orphan-test',
@@ -1288,7 +1288,7 @@ describe('Repository: session and set helpers', () => {
       const startTime1 = sharedEndTime - 7200000; // 2 hours before end
       const startTime2 = sharedEndTime - 3600000; // 1 hour before end
 
-      // Seed them out of chronological order to verify they're sorted by start time
+      // Seed them in ascending started_at order; the query must return them descending
       // when both ended at the same time
       await database.write(async () => {
         const sessionsTable = database.get('sessions');
@@ -1310,7 +1310,7 @@ describe('Repository: session and set helpers', () => {
           s._raw.ended_at = sharedEndTime;
         });
 
-        // Seed session 2 (later start) - inserted first to verify ordering works
+        // Seed session 2 (later start) — inserted second; the sort, not insertion order, must put it first
         await sessionsTable.create((s: any) => {
           s._raw.id = 'session-tie-2';
           s._raw.routine_id = 'routine-tie';
