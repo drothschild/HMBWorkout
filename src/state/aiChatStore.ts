@@ -225,19 +225,7 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
-        const gen = generation;
-        set({ status: 'sending', error: null });
-
-        await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
+        await startTurn(state.messages, state.mode);
       },
 
       async acceptDraft() {

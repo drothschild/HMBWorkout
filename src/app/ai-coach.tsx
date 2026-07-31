@@ -78,17 +78,19 @@ export default function AiCoachScreen() {
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [hasMissingKey, setHasMissingKey] = useState(() => {
+    const settings = getSettings();
+    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  });
   const flatListRef = useRef<FlatList>(null);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
-  // Compute missing key from current settings. The guard stays armed for the
-  // screen's lifetime: once openDebrief/send encounter a missing key and set
-  // the error, the error bubble is the only path forward (Settings).
-  const hasMissingKey = useMemo(() => {
-    const settings = getSettings();
-    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
-  }, []);
-
+  useFocusEffect(
+    useCallback(() => {
+      const settings = getSettings();
+      setHasMissingKey(!settings.anthropicKey || settings.anthropicKey.trim() === '');
+    }, [])
+  );
 
   // Auto-scroll to end when messages change
   useEffect(() => {
