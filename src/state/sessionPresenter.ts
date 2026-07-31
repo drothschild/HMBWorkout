@@ -148,10 +148,12 @@ export function computeSetPrefill(
         prefill.weightLbs = kgToLbs(lastMatch.weightKg);
       }
     }
-    return Object.keys(prefill).length > 0 ? prefill : undefined;
+    if (Object.keys(prefill).length > 0) return prefill;
+    // A fully-empty logged set contributed nothing; fall through to the
+    // fallbacks below rather than returning an all-undefined prefill.
   }
 
-  // First set of this exercise this session.
+  // No usable in-session set for this exercise.
   if (isDurationBased) {
     // Cross-session history is structurally unavailable here (the history
     // query returns working-type sets only), so targets are the only fallback.
