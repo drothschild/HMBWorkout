@@ -520,20 +520,22 @@ describe('advanceStopwatch — stop records the elapsed time', () => {
     expect(paused.view?.elapsedSeconds).toBe(30);
   });
 
-  test('stopping during the lead-in records nothing and shows a zeroed clock', () => {
+  test('stopping during the lead-in records nothing and displays a dash', () => {
     // No exercise time happened, so there is nothing to write — and writing 0
     // would clobber the routine's prefilled target duration for no gain.
+    // Display '—' to signal that no duration was recorded.
     const stopped = at(2000, armed(), true, 'stop');
     expect(stopped.recordedSeconds).toBeUndefined();
     expect(stopped.view?.phase).toBe('stopped');
     expect(stopped.view?.elapsedSeconds).toBe(0);
     expect(stopped.view?.remainingLeadInSeconds).toBe(0);
-    expect(stopped.view?.display).toBe('0:00');
+    expect(stopped.view?.display).toBe('—');
   });
 
-  test('stopping exactly at the lead-in boundary records zero seconds', () => {
+  test('stopping exactly at the lead-in boundary records nothing (no elapsed time)', () => {
     const stopped = at(LEAD_IN_SECONDS * 1000, armed(), true, 'stop');
-    expect(stopped.recordedSeconds).toBe(0);
+    expect(stopped.recordedSeconds).toBeUndefined();
+    expect(stopped.view?.display).toBe('—');
   });
 });
 
@@ -552,18 +554,33 @@ describe('advanceStopwatch — control availability and label', () => {
     expect(view?.label).toBe('Starting in');
   });
 
-  test('a session pause labels the card paused without engaging the local pause', () => {
+  test('a session pause labels the card paused and disables the local pause control', () => {
     const { view } = at(35_000, armed(), false);
     expect(view?.label).toBe('Paused');
     expect(view?.isLocallyPaused).toBe(false);
-    // Still offered: pressing pause here latches past the session resume.
-    expect(view?.canPause).toBe(true);
+    // Local pause is not offered while the session is paused: the session pause is in control.
+    expect(view?.canPause).toBe(false);
     expect(view?.canStop).toBe(true);
   });
 
   test('a locally paused card is labelled paused and reports its own pause', () => {
     const { view } = at(35_000, armed(), true, 'pause');
     expect(view?.label).toBe('Paused');
+    expect(view?.isLocallyPaused).toBe(true);
+  });
+
+  test('a session-paused lead-in labels the countdown frozen', () => {
+    const { view } = at(2000, armed(), false);
+    expect(view?.phase).toBe('leadIn');
+    expect(view?.label).toBe('Paused');
+    expect(view?.isFrozen).toBe(true);
+  });
+
+  test('a locally-paused lead-in labels the countdown frozen', () => {
+    const { view } = at(2000, armed(), true, 'pause');
+    expect(view?.phase).toBe('leadIn');
+    expect(view?.label).toBe('Paused');
+    expect(view?.isFrozen).toBe(true);
     expect(view?.isLocallyPaused).toBe(true);
   });
 

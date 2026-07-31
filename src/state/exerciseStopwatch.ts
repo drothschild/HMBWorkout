@@ -238,16 +238,19 @@ export function advanceStopwatch(
   const elapsedSeconds = isLeadIn ? 0 : Math.max(0, Math.floor(-leadInRemainingMs / 1000));
 
   if (isStopped) {
-    // A stop during the lead-in ends the run but records nothing: no exercise
-    // time happened, and writing a 0 over the routine's prefilled target
-    // duration would destroy a useful default to say nothing at all.
+    // A stop with no elapsed time records nothing: no exercise time happened,
+    // and writing a 0 over the routine's prefilled target duration would destroy
+    // a useful default. Display '—' to signal nothing was recorded; once
+    // something was recorded, show the frozen elapsed time.
+    const shouldRecordSeconds = stoppingNow && elapsedSeconds > 0;
+    const displayValue = elapsedSeconds > 0 ? formatStopwatchDisplay(elapsedSeconds) : '—';
     return {
       run: next,
       view: {
         phase: 'stopped',
         remainingLeadInSeconds: 0,
         elapsedSeconds,
-        display: formatStopwatchDisplay(elapsedSeconds),
+        display: displayValue,
         label: 'Stopped',
         isFrozen: true,
         isLocallyPaused: false,
@@ -256,12 +259,14 @@ export function advanceStopwatch(
         canStop: false,
       },
       vibrateAtMinute: undefined,
-      recordedSeconds: stoppingNow && !isLeadIn ? elapsedSeconds : undefined,
+      recordedSeconds: shouldRecordSeconds ? elapsedSeconds : undefined,
     };
   }
 
   const isLocallyPaused = next.control === 'paused';
-  const controls = { isLocallyPaused, isStopped: false, canPause: true, canStop: true };
+  // Disable local pause while the session is paused to avoid confusing dual pause states.
+  // The label 'Paused' alone suffices; the session pause is in control.
+  const controls = { isLocallyPaused, isStopped: false, canPause: running, canStop: true };
 
   if (isLeadIn) {
     return {
