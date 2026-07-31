@@ -70,22 +70,35 @@ describe('todayStartPresenter', () => {
     });
   });
 
-  it('shows all-routines-unstartable guidance when a single routine has no exercises', async () => {
-    const now = Date.now();
-    await seedRoutine(db, { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, createdAt: now });
-
-    const options = await todayStartPresenter(db);
-
-    expect(options).toEqual({ kind: 'no-routines' });
-  });
-
-  it('shows no-routines empty state when all routines are unstartable', async () => {
+  it('shows routines-need-exercises when all routines are unstartable (no exercises)', async () => {
     const now = Date.now();
     await seedRoutine(db, { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, createdAt: now });
     await seedRoutine(db, { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, createdAt: now + 1000 });
 
     const options = await todayStartPresenter(db);
 
-    expect(options).toEqual({ kind: 'no-routines' });
+    expect(options).toEqual({
+      kind: 'routines-need-exercises',
+      routines: [
+        { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, startable: false },
+        { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, startable: false },
+      ],
+    });
+  });
+
+  it('offers mixed routines when some are startable and others are not', async () => {
+    const now = Date.now();
+    await seedRoutine(db, { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, createdAt: now });
+    await seedRoutine(db, { id: 'routine-full', name: 'Full Day', exerciseCount: 3, createdAt: now + 1000 });
+
+    const options = await todayStartPresenter(db);
+
+    expect(options).toEqual({
+      kind: 'choose-routine',
+      routines: [
+        { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, startable: false },
+        { id: 'routine-full', name: 'Full Day', exerciseCount: 3, startable: true },
+      ],
+    });
   });
 });

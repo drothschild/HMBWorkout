@@ -45,7 +45,7 @@ export default function RoutineDetailScreen() {
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
-      setStartError('Could not start that routine. It may have no exercises.');
+      setStartError('Could not start that routine. Try again, or check it still has exercises.');
       setStarting(false);
     }
   };
