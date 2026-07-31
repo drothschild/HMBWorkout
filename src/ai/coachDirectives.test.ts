@@ -2,12 +2,26 @@ import { OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES } from './coachDirectives'
 import { directivesSections } from './contextBuilder';
 
 describe('coachDirectives: shipped constants', () => {
-  it('ships OVERRIDABLE_DIRECTIVES empty', () => {
-    expect(OVERRIDABLE_DIRECTIVES).toBe('');
+  // The programmer has filled both sections in (2026-07-31). These tests pin
+  // the format contract, not the wording: one instruction per line, dash-led,
+  // no markdown headings (a '## ' line could restructure the prompt), and no
+  // blank-line runs that would break the composed prompt's whitespace hygiene.
+  it('ships well-formed OVERRIDABLE_DIRECTIVES content', () => {
+    expect(OVERRIDABLE_DIRECTIVES.trim()).not.toBe('');
+    for (const line of OVERRIDABLE_DIRECTIVES.trim().split('\n')) {
+      expect(line.trimStart().startsWith('- ')).toBe(true);
+    }
+    expect(OVERRIDABLE_DIRECTIVES).not.toMatch(/^#{1,6} /m);
+    expect(OVERRIDABLE_DIRECTIVES).not.toMatch(/\n{3,}/);
   });
 
-  it('ships IMMUTABLE_DIRECTIVES empty', () => {
-    expect(IMMUTABLE_DIRECTIVES).toBe('');
+  it('ships well-formed IMMUTABLE_DIRECTIVES content', () => {
+    expect(IMMUTABLE_DIRECTIVES.trim()).not.toBe('');
+    for (const line of IMMUTABLE_DIRECTIVES.trim().split('\n')) {
+      expect(line.trimStart().startsWith('- ')).toBe(true);
+    }
+    expect(IMMUTABLE_DIRECTIVES).not.toMatch(/^#{1,6} /m);
+    expect(IMMUTABLE_DIRECTIVES).not.toMatch(/\n{3,}/);
   });
 });
 

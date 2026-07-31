@@ -1595,14 +1595,21 @@ describe('buildSystem: AI Coach context builder', () => {
   });
 
   describe('Coach directives', () => {
-    it('leaves the composed prompt unchanged when directives are empty', async () => {
+    it('weaves the shipped directive content into the composed prompt in pinned order', async () => {
+      // The constants now ship with real content (2026-07-31), so the default
+      // composition must carry both sections: overridable before the user's
+      // settings, immutable last, with the whitespace hygiene intact.
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).not.toMatch(/Coach Directives/);
-      expect(prompt).not.toMatch(/may override/i);
-      expect(prompt).not.toMatch(/precedence over ANY user preference/);
-      // An empty section must not even show up as a blank paragraph between
-      // the sections that do render.
+      const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
+      const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+      expect(overridableIdx).toBeGreaterThan(-1);
+      expect(immutableIdx).toBeGreaterThan(-1);
+      expect(overridableIdx).toBeLessThan(prompt.indexOf('## User Goals'));
+      const lastHeaderIdx = Math.max(
+        ...[...prompt.matchAll(/^## .*$/gm)].map((m) => m.index ?? -1)
+      );
+      expect(immutableIdx).toBe(lastHeaderIdx);
       expect(prompt).not.toMatch(/\n{3,}/);
     }, 30000);
 
