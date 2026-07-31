@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -19,46 +19,74 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
+import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { getSettings } from '@/state/settings';
-import { RoutineDraft, DraftExercise } from '@/ai/draftSchema';
+import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
+
+const HEADER_TITLES = {
+  create: 'AI Coach',
+  edit: 'Edit with AI Coach',
+  debrief: 'Workout Debrief',
+} as const;
 
 export default function AiCoachScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
-  const { routineId } = useLocalSearchParams<{ routineId?: string }>();
+  const { routineId, debriefSessionId } = useLocalSearchParams<{
+    routineId?: string;
+    debriefSessionId?: string;
+  }>();
   const store = getAiChatStore();
-  const didResetRef = useRef(false);
-  const lastRoutineIdRef = useRef(routineId);
+  // Stable per set of params, so it doubles as the identity of the conversation
+  // these params ask for.
+  const mode = useMemo(
+    () => aiCoachModeFromParams({ routineId, debriefSessionId }),
+    [routineId, debriefSessionId]
+  );
+  // Guard on a derived string key rather than useMemo object identity, which React
+  // does not guarantee to cache. Use the key to detect when params change.
+  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
+  const startedModeRef = useRef<string | null>(null);
 
-  const [hasMissingKey, setHasMissingKey] = useState(() => {
-    const settings = getSettings();
-    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
-  });
-
-  // Reset before paint on first mount (and on a routineId change). A layout
-  // effect rather than a render-body write: writing the store mid-render makes
-  // React 19 log a setState-during-render error, while useLayoutEffect still
-  // runs before the frame paints, so no stale conversation is ever visible.
+  // Start the conversation before paint on first mount (and whenever the params
+  // name a different one). A layout effect rather than a render-body write:
+  // writing the store mid-render makes React 19 log a setState-during-render
+  // error, while useLayoutEffect still runs before the frame paints, so no
+  // stale conversation is ever visible.
   useLayoutEffect(() => {
-    if (!didResetRef.current || lastRoutineIdRef.current !== routineId) {
-      didResetRef.current = true;
-      lastRoutineIdRef.current = routineId;
-      store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+    if (startedModeRef.current === modeKey) {
+      return;
     }
-  }, [routineId, store]);
+    startedModeRef.current = modeKey;
+
+    if (mode.kind === 'debrief') {
+      // A debrief is the coach's conversation to open; the store sends the
+      // first turn so the user arrives to a question, not a blank thread.
+      void store.getState().openDebrief(mode);
+    } else {
+      store.getState().reset(mode);
+    }
+  }, [modeKey, mode, store]);
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
+  const pendingSettingsProposal = store((s) => s.pendingSettingsProposal);
   const status = store((s) => s.status);
   const error = store((s) => s.error);
 
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [hasMissingKey, setHasMissingKey] = useState(() => {
+    const settings = getSettings();
+    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  });
   const flatListRef = useRef<FlatList>(null);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
-  // Check for missing key on mount and focus
+  // Re-check the key on every focus, not just mount: the gate must lift when
+  // the user returns from Settings after adding a key (this hook was once
+  // deleted and that dead-ended the missing-key screen — keep it).
   useFocusEffect(
     useCallback(() => {
       const settings = getSettings();
@@ -71,7 +99,7 @@ export default function AiCoachScreen() {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
     }
-  }, [messages, status, pendingDraft, acceptError]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -96,6 +124,11 @@ export default function AiCoachScreen() {
     setAcceptError(null);
     try {
       const id = await store.getState().acceptDraft();
+      if (id === null) {
+        // A concurrent accept already owns this draft; that call navigates
+        // (and clears `accepting`) when it settles.
+        return;
+      }
       setAccepting(false);
       router.push(`/routine/${id}`);
     } catch (err) {
@@ -103,6 +136,28 @@ export default function AiCoachScreen() {
       setAccepting(false);
       setAcceptError('Failed to save routine. Try again.');
     }
+  };
+
+  // Approval is the whole point of a proposal: nothing is written until this runs.
+  const handleApproveSettings = () => {
+    // Check live store state, not render snapshot: double-tap arriving after the
+    // first approval completes would pass the stale render-snapshot guard and hit
+    // the store's throw, which we'd misreport as a failure. Bail silently instead.
+    if (store.getState().pendingSettingsProposal === null) {
+      return;
+    }
+    setAcceptError(null);
+    try {
+      store.getState().approveSettingsProposal();
+    } catch (err) {
+      console.error('Failed to approve settings proposal:', err);
+      setAcceptError('Could not apply those settings. Try again.');
+    }
+  };
+
+  const handleDeclineSettings = () => {
+    setAcceptError(null);
+    store.getState().declineSettingsProposal();
   };
 
   // Build footer element to avoid remounting on each render
@@ -123,6 +178,20 @@ export default function AiCoachScreen() {
     footerItems.push(<DraftCard key="draft" draft={pendingDraft} onAccept={handleAccept} accepting={accepting} sending={status === 'sending'} />);
   }
 
+  if (pendingSettingsProposal) {
+    const settings = getSettings();
+    footerItems.push(
+      <SettingsProposalCard
+        key="settingsProposal"
+        proposal={pendingSettingsProposal}
+        currentGoals={settings.aiGoals}
+        currentEquipment={settings.aiEquipment}
+        onApprove={handleApproveSettings}
+        onDecline={handleDeclineSettings}
+      />
+    );
+  }
+
   if (acceptError) {
     footerItems.push(
       <View key="acceptError" style={styles.errorBubble}>
@@ -139,8 +208,7 @@ export default function AiCoachScreen() {
 
   const footer = footerItems.length > 0 ? <View style={styles.footerContent}>{footerItems}</View> : null;
 
-  const isEditing = routineId !== undefined;
-  const headerTitle = isEditing ? 'Edit with AI Coach' : 'AI Coach';
+  const headerTitle = HEADER_TITLES[mode.kind];
 
   if (hasMissingKey) {
     return (
@@ -239,6 +307,10 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ message }: MessageBubbleProps) {
+  if (message.hidden) {
+    return null;
+  }
+
   const isUser = message.role === 'user';
 
   return (
@@ -335,6 +407,80 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
           {accepting ? 'Accepting...' : 'Accept'}
         </ThemedText>
       </Pressable>
+    </View>
+  );
+}
+
+interface SettingsProposalCardProps {
+  proposal: SettingsProposal;
+  currentGoals: string;
+  currentEquipment: string;
+  onApprove: () => void;
+  onDecline: () => void;
+}
+
+function SettingsProposalCard({
+  proposal,
+  currentGoals,
+  currentEquipment,
+  onApprove,
+  onDecline,
+}: SettingsProposalCardProps) {
+  const theme = useTheme();
+
+  const rows: { label: string; current: string; proposed: string }[] = [];
+
+  if (proposal.goals !== undefined) {
+    rows.push({ label: 'Goals', current: currentGoals, proposed: proposal.goals });
+  }
+
+  if (proposal.equipment !== undefined) {
+    rows.push({ label: 'Equipment', current: currentEquipment, proposed: proposal.equipment });
+  }
+
+  return (
+    <View style={[styles.draftCard, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText type="subtitle" style={styles.draftName}>
+        Update coach settings
+      </ThemedText>
+      <ThemedText type="default" style={styles.draftNotes}>
+        Nothing changes until you approve.
+      </ThemedText>
+
+      {rows.map((row) => (
+        <View key={row.label} style={styles.proposalRow}>
+          <ThemedText type="smallBold" style={styles.proposalLabel}>
+            {row.label}
+          </ThemedText>
+          {row.current.trim() !== '' && (
+            <ThemedText type="small" style={styles.proposalCurrent}>
+              Now: {row.current}
+            </ThemedText>
+          )}
+          <ThemedText type="default" style={styles.proposalProposed}>
+            {row.proposed}
+          </ThemedText>
+        </View>
+      ))}
+
+      <View style={styles.proposalActions}>
+        <Pressable
+          style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}
+          onPress={onDecline}
+        >
+          <ThemedText type="default" style={styles.declineButtonText}>
+            Decline
+          </ThemedText>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.approveButton, pressed && styles.pressed]}
+          onPress={onApprove}
+        >
+          <ThemedText type="default" style={styles.acceptButtonText}>
+            Approve
+          </ThemedText>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -586,6 +732,48 @@ const styles = StyleSheet.create({
   },
   acceptButtonText: {
     color: '#fff',
+    fontWeight: '600',
+  },
+  proposalRow: {
+    marginTop: Spacing.two,
+  },
+  proposalLabel: {
+    opacity: 0.7,
+    fontSize: 12,
+    marginBottom: Spacing.one,
+  },
+  proposalCurrent: {
+    opacity: 0.5,
+    fontSize: 12,
+    marginBottom: Spacing.one,
+  },
+  proposalProposed: {
+    fontWeight: '500',
+  },
+  proposalActions: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.three,
+  },
+  approveButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButtonText: {
+    color: '#007AFF',
     fontWeight: '600',
   },
   errorBubble: {

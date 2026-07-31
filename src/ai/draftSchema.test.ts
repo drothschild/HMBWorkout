@@ -1,4 +1,12 @@
-import { parseAiTurn, validateRoutineDraft, slugifyTitle, DraftValidationError, AI_TURN_SCHEMA } from './draftSchema';
+import {
+  parseAiTurn,
+  validateRoutineDraft,
+  validateSettingsProposal,
+  slugifyTitle,
+  DraftValidationError,
+  AI_TURN_SCHEMA,
+  SETTINGS_FIELD_MAX_LENGTH,
+} from './draftSchema';
 
 describe('draftSchema', () => {
   describe('parseAiTurn', () => {
@@ -53,6 +61,121 @@ describe('draftSchema', () => {
       });
 
       expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+    });
+
+    test('parses a turn carrying a settings proposal', () => {
+      const json = JSON.stringify({
+        reply: 'Want me to update your equipment?',
+        settingsProposal: { equipment: 'Dumbbells and a pull-up bar' },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.settingsProposal).toEqual({ equipment: 'Dumbbells and a pull-up bar' });
+      expect(result.draft).toBeUndefined();
+    });
+
+    test('leaves settingsProposal undefined when the turn omits it', () => {
+      const json = JSON.stringify({ reply: 'Just a reply' });
+
+      expect(parseAiTurn(json).settingsProposal).toBeUndefined();
+    });
+
+    test('parses a turn carrying both a draft and a settings proposal', () => {
+      const json = JSON.stringify({
+        reply: 'Here is a routine, and a goals update to match',
+        draft: {
+          name: 'My Routine',
+          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+        },
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.draft?.name).toBe('My Routine');
+      expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
+    });
+
+    test('throws DraftValidationError when settingsProposal is invalid', () => {
+      const json = JSON.stringify({
+        reply: 'reply',
+        settingsProposal: {}, // neither goals nor equipment
+      });
+
+      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+    });
+  });
+
+  describe('validateSettingsProposal', () => {
+    test('accepts a goals-only proposal', () => {
+      const proposal = { goals: 'Run a 5k under 25 minutes' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('accepts an equipment-only proposal', () => {
+      const proposal = { equipment: 'Adjustable dumbbells, pull-up bar' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('accepts a proposal carrying both fields', () => {
+      const proposal = { goals: 'Hypertrophy', equipment: 'Full commercial gym' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('rejects non-object', () => {
+      expect(() => validateSettingsProposal('goals')).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal(null)).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal(42)).toThrow(DraftValidationError);
+    });
+
+    test('rejects a proposal carrying neither goals nor equipment', () => {
+      expect(() => validateSettingsProposal({})).toThrow(DraftValidationError);
+    });
+
+    test('rejects a proposal whose only fields are undefined', () => {
+      expect(() => validateSettingsProposal({ goals: undefined, equipment: undefined })).toThrow(
+        DraftValidationError
+      );
+    });
+
+    test('rejects non-string goals', () => {
+      expect(() => validateSettingsProposal({ goals: 42 })).toThrow(DraftValidationError);
+    });
+
+    test('rejects non-string equipment', () => {
+      expect(() => validateSettingsProposal({ equipment: ['dumbbells'] })).toThrow(
+        DraftValidationError
+      );
+    });
+
+    test('rejects whitespace-only goals', () => {
+      expect(() => validateSettingsProposal({ goals: '   ' })).toThrow(DraftValidationError);
+    });
+
+    test('rejects whitespace-only equipment', () => {
+      expect(() => validateSettingsProposal({ equipment: '\n\t' })).toThrow(DraftValidationError);
+    });
+
+    test('rejects goals longer than the field maximum', () => {
+      const goals = 'g'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ goals })).toThrow(DraftValidationError);
+    });
+
+    test('rejects equipment longer than the field maximum', () => {
+      const equipment = 'e'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ equipment })).toThrow(DraftValidationError);
+    });
+
+    test('accepts a field exactly at the field maximum', () => {
+      const goals = 'g'.repeat(SETTINGS_FIELD_MAX_LENGTH);
+
+      expect(validateSettingsProposal({ goals }).goals).toBe(goals);
     });
   });
 
@@ -489,6 +612,28 @@ describe('draftSchema', () => {
       const draftSchema = (AI_TURN_SCHEMA.properties as any).draft;
       const exerciseSchema = draftSchema.properties.exercises.items;
       expect(exerciseSchema.properties.kind.enum).toEqual(['strength', 'cardio', 'stretch']);
+    });
+
+    test('does not require settingsProposal at root level', () => {
+      expect(AI_TURN_SCHEMA.required).not.toContain('settingsProposal');
+    });
+
+    test('has additionalProperties false on settingsProposal object', () => {
+      const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
+      expect(proposalSchema.additionalProperties).toBe(false);
+    });
+
+    test('declares goals and equipment as strings on settingsProposal', () => {
+      const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
+      expect(proposalSchema.properties.goals.type).toBe('string');
+      expect(proposalSchema.properties.equipment.type).toBe('string');
+    });
+
+    test('requires neither goals nor equipment individually', () => {
+      // "at least one of" is not expressible in the schema subset used here;
+      // validateSettingsProposal is what enforces it.
+      const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
+      expect(proposalSchema.required ?? []).toEqual([]);
     });
   });
 });

@@ -6,7 +6,9 @@ import "helpers" as h
 rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 
 (match event {
-  StartSession(p) if state.phase == Idle -> (
+  -- Accept StartSession from Idle (no prior session) or Done (terminal residue can be replaced).
+  -- A finished session is inert data already persisted; starting a new one replaces it completely.
+  StartSession(p) if state.phase == Idle || state.phase == Done -> (
       let entries = p.routine.entries
       let firstEntry = at(0, entries)?
       let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working

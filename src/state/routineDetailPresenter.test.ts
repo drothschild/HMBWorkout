@@ -156,4 +156,56 @@ describe('routineDetailPresenter', () => {
       targetDurationSeconds: 300,
     });
   });
+
+  it('includes exercise description when present, and null when absent', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-3';
+        r.name = 'Legs';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'squat';
+        e.title = 'Back Squat';
+        e._raw.kind = 'strength';
+        e._raw.description = 'Bar on traps, brace, break at the hips and knees together.';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'lunge';
+        e.title = 'Walking Lunge';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+        // no description set — simulates an exercise nobody has described yet
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-3';
+        re._raw.exercise_id = 'squat';
+        re._raw.order = 0;
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-3';
+        re._raw.exercise_id = 'lunge';
+        re._raw.order = 1;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-3');
+
+    expect(detail!.standaloneExercises[0]).toMatchObject({
+      exerciseId: 'squat',
+      description: 'Bar on traps, brace, break at the hips and knees together.',
+    });
+    expect(detail!.standaloneExercises[1]).toMatchObject({
+      exerciseId: 'lunge',
+      description: null,
+    });
+  });
 });

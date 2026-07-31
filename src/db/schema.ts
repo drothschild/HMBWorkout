@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 1,
+  version: 2,
   tables: [
     tableSchema({
       name: 'routines',
@@ -19,6 +19,7 @@ export const databaseSchema = appSchema({
         { name: 'kind', type: 'string' }, // 'strength' | 'cardio' | 'stretch'
         { name: 'muscle_group', type: 'string', isOptional: true },
         { name: 'equipment', type: 'string', isOptional: true },
+        { name: 'description', type: 'string', isOptional: true }, // user-authored; AI accept path never sets this
         { name: 'created_at', type: 'number' },
       ],
     }),

@@ -19,7 +19,7 @@
  */
 
 import { createEngine, TransitionError } from './index';
-import { SessionState, Event, LoggedSet, RoutineEntry } from './types';
+import type { SessionState, Event, LoggedSet, RoutineEntry } from './types';
 
 /**
  * Uniform effects from Rill rule (before host mapping to typed Effect union).
@@ -604,6 +604,92 @@ describe('characterization: session engine pre-migration behavior', () => {
           routine: { id: 'r1', entries: [] } as any,
         })
       ).rejects.toThrow(/invalid event StartSession in phase working/);
+    });
+
+    it('should reject StartSession from each in-progress phase (warmup, working, resting, stretching, paused)', async () => {
+      const inProgressPhases: ('warmup' | 'working' | 'resting' | 'stretching' | 'paused')[] = [
+        'warmup',
+        'working',
+        'resting',
+        'stretching',
+        'paused',
+      ];
+
+      for (const phase of inProgressPhases) {
+        const engine = createEngine({});
+        engine.setState(makeState({ phase }));
+
+        await expect(
+          engine.dispatch({
+            tag: 'StartSession',
+            sessionId: 'new-id',
+            nowMs: 5000,
+            routine: { id: 'r1', entries: [] } as any,
+          })
+        ).rejects.toThrow(new RegExp(`invalid event StartSession in phase ${phase}`));
+      }
+    });
+
+    it('should accept StartSession from done phase with fresh state (C1 fix)', async () => {
+      const executors = {
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+      };
+
+      const engine = createEngine(executors);
+
+      // Set engine to done state with residue from a previous session
+      const finishedState = makeState({
+        sessionId: 'old-session-123',
+        routineId: 'old-routine-abc',
+        phase: 'done',
+        exerciseIndex: 5,
+        setIndex: 3,
+        loggedSets: [
+          {
+            exerciseId: 'old-ex',
+            setType: 'working',
+            reps: 10,
+            weightKg: 50,
+            durationSeconds: 0,
+            rpe: 7.5,
+          },
+        ],
+      });
+      engine.setState(finishedState);
+
+      // Build new StartSession event from a different routine
+      const newRoutine = makeRoutine(1, [
+        { warmupSets: 0, targetSets: 2, restSeconds: 60 },
+      ]);
+
+      const startEvent: Event = {
+        tag: 'StartSession',
+        sessionId: 'new-session-456',
+        nowMs: 6000,
+        routine: newRoutine as any,
+      };
+
+      // Should succeed with completely fresh state, not residue
+      const newState = await engine.dispatch(startEvent);
+
+      // Verify state is fresh (no residue from done session)
+      expect(newState.sessionId).toBe('new-session-456');
+      expect(newState.routineId).toBe('routine-test');
+      expect(newState.phase).toBe('working'); // No warmup, goes straight to working
+      expect(newState.exerciseIndex).toBe(0); // Reset, not 5
+      expect(newState.setIndex).toBe(0); // Reset, not 3
+      expect(newState.loggedSets).toHaveLength(0); // No residue, fresh
+      expect(newState.startedAtMs).toBe(6000);
+      expect(executors.onCreateSession).toHaveBeenCalledWith({
+        sessionId: 'new-session-456',
+        routineId: 'routine-test',
+        startedAtMs: 6000,
+      });
     });
   });
 

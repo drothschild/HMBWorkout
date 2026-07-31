@@ -5,7 +5,7 @@
  */
 
 import { createEngine } from './index';
-import { SessionState, RoutineEntry } from './types';
+import type { SessionState, RoutineEntry } from './types';
 
 function makeEntries(count = 2, overrides?: Partial<RoutineEntry>[]): RoutineEntry[] {
   const entries: RoutineEntry[] = [];

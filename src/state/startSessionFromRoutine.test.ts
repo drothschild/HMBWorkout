@@ -1,6 +1,5 @@
 import { createTestDatabase } from '@/db/test-helpers';
 import { startSessionFromRoutine } from './startSessionFromRoutine';
-import { SessionState } from '@/engine/types';
 
 describe('startSessionFromRoutine', () => {
   it('builds StartSession event from a routine', async () => {
@@ -183,5 +182,22 @@ describe('startSessionFromRoutine', () => {
     await expect(
       startSessionFromRoutine(db, 'nonexistent', 'session-123')
     ).rejects.toThrow();
+  });
+
+  it('refuses to start a session from a routine with no exercises', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-empty';
+        r.name = 'Empty Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+    });
+
+    await expect(
+      startSessionFromRoutine(db, 'routine-empty', 'session-123')
+    ).rejects.toThrow(/no exercises/);
   });
 });

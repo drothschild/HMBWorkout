@@ -1,7 +1,7 @@
 import { StyleSheet, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -10,42 +10,61 @@ import { database } from '@/db';
 import { routineDetailPresenter, RoutineDetail } from '@/state/routineDetailPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
 import { activeSessionStore } from '@/state/activeSession';
+import { routineStartMode } from '@/state/routineStartMode';
 
 export default function RoutineDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const sessionState = activeSessionStore((state: any) => state.sessionState);
   const [routine, setRoutine] = useState<RoutineDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadRoutine = async () => {
-      if (!id) return;
-      try {
-        const detail = await routineDetailPresenter(database, id);
-        setRoutine(detail);
-      } catch (error) {
-        console.error('Failed to load routine detail:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  useFocusEffect(
+    useCallback(() => {
+      const loadRoutine = async () => {
+        if (!id) return;
+        try {
+          const detail = await routineDetailPresenter(database, id);
+          setRoutine(detail);
+        } catch (error) {
+          console.error('Failed to load routine detail:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
 
-    loadRoutine();
-  }, [id]);
+      loadRoutine();
+    }, [id])
+  );
 
   const handleStartSession = async () => {
     if (!id) return;
+    setStartError(null);
     setStarting(true);
     try {
       const event = await startSessionFromRoutine(database, id, `session-${Date.now()}`);
-      await activeSessionStore.getState().dispatch(event);
+      const next = await activeSessionStore.getState().dispatch(event);
+      // dispatch returns null when the engine rejected the event or when
+      // persisting the accepted transition failed. A successful StartSession
+      // always resolves to the new in-progress state, so null here means the
+      // start did not take effect — do not navigate.
+      if (!next) {
+        setStartError('Could not start that routine. Try again, or check it still has exercises.');
+        return;
+      }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
+      setStartError('Could not start that routine. Try again, or check it still has exercises.');
+    } finally {
       setStarting(false);
     }
   };
+
+  const isRoutineStartable = !!routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
+  const startMode = routineStartMode({ sessionState, isRoutineStartable });
 
   if (!id || loading) {
     return (
@@ -100,22 +119,38 @@ export default function RoutineDetailScreen() {
                     Superset: {group.label}
                   </ThemedText>
                   {group.exercises.map((exercise) => (
-                    <View key={exercise.exerciseId} style={styles.exerciseItem}>
-                      <ThemedText type="default" style={styles.exerciseName}>
-                        {exercise.title}
+                    <Pressable
+                      key={exercise.exerciseId}
+                      style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
+                      onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${exercise.title}`}
+                    >
+                      <View style={styles.exerciseInfo}>
+                        <ThemedText type="default" style={styles.exerciseName}>
+                          {exercise.title}
+                        </ThemedText>
+                        <ThemedText type="default" style={styles.exerciseDetails}>
+                          {exercise.targetSets != null &&
+                            exercise.targetReps != null &&
+                            `${exercise.targetSets}x${exercise.targetReps}`}
+                          {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
+                            `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
+                              exercise.targetDurationSeconds % 60
+                            ).padStart(2, '0')}`}
+                          {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
+                          {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+                        </ThemedText>
+                        {exercise.description && (
+                          <ThemedText type="small" style={styles.exerciseDescription}>
+                            {exercise.description}
+                          </ThemedText>
+                        )}
+                      </View>
+                      <ThemedText type="default" style={styles.exerciseChevron}>
+                        ›
                       </ThemedText>
-                      <ThemedText type="default" style={styles.exerciseDetails}>
-                        {exercise.targetSets != null &&
-                          exercise.targetReps != null &&
-                          `${exercise.targetSets}x${exercise.targetReps}`}
-                        {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                          `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                            exercise.targetDurationSeconds % 60
-                          ).padStart(2, '0')}`}
-                        {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                        {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                      </ThemedText>
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               ))}
@@ -128,40 +163,75 @@ export default function RoutineDetailScreen() {
                 Exercises
               </ThemedText>
               {routine.standaloneExercises.map((exercise) => (
-                <View key={exercise.exerciseId} style={styles.exerciseItem}>
-                  <ThemedText type="default" style={styles.exerciseName}>
-                    {exercise.title}
+                <Pressable
+                  key={exercise.exerciseId}
+                  style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
+                  onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${exercise.title}`}
+                >
+                  <View style={styles.exerciseInfo}>
+                    <ThemedText type="default" style={styles.exerciseName}>
+                      {exercise.title}
+                    </ThemedText>
+                    <ThemedText type="default" style={styles.exerciseDetails}>
+                      {exercise.targetSets != null &&
+                        exercise.targetReps != null &&
+                        `${exercise.targetSets}x${exercise.targetReps}`}
+                      {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
+                        `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
+                          exercise.targetDurationSeconds % 60
+                        ).padStart(2, '0')}`}
+                      {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
+                      {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+                    </ThemedText>
+                    {exercise.description && (
+                      <ThemedText type="small" style={styles.exerciseDescription}>
+                        {exercise.description}
+                      </ThemedText>
+                    )}
+                  </View>
+                  <ThemedText type="default" style={styles.exerciseChevron}>
+                    ›
                   </ThemedText>
-                  <ThemedText type="default" style={styles.exerciseDetails}>
-                    {exercise.targetSets != null &&
-                      exercise.targetReps != null &&
-                      `${exercise.targetSets}x${exercise.targetReps}`}
-                    {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                      `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                        exercise.targetDurationSeconds % 60
-                      ).padStart(2, '0')}`}
-                    {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                    {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                  </ThemedText>
-                </View>
+                </Pressable>
               ))}
             </View>
           )}
         </ScrollView>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.startButton,
-            pressed && styles.startButtonPressed,
-            starting && styles.startButtonDisabled,
-          ]}
-          onPress={handleStartSession}
-          disabled={starting}
-        >
-          <ThemedText type="default" style={styles.startButtonText}>
-            {starting ? 'Starting...' : 'Start from this routine'}
+        {startError && (
+          <ThemedText type="default" style={styles.errorText}>
+            {startError}
           </ThemedText>
-        </Pressable>
+        )}
+        {startMode.kind === 'resume' ? (
+          // A session is already active: offering "Start from this routine" here
+          // would only be rejected by the engine, so this screen tells the truth
+          // and offers to resume instead — same destination as Today's resume.
+          <Pressable
+            style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+            onPress={() => router.push('/session')}
+          >
+            <ThemedText type="default" style={styles.startButtonText}>
+              Resume Session
+            </ThemedText>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [
+              styles.startButton,
+              pressed && styles.startButtonPressed,
+              (starting || !startMode.enabled) && styles.startButtonDisabled,
+            ]}
+            onPress={handleStartSession}
+            disabled={starting || !startMode.enabled}
+          >
+            <ThemedText type="default" style={styles.startButtonText}>
+              {starting ? 'Starting...' : 'Start from this routine'}
+            </ThemedText>
+          </Pressable>
+        )}
         <Pressable
           style={({ pressed }) => [
             styles.aiEditButton,
@@ -245,6 +315,18 @@ const styles = StyleSheet.create({
   exerciseItem: {
     marginBottom: Spacing.two,
     paddingHorizontal: Spacing.two,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  exerciseItemPressed: {
+    opacity: 0.6,
+  },
+  exerciseInfo: {
+    flex: 1,
+  },
+  exerciseDescription: {
+    opacity: 0.6,
+    marginTop: Spacing.one,
   },
   exerciseName: {
     fontWeight: '500',
@@ -253,6 +335,11 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     fontSize: 12,
     marginTop: Spacing.one,
+  },
+  exerciseChevron: {
+    fontSize: 20,
+    opacity: 0.4,
+    marginLeft: Spacing.two,
   },
   startButton: {
     backgroundColor: '#007AFF',
@@ -286,5 +373,10 @@ const styles = StyleSheet.create({
   aiEditButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  errorText: {
+    textAlign: 'center',
+    color: '#FF6B6B',
+    marginBottom: Spacing.two,
   },
 });

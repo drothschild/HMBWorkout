@@ -3,9 +3,21 @@ import { getSettings } from '@/state/settings';
 import { routineListPresenter, type RoutineListItem } from '@/state/routineListPresenter';
 import { routineDetailPresenter, type RoutineDetail, ExerciseDetail } from '@/state/routineDetailPresenter';
 import SessionSet from '@/db/models/SessionSet';
-import { getExerciseWorkingSetHistory } from '@/db/repository';
+import {
+  getExerciseWorkingSetHistory,
+  getSessionExerciseLog,
+  type SessionExerciseLogEntry,
+} from '@/db/repository';
+import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 
-export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string };
+/**
+ * A conversation about the workout the user just finished. It carries the
+ * session to summarise and, like edit mode, owns the routine any accepted
+ * draft revises.
+ */
+export type DebriefMode = { kind: 'debrief'; routineId: string; sessionId: string };
+
+export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string } | DebriefMode;
 
 type RoutineWithDetail = { routine: RoutineListItem; detail: RoutineDetail | null };
 
@@ -18,15 +30,16 @@ export const HISTORY_SETS_PER_EXERCISE = 5;
  * - All existing routines and exercises
  * - Recent working set history (capped at 5 per exercise)
  * - Edit-mode instructions (if editing a specific routine)
+ * - The just-finished session (if debriefing one)
  *
  * @param db WatermelonDB database instance
- * @param mode 'create' or 'edit' mode with optional routineId
+ * @param mode the conversation: 'create', 'edit' or 'debrief'
  * @returns System prompt string for Claude API
  */
 export async function buildSystem(db: Database, mode: AiCoachMode): Promise<string> {
   const sections: string[] = [];
 
-  sections.push(personaSection());
+  sections.push(personaSection(mode));
   sections.push(goalsSection());
   sections.push(equipmentSection());
 
@@ -49,16 +62,21 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
     }
   }
 
+  if (mode.kind === 'debrief') {
+    sections.push(await debriefSection(db, mode, routineDetails));
+  }
+
   return sections.join('\n\n');
 }
 
-function personaSection(): string {
-  return `You are a strength-training coach inside a workout-logging app.
+function personaSection(mode: AiCoachMode): string {
+  const persona = `You are a strength-training coach inside a workout-logging app.
 
 Every response must be valid JSON with this structure:
 {
   "reply": "Your conversational message to the user",
-  "draft": { /* only when proposing a new routine or revision */ }
+  "draft": { /* only when proposing a new routine or revision */ },
+  "settingsProposal": { /* only when proposing new goals or equipment */ }
 }
 
 The "draft" field is included ONLY when proposing a complete new routine or a complete revision of an existing routine. A draft always contains the full exercise list (not a diff).
@@ -74,9 +92,28 @@ Exercise schema (inside draft.exercises):
 - targetSets, targetReps: when present, must be integers >= 1
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 
+The "settingsProposal" field proposes new values for the "User Goals" and "Available Equipment" sections below. Never include a settingsProposal unless the user asked to change their goals or equipment — a workout question is not such a request. The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.
+
+Settings proposal constraints:
+- A settings proposal must include at least one of "goals" or "equipment"
+- goals, equipment: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
+- Each field is a full replacement for the user's current value, not an addition to it, so carry over any part of the current wording that should survive the change
+- Omit the field you are not changing rather than repeating its current value
+
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
 - All numeric values must be integers`;
+
+  if (mode.kind !== 'debrief') {
+    return persona;
+  }
+
+  return `${persona}
+
+Debrief mode:
+- The user has just finished the workout summarised under "Just-Finished Workout" below
+- Open the conversation by asking how the workout went before proposing any changes
+- Any draft you propose is a complete revision of the routine the user just performed, for next time`;
 }
 
 function goalsSection(): string {
@@ -178,6 +215,37 @@ function formatExerciseLine(
   return `  - ${parts.join(' | ')}`;
 }
 
+/**
+ * Render whatever a logged set actually recorded. A set can be logged with
+ * every metric blank, in which case this is the empty string and the caller
+ * decides what to say instead of printing a dangling separator.
+ */
+function formatSetMetrics(set: SessionSet): string {
+  const parts: string[] = [];
+
+  if (set.reps !== undefined && set.reps !== null) {
+    parts.push(`${set.reps} reps`);
+  }
+
+  if (set.weightKg !== undefined && set.weightKg !== null) {
+    parts.push(`@ ${set.weightKg}kg`);
+  }
+
+  if (set.durationSeconds !== undefined && set.durationSeconds !== null) {
+    parts.push(`${set.durationSeconds}s`);
+  }
+
+  if (set.distanceM !== undefined && set.distanceM !== null) {
+    parts.push(`${set.distanceM}m`);
+  }
+
+  if (set.rpe !== undefined && set.rpe !== null) {
+    parts.push(`RPE ${set.rpe}`);
+  }
+
+  return parts.join(' ');
+}
+
 async function historySection(db: Database, routineDetails: RoutineWithDetail[]): Promise<string> {
   // Collect all distinct exerciseIds and titles from pre-built routine details
   const exerciseTitleMap = new Map<string, string>();
@@ -211,31 +279,7 @@ async function historySection(db: Database, routineDetails: RoutineWithDetail[])
     const recentSets = sets.slice(0, HISTORY_SETS_PER_EXERCISE);
 
     // Format set details
-    const setDescriptions = recentSets.map((set: SessionSet) => {
-      const parts: string[] = [];
-
-      if (set.reps !== undefined && set.reps !== null) {
-        parts.push(`${set.reps} reps`);
-      }
-
-      if (set.weightKg !== undefined && set.weightKg !== null) {
-        parts.push(`@ ${set.weightKg}kg`);
-      }
-
-      if (set.durationSeconds !== undefined && set.durationSeconds !== null) {
-        parts.push(`${set.durationSeconds}s`);
-      }
-
-      if (set.distanceM !== undefined && set.distanceM !== null) {
-        parts.push(`${set.distanceM}m`);
-      }
-
-      if (set.rpe !== undefined && set.rpe !== null) {
-        parts.push(`RPE ${set.rpe}`);
-      }
-
-      return parts.join(' ');
-    });
+    const setDescriptions = recentSets.map(formatSetMetrics);
 
     // A set can be logged with every metric left blank; drop the empty
     // descriptions so the line doesn't render dangling commas
@@ -257,6 +301,81 @@ No workout history yet.`;
   }
 
   return `## Recent Training History\n\n${historyLines.join('\n')}`;
+}
+
+/**
+ * The workout the debrief is about: what the routine asked for, and what the
+ * user actually logged for it. Unlike the history section this is scoped to a
+ * single session and keeps warmups, because how the whole workout went is the
+ * subject of the conversation.
+ */
+async function debriefSection(db: Database, mode: DebriefMode, routineDetails: RoutineWithDetail[]): Promise<string> {
+  // Find the routine detail in the pre-built list to avoid a redundant fetch
+  const found = routineDetails.find((r) => r.routine.id === mode.routineId);
+  const detail = found?.detail ?? null;
+  const routineName = detail?.name ?? mode.routineId;
+  const log = await getSessionExerciseLog(db, mode.sessionId, mode.routineId);
+
+  // Header's second sentence is conditional: only mention sets if we have them
+  const secondSentence = log.length > 0 ? ' These are the sets they logged.' : '';
+  const header = `## Just-Finished Workout
+
+The user has just finished the routine "${routineName}".${secondSentence}`;
+
+  // Routine deleted and no logged data: show the "no longer exists" message
+  if (!detail && log.length === 0) {
+    return `${header}
+
+This routine no longer exists.`;
+  }
+
+  if (log.length === 0) {
+    return `${header}
+
+No exercises are on this routine.`;
+  }
+
+  const lines = log.map(
+    (entry) => `  ${entry.title}${formatTarget(entry)}: ${describeLoggedSets(entry.sets)}`
+  );
+
+  return `${header}\n\n${lines.join('\n')}`;
+}
+
+function formatTarget(entry: SessionExerciseLogEntry): string {
+  if (entry.targetSets && entry.targetReps) {
+    return ` (target ${entry.targetSets}x${entry.targetReps})`;
+  }
+
+  if (entry.targetDurationSeconds) {
+    return ` (target ${entry.targetDurationSeconds}s)`;
+  }
+
+  return '';
+}
+
+function describeLoggedSets(sets: SessionSet[]): string {
+  const descriptions = sets
+    .map((set) => {
+      const metrics = formatSetMetrics(set);
+      if (metrics === '') {
+        return '';
+      }
+
+      // Warmups and drop sets are worth distinguishing: three working sets and
+      // three warmups are very different answers to "how did it go".
+      return set.setType === 'working' ? metrics : `${metrics} (${set.setType})`;
+    })
+    .filter((description) => description.length > 0);
+
+  if (descriptions.length > 0) {
+    return descriptions.join(', ');
+  }
+
+  // Every metric can be left blank, so sets can exist with nothing to show.
+  return sets.length > 0
+    ? `${sets.length} sets logged with no numbers recorded`
+    : 'no sets logged';
 }
 
 async function editModeSection(db: Database, routineId: string): Promise<string | null> {

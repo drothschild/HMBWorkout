@@ -9,9 +9,10 @@ export interface RoutineListItem {
 /**
  * Query all routines from the database and format them for the UI.
  * Includes exercise count for each routine.
+ * Routines are sorted by creation order (created_at, ascending).
  */
 export async function routineListPresenter(db: Database): Promise<RoutineListItem[]> {
-  const routines = (await db.get('routines').query().fetch()) as any[];
+  const routines = (await db.get('routines').query(Q.sortBy('created_at', Q.asc)).fetch()) as any[];
 
   const result: RoutineListItem[] = [];
 

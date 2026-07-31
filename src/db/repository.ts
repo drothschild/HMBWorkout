@@ -2,6 +2,8 @@ import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
 import RoutineExercise from './models/RoutineExercise';
+import Exercise from './models/Exercise';
+import Routine from './models/Routine';
 import { validateSet } from './validation';
 
 /**
@@ -228,12 +230,57 @@ export async function discardInProgressSession(
 }
 
 /**
+ * Delete a session and all of its logged sets.
+ *
+ * Local-only: this removes the on-device rows only. A session already synced
+ * to the vault keeps its markdown copy there — deleting here never touches
+ * the bridge or the vault (HealthKit export also survives, written at session
+ * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
+ * by querying the sessions table directly, removing the row here also removes
+ * it from the sync queue's candidate set.
+ *
+ * Refuses to delete a session that is still in progress (no endedAt set) —
+ * the active session must go through the session-flow "abandon" path
+ * instead of being deleted out from under the engine.
+ *
+ * Atomicity: check-and-delete is one critical section — guards and deletion
+ * happen in a single writer transaction via database.batch so an app kill
+ * mid-loop cannot leave a truncated session with sync_status='local'.
+ *
+ * @param database The database instance
+ * @param sessionId The session ID to delete
+ * @throws Error if the session does not exist or is still in progress
+ */
+export async function deleteSession(
+  database: Database,
+  sessionId: string
+): Promise<void> {
+  await database.write(async () => {
+    const session = await getSession(database, sessionId);
+    if (!session) {
+      throw new Error(`cannot delete session ${sessionId}: not found`);
+    }
+
+    if (session.endedAt === null || session.endedAt === undefined) {
+      throw new Error(`cannot delete session ${sessionId}: still in progress`);
+    }
+
+    const sets = await getSessionSets(database, sessionId);
+    await database.batch(
+      ...sets.map((s) => s.prepareDestroyPermanently()),
+      session.prepareDestroyPermanently()
+    );
+  });
+}
+
+/**
  * Get all working-type sets for an exercise across all sessions (prior history).
  * Used for progression hint evaluation: rules compute hints based on prior working sets,
  * not current-session sets.
  *
  * Phase 4 Task 3: Query prior working sets by exercise ID, excluding warmups and other set types.
- * Returns sets ordered most-recent-first by set creation time (created_at desc), then by position.
+ * Returns sets ordered most-recent-first by set creation time (created_at desc),
+ * breaking ties by position desc so same-millisecond appends still order most-recent-first.
  *
  * @param database The database instance
  * @param exerciseId The exercise ID to query
@@ -268,8 +315,11 @@ export async function getExerciseWorkingSetHistory(
     )
     .fetch()) as SessionSet[];
 
-  // Sort most-recent-first by set creation time, then by position for stable ordering.
-  // (session_id is a random UUID and carries no temporal order — created_at is the real clock.)
+  // Sort most-recent-first by set creation time, breaking created_at ties by
+  // position DESC: same-millisecond appends must order exactly like appends a
+  // millisecond apart, and the later-position set is the more recent one either
+  // way. (session_id is a random UUID and carries no temporal order — created_at
+  // is the real clock.)
   allSets.sort((a, b) => {
     const createdA = (a as any)._raw.created_at ?? 0;
     const createdB = (b as any)._raw.created_at ?? 0;
@@ -278,10 +328,92 @@ export async function getExerciseWorkingSetHistory(
     }
     const aPos = (a as any)._raw.position ?? 0;
     const bPos = (b as any)._raw.position ?? 0;
-    return aPos - bPos;
+    return bPos - aPos;
   });
 
   return allSets;
+}
+
+/**
+ * One planned exercise of a routine, paired with the sets a single session
+ * actually logged against it.
+ */
+export interface SessionExerciseLogEntry {
+  exerciseId: string;
+  title: string;
+  order: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  sets: SessionSet[];
+}
+
+/**
+ * Lay one session's sets out against the routine that was performed: every
+ * planned exercise in routine order, each carrying the sets logged for it.
+ *
+ * An exercise the user skipped comes back with an empty `sets` array — that it
+ * was planned and never logged is part of how the workout went. Sets pointing
+ * at a routine_exercise that no longer belongs to this routine are dropped;
+ * they can only exist if the routine was edited after the session ended.
+ *
+ * @param database The database instance
+ * @param sessionId The finished session to read sets from
+ * @param routineId The routine that session performed
+ * @returns Planned exercises in order, each with its logged sets
+ */
+export async function getSessionExerciseLog(
+  database: Database,
+  sessionId: string,
+  routineId: string
+): Promise<SessionExerciseLogEntry[]> {
+  const routineExercises = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  routineExercises.sort((a, b) => (a as any)._raw.order - (b as any)._raw.order);
+
+  if (routineExercises.length === 0) {
+    return [];
+  }
+
+  const exerciseIds = [...new Set(routineExercises.map((re) => (re as any)._raw.exercise_id))];
+  const exercises = await database
+    .get('exercises')
+    .query(Q.where('id', Q.oneOf(exerciseIds)))
+    .fetch();
+
+  const titleById = new Map<string, string>(
+    exercises.map((exercise) => [exercise.id, (exercise as any).title as string])
+  );
+
+  const sets = await getSessionSets(database, sessionId);
+  const setsByRoutineExerciseId = new Map<string, SessionSet[]>();
+  for (const set of sets) {
+    const key = (set as any).routineExerciseId as string;
+    const existing = setsByRoutineExerciseId.get(key);
+    if (existing) {
+      existing.push(set);
+    } else {
+      setsByRoutineExerciseId.set(key, [set]);
+    }
+  }
+
+  return routineExercises.map((re) => {
+    const raw = (re as any)._raw;
+    const exerciseId = raw.exercise_id as string;
+
+    return {
+      exerciseId,
+      title: titleById.get(exerciseId) ?? exerciseId,
+      order: raw.order as number,
+      targetSets: raw.target_sets ?? undefined,
+      targetReps: raw.target_reps ?? undefined,
+      targetDurationSeconds: raw.target_duration_seconds ?? undefined,
+      sets: setsByRoutineExerciseId.get((re as any).id) ?? [],
+    };
+  });
 }
 
 /**
@@ -421,16 +553,26 @@ export async function getSupersetGroups(
  * Upsert an exercise (create if not exists, update if exists).
  * Exercises are keyed by slug (id).
  *
+ * `description` only applies on create — it is user-authored, so re-upserting
+ * an existing exercise (e.g. via the AI accept path, which calls this only
+ * for exercises that don't exist yet) never touches a description someone
+ * already wrote. Use updateExerciseDescription for the user edit path.
+ *
+ * Normalizes empty or whitespace-only descriptions to null on create, so the
+ * database always carries clean data.
+ *
  * @param database The database instance
  * @param exerciseId The exercise slug/ID
  * @param title Human-readable title
  * @param kind Exercise kind (strength, cardio, stretch)
+ * @param description Optional user-authored description, set only on create
  */
 export async function upsertExercise(
   database: Database,
   exerciseId: string,
   title: string,
-  kind: string
+  kind: string,
+  description?: string
 ): Promise<any> {
   return await database.write(async () => {
     const exercisesTable = database.get('exercises');
@@ -445,14 +587,51 @@ export async function upsertExercise(
       return exercise;
     } catch {
       // Not found, create new
+      const trimmed = description?.trim();
+      const normalized = trimmed ? trimmed : null;
       const created = await exercisesTable.create((e: any) => {
         e._raw.id = exerciseId;
         e.title = title;
         e.kind = kind;
+        if (normalized !== null) e.description = normalized;
         e._raw.created_at = Date.now();
       });
       return created;
     }
+  });
+}
+
+/**
+ * Update an exercise's user-authored description. This is the targeted edit
+ * path: it touches only the description field and never the title or kind,
+ * so it's safe for the user-facing edit screen without risking the
+ * create-only invariant the AI accept path depends on (exercises are global
+ * and shared across every routine).
+ *
+ * Normalizes empty or whitespace-only strings to null, so the database always
+ * carries clean data: either a meaningful description or null, never ''.
+ *
+ * @param database The database instance
+ * @param exerciseId The exercise ID
+ * @param description The new description, or null to clear it
+ */
+export async function updateExerciseDescription(
+  database: Database,
+  exerciseId: string,
+  description: string | null
+): Promise<Exercise> {
+  return await database.write(async () => {
+    const exercisesTable = database.get('exercises');
+    const exercise = await exercisesTable.find(exerciseId);
+
+    const trimmed = description?.trim();
+    const normalized = trimmed ? trimmed : null;
+
+    await exercise.update((record: any) => {
+      record.description = normalized;
+    });
+
+    return exercise as Exercise;
   });
 }
 
@@ -571,4 +750,88 @@ export async function upsertRoutine(
 
     return routine;
   });
+}
+
+/**
+ * Delete a routine (PRESERVE its routine_exercise rows as history carriers).
+ *
+ * DELETED: routine row only.
+ * RETAINED: routine_exercise rows, sessions, session_sets, exercises.
+ *
+ * Routine_exercise rows are retained because session_sets.routine_exercise_id
+ * points through them to logged history. Deleting them would orphan all
+ * previously logged sets, making working-set history inaccessible via
+ * getExerciseWorkingSetHistory. The UI stays clean: presenters filter
+ * routine_exercises by routine_id, so orphan rows (whose routine is gone)
+ * never appear in UI lists.
+ *
+ * Exercises are never touched: they are global and shared across routines
+ * and logged history (AGENTS.md).
+ *
+ * Sync safety guard: refuses to delete a routine while any session that
+ * references it (including one still in progress) has sync_status='local'.
+ * syncNow() (src/sync/syncService.ts) resolves each session's routine at
+ * post time via database.get('routines').find(session.routineId); if the
+ * routine is gone, that lookup throws and the per-session catch swallows
+ * the failure and continues, so the session would never sync again. A
+ * session that is already 'synced' does not block deletion — its vault
+ * copy was already posted and stays untouched, and the history screen's
+ * presenter falls back to the raw routine id when the routine is missing.
+ *
+ * Atomicity: check-and-delete is one critical section — guards and the
+ * single-row destroy happen inside one writer transaction via database.batch.
+ *
+ * The routine's vault markdown also survives (local-first, matching
+ * deleteSession): tapping "Import Routines" later will re-create the routine
+ * from the vault and re-adopt the retained routine_exercise rows.
+ *
+ * @param database The database instance
+ * @param routineId The routine ID to delete
+ * @throws RoutineHasUnsyncedSessionsError if an unsynced session references it
+ * @throws Error if the routine does not exist
+ */
+export async function deleteRoutine(
+  database: Database,
+  routineId: string
+): Promise<void> {
+  await database.write(async () => {
+    const routinesTable = database.get('routines');
+    // Query rather than find: a missing row yields [], while a genuine read
+    // failure propagates as itself instead of masquerading as not-found.
+    const [routine] = (await routinesTable
+      .query(Q.where('id', routineId))
+      .fetch()) as Routine[];
+    if (!routine) {
+      throw new Error(`cannot delete routine ${routineId}: not found`);
+    }
+
+    const referencingSessions = (await database
+      .get('sessions')
+      .query(Q.where('routine_id', routineId))
+      .fetch()) as Session[];
+
+    const hasUnsyncedSession = referencingSessions.some(
+      (session) => session.customSyncStatus === 'local'
+    );
+    if (hasUnsyncedSession) {
+      throw new RoutineHasUnsyncedSessionsError(
+        `cannot delete routine ${routineId}: unsynced sessions reference it`
+      );
+    }
+
+    // Delete ONLY the routine row. Retain routine_exercises as history carriers
+    // so that session_sets remain queryable via getExerciseWorkingSetHistory.
+    await database.batch(routine.prepareDestroyPermanently());
+  });
+}
+
+/**
+ * Thrown when attempting to delete a routine that has unsynced sessions.
+ * Discriminable from other errors for user-friendly messaging.
+ */
+export class RoutineHasUnsyncedSessionsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RoutineHasUnsyncedSessionsError';
+  }
 }

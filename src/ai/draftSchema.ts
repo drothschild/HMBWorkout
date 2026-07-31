@@ -3,7 +3,25 @@ import { ExerciseKind } from '@/db/models/Exercise';
 export interface AiTurn {
   reply: string;
   draft?: RoutineDraft;
+  settingsProposal?: SettingsProposal;
 }
+
+/**
+ * A proposed change to the user's AI settings. Each field is a full replacement
+ * for the current value, never a diff. At least one field must be present.
+ * Nothing here is written until the user approves it.
+ */
+export interface SettingsProposal {
+  goals?: string;
+  equipment?: string;
+}
+
+/**
+ * Cap on a proposed goals/equipment string. These are free-text fields the user
+ * would otherwise type by hand, and they are persisted in the settings blob;
+ * the bound keeps a runaway model from dumping a conversation into storage.
+ */
+export const SETTINGS_FIELD_MAX_LENGTH = 1000;
 
 export interface RoutineDraft {
   name: string;
@@ -67,6 +85,16 @@ export const AI_TURN_SCHEMA = {
         },
       },
       required: ['name', 'exercises'],
+      additionalProperties: false,
+    },
+    settingsProposal: {
+      type: 'object',
+      description:
+        'Include only when the user asked to change their training goals or available equipment. At least one field is required',
+      properties: {
+        goals: { type: 'string' },
+        equipment: { type: 'string' },
+      },
       additionalProperties: false,
     },
   },
@@ -150,6 +178,39 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
   return obj as unknown as RoutineDraft;
 }
 
+export function validateSettingsProposal(value: unknown): SettingsProposal {
+  if (!value || typeof value !== 'object') {
+    throw new DraftValidationError('settings proposal must be an object');
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  const validateField = (field: string, fieldValue: unknown) => {
+    if (fieldValue === undefined) {
+      return;
+    }
+
+    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
+      throw new DraftValidationError(`${field}, when present, must be a non-empty string`);
+    }
+
+    if (fieldValue.length > SETTINGS_FIELD_MAX_LENGTH) {
+      throw new DraftValidationError(
+        `${field} must be at most ${SETTINGS_FIELD_MAX_LENGTH} characters, got ${fieldValue.length}`
+      );
+    }
+  };
+
+  validateField('goals', obj.goals);
+  validateField('equipment', obj.equipment);
+
+  if (obj.goals === undefined && obj.equipment === undefined) {
+    throw new DraftValidationError('a settings proposal must include goals, equipment, or both');
+  }
+
+  return obj as unknown as SettingsProposal;
+}
+
 export function parseAiTurn(text: string): AiTurn {
   let parsed: unknown;
 
@@ -170,9 +231,12 @@ export function parseAiTurn(text: string): AiTurn {
   }
 
   const draft = obj.draft === undefined ? undefined : validateRoutineDraft(obj.draft);
+  const settingsProposal =
+    obj.settingsProposal === undefined ? undefined : validateSettingsProposal(obj.settingsProposal);
 
   return {
     reply: obj.reply,
     draft,
+    settingsProposal,
   };
 }
