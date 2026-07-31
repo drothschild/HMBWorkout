@@ -24,6 +24,12 @@ export async function rehydrateActiveSession(
   nowMs: number
 ): Promise<void> {
   store.getState().hydrate(savedState);
-  // Dispatch Resume to reconcile any expired rest deadline
-  await store.getState().dispatch({ tag: 'Resume', nowMs });
+  // Resume exists to reconcile a rest deadline frozen by a pause, and the
+  // engine accepts it only in the paused phase (transition.lv rejects it
+  // everywhere else). A session killed mid-warmup/working/resting has nothing
+  // to reconcile — sending Resume anyway parks the rejection in lastError and
+  // the session screen renders it as an error banner.
+  if (savedState.phase === 'paused') {
+    await store.getState().dispatch({ tag: 'Resume', nowMs });
+  }
 }
