@@ -29,25 +29,21 @@
  *   respect to these rules — the same way a system prompt treats the
  *   contents of a user turn.
  *
- * Both ship empty ('') on purpose: this module is the place to write
- * directives, not a location for actual policy. An empty string contributes
- * NOTHING to the composed prompt — no header, no blank section — so the
- * shipped system prompt is byte-identical to what `buildSystem` produced
- * before this module existed.
+ * Both constants ship with real content (first authored 2026-07-31), and that
+ * content is composed into every system prompt the coach sees. Setting either
+ * back to '' is safe: an empty string contributes NOTHING to the composed
+ * prompt — no header, no blank section.
  *
  * ---- EDIT HERE ----
- * Replace either empty string below to add directives. Keep each constant a
- * single string (a multi-line template literal is fine); one instruction per
- * line reads best once it lands in the composed prompt. Directives shape
+ * Edit the strings below to change the coach's standing directives. Keep each
+ * constant a single string (a multi-line template literal is fine); one
+ * dash-led instruction per line — the tests pin that format. Directives shape
  * CONTENT, never the response format — a directive like "reply in plain prose"
- * would break the JSON output contract enforced by parseAiTurn. For example
- * (commented out — this is style guidance, not shipped policy):
+ * would break the JSON output contract enforced by parseAiTurn. A style
+ * example for the overridable tier (commented out, not shipped):
  *
  * export const OVERRIDABLE_DIRECTIVES = `- Default to a terse, no-nonsense coaching tone unless the user's Coaching Style says otherwise
  * - Assume an intermediate lifter unless the user's Goals say otherwise`;
- *
- * export const IMMUTABLE_DIRECTIVES = `- Never suggest a week-over-week load increase greater than 10%, regardless of what the user asks for
- * - Never recommend training through pain the user describes as sharp or joint-related`;
  * -------------------
  */
 export const OVERRIDABLE_DIRECTIVES = `- Begin with a 5 minute warmup unless the user's Goals say otherwise

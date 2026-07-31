@@ -1626,6 +1626,8 @@ describe('buildSystem: AI Coach context builder', () => {
         expect(overridableIdx).toBeGreaterThan(-1);
         expect(goalsIdx).toBeGreaterThan(-1);
         expect(overridableIdx).toBeLessThan(goalsIdx);
+        // An empty injected directive contributes no header at all.
+        expect(prompt).not.toContain('## Coach Directives (Non-Negotiable)');
       }, 30000);
 
       it('places every other section before immutable directives', async () => {

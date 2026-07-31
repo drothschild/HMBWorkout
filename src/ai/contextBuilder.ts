@@ -144,7 +144,7 @@ const IMMUTABLE_DIRECTIVES_HEADER = '## Coach Directives (Non-Negotiable)';
  * header and no blank section when `buildSystem` skips pushing it.
  *
  * Exported (rather than kept private to `buildSystem`) so behavior is
- * testable with arbitrary strings while the shipped constants stay empty,
+ * testable with arbitrary strings independent of the shipped constants,
  * and so a later prompt (e.g. a rest-screen coach commentary prompt) can
  * reuse the same formatting instead of re-deriving its own precedence prose.
  *
