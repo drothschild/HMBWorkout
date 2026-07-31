@@ -131,9 +131,19 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
    Rehydrating is a `hydrate` call, not a dispatch, and the boot path
    (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
-   **only when the saved phase is `paused`** — `transition.lv` accepts `Resume` in that
-   one phase and returns `Err` everywhere else, and a session killed mid-warmup or
-   mid-rest has no frozen deadline to reconcile anyway. Rejections are never silent:
+   **only when the saved phase is `paused` or `resting`** — the two phases where
+   `transition.lv` defines a meaning for it. Paused resumes into a re-armed rest when
+   one was frozen (`restRemainingMs`), otherwise back to `prePausePhase`. Resting is
+   the kill-mid-rest case: a live deadline re-emits `ScheduleRest`, an expired one gets
+   the same phase-from-position recovery `RestElapsed` would have made. That re-emit
+   leans on a shell guarantee — rest alerts schedule under a fixed OS notification
+   identifier (`REST_NOTIFICATION_ID` in `executors/restTimer.ts`), so the boot re-arm
+   *replaces* the pre-kill alert rather than double-notifying, and `CancelRest` can
+   silence an alert this process never scheduled. The pair is exhaustive by
+   construction rather than enumeration: every rule writing `restDeadlineMs: Some(...)`
+   also sets `phase: Resting`, and `PauseSession`/`StartStretching` clear it on the way
+   out — no other phase can hold a deadline to reconcile. Every other phase returns
+   `Err`, and rejections are never silent:
    any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
    `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.
    So an unconditional Resume at boot greets the user with a red banner rather than
@@ -141,6 +151,23 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    The module sits outside `_layout.tsx` so the node jest project covers it (screens are
    not jest-covered), and it takes the store structurally rather than importing the
    global one, so tests can pass a `createActiveSessionStore` instance.
+
+   The *foreground* sibling of that boot path is `AppForegrounded`
+   (`src/state/foregroundReconcile.ts`, wired to an AppState listener in
+   `_layout.tsx`): an app backgrounded — not killed — past the rest deadline has no
+   other reconcile path unless the session screen happens to be mounted. Unlike
+   rehydrate, the shell dispatches it **blind** — no phase gate. The store's
+   `sessionState` updates only after `dispatch`'s awaits, so a shell gate would read a
+   stale phase and race the session screen's own dispatches; the engine applies
+   transitions synchronously and is the only race-free authority. The event is
+   therefore `Ok` in *every* phase: in `resting` it runs the same shared
+   reconciliation as the boot Resume arm (`reconcile_resting_deadline` in
+   `transition.lv`), everywhere else it is a no-op — in particular `paused` stays
+   paused, because foregrounding the app is not the user asking to resume. The other
+   half of that race: `RestCountdown` dispatches `RestElapsed` from a closure, so a
+   straggler tick can land after the reconcile already recovered the phase —
+   `RestElapsed` is benign (`Ok`, no effects) in `warmup`/`working`, the two phases
+   recovery lands in, and still `Err`s everywhere else.
 
 6. **Engine state carries ids, never display data.** The Rill `RoutineEntry` alias
    (`rules/types.lv`) is a closed record, and `toRillRoutineEntry`/`fromRillState`

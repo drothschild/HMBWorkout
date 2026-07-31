@@ -288,5 +288,102 @@ describe('Session hydration and restart recovery', () => {
       expect(store2.getState().lastError).toBeNull();
       expect(store2.getState().sessionState!.phase).toBe('warmup');
     });
+
+    // Killed mid-rest (NOT paused): the state on disk keeps phase 'resting'
+    // and its wall-clock restDeadlineMs, but the relaunched process holds no
+    // cancelable alert. The boot rehydrate must reconcile both directions:
+    // re-arm a rest that is still live, and recover the phase from one that
+    // expired while the app was dead.
+    const killedMidRestRoutine = {
+      id: 'routine-killed-mid-rest',
+      name: 'Killed Mid-Rest Routine',
+      entries: [
+        {
+          exerciseId: 'ex-kmr1',
+          kind: 'strength' as const,
+          warmupSets: 0,
+          targetSets: 2,
+          targetReps: 8,
+          targetDurationSeconds: 0,
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+      ],
+    };
+
+    // Drive a real session into the between-sets rest and stop — dispatch()
+    // has already persisted the resting state, simulating a kill right here.
+    async function driveToResting(sessionId: string, now: number): Promise<number> {
+      const store = createActiveSessionStore(database, fakeExecutors());
+
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: now,
+        routine: killedMidRestRoutine,
+      });
+
+      // LogSet the first working set — enters the 90s between-sets rest with
+      // deadline (now + 2000) + 90_000.
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 40,
+        durationSeconds: 0,
+        nowMs: now + 2000,
+      });
+
+      const restingState = store.getState().sessionState!;
+      expect(restingState.phase).toBe('resting');
+      expect(restingState.restDeadlineMs).toBe(now + 92_000);
+      return restingState.restDeadlineMs!;
+    }
+
+    it('re-arms the rest alert when rehydrating a kill-mid-rest session with a live deadline', async () => {
+      const now = Date.now();
+      const deadline = await driveToResting('rehydrate-rest-live', now);
+
+      // Relaunch: fresh store whose executors have no armed alert; the boot
+      // rehydrate lands 30s into the 90s rest.
+      const executors2 = fakeExecutors();
+      const store2 = createActiveSessionStore(database, executors2);
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('resting');
+
+      await rehydrateActiveSession(store2, loaded!, now + 32_000);
+
+      // The rest continues against the same wall-clock deadline; the new
+      // process gets its alert re-armed for the remaining time.
+      expect(store2.getState().lastError).toBeNull();
+      const s = store2.getState().sessionState!;
+      expect(s.phase).toBe('resting');
+      expect(s.restDeadlineMs).toBe(deadline);
+      expect(executors2.onScheduleRest).toHaveBeenCalledWith(deadline);
+    });
+
+    it('recovers the phase when rehydrating a kill-mid-rest session with an expired deadline', async () => {
+      const now = Date.now();
+      await driveToResting('rehydrate-rest-expired', now);
+
+      const executors2 = fakeExecutors();
+      const store2 = createActiveSessionStore(database, executors2);
+      const loaded = await loadActiveEngineState(database);
+      expect(loaded!.phase).toBe('resting');
+
+      // The 90s rest ran out while the app was dead.
+      await rehydrateActiveSession(store2, loaded!, now + 200_000);
+
+      // Same recovery RestElapsed would have made: phase from position (set 1
+      // of a 0-warmup entry → working), deadline cleared, logged set intact —
+      // and the stale pre-kill alert is cancelled.
+      expect(store2.getState().lastError).toBeNull();
+      const s = store2.getState().sessionState!;
+      expect(s.phase).toBe('working');
+      expect(s.setIndex).toBe(1);
+      expect(s.restDeadlineMs).toBe(0);
+      expect(s.loggedSets).toHaveLength(1);
+      expect(executors2.onCancelRest).toHaveBeenCalled();
+      expect(executors2.onScheduleRest).not.toHaveBeenCalled();
+    });
   });
 });
