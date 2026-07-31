@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseWorkingSetHistory, upsertExercise, upsertRoutine, deleteSession } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -194,6 +194,144 @@ describe('Repository: session and set helpers', () => {
 
       const sets = await getSessionSets(database, 'session-4');
       expect(sets).toEqual([]);
+    }, 10000);
+  });
+
+  describe('deleteSession', () => {
+    const setupSessionWithSets = async (options: {
+      sessionId: string;
+      routineId: string;
+      exerciseId: string;
+      routineExerciseId: string;
+      endSession: boolean;
+    }) => {
+      const { sessionId, routineId, exerciseId, routineExerciseId, endSession } = options;
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = routineExerciseId;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseId;
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      await createSession(database, { sessionId, routineId, startedAtMs: Date.now() - 60000 });
+
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 60,
+      });
+      await appendSet(database, sessionId, routineExerciseId, {
+        setType: 'working',
+        reps: 8,
+        weightKg: 62.5,
+      });
+
+      if (endSession) {
+        await database.write(async () => {
+          const session = await database.get('sessions').find(sessionId);
+          await (session as any).update((record: any) => {
+            record._raw.ended_at = Date.now();
+          });
+        });
+      }
+    };
+
+    it('deletes a finished session and all of its logged sets', async () => {
+      await setupSessionWithSets({
+        sessionId: 'session-delete-1',
+        routineId: 'routine-delete-1',
+        exerciseId: 'exercise-delete-1',
+        routineExerciseId: 'routine-exercise-delete-1',
+        endSession: true,
+      });
+
+      await deleteSession(database, 'session-delete-1');
+
+      expect(await getSession(database, 'session-delete-1')).toBeUndefined();
+      expect(await getSessionSets(database, 'session-delete-1')).toEqual([]);
+    }, 15000);
+
+    it('leaves unrelated sessions and their sets untouched', async () => {
+      await setupSessionWithSets({
+        sessionId: 'session-delete-2a',
+        routineId: 'routine-delete-2',
+        exerciseId: 'exercise-delete-2',
+        routineExerciseId: 'routine-exercise-delete-2',
+        endSession: true,
+      });
+
+      // A second, unrelated finished session sharing the same routine/exercise.
+      await createSession(database, {
+        sessionId: 'session-delete-2b',
+        routineId: 'routine-delete-2',
+        startedAtMs: Date.now() - 30000,
+      });
+      await appendSet(database, 'session-delete-2b', 'routine-exercise-delete-2', {
+        setType: 'working',
+        reps: 5,
+        weightKg: 40,
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-delete-2b');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      await deleteSession(database, 'session-delete-2a');
+
+      expect(await getSession(database, 'session-delete-2a')).toBeUndefined();
+
+      const survivorSession = await getSession(database, 'session-delete-2b');
+      expect(survivorSession).toBeDefined();
+
+      const survivorSets = await getSessionSets(database, 'session-delete-2b');
+      expect(survivorSets).toHaveLength(1);
+      expect((survivorSets[0] as any).reps).toBe(5);
+    }, 15000);
+
+    it('throws and leaves data intact when the session is still in progress', async () => {
+      await setupSessionWithSets({
+        sessionId: 'session-delete-3',
+        routineId: 'routine-delete-3',
+        exerciseId: 'exercise-delete-3',
+        routineExerciseId: 'routine-exercise-delete-3',
+        endSession: false,
+      });
+
+      await expect(deleteSession(database, 'session-delete-3')).rejects.toThrow(
+        'cannot delete session session-delete-3: still in progress'
+      );
+
+      expect(await getSession(database, 'session-delete-3')).toBeDefined();
+      expect(await getSessionSets(database, 'session-delete-3')).toHaveLength(2);
+    }, 15000);
+
+    it('throws when the session does not exist', async () => {
+      await expect(deleteSession(database, 'session-does-not-exist')).rejects.toThrow(
+        'cannot delete session session-does-not-exist: not found'
+      );
     }, 10000);
   });
 
