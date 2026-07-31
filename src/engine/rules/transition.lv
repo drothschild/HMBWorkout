@@ -52,12 +52,34 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
       )
       else (
         -- Partner exhausted for this round. This is the round's last member.
+        -- Check if group/entry is done using same logic as main else branch.
         let nextRound = s.setIndex + 1
-        let roundDone = nextRound >= allSetsForEntry
+        let groupStartIdx = s.exerciseIndex - s.supersetPosition
+        let roundDone = if (s.supersetPosition == 0)
+          then nextRound >= allSetsForEntry
+          else (
+            -- For group: check if any member has sets in next round
+            let groupMembersHaveSets = fold(
+              false,
+              fn(anyHave) -> fn(entry) -> (
+                if (anyHave) then true
+                else (
+                  match (currentEntry.supersetGroup, entry.supersetGroup) {
+                    (Some(currGrp), Some(entryGrp)) ->
+                      if (currGrp == entryGrp)
+                      then nextRound < (entry.warmupSets + entry.targetSets)
+                      else anyHave,
+                    _ -> anyHave
+                  }
+                )
+              ),
+              s.entries
+            )
+            !groupMembersHaveSets
+          )
 
         if (!roundDone)
         then (
-          let groupStartIdx = s.exerciseIndex - s.supersetPosition
           let firstMemberEntry = at(groupStartIdx, s.entries)?
           let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
           if (restBetweenSets)
@@ -74,6 +96,9 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
           })
         )
         else (
+          -- After group completes, move to first entry after the group.
+          -- For standalone exercises, just move to next entry.
+          -- For groups, scan to find the end of the group.
           let nextExerciseIndex = s.exerciseIndex + 1
           let workoutDone = nextExerciseIndex >= length(s.entries)
 
