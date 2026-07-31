@@ -15,6 +15,13 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
     let nextSetIndex = s.setIndex + 1
     let allSetsForEntry = currentEntry.warmupSets + currentEntry.targetSets
     let exerciseDone = nextSetIndex >= allSetsForEntry
+    -- LogSet/SetDone are accepted while Resting (e.g. logging a set early
+    -- from the rest screen), so any exit that doesn't immediately schedule a
+    -- new rest must cancel the one already scheduled, or its alert outlives
+    -- the state it was scheduled for. The two ScheduleRest branches below
+    -- need no cancel first: rescheduling under the same fixed notification id
+    -- replaces the pending alert rather than doubling it (see restTimer.ts).
+    let cancelRestEffects = if (s.phase == Resting) then [CancelRest] else []
 
     if (!exerciseDone)
     then (
@@ -33,7 +40,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
         let newPhase = if (isWarmup && nextSetIndex >= currentEntry.warmupSets) then Working else s.phase
         Ok({
           state: { s | phase: newPhase, setIndex: nextSetIndex, restDeadlineMs: None },
-          effects: []
+          effects: cancelRestEffects
         })
       )
     )
@@ -44,7 +51,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
       if (workoutDone)
       then Ok({
         state: { s | phase: Done, restDeadlineMs: None },
-        effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: s.exerciseIndex, setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
+        effects: append(cancelRestEffects, [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: s.exerciseIndex, setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })])
       })
       else (
         let nextEntry = at(nextExerciseIndex, s.entries)?
@@ -56,7 +63,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
         if (sameSuperset)
         then Ok({
           state: { s | exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: s.supersetPosition + 1, restDeadlineMs: None },
-          effects: []
+          effects: cancelRestEffects
         })
         else (
           let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
@@ -69,7 +76,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
           })
           else Ok({
             state: { s | exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
-            effects: []
+            effects: cancelRestEffects
           })
         )
       )
