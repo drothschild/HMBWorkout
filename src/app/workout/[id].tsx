@@ -28,20 +28,29 @@ export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
+      if (!id) {
+        setLoading(false);
+        return;
+      }
+
       let cancelled = false;
 
       (async () => {
-        if (!id) return;
         try {
           const result = await sessionDetailPresenter(database, id);
           if (!cancelled) {
             setDetail(result);
+            setError(null);
           }
-        } catch (error) {
-          console.error('Failed to load session detail:', error);
+        } catch (err) {
+          console.error('Failed to load session detail:', err);
+          if (!cancelled) {
+            setError('Failed to load workout. Please try again.');
+          }
         } finally {
           if (!cancelled) {
             setLoading(false);
@@ -55,11 +64,31 @@ export default function SessionDetailScreen() {
     }, [id])
   );
 
-  if (!id || loading) {
+  if (loading) {
     return (
       <ThemedView style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <ThemedText>Loading workout...</ThemedText>
+        </SafeAreaView>
+      </ThemedView>
+    );
+  }
+
+  if (!id) {
+    return (
+      <ThemedView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <ThemedText>Workout ID not found</ThemedText>
+        </SafeAreaView>
+      </ThemedView>
+    );
+  }
+
+  if (error) {
+    return (
+      <ThemedView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <ThemedText>{error}</ThemedText>
         </SafeAreaView>
       </ThemedView>
     );
@@ -70,6 +99,16 @@ export default function SessionDetailScreen() {
       <ThemedView style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <ThemedText>Workout not found</ThemedText>
+        </SafeAreaView>
+      </ThemedView>
+    );
+  }
+
+  if (detail.endedAt === null) {
+    return (
+      <ThemedView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <ThemedText>This workout is still in progress</ThemedText>
         </SafeAreaView>
       </ThemedView>
     );
@@ -100,34 +139,36 @@ export default function SessionDetailScreen() {
             {formatSessionDate(detail.endedAt)}
           </ThemedText>
 
-          {detail.exercises.map((exercise) => (
-            <View key={exercise.routineExerciseId} style={styles.exerciseSection}>
-              <View style={styles.exerciseHeaderRow}>
-                <ThemedText type="subtitle" style={styles.exerciseName}>
-                  {exercise.title}
-                </ThemedText>
-                {formatTargetLabel(exercise.targetSets, exercise.targetReps, exercise.targetDurationSeconds) !== '' && (
-                  <ThemedText type="default" style={styles.exerciseTarget}>
-                    {formatTargetLabel(exercise.targetSets, exercise.targetReps, exercise.targetDurationSeconds)}
+          {detail.exercises.map((exercise) => {
+            const targetLabel = formatTargetLabel(exercise.targetSets, exercise.targetReps, exercise.targetDurationSeconds);
+            return (
+              <View key={exercise.routineExerciseId} style={styles.exerciseSection}>
+                <View style={styles.exerciseHeaderRow}>
+                  <ThemedText type="subtitle" style={styles.exerciseName}>
+                    {exercise.title}
                   </ThemedText>
+                  {targetLabel !== '' && (
+                    <ThemedText type="default" style={styles.exerciseTarget}>
+                      {targetLabel}
+                    </ThemedText>
+                  )}
+                </View>
+                {exercise.sets.length === 0 ? (
+                  <ThemedText type="default" style={styles.skippedText}>
+                    No sets logged
+                  </ThemedText>
+                ) : (
+                  exercise.sets.map((set) => (
+                    <View key={set.id} style={styles.setRow}>
+                      <ThemedText type="default" style={styles.setLine}>
+                        {set.label}: {set.line}
+                      </ThemedText>
+                    </View>
+                  ))
                 )}
               </View>
-              {exercise.sets.length === 0 ? (
-                <ThemedText type="default" style={styles.skippedText}>
-                  Planned, not logged
-                </ThemedText>
-              ) : (
-                exercise.sets.map((set, idx) => (
-                  <View key={set.id} style={styles.setRow}>
-                    <ThemedText type="default" style={styles.setLine}>
-                      {set.setType === 'warmup' ? `Warmup ${idx + 1}: ` : `${idx + 1}. `}
-                      {set.line}
-                    </ThemedText>
-                  </View>
-                ))
-              )}
-            </View>
-          ))}
+            );
+          })}
 
           {detail.otherSets.length > 0 && (
             <View style={styles.exerciseSection}>

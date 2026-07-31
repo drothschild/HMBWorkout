@@ -248,4 +248,139 @@ describe('sessionDetailPresenter', () => {
     expect(durationSet.line).toBe('30s');
     expect(emptySet.line).toBe('—');
   });
+
+  it('handles routine with zero routine_exercises rows: all sets land in otherSets', async () => {
+    await database.write(async () => {
+      await database.get('routines').create((r: any) => {
+        r._raw.id = 'routine-empty';
+        r.name = 'Empty Routine';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+      await database.get('exercises').create((e: any) => {
+        e._raw.id = 'ex-push';
+        e.title = 'Push';
+        e.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+    });
+
+    await createSession(database, {
+      sessionId: 'session-1',
+      routineId: 'routine-empty',
+      startedAtMs: Date.now() - 60000,
+    });
+
+    // Log sets against a routine that has no routine_exercises
+    // (This can happen if the routine was edited after the session)
+    await database.write(async () => {
+      await database.get('session_sets').create((s: any) => {
+        s._raw.id = 'set-1';
+        s.sessionId = 'session-1';
+        s.routineExerciseId = 're-missing';
+        s.setType = 'working';
+        s.reps = 10;
+        s.weightKg = 50;
+        s.position = 0;
+        s._raw.created_at = Date.now();
+      });
+      await database.get('session_sets').create((s: any) => {
+        s._raw.id = 'set-2';
+        s.sessionId = 'session-1';
+        s.routineExerciseId = 're-missing';
+        s.setType = 'working';
+        s.reps = 8;
+        s.weightKg = 50;
+        s.position = 1;
+        s._raw.created_at = Date.now();
+      });
+      const session = await database.get('sessions').find('session-1');
+      await (session as any).update((record: any) => {
+        record._raw.ended_at = Date.now();
+      });
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-1');
+
+    expect(detail).not.toBeNull();
+    // No planned exercises
+    expect(detail!.exercises).toHaveLength(0);
+    // All sets are orphaned
+    expect(detail!.otherSets).toHaveLength(2);
+    expect(detail!.otherSets[0].line).toBe('10 x 110lbs');
+    expect(detail!.otherSets[1].line).toBe('8 x 110lbs');
+  });
+
+  it('keeps duplicate-exercise entries as separate exercises with distinct routineExerciseIds', async () => {
+    await seedRoutine();
+    // Add the same exercise (Bench Press) a second time at order 2
+    await database.write(async () => {
+      await database.get('routine_exercises').create((re: any) => {
+        re._raw.id = 're-bench-2';
+        re._raw.routine_id = 'routine-1';
+        re._raw.exercise_id = 'ex-bench';
+        re._raw.order = 2;
+        re._raw.warmup_sets = 0;
+        re._raw.target_sets = 2;
+        re._raw.target_reps = 10;
+      });
+    });
+
+    await createSession(database, {
+      sessionId: 'session-1',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+
+    // Log different sets against each routine_exercises row
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+    await appendSet(database, 'session-1', 're-bench-2', {
+      setType: 'working',
+      reps: 10,
+      weightKg: 50,
+    });
+
+    await database.write(async () => {
+      const session = await database.get('sessions').find('session-1');
+      await (session as any).update((record: any) => {
+        record._raw.ended_at = Date.now();
+      });
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-1');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.exercises).toHaveLength(3);
+
+    // First Bench Press entry (order 0) has 2 sets
+    expect(detail!.exercises[0].title).toBe('Bench Press');
+    expect(detail!.exercises[0].routineExerciseId).toBe('re-bench');
+    expect(detail!.exercises[0].targetReps).toBe(8);
+    expect(detail!.exercises[0].sets).toHaveLength(2);
+    expect(detail!.exercises[0].sets[0].line).toBe('8 x 132.5lbs');
+    expect(detail!.exercises[0].sets[1].line).toBe('8 x 132.5lbs');
+
+    // Row entry (order 1) has 0 sets (skipped)
+    expect(detail!.exercises[1].title).toBe('Barbell Row');
+    expect(detail!.exercises[1].routineExerciseId).toBe('re-row');
+    expect(detail!.exercises[1].sets).toHaveLength(0);
+
+    // Second Bench Press entry (order 2) has 1 set
+    expect(detail!.exercises[2].title).toBe('Bench Press');
+    expect(detail!.exercises[2].routineExerciseId).toBe('re-bench-2');
+    expect(detail!.exercises[2].targetReps).toBe(10);
+    expect(detail!.exercises[2].sets).toHaveLength(1);
+    expect(detail!.exercises[2].sets[0].line).toBe('10 x 110lbs');
+
+    expect(detail!.otherSets).toEqual([]);
+  });
 });

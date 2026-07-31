@@ -95,7 +95,7 @@ export default function HistoryScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`View ${item.routineName} from ${formatSessionDate(item.endedAt)}`}
                   style={({ pressed }) => [styles.sessionInfo, pressed && styles.sessionInfoPressed]}
-                  onPress={() => router.push(`/history/${item.id}`)}
+                  onPress={() => router.push(`/workout/${item.id}`)}
                 >
                   <ThemedText type="subtitle">{item.routineName}</ThemedText>
                   <ThemedText type="default" style={styles.sessionMeta}>

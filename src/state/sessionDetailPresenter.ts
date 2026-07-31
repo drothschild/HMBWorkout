@@ -1,7 +1,7 @@
 import { Database } from '@nozbe/watermelondb';
 import SessionSet from '@/db/models/SessionSet';
 import { getSession, getSessionSets, getSessionExerciseLog, getRoutineDisplay } from '@/db/repository';
-import { formatWeightLbs } from './weightUnits';
+import { formatSetLine } from './sessionPresenter';
 
 /**
  * One logged set formatted for display, keyed by its own row id (stable
@@ -11,6 +11,8 @@ export interface SessionDetailSetLine {
   id: string;
   setType: string;
   line: string;
+  /** Formatted label (e.g. "Warmup 1", "Set 3") with independent counters per type */
+  label: string;
 }
 
 /**
@@ -38,7 +40,18 @@ export interface SessionDetail {
   /** The routine's current name, or its raw id if the routine has since
    *  been deleted — same fallback convention as sessionHistoryPresenter. */
   routineName: string;
-  endedAt: number;
+  /** When the session ended, or null for in-progress sessions (caller should filter
+   *  for ended sessions before rendering this detail, per sessionHistoryPresenter convention). */
+  endedAt: number | null;
+  /**
+   * Planned exercises in routine order, paired with logged sets. Note that this
+   * list reflects the routine's CURRENT composition, not the session's. If an
+   * exercise was added to the routine after this session ended, it will appear
+   * here with zero logged sets. Conversely, if an exercise was removed from the
+   * routine, its logged sets will appear in otherSets instead. Full fidelity is
+   * unrecoverable because session_sets carries only routine_exercise_id, not
+   * exercise_id. See AGENTS.md ticket C3 (PR #31) for the design tradeoff.
+   */
   exercises: SessionDetailExercise[];
   /**
    * Sets logged against a routine_exercise row that no longer exists. This
@@ -54,47 +67,29 @@ export interface SessionDetail {
 
 /**
  * Format one logged DB set for the read-only history detail screen.
- * Mirrors formatLoggedSetLine's (sessionPresenter.ts) rendering and sentinel
- * conventions — rpe -1 and null reps/weight/duration mean "absent" and must
- * be omitted, never rendered — applied to the DB's SessionSet shape rather
- * than the engine's LoggedSet (the two SetType unions and field sets differ
- * enough that reusing formatLoggedSetLine directly would need an unsafe
- * cast; the DB's setType really can hold 'stretch'/'cardio' at runtime even
- * though the model's TS type only declares 'warmup' | 'working' | 'drop' —
- * activeSession.ts's onPersistSet writes the engine's setType through as-is).
+ * Delegates to the shared formatSetLine with the DB's SessionSet shape.
  */
 function formatSessionSetLine(set: SessionSet): string {
-  const parts: string[] = [];
-  const setType = set.setType as string;
-  const reps = set.reps ?? null;
-  const weightKg = set.weightKg ?? null;
-  const durationSeconds = set.durationSeconds ?? null;
-  const rpe = set.rpe ?? null;
-
-  if (setType === 'stretch' || setType === 'cardio') {
-    if (durationSeconds != null) {
-      parts.push(`${durationSeconds}s`);
-    }
-  } else if (reps != null && weightKg != null) {
-    parts.push(`${reps} x ${formatWeightLbs(weightKg)}`);
-  } else if (reps != null) {
-    parts.push(`${reps} reps`);
-  } else if (weightKg != null) {
-    parts.push(formatWeightLbs(weightKg));
-  }
-
-  if (rpe != null && rpe !== -1) {
-    parts.push(`RPE: ${rpe}`);
-  }
-
-  return parts.length > 0 ? parts.join(' ') : '—';
+  return formatSetLine(
+    set.setType as string,
+    set.reps ?? null,
+    set.weightKg ?? null,
+    set.durationSeconds ?? null,
+    set.rpe ?? null
+  );
 }
 
-function toSetLine(set: SessionSet): SessionDetailSetLine {
+function toSetLine(set: SessionSet, warmupIndex: number, workingIndex: number): SessionDetailSetLine {
+  const setType = set.setType as string;
+  const label = setType === 'warmup'
+    ? `Warmup ${warmupIndex + 1}`
+    : `Set ${workingIndex + 1}`;
+
   return {
     id: set.id,
-    setType: set.setType as string,
+    setType,
     line: formatSessionSetLine(set),
+    label,
   };
 }
 
@@ -119,12 +114,12 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
   }
 
   const routineId = session.routineId;
-  const endedAt = (session as any)._raw.ended_at as number;
+  const endedAt = session.endedAt?.getTime() ?? null;
 
-  const [routineDisplay, log, allSets] = await Promise.all([
+  const allSets = await getSessionSets(db, sessionId);
+  const [routineDisplay, log] = await Promise.all([
     getRoutineDisplay(db, routineId),
-    getSessionExerciseLog(db, sessionId, routineId),
-    getSessionSets(db, sessionId),
+    getSessionExerciseLog(db, sessionId, routineId, allSets),
   ]);
 
   const accountedForSetIds = new Set<string>();
@@ -133,17 +128,40 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
       accountedForSetIds.add(set.id);
     }
 
+    // Build sets with independent warmup and working set counters
+    let warmupCount = 0;
+    let workingCount = 0;
+    const formattedSets = entry.sets.map((set) => {
+      const setType = set.setType as string;
+      if (setType === 'warmup') {
+        return toSetLine(set, warmupCount++, -1);
+      } else {
+        return toSetLine(set, -1, workingCount++);
+      }
+    });
+
     return {
       routineExerciseId: entry.routineExerciseId,
       title: entry.title,
       targetSets: entry.targetSets,
       targetReps: entry.targetReps,
       targetDurationSeconds: entry.targetDurationSeconds,
-      sets: entry.sets.map(toSetLine),
+      sets: formattedSets,
     };
   });
 
-  const otherSets = allSets.filter((set) => !accountedForSetIds.has(set.id)).map(toSetLine);
+  // For otherSets (from deleted exercises), just use simple numbering
+  const otherSets = allSets
+    .filter((set) => !accountedForSetIds.has(set.id))
+    .map((set, idx) => {
+      const label = String(idx + 1);
+      return {
+        id: set.id,
+        setType: set.setType as string,
+        line: formatSessionSetLine(set),
+        label,
+      };
+    });
 
   return {
     sessionId: session.id,
