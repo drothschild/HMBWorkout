@@ -150,6 +150,25 @@ describe('buildSystem: AI Coach context builder', () => {
     }, 30000);
   });
 
+  describe('Coaching style', () => {
+    it('includes the personality setting under a "## Coaching Style" section', async () => {
+      setSettings({ aiPersonality: 'Direct and no-nonsense; celebrate PRs' });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('## Coaching Style');
+      expect(prompt).toContain('Direct and no-nonsense; celebrate PRs');
+    }, 30000);
+
+    it('includes a "Not specified." placeholder when personality is empty', async () => {
+      setSettings({ aiPersonality: '' });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain('## Coaching Style\n\nNot specified.');
+    }, 30000);
+  });
+
   describe('AC2.2 — routines', () => {
     it('includes routine names and exercise details in the prompt', async () => {
       // Seed first routine with exercises
