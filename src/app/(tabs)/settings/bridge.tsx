@@ -7,13 +7,12 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { getSettings, setSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';
@@ -101,7 +100,7 @@ export default function BridgeSettingsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <View style={styles.headerContainer}>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.navigate('/settings'))}
@@ -241,7 +240,7 @@ export default function BridgeSettingsScreen() {
             </ThemedText>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -255,13 +254,13 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Spacing.two,
   },
   backButton: {
     alignSelf: 'flex-start',

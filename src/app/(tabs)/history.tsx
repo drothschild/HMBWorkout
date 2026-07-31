@@ -1,11 +1,10 @@
 import { StyleSheet, Pressable, FlatList, View, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import { deleteSession } from '@/db/repository';
 import {
@@ -75,7 +74,7 @@ export default function HistoryScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         {loading ? (
           <ThemedText type="default">Loading history...</ThemedText>
         ) : sessions.length === 0 ? (
@@ -110,7 +109,7 @@ export default function HistoryScreen() {
             )}
           />
         )}
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -124,7 +123,8 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
   },

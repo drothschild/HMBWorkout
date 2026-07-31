@@ -15,7 +15,7 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
@@ -568,7 +568,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
   },
