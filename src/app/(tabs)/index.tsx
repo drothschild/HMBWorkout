@@ -125,6 +125,10 @@ export default function TodayScreen() {
               </ThemedText>
             </View>
           )}
+
+          <Pressable onPress={() => router.push('/history')} style={styles.historyLink}>
+            <ThemedText type="linkPrimary">View History</ThemedText>
+          </Pressable>
         </ThemedView>
       </SafeAreaView>
     </ThemedView>
@@ -177,5 +181,8 @@ const styles = StyleSheet.create({
   placeholder: {
     textAlign: 'center',
     opacity: 0.6,
+  },
+  historyLink: {
+    padding: Spacing.two,
   },
 });

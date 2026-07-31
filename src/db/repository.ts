@@ -176,6 +176,45 @@ export async function getSessionSets(
 }
 
 /**
+ * Delete a session and all of its logged sets.
+ *
+ * Local-only: this removes the on-device rows only. A session already synced
+ * to the vault keeps its markdown copy there — deleting here never touches
+ * the bridge or the vault. Because syncNow() (src/sync/syncService.ts)
+ * selects candidates by querying the sessions table directly, removing the
+ * row here also removes it from the sync queue's candidate set.
+ *
+ * Refuses to delete a session that is still in progress (no endedAt set) —
+ * the active session must go through the session-flow "abandon" path
+ * instead of being deleted out from under the engine.
+ *
+ * @param database The database instance
+ * @param sessionId The session ID to delete
+ * @throws Error if the session does not exist or is still in progress
+ */
+export async function deleteSession(
+  database: Database,
+  sessionId: string
+): Promise<void> {
+  const session = await getSession(database, sessionId);
+  if (!session) {
+    throw new Error(`cannot delete session ${sessionId}: not found`);
+  }
+
+  if (session.endedAt === null || session.endedAt === undefined) {
+    throw new Error(`cannot delete session ${sessionId}: still in progress`);
+  }
+
+  await database.write(async () => {
+    const sets = await getSessionSets(database, sessionId);
+    for (const set of sets) {
+      await set.destroyPermanently();
+    }
+    await session.destroyPermanently();
+  });
+}
+
+/**
  * Get all working-type sets for an exercise across all sessions (prior history).
  * Used for progression hint evaluation: rules compute hints based on prior working sets,
  * not current-session sets.
