@@ -319,6 +319,77 @@ describe('serialize', () => {
     });
   });
 
+  describe('Sets whose routine_exercises row is gone', () => {
+    // upsertRoutine's drop branch destroys the routine_exercises row of an
+    // exercise removed from a routine. A finished session still queued as
+    // sync_status='local' keeps its session_sets, but their
+    // routine_exercise_id now names nothing — and the serializer's outer loop
+    // walks surviving rows, so those sets were never even visited. The session
+    // posted short and flipped to 'synced', permanently losing that work from
+    // the vault. Identity survives in the schema-v3 stamp; use it.
+    const sessionRow = {
+      id: 'sess-dropped',
+      routineId: 'push-06-01',
+      startedAt: new Date('2026-07-08T10:00:00Z'),
+      endedAt: new Date('2026-07-08T10:30:00Z'),
+      createdAt: new Date('2026-07-08T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    // The routine has been edited since the workout: only the press survives.
+    const survivingRows = [
+      {
+        id: 're-press',
+        exerciseId: 'barbell-bench-press',
+        order: 0,
+        supersetGroup: undefined,
+        warmupSets: 0,
+        targetSets: 4,
+        targetReps: 6,
+        targetDurationSeconds: undefined,
+        restSeconds: 90,
+        notes: undefined,
+      },
+    ];
+
+    const exercises = [
+      { id: 'barbell-bench-press', title: 'Barbell Bench Press', kind: 'strength' as const },
+      { id: 'cable-fly', title: 'Cable Fly', kind: 'strength' as const },
+    ];
+
+    test('still exports a set whose row was dropped by a routine edit', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-press',
+          exerciseId: 'barbell-bench-press',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 80,
+          position: 0,
+        },
+        {
+          // This row was destroyed when the exercise left the routine.
+          routineExerciseId: 're-fly',
+          exerciseId: 'cable-fly',
+          setType: 'working' as const,
+          reps: 12,
+          weightKg: 15,
+          position: 1,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        survivingRows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6');
+      expect(markdown).toContain('- cable-fly: 1x12');
+    });
+  });
+
   describe('Task 2: Structured flags serialization', () => {
     test('serializeSession includes set_type for warmup/working sets', () => {
       const sessionRow = {
