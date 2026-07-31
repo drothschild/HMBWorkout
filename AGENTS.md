@@ -256,6 +256,11 @@ is now a misnomer — AI settings are in there too.
   routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
   and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
   network or DB.
+- **Immutable directives must remain the last section in `buildSystem`.** They are placed
+  after every section built from user-controlled free text (goals, equipment, personality,
+  routine notes, exercise titles) to preserve their precedence against injection attempts.
+  The placement is enforced in `buildSystem` (`src/ai/contextBuilder.ts`); the directive
+  text itself lives in `src/ai/coachDirectives.ts`.
 
 ## Testing gotchas
 
@@ -281,7 +286,7 @@ is now a misnomer — AI settings are in there too.
 - `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
-  system-prompt builder, draft→repository accept path
+  system-prompt builder, coach directives, draft→repository accept path
 - `src/app/` — expo-router screens
 
 ## Boundaries
