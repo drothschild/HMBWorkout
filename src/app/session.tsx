@@ -15,7 +15,7 @@ import {
 } from '@/state/sessionPresenter';
 import { formatSetInputValue } from '@/state/setInputs';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
-import { exerciseQuestionStore, exerciseQuestionTarget, hasAnthropicKey } from '@/state/exerciseQuestionStore';
+import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasAnthropicKey } from '@/state/exerciseQuestionStore';
 import { getSettings } from '@/state/settings';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
@@ -291,10 +291,11 @@ export default function SessionScreen() {
   // currently applies to and collapses the block whenever that changes —
   // never on every render, only on an actual exercise change or unmount.
   const questionTarget = exerciseQuestionTarget(sessionState, exerciseTitles);
-  const questionKey = questionTarget
-    ? `${questionTarget.sessionId}#${questionTarget.entryIdx}`
-    : null;
+  const questionKey = questionTarget ? exerciseQuestionKey(questionTarget) : null;
   const isQuestionExpanded = questionKey !== null && questionExpandedKey === questionKey;
+  // Non-reactive read: the button is hidden if no key is set at this moment, but
+  // adding a key mid-session won't reveal it until an unrelated re-render happens.
+  // This is accepted behavior — the primary flow is to configure the key before starting.
   const canAskQuestion = questionTarget !== null && hasAnthropicKey(getSettings());
 
   useEffect(() => {

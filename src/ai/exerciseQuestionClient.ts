@@ -25,9 +25,10 @@ const MODEL = 'claude-sonnet-5';
 /**
  * A detailed how-to needs more room than the rest-screen's 1-2 sentences
  * (256 tokens there), but is still bounded so a runaway response can't blow
- * up the session screen's inline expand block.
+ * up the session screen's inline expand block. Paired with EXERCISE_QUESTION_MAX_CHARS
+ * (2000); tokens and chars should stay roughly in sync (512 tokens ≈ 2000 chars).
  */
-export const EXERCISE_QUESTION_MAX_TOKENS = 1024;
+export const EXERCISE_QUESTION_MAX_TOKENS = 512;
 
 type FetchFn = typeof fetch;
 

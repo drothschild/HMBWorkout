@@ -122,15 +122,21 @@ export function SetLogger({
 
       {questionExpanded && (questionPending || questionText) && (
         <View style={[styles.questionAnswer, { borderColor: theme.backgroundSelected }]}>
-          {questionPending ? (
-            <ThemedText type="small" style={styles.questionPendingText}>
-              Loading…
-            </ThemedText>
-          ) : (
-            <ThemedText type="small" style={styles.questionAnswerText}>
-              {questionText}
-            </ThemedText>
-          )}
+          <ScrollView
+            scrollEnabled={true}
+            style={styles.questionAnswerScroll}
+            contentContainerStyle={styles.questionAnswerContent}
+          >
+            {questionPending ? (
+              <ThemedText type="small" style={styles.questionPendingText}>
+                Loading…
+              </ThemedText>
+            ) : (
+              <ThemedText type="small" style={styles.questionAnswerText}>
+                {questionText}
+              </ThemedText>
+            )}
+          </ScrollView>
         </View>
       )}
 
@@ -316,9 +322,15 @@ const styles = StyleSheet.create({
   questionAnswer: {
     // borderColor is theme-resolved inline
     marginTop: Spacing.two,
-    padding: Spacing.two,
     borderWidth: 1,
     borderRadius: 4,
+    maxHeight: 220,
+  },
+  questionAnswerScroll: {
+    flex: 1,
+  },
+  questionAnswerContent: {
+    padding: Spacing.two,
   },
   questionPendingText: {
     opacity: 0.7,

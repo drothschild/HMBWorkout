@@ -83,7 +83,7 @@ export function buildExerciseQuestionPrompt(
   const system = [
     `You are a strength-training coach in a workout-logging app. The athlete is mid-workout and tapped a question mark next to the exercise described in the next message because they want a detailed how-to.
 
-Reply with a clear, detailed explanation of ${title}: setup, proper form and technique, breathing, and common mistakes to avoid. Write a few short paragraphs.
+Reply with a clear, detailed explanation of the exercise: setup, proper form and technique, breathing, and common mistakes to avoid. Write a few short paragraphs.
 
 Rules:
 - Plain text only. No markdown syntax (no #, *, **, backticks, numbered or bulleted lists).

@@ -91,7 +91,7 @@ describe('buildExerciseQuestionPrompt', () => {
       exercise: { title: 'Bench Press', kind: 'strength', description: null },
     });
 
-    expect(prompt.system.toLowerCase()).toContain('bench press');
+    expect(prompt.system.toLowerCase()).toContain('exercise named in the next message');
   });
 });
 

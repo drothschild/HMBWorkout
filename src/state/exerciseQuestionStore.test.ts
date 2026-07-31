@@ -193,6 +193,26 @@ describe('createExerciseQuestionStore', () => {
       expect(store.getState().text).toBe('About squat.');
     });
 
+    it('maintains separate cache entries when the same exercise appears at different routine indices', async () => {
+      mockFetch
+        .mockResolvedValueOnce(answerResponse('First bench press'))
+        .mockResolvedValueOnce(answerResponse('Second bench press'));
+      const store = makeStore();
+
+      await store.getState().toggle(target({ entryIdx: 0, exerciseId: 'bench-press' }));
+      await store.getState().toggle(target({ entryIdx: 0 })); // collapse
+      await store.getState().toggle(target({ entryIdx: 2, exerciseId: 'bench-press' }));
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(store.getState().text).toBe('Second bench press');
+
+      // Re-expand the first entry and verify it uses its own cached answer
+      await store.getState().toggle(target({ entryIdx: 2 })); // collapse second
+      await store.getState().toggle(target({ entryIdx: 0 }));
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(store.getState().text).toBe('First bench press');
+    });
+
     it('treats the same entry index in a new session as a new entry', async () => {
       const store = makeStore();
 
@@ -456,6 +476,10 @@ describe('exerciseQuestionTarget', () => {
 
   it('is null while stretching', () => {
     expect(exerciseQuestionTarget(state({ phase: 'stretching' }))).toBeNull();
+  });
+
+  it('is null when idle (before session starts)', () => {
+    expect(exerciseQuestionTarget(state({ phase: 'idle' }))).toBeNull();
   });
 
   it('is null during the full-screen rest takeover', () => {

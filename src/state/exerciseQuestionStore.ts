@@ -71,6 +71,20 @@ export function hasAnthropicKey(settings: { anthropicKey: string }): boolean {
 }
 
 /**
+ * Build the cache key for an exercise question target.
+ *
+ * Keyed per entry (not per exercise), so a duplicate exercise pays twice:
+ * `sessionId#entryIdx` scopes uniquely within a session. This is deliberate —
+ * each entry can be performed with different intensity or technique, so
+ * answers should be cached separately. A cheaper alternative would be
+ * `sessionId#exerciseId`, but the entry-level boundary is safer and mirrors
+ * the AGENTS.md entry-identity invariant.
+ */
+export function exerciseQuestionKey(target: ExerciseQuestionTarget): string {
+  return `${target.sessionId}#${target.entryIdx}`;
+}
+
+/**
  * Derive the current in-progress exercise from engine state, or null when
  * there is no exercise to ask about — no session, the session is done, a
  * free-form stretch cooldown (not tied to a specific entry), or the
@@ -82,7 +96,7 @@ export function exerciseQuestionTarget(
   exerciseTitles?: Record<string, string>
 ): ExerciseQuestionTarget | null {
   if (!sessionState) return null;
-  if (sessionState.phase === 'done' || sessionState.phase === 'stretching') return null;
+  if (sessionState.phase === 'done' || sessionState.phase === 'stretching' || sessionState.phase === 'idle') return null;
   if (isRestingPhase(sessionState)) return null;
 
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
@@ -108,8 +122,6 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
   let cachedSessionId: string | null = null;
   let currentKey: string | null = null;
   let generation = 0;
-
-  const keyOf = (target: ExerciseQuestionTarget) => `${target.sessionId}#${target.entryIdx}`;
 
   function apiKey(): string | null {
     const key = deps.getSettings().anthropicKey?.trim();
@@ -181,7 +193,7 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
         cachedSessionId = target.sessionId;
       }
 
-      const key = keyOf(target);
+      const key = exerciseQuestionKey(target);
 
       // Tapping the currently-expanded entry collapses it. Any in-flight
       // request is left running so its result still lands in the cache for
