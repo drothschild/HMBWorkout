@@ -72,16 +72,26 @@ describe('routineListPresenter', () => {
 
     const now = Date.now();
 
-    // Create multiple routines
+    // Create routines out of order to verify sort is load-bearing
     await db.write(async () => {
-      for (let i = 0; i < 3; i++) {
-        await db.get('routines').create((r: any) => {
-          r._raw.id = `routine-${i}`;
-          r.name = `Routine ${i}`;
-          r._raw.created_at = now + i * 1000;
-          r._raw.updated_at = now + i * 1000;
-        });
-      }
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-2';
+        r.name = 'Routine 2';
+        r._raw.created_at = now + 2000;
+        r._raw.updated_at = now + 2000;
+      });
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-0';
+        r.name = 'Routine 0';
+        r._raw.created_at = now;
+        r._raw.updated_at = now;
+      });
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-1';
+        r.name = 'Routine 1';
+        r._raw.created_at = now + 1000;
+        r._raw.updated_at = now + 1000;
+      });
     });
 
     const routines = await routineListPresenter(db);
