@@ -213,7 +213,7 @@ describe('createSessionPresenter', () => {
     expect(presenter.restRemainingMs).toBeUndefined();
   });
 
-  test('dispatches SkipRest on cancel-rest action', () => {
+  test('dispatches SkipRest on skip-rest action', () => {
     const state = createMockState();
     state.phase = 'resting';
     const mockDispatch = jest.fn(async () => null);
