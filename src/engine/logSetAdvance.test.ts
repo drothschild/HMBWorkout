@@ -267,3 +267,68 @@ describe('SetDone remains advance-without-logging (Skip Set)', () => {
     expect(calls).toEqual(['CompleteSession', 'Notify']);
   });
 });
+
+describe('LogSet/SetDone dispatched while already resting', () => {
+  // The phase guard on LogSet/SetDone excludes Idle/Done/Paused/Stretching but
+  // not Resting (e.g. logging a set early from the rest screen). Whatever
+  // advance_after_set decides next, it must cancel the alert it's superseding
+  // in every branch that clears restDeadlineMs — the same discipline
+  // RestElapsed, SkipRest, PauseSession, and StartStretching already apply.
+
+  it('cancels the pending rest alert when a mid-exercise set is logged early', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 20000,
+        setIndex: 1,
+        entries: makeEntries(1, [{ warmupSets: 0, targetSets: 3, restSeconds: 60 }]),
+      })
+    );
+
+    await engine.dispatch({ tag: 'SetDone', nowMs: 15000 });
+
+    expect(executors.onCancelRest).toHaveBeenCalled();
+  });
+
+  it('cancels the pending rest alert when a superset partner is reached early', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 20000,
+        exerciseIndex: 0,
+        setIndex: 0,
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 1, restSeconds: 90, supersetGroup: 'A' },
+          { warmupSets: 0, targetSets: 1, restSeconds: 90, supersetGroup: 'A' },
+        ]),
+      })
+    );
+
+    await engine.dispatch(logSet(15000));
+
+    expect(executors.onCancelRest).toHaveBeenCalled();
+  });
+
+  it('cancels the pending rest alert when the final set of the workout is logged early, before CompleteSession', async () => {
+    const { calls, executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 20000,
+        setIndex: 0,
+        entries: makeEntries(1, [{ warmupSets: 0, targetSets: 1, restSeconds: 60 }]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(15000));
+
+    expect(state.phase).toBe('done');
+    expect(executors.onCancelRest).toHaveBeenCalled();
+    expect(calls).toEqual(['PersistSet', 'CancelRest', 'CompleteSession', 'Notify']);
+  });
+});
