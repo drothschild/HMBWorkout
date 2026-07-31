@@ -70,10 +70,11 @@ export default function RoutineDetailScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {/* Explicit destination rather than router.back(): arriving via an
-              accepted AI draft puts the chat screen underneath, and popping
-              there is never where the user wants to go from a routine. */}
+        {/* Static header: stays put while the routine content scrolls.
+            Explicit destination rather than router.back(): arriving via an
+            accepted AI draft puts the chat screen underneath, and popping
+            there is never where the user wants to go from a routine. */}
+        <View style={styles.headerContainer}>
           <Pressable
             onPress={() => router.navigate('/routines')}
             style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
@@ -82,6 +83,8 @@ export default function RoutineDetailScreen() {
               ← Routines
             </ThemedText>
           </Pressable>
+        </View>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <ThemedText type="title" style={styles.title}>
             {routine.name}
           </ThemedText>
@@ -195,6 +198,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: Spacing.four,
     paddingBottom: Spacing.four,
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    maxWidth: MaxContentWidth,
+    width: '100%',
+    alignSelf: 'center',
   },
   backButton: {
     alignSelf: 'flex-start',
