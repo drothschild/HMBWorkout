@@ -347,6 +347,12 @@ export function createEngine(executors: Partial<EffectExecutors>) {
         case 'SkipExercise':
           rillEvent = { tag: 'SkipExercise' };
           break;
+        case 'ReplaceExercise':
+          // No sentinel translation: both fields are plain, always-present
+          // values. The rule rejects an empty exerciseId rather than reading
+          // it as "absent".
+          rillEvent = { tag: 'ReplaceExercise', value: { idx: e.idx, exerciseId: e.exerciseId } };
+          break;
         case 'PauseSession':
           rillEvent = { tag: 'PauseSession', value: { nowMs: e.nowMs } };
           break;

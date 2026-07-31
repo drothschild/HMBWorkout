@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
+import { ReplaceExercise } from '@/components/ReplaceExercise';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import {
   computeSetPrefill,
@@ -197,7 +198,14 @@ export default function SessionScreen() {
   }, [sessionState?.sessionId, sessionState?.exerciseIndex]);
 
   // Engine state carries only exercise ids, so titles are resolved shell-side.
-  // Entries are fixed for a session's lifetime, so one load per session suffices.
+  // Entries are otherwise fixed for a session's lifetime, but ReplaceExercise
+  // rewrites one entry's exerciseId mid-session — so the reload is keyed on the
+  // ids themselves, not just the session, or the swapped exercise would render
+  // as its raw slug until the next launch.
+  const entryExerciseIdsKey = (sessionState?.entries ?? [])
+    .map((entry: any) => entry.exerciseId)
+    .join('|');
+
   useEffect(() => {
     const loadTitles = async () => {
       if (!sessionState) {
@@ -216,7 +224,7 @@ export default function SessionScreen() {
     };
 
     loadTitles();
-  }, [sessionState?.sessionId]);
+  }, [sessionState?.sessionId, entryExerciseIdsKey]);
 
   // Engine state carries only routineId, so the routine's name and description
   // are resolved shell-side too. The routine row is fixed for a session's
@@ -445,6 +453,9 @@ export default function SessionScreen() {
           )}
 
           <View style={styles.content}>
+            {presenter.phase !== 'done' && (
+              <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+            )}
             {presenter.phase !== 'done' && (
               <SetLogger
                 presenter={presenter}

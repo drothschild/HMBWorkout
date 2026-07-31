@@ -107,13 +107,11 @@ describe('createExerciseAlternatesClient', () => {
 
     const client = createExerciseAlternatesClient({ apiKey: 'test-key' }, mockFetch);
 
-    await expect(client.suggest({ system: 's', message: 'm' })).rejects.toMatchObject({
-      name: 'AnthropicHttpError',
-      status: 429,
-    });
-    await expect(client.suggest({ system: 's', message: 'm' })).rejects.toBeInstanceOf(
-      AnthropicHttpError
-    );
+    const error = await client.suggest({ system: 's', message: 'm' }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(AnthropicHttpError);
+    expect(error.status).toBe(429);
+    expect(error.message).toContain('rate limited');
   });
 
   it('raises a validation error when the response carries no text block', async () => {

@@ -700,6 +700,75 @@ export async function upsertRoutineExercise(
 }
 
 /**
+ * Resolve a routine entry's `routine_exercises` row id from its 0-based order.
+ *
+ * `order` is the canonical entry position — the same value the engine carries
+ * as `RoutineEntry.idx` and the same lookup `onPersistSet` uses to attribute a
+ * logged set. Going through order rather than exercise_id is required, not
+ * incidental: a routine may list the same exercise more than once, and only
+ * the position tells the two entries apart.
+ *
+ * @param database The database instance
+ * @param routineId The routine the entry belongs to
+ * @param order The entry's 0-based position within the routine
+ * @returns The row id, or null when no entry sits at that order
+ */
+export async function findRoutineExerciseIdByOrder(
+  database: Database,
+  routineId: string,
+  order: number
+): Promise<string | null> {
+  const rows = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  const match = rows.find((row) => (row as any)._raw.order === order);
+
+  return match ? (match as any).id : null;
+}
+
+/**
+ * Point an existing routine entry at a different exercise, in place.
+ *
+ * The row keeps its id, and only `exercise_id` changes. That is the whole
+ * point: `session_sets.routine_exercise_id` references this row and
+ * `getExerciseWorkingSetHistory` joins through it, so deleting and recreating
+ * the row would orphan every set ever logged against the entry. The
+ * prescription (order, warmup/target/rest columns, superset group) belongs to
+ * the plan and is left untouched — a substitute changes identity only.
+ *
+ * Note the consequence, which is intended: sets already logged against this
+ * row now read as history for the new exercise. Callers must therefore only
+ * swap an entry with nothing recorded against it this session; the engine's
+ * ReplaceExercise rule is the authority on that.
+ *
+ * @param database The database instance
+ * @param routineExerciseId The routine_exercises row id (the entry's identity)
+ * @param exerciseId The exercise the entry should name
+ */
+export async function updateRoutineExerciseExerciseId(
+  database: Database,
+  routineExerciseId: string,
+  exerciseId: string
+): Promise<RoutineExercise> {
+  const trimmed = exerciseId?.trim();
+  if (!trimmed) {
+    throw new Error('updateRoutineExerciseExerciseId requires a non-empty exercise id');
+  }
+
+  return await database.write(async () => {
+    const row = await database.get('routine_exercises').find(routineExerciseId);
+
+    await row.update((record: any) => {
+      record.exerciseId = trimmed;
+    });
+
+    return row as RoutineExercise;
+  });
+}
+
+/**
  * Get all routine exercises for a routine, grouped by superset_group.
  * Non-grouped exercises (with null superset_group) are returned as individual singleton groups.
  * Same superset_group labels that are non-contiguous are split into separate groups.
