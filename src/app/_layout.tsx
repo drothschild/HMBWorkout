@@ -10,6 +10,7 @@ import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
 import { loadActiveEngineState } from '@/db/engineState';
 import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
+import { rehydrateActiveSession } from '@/state/sessionRehydrate';
 import { loadSettings, injectSettingsStorage } from '@/state/settings';
 import { secureStorageBackend } from '@/storage/secureStorage';
 import * as Notifications from 'expo-notifications';
@@ -61,12 +62,7 @@ export default function RootLayout() {
         // Hydrate active session if one exists (restart recovery)
         const savedState = await loadActiveEngineState(database);
         if (savedState) {
-          getActiveSessionStore().getState().hydrate(savedState);
-          // Dispatch Resume to reconcile any expired rest deadline
-          await getActiveSessionStore().getState().dispatch({
-            tag: 'Resume',
-            nowMs: Date.now(),
-          });
+          await rehydrateActiveSession(getActiveSessionStore(), savedState, Date.now());
         }
 
         setRulesLoaded(true);

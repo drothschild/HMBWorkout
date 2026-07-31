@@ -129,6 +129,18 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
+   Rehydrating is a `hydrate` call, not a dispatch, and the boot path
+   (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
+   **only when the saved phase is `paused`** — `transition.lv` accepts `Resume` in that
+   one phase and returns `Err` everywhere else, and a session killed mid-warmup or
+   mid-rest has no frozen deadline to reconcile anyway. Rejections are never silent:
+   any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
+   `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.
+   So an unconditional Resume at boot greets the user with a red banner rather than
+   failing quietly — the same trap awaits any other event dispatched blind at rehydrate.
+   The module sits outside `_layout.tsx` so the node jest project covers it (screens are
+   not jest-covered), and it takes the store structurally rather than importing the
+   global one, so tests can pass a `createActiveSessionStore` instance.
 
 6. **Engine state carries ids, never display data.** The Rill `RoutineEntry` alias
    (`rules/types.lv`) is a closed record, and `toRillRoutineEntry`/`fromRillState`
@@ -201,9 +213,10 @@ is now a misnomer — AI settings are in there too.
   receipt and `acceptDraft` validates again before writing. Keep both.
 - **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
   Exercises are global and shared by every routine, so `acceptDraft` creates a missing
-  exercise but never updates an existing one's title or kind — a draft must not rename
-  or re-kind an exercise out from under other routines. Title reuse therefore maps to
-  the same record, which is why the persona pushes the model toward existing titles.
+  exercise but never updates an existing one's title, kind, or description — a draft
+  must not rename or re-kind an exercise out from under other routines. Title reuse
+  therefore maps to the same record, which is why the persona pushes the model toward
+  existing titles.
 - **Drafts are whole routines, never diffs.** `upsertRoutine` reconciles
   `routine_exercises` in place, not delete-and-recreate: entries claim existing
   rows by `exerciseId` (oldest `order` first, so duplicated exercises match
