@@ -4,30 +4,35 @@ import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { Spacing } from '@/constants/theme';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
+import { buildLogSetValues } from '@/state/setInputs';
 import { snapRpe, rpeHint, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
 
+// The numeric inputs carry raw text; numbers exist only past
+// buildLogSetValues at the Log Set boundary. Parsing keystrokes into numeric
+// state and rendering `toString()` back is what produced the stuck "NaN"
+// field (see src/state/setInputs.ts) — don't reintroduce it.
 interface SetLoggerProps {
   presenter: SessionPresenterOutput;
-  currentReps?: number;
-  currentWeight?: number;
+  repsText: string;
+  weightText: string;
+  durationText: string;
   currentRpe?: number;
-  currentDuration?: number;
-  onRepsChange: (reps: number) => void;
-  onWeightChange: (weight: number) => void;
+  onRepsTextChange: (text: string) => void;
+  onWeightTextChange: (text: string) => void;
   onRpeChange: (rpe: number | undefined) => void;
-  onDurationChange: (duration: number) => void;
+  onDurationTextChange: (text: string) => void;
 }
 
 export function SetLogger({
   presenter,
-  currentReps,
-  currentWeight,
+  repsText,
+  weightText,
+  durationText,
   currentRpe,
-  currentDuration,
-  onRepsChange,
-  onWeightChange,
+  onRepsTextChange,
+  onWeightTextChange,
   onRpeChange,
-  onDurationChange,
+  onDurationTextChange,
 }: SetLoggerProps) {
   const isDurationBased = presenter.currentEntry?.kind === 'stretch' || presenter.currentEntry?.kind === 'cardio';
 
@@ -86,11 +91,8 @@ export function SetLogger({
             style={styles.input}
             placeholder="Duration"
             keyboardType="decimal-pad"
-            value={currentDuration?.toString() || ''}
-            onChangeText={(text) => {
-              const value = text ? parseInt(text, 10) : 0;
-              onDurationChange(value);
-            }}
+            value={durationText}
+            onChangeText={onDurationTextChange}
           />
         </View>
       ) : (
@@ -102,11 +104,8 @@ export function SetLogger({
               style={styles.input}
               placeholder="Reps"
               keyboardType="decimal-pad"
-              value={currentReps?.toString() || ''}
-              onChangeText={(text) => {
-                const value = text ? parseInt(text, 10) : 0;
-                onRepsChange(value);
-              }}
+              value={repsText}
+              onChangeText={onRepsTextChange}
             />
           </View>
 
@@ -116,11 +115,8 @@ export function SetLogger({
               style={styles.input}
               placeholder="Weight"
               keyboardType="decimal-pad"
-              value={currentWeight?.toString() || ''}
-              onChangeText={(text) => {
-                const value = text ? parseFloat(text) : 0;
-                onWeightChange(value);
-              }}
+              value={weightText}
+              onChangeText={onWeightTextChange}
             />
           </View>
         </View>
@@ -167,16 +163,18 @@ export function SetLogger({
           <Pressable
             style={[styles.button, styles.primaryButton, styles.rowButton]}
             onPress={() => {
-              const values: any = {};
-              if (!isDurationBased) {
-                if (currentReps !== undefined) values.reps = currentReps;
-                // Display unit: the presenter converts lbs to canonical kg
-                if (currentWeight !== undefined) values.weightLbs = currentWeight;
-              } else {
-                if (currentDuration !== undefined) values.durationSeconds = currentDuration;
-              }
-              if (currentRpe !== undefined && currentRpe > 0) values.rpe = currentRpe;
-              presenter.onLogSet(values);
+              // Raw text becomes numbers exactly here; invalid or empty
+              // fields are omitted (never NaN, never a coerced 0). The
+              // weight stays display lbs — the presenter converts to kg.
+              presenter.onLogSet(
+                buildLogSetValues({
+                  isDurationBased,
+                  repsText,
+                  weightText,
+                  durationText,
+                  rpe: currentRpe,
+                })
+              );
             }}
           >
             <ThemedText style={styles.buttonText}>Log Set</ThemedText>
