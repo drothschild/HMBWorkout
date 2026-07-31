@@ -130,14 +130,18 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
    Rehydrating is a `hydrate` call, not a dispatch, and the boot path
-   (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
-   **only when the saved phase is `paused`** — `transition.lv` accepts `Resume` in that
-   one phase and returns `Err` everywhere else, and a session killed mid-warmup or
-   mid-rest has no frozen deadline to reconcile anyway. Rejections are never silent:
-   any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
-   `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.
-   So an unconditional Resume at boot greets the user with a red banner rather than
-   failing quietly — the same trap awaits any other event dispatched blind at rehydrate.
+   (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with an
+   **unconditional `Resume`** — which phases need reconciling is the engine's call,
+   not the shell's, so `transition.lv` accepts `Resume` everywhere: `paused` re-arms
+   a rest frozen by the pause, `resting` reconciles a kill mid-rest (the wall-clock
+   `restDeadlineMs` survives on disk but the scheduled alert died with the process —
+   a live deadline re-emits `ScheduleRest`, an expired one makes the same recovery
+   `RestElapsed` would), and every other phase acknowledges it as a no-op. Do not
+   reintroduce a phase gate in the shell: it silently disconnects the resting
+   reconciliation, and any phase the gate misses becomes a red error banner —
+   rejections are never silent (`Err` from `transition` → `TransitionError` →
+   `lastError` → `session.tsx` banner), the same trap awaiting any other event
+   dispatched blind at rehydrate.
    The module sits outside `_layout.tsx` so the node jest project covers it (screens are
    not jest-covered), and it takes the store structurally rather than importing the
    global one, so tests can pass a `createActiveSessionStore` instance.
