@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 2,
+  version: 3,
   tables: [
     tableSchema({
       name: 'routines',
@@ -54,6 +54,14 @@ export const databaseSchema = appSchema({
       columns: [
         { name: 'session_id', type: 'string', isIndexed: true },
         { name: 'routine_exercise_id', type: 'string', isIndexed: true },
+        // Which exercise this set was actually performed as, recorded at log
+        // time. routine_exercise_id names a permanent row whose exercise_id is
+        // mutable (ReplaceExercise), so the row cannot be the identity of
+        // record — a swap would rewrite every past session's history through
+        // it. Optional because rows written before v3 have no recorded
+        // identity; those fall back to the routine_exercises join, and
+        // updateRoutineExerciseExerciseId freezes them before it re-points.
+        { name: 'exercise_id', type: 'string', isOptional: true, isIndexed: true },
         { name: 'set_type', type: 'string' }, // 'warmup' | 'working' | 'stretch' | 'cardio'
         { name: 'reps', type: 'number', isOptional: true },
         { name: 'weight_kg', type: 'number', isOptional: true },

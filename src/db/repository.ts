@@ -25,6 +25,18 @@ interface AppendSetOptions {
   durationSeconds?: number;
   distanceM?: number;
   rpe?: number;
+  /**
+   * The exercise this set was performed as. Every production write supplies it
+   * (`onPersistSet` takes it from the engine entry it already validated the
+   * logged set against) — the routine_exercises row is permanent and its
+   * exercise_id is mutable, so the row cannot be the identity of record.
+   *
+   * Optional only so that a set written without one degrades to the pre-v3
+   * behaviour — resolving through the routine_exercises join — rather than
+   * being written with a wrong identity. A row left unstamped is still safe
+   * across a swap: `updateRoutineExerciseExerciseId` freezes it first.
+   */
+  exerciseId?: string;
 }
 
 /**
@@ -74,6 +86,10 @@ export async function createSession(
  * Validates input before writing to database.
  * Assigns a monotonic position for deterministic ordering.
  *
+ * Records `options.exerciseId` on the row when given: the set's identity is
+ * what it was performed as, not whatever its routine_exercises row happens to
+ * name later. See AppendSetOptions.exerciseId.
+ *
  * @param database The database instance
  * @param sessionId The session ID
  * @param routineExerciseId The routine exercise ID
@@ -93,7 +109,13 @@ export async function appendSet(
     durationSeconds,
     distanceM,
     rpe,
+    exerciseId,
   } = options;
+
+  // Whitespace is not an identity. Collapse a blank one to absent so the row
+  // falls back to the join rather than being stamped with something no
+  // exercise id will ever match.
+  const stampedExerciseId = exerciseId?.trim() || undefined;
 
   // Validate input before writing
   validateSet({
@@ -120,6 +142,7 @@ export async function appendSet(
     await sessionSetsTable.create((set: any) => {
       set.sessionId = sessionId;
       set.routineExerciseId = routineExerciseId;
+      if (stampedExerciseId !== undefined) set.exerciseId = stampedExerciseId;
       set.setType = setType;
       if (reps !== undefined) set.reps = reps;
       if (weightKg !== undefined) set.weightKg = weightKg;
@@ -350,6 +373,18 @@ export async function getRoutineDisplay(
  * Returns sets ordered most-recent-first by set creation time (created_at desc),
  * breaking ties by position desc so same-millisecond appends still order most-recent-first.
  *
+ * **Two identity paths, in priority order.** A set's own `exercise_id` is what
+ * it was performed as and wins outright. Only a set that has none — every row
+ * written before schema v3 — resolves through `routine_exercises.exercise_id`,
+ * and then only because it has nothing better. The order matters because
+ * ReplaceExercise re-points that permanent row: reading the join first would
+ * hand the substitute every set the original ever earned. The two sets are
+ * disjoint by construction (stamped vs. unstamped), so the merge cannot
+ * double-count.
+ *
+ * This is what `restCommentaryHistory` and `contextBuilder`'s history section
+ * read through, so fixing attribution here fixes it for both.
+ *
  * @param database The database instance
  * @param exerciseId The exercise ID to query
  * @returns Array of working-type session sets for this exercise, from all prior sessions
@@ -361,27 +396,43 @@ export async function getExerciseWorkingSetHistory(
   const sessionSetsTable = database.get('session_sets');
   const routineExercisesTable = database.get('routine_exercises');
 
-  // Query all routine_exercises with this exerciseId
+  // Path 1: sets that recorded this exercise themselves. Authoritative, and
+  // independent of whether the routine_exercises row still exists or still
+  // names this exercise.
+  const stampedSets = (await sessionSetsTable
+    .query(Q.and(Q.where('set_type', 'working'), Q.where('exercise_id', exerciseId)))
+    .fetch()) as SessionSet[];
+
+  // Path 2: legacy rows, via the join. Query all routine_exercises with this
+  // exerciseId, then keep only the sets that recorded no identity of their own
+  // — a stamped set has already been placed by path 1, and a set stamped with
+  // a *different* exercise is deliberately not this exercise's history even
+  // though the row now names it.
   const routineExercises = (await routineExercisesTable
     .query(Q.where('exercise_id', exerciseId))
     .fetch()) as RoutineExercise[];
 
   const routineExerciseIds = routineExercises.map((re) => (re as any).id);
 
-  if (routineExerciseIds.length === 0) {
-    // No routine_exercises for this exercise = no prior sets
+  const legacySets =
+    routineExerciseIds.length === 0
+      ? []
+      : ((await sessionSetsTable
+          .query(
+            Q.and(
+              Q.where('set_type', 'working'),
+              Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
+            )
+          )
+          .fetch()) as SessionSet[]).filter(
+          (set) => ((set as any)._raw.exercise_id ?? null) === null
+        );
+
+  const allSets = [...stampedSets, ...legacySets];
+
+  if (allSets.length === 0) {
     return [];
   }
-
-  // Query all sets for these routine_exercises, filtered to working type
-  const allSets = (await sessionSetsTable
-    .query(
-      Q.and(
-        Q.where('set_type', 'working'),
-        Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
-      )
-    )
-    .fetch()) as SessionSet[];
 
   // Sort most-recent-first by set creation time, breaking created_at ties by
   // position DESC: same-millisecond appends must order exactly like appends a
@@ -718,12 +769,10 @@ export async function findRoutineExerciseIdByOrder(
   routineId: string,
   order: number
 ): Promise<string | null> {
-  const rows = (await database
+  const [match] = (await database
     .get('routine_exercises')
-    .query(Q.where('routine_id', routineId))
+    .query(Q.and(Q.where('routine_id', routineId), Q.where('order', order)))
     .fetch()) as RoutineExercise[];
-
-  const match = rows.find((row) => (row as any)._raw.order === order);
 
   return match ? (match as any).id : null;
 }
@@ -732,16 +781,21 @@ export async function findRoutineExerciseIdByOrder(
  * Point an existing routine entry at a different exercise, in place.
  *
  * The row keeps its id, and only `exercise_id` changes. That is the whole
- * point: `session_sets.routine_exercise_id` references this row and
- * `getExerciseWorkingSetHistory` joins through it, so deleting and recreating
- * the row would orphan every set ever logged against the entry. The
- * prescription (order, warmup/target/rest columns, superset group) belongs to
- * the plan and is left untouched — a substitute changes identity only.
+ * point: `session_sets.routine_exercise_id` references this row, so deleting
+ * and recreating the row would orphan every set ever logged against the entry.
+ * The prescription (order, warmup/target/rest columns, superset group) belongs
+ * to the plan and is left untouched — a substitute changes identity only.
  *
- * Note the consequence, which is intended: sets already logged against this
- * row now read as history for the new exercise. Callers must therefore only
- * swap an entry with nothing recorded against it this session; the engine's
- * ReplaceExercise rule is the authority on that.
+ * **Past sets keep the identity they were recorded under; the row is then free
+ * to re-point.** The row is permanent and shared by every session that ever
+ * performed this entry, so re-pointing it is not a session-scoped act — the
+ * engine's `setIndex == 0` guard only says nothing was logged *this* session,
+ * and says nothing at all about the months of history already hanging off the
+ * row. So before the swap, every attached set that recorded no identity of its
+ * own (a pre-v3 row) is stamped with this row's *outgoing* exercise id, in the
+ * same write transaction: history is frozen exactly when it would otherwise
+ * become ambiguous, and the two writes cannot come apart. Sets that already
+ * carry an identity are left alone — they are already immune.
  *
  * @param database The database instance
  * @param routineExerciseId The routine_exercises row id (the entry's identity)
@@ -759,6 +813,31 @@ export async function updateRoutineExerciseExerciseId(
 
   return await database.write(async () => {
     const row = await database.get('routine_exercises').find(routineExerciseId);
+    const outgoingExerciseId = (row as any)._raw.exercise_id as string | null;
+
+    // Freeze first, re-point second. Both inside this write, so a failure
+    // cannot leave the row pointing at the substitute with its history still
+    // resolving through the join.
+    if (outgoingExerciseId) {
+      const attachedSets = (await database
+        .get('session_sets')
+        .query(Q.where('routine_exercise_id', routineExerciseId))
+        .fetch()) as SessionSet[];
+
+      const unstamped = attachedSets.filter(
+        (set) => ((set as any)._raw.exercise_id ?? null) === null
+      );
+
+      if (unstamped.length > 0) {
+        await database.batch(
+          ...unstamped.map((set) =>
+            set.prepareUpdate((record: any) => {
+              record.exerciseId = outgoingExerciseId;
+            })
+          )
+        );
+      }
+    }
 
     await row.update((record: any) => {
       record.exerciseId = trimmed;

@@ -137,13 +137,20 @@ export function createActiveSessionStore(
 
       const routineExerciseId = (routineExercise as any).id;
 
-      // Append the set to the database
+      // Append the set to the database, recording which exercise it was
+      // performed as. The id comes from the engine entry — the same value the
+      // mismatch check above just proved equal to the logged set's own
+      // exerciseId — not from re-reading routineExercise, whose exercise_id
+      // ReplaceExercise may re-point later. Without this stamp, a swap would
+      // silently re-attribute this set (and every other set on the row, from
+      // every past session) to the substitute.
       await appendSet(database, sessionId, routineExerciseId, {
         setType: set.setType,
         reps: set.reps ?? undefined,
         weightKg: set.weightKg ?? undefined,
         durationSeconds: set.durationSeconds ?? undefined,
         rpe: set.rpe ?? undefined,
+        exerciseId: currentEntry.exerciseId,
       });
     },
 

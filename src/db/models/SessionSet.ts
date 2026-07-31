@@ -16,6 +16,10 @@ export default class SessionSet extends Model {
 
   @field('session_id') sessionId!: string;
   @field('routine_exercise_id') routineExerciseId!: string;
+  // The exercise this set was performed as, recorded at log time. Null on rows
+  // written before schema v3 — read those through the routine_exercises join
+  // (getExerciseWorkingSetHistory does exactly that), never as "no exercise".
+  @field('exercise_id') exerciseId?: string;
   @text('set_type') setType!: SetType;
   @field('reps') reps?: number;
   @field('weight_kg') weightKg?: number;

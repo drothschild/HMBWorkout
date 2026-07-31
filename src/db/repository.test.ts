@@ -1285,6 +1285,136 @@ describe('Repository: session and set helpers', () => {
       expect((history[0] as any).weightKg).toBe(100);
       expect((history[1] as any).weightKg).toBe(100);
     }, 15000);
+
+    describe('identity resolution: the recorded exercise_id wins over the join', () => {
+      // The routine_exercises row is permanent and its exercise_id is now
+      // mutable (ReplaceExercise). A set's own recorded identity is therefore
+      // the authority; the join is the fallback for rows written before the
+      // column existed.
+      const ROUTINE_ID = 'routine-identity';
+      const RECORDED = 'exercise-recorded';
+      const ROW_NAMES = 'exercise-row-names';
+      const ROW_ID = 're-identity';
+
+      beforeEach(async () => {
+        await upsertExercise(database, RECORDED, 'Recorded Movement', 'strength');
+        await upsertExercise(database, ROW_NAMES, 'Row-Named Movement', 'strength');
+
+        await database.write(async () => {
+          await database.get('routines').create((r: any) => {
+            r._raw.id = ROUTINE_ID;
+            r.name = 'Identity Routine';
+          });
+          await database.get('routine_exercises').create((re: any) => {
+            re._raw.id = ROW_ID;
+            re.routineId = ROUTINE_ID;
+            re.exerciseId = ROW_NAMES;
+            re.order = 0;
+            re.warmupSets = 0;
+          });
+        });
+
+        await createSession(database, {
+          sessionId: 'session-identity',
+          routineId: ROUTINE_ID,
+          startedAtMs: Date.now(),
+        });
+      });
+
+      it('stamps the exercise id appendSet was given onto the row', async () => {
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'working',
+          reps: 5,
+          exerciseId: RECORDED,
+        });
+
+        const [set] = await database.get('session_sets').query().fetch();
+        expect((set as any)._raw.exercise_id).toBe(RECORDED);
+      });
+
+      it('reads a stamped set as history for the exercise it recorded, not the one the row names', async () => {
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'working',
+          reps: 5,
+          exerciseId: RECORDED,
+        });
+
+        expect(await getExerciseWorkingSetHistory(database, RECORDED)).toHaveLength(1);
+        expect(await getExerciseWorkingSetHistory(database, ROW_NAMES)).toHaveLength(0);
+      });
+
+      it('falls back to the routine_exercises join for a set with no recorded identity', async () => {
+        // Exactly a pre-v3 row: exercise_id is null, so the join is all it has.
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'working',
+          reps: 5,
+        });
+
+        const [set] = await database.get('session_sets').query().fetch();
+        expect((set as any)._raw.exercise_id ?? null).toBeNull();
+
+        expect(await getExerciseWorkingSetHistory(database, ROW_NAMES)).toHaveLength(1);
+        expect(await getExerciseWorkingSetHistory(database, RECORDED)).toHaveLength(0);
+      });
+
+      it('returns stamped and legacy sets together, still ordered most-recent-first', async () => {
+        const baseTimeMs = 1700000000000;
+        const nowSpy = jest.spyOn(Date, 'now');
+        let tick = 0;
+        nowSpy.mockImplementation(() => baseTimeMs + tick++ * 1000);
+        try {
+          // Legacy first, stamped second: one of each identity path, and the
+          // merge must not disturb the ordering contract.
+          await appendSet(database, 'session-identity', ROW_ID, {
+            setType: 'working',
+            reps: 5,
+            rpe: 7,
+          });
+          await appendSet(database, 'session-identity', ROW_ID, {
+            setType: 'working',
+            reps: 5,
+            rpe: 8,
+            exerciseId: ROW_NAMES,
+          });
+        } finally {
+          nowSpy.mockRestore();
+        }
+
+        const history = await getExerciseWorkingSetHistory(database, ROW_NAMES);
+        expect(history.map((set: any) => set.rpe)).toEqual([8, 7]);
+      });
+
+      it('still excludes warmups whichever identity path a set takes', async () => {
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'warmup',
+          reps: 12,
+          exerciseId: ROW_NAMES,
+        });
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'warmup',
+          reps: 12,
+        });
+
+        expect(await getExerciseWorkingSetHistory(database, ROW_NAMES)).toHaveLength(0);
+      });
+
+      it('finds a stamped set even when its routine_exercises row is gone', async () => {
+        // deleteRoutine deliberately leaves orphaned rows as history carriers,
+        // but a stamped set no longer depends on one existing.
+        await appendSet(database, 'session-identity', ROW_ID, {
+          setType: 'working',
+          reps: 5,
+          exerciseId: RECORDED,
+        });
+
+        await database.write(async () => {
+          const row = await database.get('routine_exercises').find(ROW_ID);
+          await row.destroyPermanently();
+        });
+
+        expect(await getExerciseWorkingSetHistory(database, RECORDED)).toHaveLength(1);
+      });
+    });
   });
 
   describe('upsertExercise and updateExerciseDescription', () => {
