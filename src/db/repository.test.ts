@@ -1619,6 +1619,57 @@ describe('Repository: session and set helpers', () => {
       expect(added).toBeDefined();
       expect(added.order).toBe(0);
     }, 15000);
+
+    it('freezes a dropped entry’s legacy sets at its exercise before deleting the row', async () => {
+      // A pre-v3 set has no recorded identity, so the routine_exercises row is
+      // the only thing that says what it was. Destroying that row without
+      // stamping first loses the answer permanently — the same hazard
+      // updateRoutineExerciseExerciseId defends against when it re-points a row.
+      const routineId = 'routine-drop-legacy';
+      await upsertExercise(database, 'ex-stays', 'Stays', 'strength');
+      await upsertExercise(database, 'ex-dropped', 'Dropped', 'strength');
+
+      await upsertRoutine(database, routineId, 'Original', [
+        { exerciseId: 'ex-stays', order: 0, targetSets: 3, targetReps: 8 },
+        { exerciseId: 'ex-dropped', order: 1, targetSets: 3, targetReps: 12 },
+      ]);
+
+      const [droppedRow] = (await database
+        .get('routine_exercises')
+        .query(Q.and(Q.where('routine_id', routineId), Q.where('exercise_id', 'ex-dropped')))
+        .fetch()) as any[];
+
+      await createSession(database, {
+        sessionId: 'session-legacy',
+        routineId,
+        startedAtMs: Date.now() - 60000,
+      });
+      // No exerciseId: exactly what an install that logged these before v3 has.
+      await appendSet(database, 'session-legacy', droppedRow.id, {
+        setType: 'working',
+        reps: 12,
+        weightKg: 20,
+      });
+      await appendSet(database, 'session-legacy', droppedRow.id, {
+        setType: 'working',
+        reps: 10,
+        weightKg: 22.5,
+      });
+
+      expect(await getExerciseWorkingSetHistory(database, 'ex-dropped')).toHaveLength(2);
+
+      await upsertRoutine(database, routineId, 'Edited', [
+        { exerciseId: 'ex-stays', order: 0, targetSets: 3, targetReps: 8 },
+      ]);
+
+      // The row is gone, so the join can no longer answer — the sets must carry
+      // the identity themselves.
+      const history = await getExerciseWorkingSetHistory(database, 'ex-dropped');
+      expect(history).toHaveLength(2);
+      expect(
+        history.map((s: any) => s.weightKg).sort((a: number, b: number) => a - b)
+      ).toEqual([20, 22.5]);
+    }, 15000);
   });
 
   describe('getRecentSessionSummaries', () => {
