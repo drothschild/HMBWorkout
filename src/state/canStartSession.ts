@@ -1,3 +1,5 @@
+import type { SessionState } from '@/engine/types';
+
 /**
  * Whether any screen may currently offer to start a new session.
  *
@@ -7,7 +9,13 @@
  * start affordance (Today, routine detail, ...) derives its start-vs-resume
  * rendering from this single predicate instead of re-deriving "is a session
  * active" ad hoc per screen.
+ *
+ * Sessions in 'done' phase are startable (workout completed); only
+ * in-progress phases block starting a new session.
  */
-export function canStartSession(hasActiveSession: boolean): boolean {
-  return !hasActiveSession;
+export function canStartSession(sessionState: SessionState | null): boolean {
+  if (sessionState === null) {
+    return true;
+  }
+  return sessionState.phase === 'done';
 }

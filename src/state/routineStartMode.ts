@@ -1,3 +1,4 @@
+import type { SessionState } from '@/engine/types';
 import { canStartSession } from './canStartSession';
 
 /**
@@ -10,12 +11,12 @@ import { canStartSession } from './canStartSession';
 export type RoutineStartMode = { kind: 'resume' } | { kind: 'start'; enabled: boolean };
 
 export interface RoutineStartModeInput {
-  readonly hasActiveSession: boolean;
+  readonly sessionState: SessionState | null;
   readonly isRoutineStartable: boolean;
 }
 
-export function routineStartMode(input: Readonly<RoutineStartModeInput>): RoutineStartMode {
-  if (!canStartSession(input.hasActiveSession)) {
+export function routineStartMode(input: RoutineStartModeInput): RoutineStartMode {
+  if (!canStartSession(input.sessionState)) {
     return { kind: 'resume' };
   }
 

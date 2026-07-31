@@ -53,7 +53,7 @@ export default function RoutineDetailScreen() {
   };
 
   const isRoutineStartable = !!routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
-  const startMode = routineStartMode({ hasActiveSession: !!sessionState, isRoutineStartable });
+  const startMode = routineStartMode({ sessionState, isRoutineStartable });
 
   if (!id || loading) {
     return (

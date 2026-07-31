@@ -1,10 +1,22 @@
 import { todayViewState, TodayViewStateInput } from './todayViewState';
+import { SessionState } from '@/engine/types';
 
 describe('todayViewState', () => {
+  const mockSessionState = (phase: string): SessionState => ({
+    sessionId: 'test-session',
+    routineId: 'test-routine',
+    phase: phase as any,
+    exerciseIndex: 0,
+    setIndex: 0,
+    loggedSets: [],
+    startedAtMs: 0,
+    entries: [],
+  });
+
   describe('guard precedence', () => {
-    it('shows resume when sessionState is active (highest priority)', () => {
+    it('shows resume when sessionState is in-progress (highest priority)', () => {
       const result = todayViewState({
-        hasActiveSession: true,
+        sessionState: mockSessionState('working'),
         loading: true,
         loadError: 'some error',
         startOptions: null,
@@ -17,7 +29,7 @@ describe('todayViewState', () => {
       // Retry keeps the previous error visible (with a disabled Retry button)
       // instead of flashing back to the loading state.
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: true,
         loadError: 'Could not load routines. Please try again.',
         startOptions: null,
@@ -33,7 +45,7 @@ describe('todayViewState', () => {
       // Guard-order defect from review cycle 3: a `loading || !startOptions`
       // check evaluated before loadError made this state render as loading.
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: false,
         loadError: 'Could not load routines. Please try again.',
         startOptions: null,
@@ -47,7 +59,7 @@ describe('todayViewState', () => {
 
     it('shows loading while a load is in flight', () => {
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: true,
         loadError: null,
         startOptions: null,
@@ -61,7 +73,7 @@ describe('todayViewState', () => {
       // false and startOptions is still null. This must be a loading state,
       // never a throw (review cycle 4, Critical N1).
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: false,
         loadError: null,
         startOptions: null,
@@ -74,7 +86,7 @@ describe('todayViewState', () => {
   describe('startOptions.kind mapping', () => {
     it('maps no-routines', () => {
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: false,
         loadError: null,
         startOptions: { kind: 'no-routines' },
@@ -86,7 +98,7 @@ describe('todayViewState', () => {
     it('maps routines-need-exercises with its routines payload', () => {
       const routines = [{ id: 'r1', name: 'Empty', exerciseCount: 0, startable: false }];
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: false,
         loadError: null,
         startOptions: { kind: 'routines-need-exercises', routines },
@@ -98,7 +110,7 @@ describe('todayViewState', () => {
     it('maps choose-routine with its routines payload', () => {
       const routines = [{ id: 'r1', name: 'Push Day', exerciseCount: 3, startable: true }];
       const result = todayViewState({
-        hasActiveSession: false,
+        sessionState: null,
         loading: false,
         loadError: null,
         startOptions: { kind: 'choose-routine', routines },
@@ -118,28 +130,28 @@ describe('todayViewState', () => {
     }[] = [
       {
         name: 'initial render (nothing started yet)',
-        input: { hasActiveSession: false, loading: false, loadError: null, startOptions: null },
+        input: { sessionState: null, loading: false, loadError: null, startOptions: null },
         expected: 'loading',
       },
       {
         name: 'first load in flight',
-        input: { hasActiveSession: false, loading: true, loadError: null, startOptions: null },
+        input: { sessionState: null, loading: true, loadError: null, startOptions: null },
         expected: 'loading',
       },
       {
         name: 'load failed',
-        input: { hasActiveSession: false, loading: false, loadError: 'err', startOptions: null },
+        input: { sessionState: null, loading: false, loadError: 'err', startOptions: null },
         expected: 'error',
       },
       {
         name: 'retry in flight after failure',
-        input: { hasActiveSession: false, loading: true, loadError: 'err', startOptions: null },
+        input: { sessionState: null, loading: true, loadError: 'err', startOptions: null },
         expected: 'error',
       },
       {
         name: 'reload in flight with stale data still present',
         input: {
-          hasActiveSession: false,
+          sessionState: null,
           loading: true,
           loadError: null,
           startOptions: { kind: 'no-routines' },
@@ -147,14 +159,14 @@ describe('todayViewState', () => {
         expected: 'loading',
       },
       {
-        name: 'active session wins over everything',
-        input: { hasActiveSession: true, loading: true, loadError: 'err', startOptions: null },
+        name: 'in-progress session wins over everything',
+        input: { sessionState: mockSessionState('working'), loading: true, loadError: 'err', startOptions: null },
         expected: 'resume',
       },
       {
         name: 'no routines saved',
         input: {
-          hasActiveSession: false,
+          sessionState: null,
           loading: false,
           loadError: null,
           startOptions: { kind: 'no-routines' },
@@ -164,7 +176,7 @@ describe('todayViewState', () => {
       {
         name: 'routines exist but none startable',
         input: {
-          hasActiveSession: false,
+          sessionState: null,
           loading: false,
           loadError: null,
           startOptions: { kind: 'routines-need-exercises', routines: [] },
@@ -174,7 +186,17 @@ describe('todayViewState', () => {
       {
         name: 'routines ready to choose',
         input: {
-          hasActiveSession: false,
+          sessionState: null,
+          loading: false,
+          loadError: null,
+          startOptions: { kind: 'choose-routine', routines: [] },
+        },
+        expected: 'choose-routine',
+      },
+      {
+        name: 'finished workout allows choosing routines',
+        input: {
+          sessionState: mockSessionState('done'),
           loading: false,
           loadError: null,
           startOptions: { kind: 'choose-routine', routines: [] },

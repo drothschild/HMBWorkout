@@ -102,7 +102,7 @@ export default function TodayScreen() {
   );
 
   const viewState = todayViewState({
-    hasActiveSession: !!sessionState,
+    sessionState,
     loading,
     loadError,
     startOptions,
