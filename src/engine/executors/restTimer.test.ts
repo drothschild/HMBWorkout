@@ -39,7 +39,7 @@ describe('createRestTimerExecutor', () => {
     // pre-kill process's notification is still pending in the OS scheduler.
     // The fixed identifier makes the OS replace it instead of stacking a
     // second alert at the same deadline.
-    const mockSchedule = jest.fn(async () => 'rest-timer');
+    const mockSchedule = jest.fn(async () => 'os-generated-id-abc');
 
     const executor = createRestTimerExecutor({
       scheduleNotificationAsync: mockSchedule,
@@ -56,7 +56,7 @@ describe('createRestTimerExecutor', () => {
   });
 
   test('cancels by the stable identifier after scheduling', async () => {
-    const mockSchedule = jest.fn(async () => 'rest-timer');
+    const mockSchedule = jest.fn(async () => 'os-generated-id-xyz');
     const mockCancel = jest.fn(async () => undefined);
 
     const executor = createRestTimerExecutor({
