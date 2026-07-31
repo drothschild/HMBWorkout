@@ -2,6 +2,7 @@ import { Database, Q } from '@nozbe/watermelondb';
 import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
 import RoutineExercise from './models/RoutineExercise';
+import Routine from './models/Routine';
 import { validateSet } from './validation';
 
 /**
@@ -566,11 +567,20 @@ export async function upsertRoutine(
 }
 
 /**
- * Delete a routine and all of its routine_exercise rows.
+ * Delete a routine (PRESERVE its routine_exercise rows as history carriers).
+ *
+ * DELETED: routine row only.
+ * RETAINED: routine_exercise rows, sessions, session_sets, exercises.
+ *
+ * Routine_exercise rows are retained because session_sets.routine_exercise_id
+ * points through them to logged history. Deleting them would orphan all
+ * previously logged sets, making working-set history inaccessible via
+ * getExerciseWorkingSetHistory. The UI stays clean: presenters filter
+ * routine_exercises by routine_id, so orphan rows (whose routine is gone)
+ * never appear in UI lists.
  *
  * Exercises are never touched: they are global and shared across routines
- * and logged history (AGENTS.md), so deleting a routine must never delete
- * the exercises it references.
+ * and logged history (AGENTS.md).
  *
  * Sync safety guard: refuses to delete a routine while any session that
  * references it (including one still in progress) has sync_status='local'.
@@ -588,7 +598,8 @@ export async function upsertRoutine(
  *
  * @param database The database instance
  * @param routineId The routine ID to delete
- * @throws Error if the routine does not exist or an unsynced session references it
+ * @throws RoutineHasUnsyncedSessionsError if an unsynced session references it
+ * @throws Error if the routine does not exist
  */
 export async function deleteRoutine(
   database: Database,
@@ -596,9 +607,9 @@ export async function deleteRoutine(
 ): Promise<void> {
   await database.write(async () => {
     const routinesTable = database.get('routines');
-    let routine: any;
+    let routine: Routine;
     try {
-      routine = await routinesTable.find(routineId);
+      routine = await routinesTable.find(routineId) as Routine;
     } catch {
       throw new Error(`cannot delete routine ${routineId}: not found`);
     }
@@ -609,20 +620,27 @@ export async function deleteRoutine(
       .fetch()) as Session[];
 
     const hasUnsyncedSession = referencingSessions.some(
-      (session) => (session as any).customSyncStatus === 'local'
+      (session) => session.customSyncStatus === 'local'
     );
     if (hasUnsyncedSession) {
-      throw new Error(`cannot delete routine ${routineId}: unsynced sessions reference it`);
+      throw new RoutineHasUnsyncedSessionsError(
+        `cannot delete routine ${routineId}: unsynced sessions reference it`
+      );
     }
 
-    const routineExercises = (await database
-      .get('routine_exercises')
-      .query(Q.where('routine_id', routineId))
-      .fetch()) as RoutineExercise[];
-
-    await database.batch(
-      ...routineExercises.map((re) => re.prepareDestroyPermanently()),
-      routine.prepareDestroyPermanently()
-    );
+    // Delete ONLY the routine row. Retain routine_exercises as history carriers
+    // so that session_sets remain queryable via getExerciseWorkingSetHistory.
+    await database.batch(routine.prepareDestroyPermanently());
   });
+}
+
+/**
+ * Thrown when attempting to delete a routine that has unsynced sessions.
+ * Discriminable from other errors for user-friendly messaging.
+ */
+export class RoutineHasUnsyncedSessionsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RoutineHasUnsyncedSessionsError';
+  }
 }

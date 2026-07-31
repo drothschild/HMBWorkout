@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
-import { deleteRoutine } from '@/db/repository';
+import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
 import { getSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
@@ -109,11 +109,18 @@ export default function RoutinesScreen() {
               await deleteRoutine(database, routine.id);
               await loadRoutines();
             } catch (error) {
-              console.error('Failed to delete routine:', error);
-              Alert.alert(
-                'Could not delete routine',
-                error instanceof Error ? error.message : 'Please try again.'
-              );
+              if (error instanceof RoutineHasUnsyncedSessionsError) {
+                Alert.alert(
+                  'Cannot delete routine',
+                  'This routine has a workout that hasn\'t synced to your vault yet. Sync first, then delete.'
+                );
+              } else {
+                console.error('Failed to delete routine:', error);
+                Alert.alert(
+                  'Could not delete routine',
+                  'Please try again.'
+                );
+              }
             }
           },
         },
@@ -192,6 +199,9 @@ export default function RoutinesScreen() {
                     <ThemedText type="subtitle">{item.name}</ThemedText>
                     <ThemedText type="default" style={styles.exerciseCount}>
                       {item.exerciseCount} exercises
+                    </ThemedText>
+                    <ThemedText type="small" style={styles.routineHint}>
+                      Long-press to delete
                     </ThemedText>
                   </Pressable>
                 )}
@@ -288,6 +298,10 @@ const styles = StyleSheet.create({
   exerciseCount: {
     opacity: 0.6,
     fontSize: 12,
+    marginTop: Spacing.one,
+  },
+  routineHint: {
+    opacity: 0.4,
     marginTop: Spacing.one,
   },
 });

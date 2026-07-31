@@ -508,6 +508,9 @@ describe('Sync Service', () => {
       // Deleting routine A is allowed because its only session is synced.
       await deleteRoutine(database, 'routine-a');
 
+      // Precondition: routine-a should be gone
+      await expect(database.get('routines').find('routine-a')).rejects.toThrow();
+
       const syncService = createSyncService(database, mockBridgeClient);
       await syncService.syncNow();
 
