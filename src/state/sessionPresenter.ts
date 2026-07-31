@@ -50,10 +50,6 @@ export interface SessionPresenterOutput {
   /** 0..1 fill fraction for the progress bar; 0 for an empty routine. */
   exerciseProgress: number;
 
-  // Default input values for the next set (see computeSetPrefill). Undefined
-  // when there is nothing sensible to prefill.
-  setPrefill: SetInputValues | undefined;
-
   // Set position within the current entry (one-tap logging advances on log,
   // so the screen needs to show where the workout stands). setNumber counts
   // within the warmup or working segment; 0 when there is no current entry.
@@ -182,16 +178,12 @@ export function computeSetPrefill(
  * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
  *                          Engine state carries only exercise ids (the Rill boundary strips
  *                          any extra entry fields), so titles must be looked up shell-side.
- * @param historyPrefill Optional cross-session prefill fallback resolved by the caller
- *                          (most recent working set of the current exercise); only used
- *                          when the exercise has no in-session set yet.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>,
   progressionHint?: string,
-  exerciseTitles?: Record<string, string>,
-  historyPrefill?: SetInputValues
+  exerciseTitles?: Record<string, string>
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -264,7 +256,6 @@ export function createSessionPresenter(
     totalExerciseCount,
     completedExerciseCount,
     exerciseProgress,
-    setPrefill: computeSetPrefill(sessionState, historyPrefill),
     isWarmupSet,
     setNumber,
     totalSetsForEntry,

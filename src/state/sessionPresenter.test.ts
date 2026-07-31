@@ -493,19 +493,10 @@ describe('createSessionPresenter', () => {
       expect(computeSetPrefill(state)).toBeUndefined();
     });
 
-    test('is exposed on the presenter output with the history fallback applied', () => {
-      const state = createMockState();
-      state.loggedSets = [];
+    test('is not a presenter field — computeSetPrefill is the sole prefill contract', () => {
+      const presenter = createSessionPresenter(createMockState(), jest.fn(async () => null));
 
-      const presenter = createSessionPresenter(
-        state,
-        jest.fn(async () => null),
-        undefined,
-        undefined,
-        { reps: 5, weightLbs: 80 }
-      );
-
-      expect(presenter.setPrefill).toEqual({ reps: 5, weightLbs: 80 });
+      expect(presenter).not.toHaveProperty('setPrefill');
     });
   });
 
