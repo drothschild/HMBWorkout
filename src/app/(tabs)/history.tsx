@@ -5,6 +5,7 @@ import { useCallback, useState, useRef } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { database } from '@/db';
 import { deleteSession } from '@/db/repository';
 import {
@@ -16,6 +17,7 @@ import {
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const [sessions, setSessions] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
@@ -90,7 +92,7 @@ export default function HistoryScreen() {
             keyExtractor={(item) => item.id}
             style={styles.list}
             renderItem={({ item }) => (
-              <View style={styles.sessionItem}>
+              <View style={[styles.sessionItem, { borderBottomColor: theme.backgroundSelected }]}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`View ${item.routineName} from ${formatSessionDate(item.endedAt)}`}
@@ -154,8 +156,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.three,
     marginBottom: Spacing.two,
+    // borderBottomColor is theme-resolved inline
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
   },
   sessionInfo: {
     flex: 1,

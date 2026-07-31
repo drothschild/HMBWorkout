@@ -185,7 +185,7 @@ export function SetLogger({
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
         {presenter.currentExerciseLoggedSets.map((set, idx) => (
-          <View key={idx} style={styles.setRow}>
+          <View key={idx} style={setRowStyle}>
             <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
           </View>
         ))}

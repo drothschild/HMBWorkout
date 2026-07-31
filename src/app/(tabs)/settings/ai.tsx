@@ -1,10 +1,11 @@
-import { Pressable, ScrollView, StyleSheet, TextInput, View, useColorScheme } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { getSettings, setSettings } from '@/state/settings';
 
 type AiSettingsPatch = Partial<{
@@ -18,7 +19,7 @@ const AUTOSAVE_DELAY_MS = 500;
 
 export default function AiCoachSettingsScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
+  const theme = useTheme();
   const [anthropicKey, setAnthropicKey] = useState(() => getSettings().anthropicKey);
   const [aiGoals, setAiGoals] = useState(() => getSettings().aiGoals);
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
@@ -65,8 +66,8 @@ export default function AiCoachSettingsScreen() {
     }, [flush])
   );
 
-  const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
-  const placeholderColor = colorScheme === 'dark' ? '#999' : '#ccc';
+  const textInputColor = theme.text;
+  const placeholderColor = theme.textSecondary;
 
   return (
     <ThemedView style={styles.container}>
@@ -112,7 +113,7 @@ export default function AiCoachSettingsScreen() {
               Anthropic API Key
             </ThemedText>
             <TextInput
-              style={[styles.input, { color: textInputColor }]}
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="sk-ant-..."
               placeholderTextColor={placeholderColor}
               value={anthropicKey}
@@ -131,7 +132,7 @@ export default function AiCoachSettingsScreen() {
               Your Goals
             </ThemedText>
             <TextInput
-              style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+              style={[styles.input, styles.multilineInput, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="e.g. Build strength, stay mobile, 3 sessions/week"
               placeholderTextColor={placeholderColor}
               value={aiGoals}
@@ -148,7 +149,7 @@ export default function AiCoachSettingsScreen() {
               Available Equipment
             </ThemedText>
             <TextInput
-              style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+              style={[styles.input, styles.multilineInput, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="e.g. Dumbbells up to 50lb, pull-up bar, bands"
               placeholderTextColor={placeholderColor}
               value={aiEquipment}
@@ -165,7 +166,7 @@ export default function AiCoachSettingsScreen() {
               Coaching Style
             </ThemedText>
             <TextInput
-              style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+              style={[styles.input, styles.multilineInput, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="e.g. Direct and no-nonsense; celebrate PRs"
               placeholderTextColor={placeholderColor}
               value={aiPersonality}
@@ -250,7 +251,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
     borderWidth: 1,
-    borderColor: '#ccc',
+    // borderColor is theme-resolved inline
     borderRadius: 6,
     fontSize: 14,
   },

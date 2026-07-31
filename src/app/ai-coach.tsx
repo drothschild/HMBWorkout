@@ -7,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -31,7 +30,7 @@ const HEADER_TITLES = {
 
 export default function AiCoachScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
+  const theme = useTheme();
   const { routineId, debriefSessionId } = useLocalSearchParams<{
     routineId?: string;
     debriefSessionId?: string;
@@ -82,7 +81,7 @@ export default function AiCoachScreen() {
     return !settings.anthropicKey || settings.anthropicKey.trim() === '';
   });
   const flatListRef = useRef<FlatList>(null);
-  const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
+  const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
   // the user returns from Settings after adding a key (this hook was once
@@ -276,9 +275,9 @@ export default function AiCoachScreen() {
 
           <View style={styles.inputContainer}>
             <TextInput
-              style={[styles.input, { color: textInputColor }]}
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="Ask the AI Coach..."
-              placeholderTextColor={colorScheme === 'dark' ? '#999' : '#ccc'}
+              placeholderTextColor={theme.textSecondary}
               value={inputText}
               onChangeText={setInputText}
               multiline
@@ -308,6 +307,8 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ message }: MessageBubbleProps) {
+  const theme = useTheme();
+
   if (message.hidden) {
     return null;
   }
@@ -316,8 +317,13 @@ function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <View style={[styles.messageBubbleContainer, isUser && styles.messageBubbleContainerUser]}>
-      <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-        <ThemedText type="default" style={[styles.messageBubbleText, isUser && styles.userBubbleText]}>
+      <View
+        style={[
+          styles.messageBubble,
+          isUser ? styles.userBubble : { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <ThemedText type="default" style={isUser ? styles.userBubbleText : undefined}>
           {message.turn?.reply ?? message.content}
         </ThemedText>
       </View>
@@ -647,12 +653,6 @@ const styles = StyleSheet.create({
   userBubble: {
     backgroundColor: '#007AFF',
   },
-  assistantBubble: {
-    backgroundColor: '#E5E5EA',
-  },
-  messageBubbleText: {
-    color: '#000',
-  },
   userBubbleText: {
     color: '#fff',
   },
@@ -824,7 +824,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
     borderWidth: 1,
-    borderColor: '#ccc',
+    // borderColor is theme-resolved inline
     borderRadius: 6,
     fontSize: 14,
     maxHeight: 100,

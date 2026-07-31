@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, Pressable, ScrollView, View, useColorScheme } from 'react-native';
+import { StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
@@ -14,7 +15,7 @@ const AUTOSAVE_DELAY_MS = 500;
 
 export default function ExerciseDetailScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,8 +87,8 @@ export default function ExerciseDetailScreen() {
   // will see the value in the component and can save again if needed.
   useEffect(() => () => flush(), [flush]);
 
-  const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
-  const placeholderColor = colorScheme === 'dark' ? '#999' : '#ccc';
+  const textInputColor = theme.text;
+  const placeholderColor = theme.textSecondary;
 
   if (!id || loading) {
     return (
@@ -148,7 +149,7 @@ export default function ExerciseDetailScreen() {
               Description
             </ThemedText>
             <TextInput
-              style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+              style={[styles.input, styles.multilineInput, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="e.g. Bar on traps, brace, break at the hips and knees together."
               placeholderTextColor={placeholderColor}
               value={description}
@@ -230,7 +231,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
     borderWidth: 1,
-    borderColor: '#ccc',
+    // borderColor is theme-resolved inline
     borderRadius: 6,
     fontSize: 14,
   },

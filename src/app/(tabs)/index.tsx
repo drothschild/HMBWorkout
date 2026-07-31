@@ -5,6 +5,7 @@ import { useCallback, useState, useRef } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
 import { todayStartPresenter, TodayRoutineChoice, TodayStartOptions } from '@/state/todayStartPresenter';
@@ -13,6 +14,7 @@ import { todayViewState } from '@/state/todayViewState';
 
 export default function TodayScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const sessionState = activeSessionStore((state: any) => state.sessionState);
   const [startOptions, setStartOptions] = useState<TodayStartOptions | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -91,6 +93,7 @@ export default function TodayScreen() {
     <Pressable
       style={({ pressed }) => [
         styles.routineItem,
+        { borderBottomColor: theme.backgroundSelected },
         !item.startable && styles.routineItemDisabled,
         pressed && item.startable && styles.pressed,
       ]}
@@ -321,8 +324,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.three,
     marginBottom: Spacing.two,
+    // borderBottomColor is theme-resolved inline
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
   },
   routineItemDisabled: {
     opacity: 0.4,

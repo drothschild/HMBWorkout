@@ -17,6 +17,7 @@ import { formatSetInputValue } from '@/state/setInputs';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
@@ -41,12 +42,13 @@ function ExerciseProgress({
   total: number;
   progress: number;
 }) {
+  const theme = useTheme();
   return (
     <View style={styles.progressBlock}>
       <ThemedText style={styles.progressLabel}>
         {`${completed} of ${total} exercises`}
       </ThemedText>
-      <View style={styles.progressTrack}>
+      <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSelected }]}>
         <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
       </View>
     </View>
@@ -59,6 +61,7 @@ function ExerciseProgress({
  */
 export default function SessionScreen() {
   const router = useRouter();
+  const theme = useTheme();
   // Raw text state for the numeric inputs: what the user typed is what
   // renders. Numbers exist only past buildLogSetValues in SetLogger — a
   // parse-per-keystroke here is what produced the stuck "NaN" field
@@ -404,7 +407,7 @@ export default function SessionScreen() {
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.header}>
+          <View style={[styles.header, { borderBottomColor: theme.backgroundSelected }]}>
             <View style={styles.headerRow}>
               <ThemedText type="smallBold">{presenter.routineName ?? 'Active Session'}</ThemedText>
               <View style={styles.headerControls}>
@@ -457,7 +460,7 @@ export default function SessionScreen() {
             )}
           </View>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
             {presenter.phase === 'done' ? (
               <Pressable
                 style={[styles.button, styles.finishButton]}
@@ -499,9 +502,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    // borderBottomColor is theme-resolved inline
     paddingVertical: Spacing.two,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
   headerRow: {
     flexDirection: 'row',
@@ -540,9 +543,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   progressTrack: {
+    // backgroundColor is theme-resolved inline
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#e0e0e0',
     marginTop: Spacing.one,
     overflow: 'hidden',
   },
@@ -559,9 +562,9 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.two,
   },
   footer: {
+    // borderTopColor is theme-resolved inline
     paddingVertical: Spacing.two,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
   },
   footerRow: {
     flexDirection: 'row',
