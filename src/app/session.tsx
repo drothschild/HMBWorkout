@@ -176,7 +176,7 @@ export default function SessionScreen() {
     );
   };
 
-  // Resting takes over the whole screen: big countdown, cancel or pause only
+  // Resting takes over the whole screen: big countdown, skip or pause only
   if (presenter.isResting || presenter.isRestPaused) {
     return (
       <ThemedView style={styles.container}>
@@ -191,7 +191,7 @@ export default function SessionScreen() {
             frozenRemainingMs={presenter.restRemainingMs}
             isPaused={presenter.isRestPaused}
             onRestElapsed={presenter.onRestElapsed}
-            onCancel={presenter.onSkipRest}
+            onSkip={presenter.onSkipRest}
             onPause={presenter.onPause}
             onResume={presenter.onResume}
           />
