@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
@@ -43,40 +43,42 @@ export function ExerciseStopwatch({
 
   // The parent recreates its callbacks every render (the presenter is rebuilt
   // each time), so keep the alert in a ref: the interval must not be torn down
-  // and re-armed on every parent render. Written in an effect, not during
-  // render (react-hooks/refs) — same pattern as RestCountdown.
+  // and re-armed on every parent render. Written in a layout effect since the
+  // tick that reads it is also layout-timed.
   const onMinuteRef = useRef(onMinute);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onMinuteRef.current = onMinute;
   });
 
-  const tick = useCallback(() => {
-    const result = advanceStopwatch(runRef.current, {
-      key: stopwatchKey,
-      running,
-      nowMs: Date.now(),
-    });
-    runRef.current = result.run;
-    setView(result.view);
-    // The pure module latches milestones, so this fires once per minute even
-    // if ticks arrive late, bunched, or after a long background gap.
-    if (result.vibrateAtMinute !== undefined) onMinuteRef.current();
-  }, [stopwatchKey, running]);
-
   // Tick once before paint (useLayoutEffect) to avoid one-frame layout jump
   // when view mounts undefined and pops in on the first post-paint useEffect.
+  // Manages interval and tick atomically to prevent stale-interval races: the
+  // layout tick runs at commit, old clearInterval runs post-paint. A single
+  // layout effect keeps tick → clearInterval(old) → setInterval(new) atomic.
   useLayoutEffect(() => {
-    tick();
-  }, [tick]);
+    const tick = () => {
+      const result = advanceStopwatch(runRef.current, {
+        key: stopwatchKey,
+        running,
+        nowMs: Date.now(),
+      });
+      runRef.current = result.run;
+      setView(result.view);
+      // The pure module latches milestones, so this fires once per minute even
+      // if ticks arrive late, bunched, or after a long background gap.
+      if (result.vibrateAtMinute !== undefined) onMinuteRef.current();
+    };
 
-  useEffect(() => {
+    // Tick immediately, then set up interval if running.
+    tick();
+
     // Nothing to animate while switched off or frozen; the state is static
     // until one of the deps changes and re-runs this effect.
     if (stopwatchKey === undefined || !running) return;
 
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [stopwatchKey, running, tick]);
+  }, [stopwatchKey, running]);
 
   if (!view) return null;
 
@@ -84,7 +86,7 @@ export function ExerciseStopwatch({
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundElement }]}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.label}>
+      <ThemedText type="smallBold" themeColor="textSecondary">
         {label}
       </ThemedText>
       <ThemedText style={[styles.clock, view.isFrozen && styles.clockFrozen]}>
@@ -101,7 +103,6 @@ const styles = StyleSheet.create({
     marginVertical: Spacing.one,
     borderRadius: 8,
   },
-  label: {},
   clock: {
     fontSize: 44,
     lineHeight: 52,
