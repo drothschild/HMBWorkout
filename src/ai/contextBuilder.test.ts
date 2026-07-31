@@ -91,17 +91,27 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('"settingsProposal"');
     }, 30000);
 
+    it('maps the proposal fields to the prompt sections they replace', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below'
+      );
+    }, 30000);
+
     it('includes constraint that a proposal must carry at least one field', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).toContain('A settings proposal must include at least one of "goals" or "equipment"');
+      expect(prompt).toContain(
+        'A settings proposal must include at least one of "goals", "equipment", or "personality"'
+      );
     }, 30000);
 
     it('includes the non-empty and maximum-length bounds on proposal fields', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        `goals, equipment: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
+        `goals, equipment, personality: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
       );
     }, 30000);
 
@@ -117,7 +127,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Never include a settingsProposal unless the user asked to change their goals or equipment'
+        'Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style'
       );
     }, 30000);
 

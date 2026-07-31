@@ -1193,6 +1193,37 @@ describe('aiChatStore', () => {
       expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({ aiGoals: 'Build strength' });
     });
 
+    it('writes only aiPersonality for a personality-only proposal', async () => {
+      const { store, fakeSetSettings } = await storeWithProposal({
+        personality: 'Drill sergeant, but kind',
+      });
+
+      store.getState().approveSettingsProposal();
+
+      // toStrictEqual so an explicit `aiGoals: undefined` or `aiEquipment:
+      // undefined` — which would blank those fields — fails rather than passing
+      // as an absent key.
+      expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({
+        aiPersonality: 'Drill sergeant, but kind',
+      });
+    });
+
+    it('rebuilds the system prompt after approving a personality-only proposal', async () => {
+      const { store, fakeChat, fakeBuildSystem } = await storeWithProposal({
+        personality: 'Drill sergeant, but kind',
+      });
+
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+
+      store.getState().approveSettingsProposal();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'noted' });
+      await store.getState().send('thanks');
+
+      // The cached prompt embeds the Coaching Style section, so it is stale now
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+    });
+
     it('keeps the conversation intact', async () => {
       const { store } = await storeWithProposal({ goals: 'Build strength' });
 

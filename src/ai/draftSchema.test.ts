@@ -120,8 +120,24 @@ describe('draftSchema', () => {
       expect(validateSettingsProposal(proposal)).toEqual(proposal);
     });
 
-    test('accepts a proposal carrying both fields', () => {
+    test('accepts a personality-only proposal', () => {
+      const proposal = { personality: 'Direct and no-nonsense; celebrate PRs' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('accepts a proposal carrying both goals and equipment', () => {
       const proposal = { goals: 'Hypertrophy', equipment: 'Full commercial gym' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('accepts a proposal carrying all three fields', () => {
+      const proposal = {
+        goals: 'Hypertrophy',
+        equipment: 'Full commercial gym',
+        personality: 'Upbeat hype coach',
+      };
 
       expect(validateSettingsProposal(proposal)).toEqual(proposal);
     });
@@ -132,14 +148,16 @@ describe('draftSchema', () => {
       expect(() => validateSettingsProposal(42)).toThrow(DraftValidationError);
     });
 
-    test('rejects a proposal carrying neither goals nor equipment', () => {
-      expect(() => validateSettingsProposal({})).toThrow(DraftValidationError);
+    test('rejects a proposal carrying no fields', () => {
+      expect(() => validateSettingsProposal({})).toThrow(
+        'a settings proposal must include at least one of goals, equipment, or personality'
+      );
     });
 
     test('rejects a proposal whose only fields are undefined', () => {
-      expect(() => validateSettingsProposal({ goals: undefined, equipment: undefined })).toThrow(
-        DraftValidationError
-      );
+      expect(() =>
+        validateSettingsProposal({ goals: undefined, equipment: undefined, personality: undefined })
+      ).toThrow(DraftValidationError);
     });
 
     test('rejects non-string goals', () => {
@@ -152,12 +170,20 @@ describe('draftSchema', () => {
       );
     });
 
+    test('rejects non-string personality', () => {
+      expect(() => validateSettingsProposal({ personality: 42 })).toThrow(DraftValidationError);
+    });
+
     test('rejects whitespace-only goals', () => {
       expect(() => validateSettingsProposal({ goals: '   ' })).toThrow(DraftValidationError);
     });
 
     test('rejects whitespace-only equipment', () => {
       expect(() => validateSettingsProposal({ equipment: '\n\t' })).toThrow(DraftValidationError);
+    });
+
+    test('rejects whitespace-only personality', () => {
+      expect(() => validateSettingsProposal({ personality: '   ' })).toThrow(DraftValidationError);
     });
 
     test('rejects goals longer than the field maximum', () => {
@@ -170,6 +196,12 @@ describe('draftSchema', () => {
       const equipment = 'e'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
 
       expect(() => validateSettingsProposal({ equipment })).toThrow(DraftValidationError);
+    });
+
+    test('rejects personality longer than the field maximum', () => {
+      const personality = 'p'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ personality })).toThrow(DraftValidationError);
     });
 
     test('accepts a field exactly at the field maximum', () => {
@@ -623,13 +655,14 @@ describe('draftSchema', () => {
       expect(proposalSchema.additionalProperties).toBe(false);
     });
 
-    test('declares goals and equipment as strings on settingsProposal', () => {
+    test('declares goals, equipment, and personality as strings on settingsProposal', () => {
       const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
       expect(proposalSchema.properties.goals.type).toBe('string');
       expect(proposalSchema.properties.equipment.type).toBe('string');
+      expect(proposalSchema.properties.personality.type).toBe('string');
     });
 
-    test('requires neither goals nor equipment individually', () => {
+    test('requires no settingsProposal field individually', () => {
       // "at least one of" is not expressible in the schema subset used here;
       // validateSettingsProposal is what enforces it.
       const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
