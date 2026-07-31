@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { advanceStopwatch, StopwatchRun, StopwatchView } from '@/state/exerciseStopwatch';
 import { vibrateForMinute } from './minuteVibration';
 
@@ -36,6 +37,7 @@ export function ExerciseStopwatch({
   running,
   onMinute = vibrateForMinute,
 }: ExerciseStopwatchProps) {
+  const theme = useTheme();
   const runRef = useRef<StopwatchRun | undefined>(undefined);
   const [view, setView] = useState<StopwatchView | undefined>(undefined);
 
@@ -48,38 +50,41 @@ export function ExerciseStopwatch({
     onMinuteRef.current = onMinute;
   });
 
-  useEffect(() => {
-    const tick = () => {
-      const result = advanceStopwatch(runRef.current, {
-        key: stopwatchKey,
-        running,
-        nowMs: Date.now(),
-      });
-      runRef.current = result.run;
-      setView(result.view);
-      // The pure module latches milestones, so this fires once per minute even
-      // if ticks arrive late, bunched, or after a long background gap.
-      if (result.vibrateAtMinute !== undefined) onMinuteRef.current();
-    };
+  const tick = useCallback(() => {
+    const result = advanceStopwatch(runRef.current, {
+      key: stopwatchKey,
+      running,
+      nowMs: Date.now(),
+    });
+    runRef.current = result.run;
+    setView(result.view);
+    // The pure module latches milestones, so this fires once per minute even
+    // if ticks arrive late, bunched, or after a long background gap.
+    if (result.vibrateAtMinute !== undefined) onMinuteRef.current();
+  }, [stopwatchKey, running]);
 
-    // Tick once immediately so a reset or a pause lands on screen at once.
+  // Tick once before paint (useLayoutEffect) to avoid one-frame layout jump
+  // when view mounts undefined and pops in on the first post-paint useEffect.
+  useLayoutEffect(() => {
     tick();
+  }, [tick]);
 
+  useEffect(() => {
     // Nothing to animate while switched off or frozen; the state is static
     // until one of the deps changes and re-runs this effect.
     if (stopwatchKey === undefined || !running) return;
 
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [stopwatchKey, running]);
+  }, [stopwatchKey, running, tick]);
 
   if (!view) return null;
 
   const label = view.phase === 'leadIn' ? 'Starting in' : view.isFrozen ? 'Paused' : 'Elapsed';
 
   return (
-    <View style={styles.container}>
-      <ThemedText type="smallBold" style={styles.label}>
+    <View style={[styles.container, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.label}>
         {label}
       </ThemedText>
       <ThemedText style={[styles.clock, view.isFrozen && styles.clockFrozen]}>
@@ -95,11 +100,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     marginVertical: Spacing.one,
     borderRadius: 8,
-    backgroundColor: '#F2F2F7',
   },
-  label: {
-    opacity: 0.6,
-  },
+  label: {},
   clock: {
     fontSize: 44,
     lineHeight: 52,

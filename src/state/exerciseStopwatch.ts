@@ -131,7 +131,7 @@ export function advanceStopwatch(
   const isNewRun = !run || run.key !== key;
   let next: StopwatchRun = isNewRun
     ? { key, startedAtMs: nowMs, lastMilestone: 0 }
-    : { ...run! };
+    : { ...run };
 
   if (!running) {
     // Freeze once and stay frozen; re-freezing would rewind the clock.

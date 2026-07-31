@@ -287,6 +287,23 @@ describe('advanceStopwatch — pause freezes, it does not reset', () => {
     expect(later.vibrateAtMinute).toBe(1);
   });
 
+  test('a milestone crossed by the pausing advance itself fires once after resuming', () => {
+    // At 60.5s of exercise time (wall-clock 65.5s from lead-in start), pause crosses the milestone.
+    const paused = at(65_500, armed(), false);
+    expect(paused.vibrateAtMinute).toBeUndefined(); // Suppressed while frozen
+    expect(paused.run?.lastMilestone).toBe(0); // Not yet latched
+    const resumed = at(65_500, paused.run, true);
+    expect(resumed.vibrateAtMinute).toBe(1); // Fires once on resume
+  });
+
+  test('a backward wall-clock jump while running is benign and re-renders', () => {
+    const forward = at(65_000, armed()); // 60s elapsed, milestone fired
+    expect(forward.vibrateAtMinute).toBe(1);
+    const backward = at(64_000, forward.run); // Wall-clock skips backward; 59s elapsed
+    expect(backward.view?.elapsedSeconds).toBe(59);
+    expect(backward.vibrateAtMinute).toBeUndefined(); // No buzz on backward jump
+  });
+
   test('pausing during the lead-in freezes the countdown too', () => {
     const paused = at(2000, armed(), false);
     expect(paused.view?.phase).toBe('leadIn');
