@@ -33,6 +33,20 @@ on memory of older Expo/Router/Reanimated APIs.
 - `npm run ios` / `npm start` — run the app (requires dev client; WatermelonDB is native)
 - `npm run lint` — expo lint
 
+## Native iOS project (`ios/`)
+
+`ios/` is generated output (`expo prebuild`), gitignored, and **not** refreshed by
+`npm run ios` once it exists on disk. After changing `app.json`, icon/splash assets,
+or config plugins, regenerate it or builds keep shipping the stale native assets
+(the old blue app icon outlived the icon swap in PR #30 this way):
+
+    LANG=en_US.UTF-8 npx expo prebuild -p ios --clean
+
+(CocoaPods needs the `LANG` override.) `--clean` is safe here: every native
+customization — scene lifecycle, HealthKit entitlements, splash — comes from
+`app.json` plugins and is re-applied. Hand edits under `ios/` do not survive a
+regeneration; anything that must persist belongs in a config plugin (`plugins/`).
+
 ## Two-repo split
 
 - **This repo** = the iOS app.
