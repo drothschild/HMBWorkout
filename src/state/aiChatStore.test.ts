@@ -466,6 +466,39 @@ describe('aiChatStore', () => {
       expect(fakeChat).toHaveBeenCalledTimes(1);
     });
 
+    it('double acceptDraft fires exactly one write', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      let resolveAccept: (value: string) => void;
+      const deferredAccept = new Promise<string>((resolve) => {
+        resolveAccept = resolve;
+      });
+      fakeAccept.mockReturnValue(deferredAccept);
+
+      // Two same-frame taps: the screen's render-snapshot guard passes both,
+      // so the store itself must refuse the second call.
+      const promise1 = store.getState().acceptDraft();
+      const promise2 = store.getState().acceptDraft();
+
+      resolveAccept!('routine-id-1');
+      const [id1, id2] = await Promise.all([promise1, promise2]);
+
+      expect(fakeAccept).toHaveBeenCalledTimes(1);
+      expect(id1).toBe('routine-id-1');
+      expect(id2).toBeNull();
+      expect(store.getState().pendingDraft).toBeNull();
+    });
+
     it('send during in-flight retry is a no-op', async () => {
       const { store, fakeChat } = makeStore();
 
