@@ -316,11 +316,14 @@ async function debriefSection(db: Database, mode: DebriefMode, routineDetails: R
   const routineName = detail?.name ?? mode.routineId;
   const log = await getSessionExerciseLog(db, mode.sessionId, mode.routineId);
 
+  // Header's second sentence is conditional: only mention sets if we have them
+  const secondSentence = log.length > 0 ? ' These are the sets they logged.' : '';
   const header = `## Just-Finished Workout
 
-The user has just finished the routine "${routineName}". These are the sets they logged.`;
+The user has just finished the routine "${routineName}".${secondSentence}`;
 
-  if (!detail) {
+  // Routine deleted and no logged data: show the "no longer exists" message
+  if (!detail && log.length === 0) {
     return `${header}
 
 This routine no longer exists.`;

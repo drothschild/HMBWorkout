@@ -147,6 +147,28 @@ export function createAiChatStore(deps: AiChatDeps) {
       }
     }
 
+    // Shared turn-start body: check key, set status, call runTurn. Used by
+    // openDebrief, send, and retry to avoid drifting copies.
+    async function startTurn(newMessages: AiDisplayMessage[], mode: AiCoachMode) {
+      const settings = deps.getSettings();
+      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+        set({
+          status: 'error',
+          error: { kind: 'missing_key' },
+        });
+        return;
+      }
+
+      const gen = generation;
+      set({
+        messages: newMessages,
+        status: 'sending',
+        error: null,
+      });
+
+      await runTurn(gen, newMessages, mode, settings.anthropicKey);
+    }
+
     return {
       mode: { kind: 'create' },
       messages: [],
@@ -176,24 +198,8 @@ export function createAiChatStore(deps: AiChatDeps) {
 
         // Send the opening message but mark it hidden: the user never typed it,
         // and the AI's greeting should be the first visible message.
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
-        const gen = generation;
         const newMessages: AiDisplayMessage[] = [{ role: 'user', content: DEBRIEF_OPENING_MESSAGE, hidden: true }];
-        set({
-          messages: newMessages,
-          status: 'sending',
-          error: null,
-        });
-
-        await runTurn(gen, newMessages, mode, settings.anthropicKey);
+        await startTurn(newMessages, mode);
       },
 
       async send(text: string) {
@@ -203,24 +209,8 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
         const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
-        const gen = generation;
-        set({
-          messages: newMessages,
-          status: 'sending',
-          error: null,
-        });
-
-        await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
+        await startTurn(newMessages, state.mode);
       },
 
       async retry() {

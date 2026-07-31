@@ -929,8 +929,8 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('bridge.local');
     }, 30000);
 
-    it('handles a debrief when the routine no longer exists', async () => {
-      // Create a session with no backing routine
+    it('handles a debrief when the routine no longer exists and no sets logged', async () => {
+      // Create a session with no backing routine and no logged sets
       await createSession(database, {
         sessionId,
         routineId, // routine-debrief does not exist
@@ -940,7 +940,63 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(prompt).toContain('The user has just finished the routine "routine-debrief"');
+      // When there are no logged sets, the header should not promise them
+      expect(prompt).not.toContain('These are the sets they logged');
       expect(prompt).toContain('This routine no longer exists');
+    }, 30000);
+
+    it('shows logged sets even when the routine no longer exists', async () => {
+      // Create a routine and exercise, capture the routine_exercise id
+      const reId = await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Deleted Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-pushups';
+          e.title = 'Push-ups';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        const re = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = routineId;
+          re.exerciseId = 'exercise-pushups';
+          re.order = 0;
+          re.warmupSets = 0;
+          re.targetSets = 3;
+          re.targetReps = 10;
+        });
+        return re.id;
+      });
+
+      // Create session and log a set
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      await appendSet(database, sessionId, reId, {
+        setType: 'working' as const,
+        reps: 8,
+      });
+
+      // Delete the routine (but sets remain)
+      await database.write(async () => {
+        const routine = await database.get('routines').find(routineId);
+        await routine.destroyPermanently();
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(prompt).toContain('The user has just finished the routine "routine-debrief"');
+      // When there are logged sets, the header should mention them
+      expect(prompt).toContain('These are the sets they logged');
+      // Should show the logged exercise, not the "no longer exists" message
+      expect(prompt).toContain('Push-ups');
+      expect(prompt).not.toContain('This routine no longer exists');
     }, 30000);
   });
 

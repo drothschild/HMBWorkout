@@ -164,7 +164,9 @@ misnomer — AI settings are in there too.
   "Just-Finished Workout" section (every planned exercise against the sets actually
   logged, warmups included — unlike the history section). The coach speaks first:
   `aiChatStore.openDebrief` resets and sends `DEBRIEF_OPENING_MESSAGE` for the user,
-  because the Messages API needs a user turn before a reply. The hook is the *last*
+  because the Messages API needs a user turn before a reply. The opening turn is
+  flagged hidden and suppressed in the UI while staying byte-identical on the wire,
+  so the user sees the coach's greeting as the first message. The hook is the *last*
   thing `onCompleteSession` does — after the session record is closed and sync and the
   HealthKit write are under way — and every failure there is swallowed: finishing a
   workout must never depend on the chat. Effect executors are fire-and-forget, so a

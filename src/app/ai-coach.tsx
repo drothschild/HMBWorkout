@@ -48,10 +48,6 @@ export default function AiCoachScreen() {
   const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
   const startedModeRef = useRef<string | null>(null);
 
-  const [hasMissingKey, setHasMissingKey] = useState(() => {
-    const settings = getSettings();
-    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
-  });
 
   // Start the conversation before paint on first mount (and whenever the params
   // name a different one). A layout effect rather than a render-body write:
@@ -85,18 +81,14 @@ export default function AiCoachScreen() {
   const flatListRef = useRef<FlatList>(null);
   const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
 
-  // Check for missing key on mount and focus
-  useFocusEffect(
-    useCallback(() => {
-      const settings = getSettings();
-      const keyMissing = !settings.anthropicKey || settings.anthropicKey.trim() === '';
-      setHasMissingKey(keyMissing);
-      // If the key was missing and now exists, allow the conversation to start fresh
-      if (!keyMissing && error?.kind === 'missing_key') {
-        startedModeRef.current = null;
-      }
-    }, [error?.kind])
-  );
+  // Compute missing key from current settings. The guard stays armed for the
+  // screen's lifetime: once openDebrief/send encounter a missing key and set
+  // the error, the error bubble is the only path forward (Settings).
+  const hasMissingKey = useMemo(() => {
+    const settings = getSettings();
+    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+  }, []);
+
 
   // Auto-scroll to end when messages change
   useEffect(() => {
