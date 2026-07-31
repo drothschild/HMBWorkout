@@ -73,10 +73,14 @@ export interface RestCommentaryPrompt {
 }
 
 /**
- * User free text (personality, directives) is dropped into a markdown-shaped
- * prompt, so a line starting with '#' would read as a section heading and could
- * masquerade as prompt structure. Same treatment `contextBuilder` gives routine
- * notes.
+ * User free text (personality, directives, exercise titles) is dropped into a
+ * markdown-shaped prompt, so a line starting with '#' would read as a section
+ * heading and could masquerade as prompt structure. Same treatment `contextBuilder`
+ * gives routine notes.
+ *
+ * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`.
+ * A follow-up PR will hoist both into a shared helper once contextBuilder.ts
+ * lands (currently owned by PR #49).
  */
 function neutralizeForPrompt(text: string): string {
   return text
@@ -173,8 +177,10 @@ ${neutralizeForPrompt(directives)}`);
   }
 
   const exercise = input.exercise;
+  // Neutralize the title like personality/directives: model-authored titles
+  // could contain newlines that fabricate prompt sections.
   const upNext = [
-    exercise.title,
+    neutralizeForPrompt(exercise.title),
     `(${exercise.kind})`,
     '|',
     setPosition(exercise),

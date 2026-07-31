@@ -27,10 +27,12 @@ import { create } from 'zustand';
 import { createRestCommentaryClient } from '@/ai/anthropicClient';
 import {
   buildRestCommentaryPrompt,
+  normalizeCommentaryText,
   type RestCommentaryHistorySet,
 } from '@/ai/restCommentaryPrompt';
 import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
 import { getSettings } from '@/state/settings';
+import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import type { ExerciseKind, SessionState } from '@/engine/types';
 
 /**
@@ -70,6 +72,12 @@ interface RestCommentaryState {
    * already there instead of shoving the countdown when it arrives.
    */
   pending: boolean;
+  /**
+   * True once a request has been attempted for the current target, even if it
+   * failed. The rest screen uses this to keep the commentary slot reserved for
+   * the life of the rest, avoiding a one-frame layout shift when a request fails.
+   */
+  attempted: boolean;
   /** Rest started, or moved to a new upcoming entry. Idempotent per entry. */
   show(target: RestCommentaryTarget): Promise<void>;
   /** Rest ended. Clears the comment and invalidates any in-flight request. */
@@ -98,19 +106,15 @@ export function restCommentaryTarget(
 ): RestCommentaryTarget | null {
   if (!sessionState) return null;
 
-  const isResting = sessionState.phase === 'resting';
-  const isRestPaused = sessionState.phase === 'paused' && Boolean(sessionState.restRemainingMs);
-  if (!isResting && !isRestPaused) return null;
+  // Use shared predicate: true during resting or paused-mid-rest
+  if (!isRestingPhase(sessionState)) return null;
 
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return null;
 
-  // Same derivation the presenter uses for its set-position label: setIndex
-  // spans warmups then working sets, so the number counts within its segment.
-  const isWarmupSet = sessionState.setIndex < entry.warmupSets;
-  const setNumber = isWarmupSet
-    ? sessionState.setIndex + 1
-    : sessionState.setIndex - entry.warmupSets + 1;
+  // Use shared derivation for set position (same calculation as presenter)
+  const setPos = deriveSetPosition(sessionState, entry);
+  if (!setPos) return null;
 
   return {
     sessionId: sessionState.sessionId,
@@ -123,8 +127,8 @@ export function restCommentaryTarget(
     targetReps: entry.targetReps,
     targetDurationSeconds: entry.targetDurationSeconds,
     restSeconds: entry.restSeconds,
-    isWarmupSet,
-    setNumber,
+    isWarmupSet: setPos.isWarmupSet,
+    setNumber: setPos.setNumber,
   };
 }
 
@@ -151,6 +155,13 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
     const inFlight = pendingRequests.get(key);
     if (inFlight) return inFlight;
 
+    // Deliberate deviation from rule 1 ("one call per entry per session"):
+    // Failed requests are NOT cached, so a retry on the next rest of the same
+    // entry is allowed. This trades a possible double-call on network transience
+    // against guaranteed silence when the API fails. Since each rest entry is
+    // typically ~90s apart and the commentary is best-effort, the asymmetry is
+    // intentional: rest must never depend on the AI.
+
     const request = (async () => {
       const settings = deps.getSettings();
       const trimmedKey = settings.anthropicKey?.trim();
@@ -175,10 +186,18 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         personality: settings.aiPersonality,
       });
 
-      const comment = await deps.createClient({ apiKey: trimmedKey }).comment(prompt);
+      const rawComment = await deps.createClient({ apiKey: trimmedKey }).comment(prompt);
+      // Normalize the response: collapse whitespace, strip quotes, and bound length
+      // so the rest screen can render it safely. The client is pure transport and
+      // returns raw text; consumption normalizes it.
+      const comment = normalizeCommentaryText(rawComment);
       // Cached even if nobody is looking any more: the call is already paid
       // for, and the next rest on this entry must not fire a second one.
-      cache.set(key, comment);
+      // Guard the cache.set with session/generation to prevent a stale
+      // response from a cleared session lingering in the cache.
+      if (comment !== null && cachedSessionId === target.sessionId) {
+        cache.set(key, comment);
+      }
       return comment;
     })()
       .catch((error) => {
@@ -187,7 +206,12 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         return null;
       })
       .finally(() => {
-        pendingRequests.delete(key);
+        // Only remove if this exact promise is still the one we're tracking.
+        // If the session was cleared or a new request for the same key was
+        // started, this stale request should not wipe out the new one.
+        if (pendingRequests.get(key) === request) {
+          pendingRequests.delete(key);
+        }
       });
 
     pendingRequests.set(key, request);
@@ -197,6 +221,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
   return create<RestCommentaryState>((set) => ({
     text: null,
     pending: false,
+    attempted: false,
 
     async show(target: RestCommentaryTarget) {
       // Keys are session-scoped, so a stale session's entries could never
@@ -218,17 +243,17 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
 
       const cached = cache.get(key);
       if (cached !== undefined) {
-        set({ text: cached, pending: false });
+        set({ text: cached, pending: false, attempted: true });
         return;
       }
 
       // No key configured: silence, and no reserved space either.
       if (!apiKey()) {
-        set({ text: null, pending: false });
+        set({ text: null, pending: false, attempted: false });
         return;
       }
 
-      set({ text: null, pending: true });
+      set({ text: null, pending: true, attempted: true });
 
       const comment = await requestComment(key, target);
 
@@ -244,7 +269,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
 
       currentKey = null;
       generation++;
-      set({ text: null, pending: false });
+      set({ text: null, pending: false, attempted: false });
     },
   }));
 }

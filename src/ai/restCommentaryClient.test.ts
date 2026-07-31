@@ -49,7 +49,7 @@ describe('createRestCommentaryClient', () => {
     ]);
   });
 
-  it('keeps the token budget small — this runs against a ticking countdown', async () => {
+  it('keeps the token budget small and effort low — this runs against a ticking countdown', async () => {
     mockFetch.mockResolvedValueOnce(textResponse('Brace hard.'));
 
     const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch);
@@ -58,6 +58,7 @@ describe('createRestCommentaryClient', () => {
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.max_tokens).toBeLessThanOrEqual(512);
     expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.output_config?.effort).toBe('low');
   });
 
   it('asks for prose, not the structured turn schema', async () => {
@@ -70,13 +71,14 @@ describe('createRestCommentaryClient', () => {
     expect(body.output_config?.format).toBeUndefined();
   });
 
-  it('returns the normalized comment text', async () => {
+  it('returns the raw comment text (normalization happens in the store)', async () => {
     mockFetch.mockResolvedValueOnce(textResponse('  "Same weight,\n one more rep."  '));
 
     const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch);
     const comment = await client.comment({ system: 's', message: 'm' });
 
-    expect(comment).toBe('Same weight, one more rep.');
+    // Client returns raw text; the store normalizes it
+    expect(comment).toBe('  "Same weight,\n one more rep."  ');
   });
 
   it('skips a leading empty text block', async () => {

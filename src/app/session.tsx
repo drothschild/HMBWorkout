@@ -79,6 +79,7 @@ export default function SessionScreen() {
 
   const restCommentary = restCommentaryStore((state) => state.text);
   const restCommentaryPending = restCommentaryStore((state) => state.pending);
+  const restCommentaryAttempted = restCommentaryStore((state) => state.attempted);
 
   // Compute progression hint when exercise changes
   useEffect(() => {
@@ -242,20 +243,38 @@ export default function SessionScreen() {
   // same with or without it.
   const commentaryTarget = restCommentaryTarget(sessionState, exerciseTitles);
   // Identity, not the object: the target is rebuilt every render, and the store
-  // no-ops on a repeat of the same entry. (Titles resolve at session start, so
-  // the id fallback here is the same one currentExerciseTitle already has.)
+  // no-ops on a repeat of the same entry. Titles are async-loaded; skip the show
+  // if the title hasn't resolved yet to avoid caching a comment keyed by raw id.
+  // The effect will re-fire once titles load and commentaryKey includes the real
+  // title. (Titles resolve at session start, so the id fallback here is the same
+  // one currentExerciseTitle already has once resolved.)
   const commentaryKey = commentaryTarget
     ? `${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`
     : null;
+  const shouldShowCommentary =
+    commentaryTarget &&
+    // Skip if title hasn't resolved yet (async load in flight at rehydration)
+    !(
+      commentaryTarget.exerciseTitle === commentaryTarget.exerciseId &&
+      Object.keys(exerciseTitles).length === 0
+    );
 
   useEffect(() => {
-    if (commentaryTarget) {
-      restCommentaryStore.getState().show(commentaryTarget);
+    if (shouldShowCommentary) {
+      restCommentaryStore.getState().show(commentaryTarget!).catch(() => {});
     } else {
       restCommentaryStore.getState().hide();
     }
     // Primitive dep on purpose (see the effects above).
-  }, [commentaryKey]);
+  }, [commentaryKey, shouldShowCommentary]);
+
+  // Clean up the rest commentary store on unmount to avoid stale state if the
+  // screen is ever unmounted and remounted (e.g., navigation away and back).
+  useEffect(() => {
+    return () => {
+      restCommentaryStore.getState().hide();
+    };
+  }, []);
 
   if (!sessionState) {
     return (
@@ -364,6 +383,7 @@ export default function SessionScreen() {
             isPaused={presenter.isRestPaused}
             commentary={restCommentary}
             commentaryPending={restCommentaryPending}
+            commentaryAttempted={restCommentaryAttempted}
             onRestElapsed={presenter.onRestElapsed}
             onSkip={presenter.onSkipRest}
             onPause={presenter.onPause}

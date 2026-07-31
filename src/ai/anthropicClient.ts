@@ -1,5 +1,4 @@
 import { AI_TURN_SCHEMA, AiTurn, DraftValidationError, parseAiTurn } from './draftSchema';
-import { normalizeCommentaryText } from './restCommentaryPrompt';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -168,21 +167,18 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
 
       const content = (body as { content?: { type?: string; text?: string }[] }).content;
 
-      const comment = Array.isArray(content)
-        ? content
-            .filter(
-              (block): block is { type: string; text: string } =>
-                block?.type === 'text' && typeof block.text === 'string'
-            )
-            .map((block) => normalizeCommentaryText(block.text))
-            .find((text): text is string => text !== null)
+      const textBlock = Array.isArray(content)
+        ? content.find(
+            (block): block is { type: string; text: string } =>
+              block?.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0
+          )
         : undefined;
 
-      if (comment === undefined) {
+      if (!textBlock) {
         throw new DraftValidationError('response contains no usable commentary text');
       }
 
-      return comment;
+      return textBlock.text;
     },
   };
 }

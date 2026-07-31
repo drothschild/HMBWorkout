@@ -174,6 +174,25 @@ describe('createRestCommentaryStore', () => {
       expect(store.getState().text).toBe('Same weight, one more rep.');
     });
 
+    it('deliberately retries on the next rest if the first attempt failed', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce(commentResponse('Success on retry.'));
+      const store = makeStore();
+
+      // First rest: network failure, no cache
+      await store.getState().show(target());
+      expect(store.getState().text).toBeNull();
+
+      store.getState().hide();
+
+      // Next rest of the same entry: retry allowed (not cached)
+      await store.getState().show(target());
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(store.getState().text).toBe('Success on retry.');
+    });
+
     it('does not re-request while the same rest is still showing', async () => {
       const store = makeStore();
 
@@ -249,6 +268,37 @@ describe('createRestCommentaryStore', () => {
 
       expect(store.getState().text).toBeNull();
       expect(store.getState().pending).toBe(false);
+    });
+
+    it('drops a stale response from the UI but still caches it for rule 1', async () => {
+      let releaseFirst: () => void = () => {};
+      mockFetch
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              releaseFirst = () => resolve(commentResponse('Stale comment.'));
+            })
+        )
+        .mockResolvedValueOnce(commentResponse('Fresh comment.'));
+
+      const store = makeStore();
+      const first = store.getState().show(target({ entryIdx: 0 }));
+      await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
+
+      // Switch to a different entry before the first response lands
+      const second = store.getState().show(target({ entryIdx: 1, exerciseId: 'squat' }));
+      releaseFirst();
+      await Promise.all([first, second]);
+
+      // UI shows the fresh response
+      expect(store.getState().text).toBe('Fresh comment.');
+
+      // But the stale response was cached too, so re-visiting entry 0 uses it without refetching
+      mockFetch.mockClear();
+      await store.getState().show(target({ entryIdx: 0 }));
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(store.getState().text).toBe('Stale comment.');
     });
 
     it('discards a response that lands after the upcoming entry changed', async () => {

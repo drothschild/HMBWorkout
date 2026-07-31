@@ -14,11 +14,17 @@ interface RestCountdownProps {
   /**
    * True while the comment is still being fetched. Reserving the slot on this
    * (rather than on the text arriving) is what keeps the countdown and controls
-   * from being shoved when it lands mid-rest. When no comment is coming at all
-   * — no API key, or a failed request — neither is set and the space is given
-   * back.
+   * from being shoved when it lands mid-rest.
    */
   commentaryPending?: boolean;
+  /**
+   * True once a request for the comment has been attempted, even if it failed.
+   * Keeps the commentary slot reserved for the life of the rest, avoiding a
+   * layout shift if the request fails. When no comment is coming at all — no
+   * API key configured — neither pending nor attempted is set and the space is
+   * given back.
+   */
+  commentaryAttempted?: boolean;
   onRestElapsed: () => void;
   onSkip: () => void;
   onPause: () => void;
@@ -44,6 +50,7 @@ export function RestCountdown({
   isPaused,
   commentary,
   commentaryPending,
+  commentaryAttempted,
   onRestElapsed,
   onSkip,
   onPause,
@@ -90,7 +97,7 @@ export function RestCountdown({
         <ThemedText style={styles.countdown}>{formatMs(displayMs)}</ThemedText>
       </View>
 
-      {(commentary || commentaryPending) && (
+      {(commentary || commentaryPending || commentaryAttempted) && (
         <View style={styles.commentary}>
           {commentary ? (
             <ThemedText type="small" style={styles.commentaryText}>
