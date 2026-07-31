@@ -778,10 +778,9 @@ describe('advanceStopwatch — countdown mode', () => {
     const stopped = atCountdown(LEAD_IN_SECONDS * 1000 + 10_000, run, true, 'stop');
     expect(stopped.recordedSeconds).toBe(10);
     expect(stopped.vibrateAtZero).toBe(false);
-    // The card keeps showing remaining time — the same source as while it was
-    // running — rather than switching to elapsed just because it stopped; the
-    // recorded Duration value above is what actually captures the elapsed time.
-    expect(stopped.view?.display).toBe('0:50');
+    // An early manual stop displays the elapsed time to match what recordedSeconds reports,
+    // unlike auto-expiry which stays at remaining time (0:00).
+    expect(stopped.view?.display).toBe('0:10');
   });
 
   test('stopping during the lead-in still records nothing, matching the plain stopwatch', () => {
@@ -800,6 +799,8 @@ describe('advanceStopwatch — countdown mode', () => {
 
     const stillPaused = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, paused.run, false);
     expect(stillPaused.view?.display).toBe('0:40');
+    expect(stillPaused.vibrateAtZero).toBe(false);
+    expect(stillPaused.recordedSeconds).toBeUndefined();
 
     const resumed = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, stillPaused.run, true);
     expect(resumed.view?.display).toBe('0:40');
@@ -812,6 +813,44 @@ describe('advanceStopwatch — countdown mode', () => {
     const both = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, local.run, false);
     expect(both.view?.display).toBe('0:40');
     expect(both.view?.isFrozen).toBe(true);
+    expect(both.vibrateAtZero).toBe(false);
+    expect(both.recordedSeconds).toBeUndefined();
+  });
+
+  test('ticking well past target while frozen freezes no buzz, no record', () => {
+    // PR #46 regression: while frozen past expiry, ensure no accidental buzzes or records.
+    // Test both local pause and session pause modes.
+    const run = armedCountdown();
+
+    // Local pause case: pause at 20s, then tick 200 seconds past expiry while frozen
+    const localPaused = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000, run, true, 'pause');
+    expect(localPaused.view?.isFrozen).toBe(true);
+    let buzzes = 0;
+    let records = 0;
+    let testRun = localPaused.run;
+    for (let i = 0; i <= 200; i++) {
+      const result = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000 + i * 1000, testRun, true);
+      testRun = result.run;
+      if (result.vibrateAtZero) buzzes++;
+      if (result.recordedSeconds !== undefined) records++;
+    }
+    expect(buzzes).toBe(0);
+    expect(records).toBe(0);
+
+    // Session pause case: session pauses, then tick 200 seconds past expiry while frozen
+    const sessionPaused = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000, armed(), false);
+    expect(sessionPaused.view?.isFrozen).toBe(true);
+    buzzes = 0;
+    records = 0;
+    testRun = sessionPaused.run;
+    for (let i = 0; i <= 200; i++) {
+      const result = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000 + i * 1000, testRun, false);
+      testRun = result.run;
+      if (result.vibrateAtZero) buzzes++;
+      if (result.recordedSeconds !== undefined) records++;
+    }
+    expect(buzzes).toBe(0);
+    expect(records).toBe(0);
   });
 
   test('a target of exactly 0 falls back to the plain count-up stopwatch', () => {
@@ -827,4 +866,21 @@ describe('advanceStopwatch — countdown mode', () => {
     expect(result.view?.remainingSeconds).toBe(0);
     expect(result.vibrateAtMinute).toBe(1);
   });
+
+  test.each([undefined, 0, -30, NaN])(
+    'non-positive targets (%s) fall back to count-up mode',
+    (target) => {
+      const run = armed();
+      const result = advanceStopwatch(run, {
+        key: 'k',
+        running: true,
+        nowMs: T0 + 65_000, // 60s of exercise time
+        targetDurationSeconds: target,
+      });
+      // Count-up mode is confirmed by: label is 'Elapsed', minute milestone fires, remainingSeconds is 0
+      expect(result.view?.label).toBe('Elapsed');
+      expect(result.vibrateAtMinute).toBe(1);
+      expect(result.view?.remainingSeconds).toBe(0);
+    }
+  );
 });

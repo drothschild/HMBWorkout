@@ -302,8 +302,10 @@ export function advanceStopwatch(
   // that crosses the line; a run already stopped — by this or an earlier
   // advance — skips straight past. `vibrateAtZero` latches the same way,
   // which is what makes it a one-shot buzz instead of firing every tick after
-  // expiry. A stop landing on this same tick via the user's own command has
-  // already set `isStopped` above, so it wins here: no double vibrate.
+  // expiry. A manual stop landing on this same tick has already set `isStopped`
+  // above (line 265), so it wins here and suppresses the buzz. A pause landing
+  // on the expiry tick does not set `isStopped` (only freezes), so the countdown
+  // expiry fires normally and both buzz and record the target.
   let vibrateAtZero = false;
   if (isCountdown && !isLeadIn && !isStopped && rawElapsedSeconds >= target) {
     next = { ...next, control: 'stopped' };
@@ -322,13 +324,11 @@ export function advanceStopwatch(
     // A stop with no elapsed time records nothing: no exercise time happened,
     // and writing a 0 over the routine's prefilled target duration would destroy
     // a useful default. Display '—' to signal nothing was recorded; once
-    // something was recorded, show the frozen clock — countdown mode keeps
-    // showing remaining time even once stopped (same source as the running
-    // and paused phases, so the card never switches meaning mid-freeze), which
-    // is what makes an expired run read as "0:00" while `recordedSeconds`
-    // below still carries the real duration (the target) into the Duration field.
+    // something was recorded, show the frozen clock. In countdown mode, auto-expiry
+    // (remainingSeconds === 0) keeps showing remaining time (0:00), but an early
+    // manual stop shows elapsed time to match what recordedSeconds reports.
     const shouldRecordSeconds = stoppingNow && elapsedSeconds > 0;
-    const stoppedDisplaySeconds = isCountdown ? remainingSeconds : elapsedSeconds;
+    const stoppedDisplaySeconds = isCountdown && remainingSeconds === 0 ? remainingSeconds : elapsedSeconds;
     const displayValue = elapsedSeconds > 0 ? formatStopwatchDisplay(stoppedDisplaySeconds) : '—';
     return {
       run: next,
@@ -396,13 +396,7 @@ export function advanceStopwatch(
       elapsedSeconds,
       remainingSeconds,
       display: formatStopwatchDisplay(isCountdown ? remainingSeconds : elapsedSeconds),
-      label: isCountdown
-        ? isFrozen
-          ? 'Paused'
-          : 'Remaining'
-        : isFrozen
-          ? 'Paused'
-          : 'Elapsed',
+      label: isFrozen ? 'Paused' : isCountdown ? 'Remaining' : 'Elapsed',
       isFrozen,
       ...controls,
     },
