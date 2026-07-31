@@ -36,6 +36,14 @@ export interface SessionPresenterOutput {
   loggedSetCount: number;
   progressionHint: string | undefined;
 
+  // Routine display data resolved shell-side by the caller (engine state
+  // carries only routineId). The description is "at the beginning" chrome:
+  // routineNotes is present only while the workout hasn't started in earnest
+  // (first exercise, nothing logged, not done) — a display gate on existing
+  // engine state, not a flow decision.
+  routineName: string | undefined;
+  routineNotes: string | undefined;
+
   // Copy for the finish-confirmation dialog. Finishing is irreversible (it
   // triggers vault sync, the HealthKit export, and the debrief), so the screen
   // always confirms; the message carries how much planned work remains so an
@@ -190,12 +198,16 @@ export function computeSetPrefill(
  * @param exerciseTitles Optional exerciseId → title map resolved by the caller.
  *                          Engine state carries only exercise ids (the Rill boundary strips
  *                          any extra entry fields), so titles must be looked up shell-side.
+ * @param routineDisplay Optional routine name/description resolved by the caller
+ *                          (getRoutineDisplay) — engine state carries only routineId,
+ *                          so display fields must be looked up shell-side.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>,
   progressionHint?: string,
-  exerciseTitles?: Record<string, string>
+  exerciseTitles?: Record<string, string>,
+  routineDisplay?: { name: string; notes: string | null }
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -233,6 +245,15 @@ export function createSessionPresenter(
   const exerciseProgress =
     totalExerciseCount > 0 ? completedExerciseCount / totalExerciseCount : 0;
 
+  // The routine description shows only at the beginning of the workout —
+  // first exercise, nothing logged, session not done — then yields the space
+  // back. Null notes stay undefined so the screen never renders a blank line.
+  const atBeginning =
+    sessionState.exerciseIndex === 0 &&
+    (sessionState.loggedSets ?? []).length === 0 &&
+    sessionState.phase !== 'done';
+  const routineNotes = atBeginning ? routineDisplay?.notes ?? undefined : undefined;
+
   // Finish-confirmation copy: the engine decides which phases allow
   // FinishSession; the screen only confirms intent, with this message.
   const totalEntries = totalExerciseCount;
@@ -264,6 +285,8 @@ export function createSessionPresenter(
       .reverse(),
     loggedSetCount: (sessionState.loggedSets ?? []).length,
     progressionHint,
+    routineName: routineDisplay?.name,
+    routineNotes,
     finishConfirmation,
     totalExerciseCount,
     completedExerciseCount,

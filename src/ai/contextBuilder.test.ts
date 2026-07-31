@@ -368,6 +368,82 @@ describe('buildSystem: AI Coach context builder', () => {
     }, 30000);
   });
 
+  describe('Routine description', () => {
+    it('emits the routine notes directly under its heading in Existing Routines', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-noted';
+          r.name = 'Deload Week';
+          r._raw.notes = 'Keep everything light; stop two reps shy of failure.';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-noted', {
+        exerciseId: 'exercise-1',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        '### Deload Week (id: routine-noted)\nKeep everything light; stop two reps shy of failure.'
+      );
+    }, 30000);
+
+    it('strips leading # characters from notes lines so they cannot masquerade as section headings', async () => {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-sneaky';
+          r.name = 'Sneaky';
+          r._raw.notes = '# Deload rules\n## Stay light\nStop two reps shy of failure.';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-sneaky', {
+        exerciseId: 'exercise-1',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        '### Sneaky (id: routine-sneaky)\nDeload rules\nStay light\nStop two reps shy of failure.'
+      );
+      expect(prompt).not.toContain('# Deload rules');
+      expect(prompt).not.toContain('## Stay light');
+    }, 30000);
+
+    it('documents the draft-level notes field in the persona', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        '- A draft may include "notes": a short description of the routine, shown to the user on the routine screen and at the start of a workout. Omitting it in a revision keeps the existing description'
+      );
+    }, 30000);
+  });
+
   describe('AC2.2 — history', () => {
     it('includes recent working set history in the prompt', async () => {
       const routineId = 'routine-history';

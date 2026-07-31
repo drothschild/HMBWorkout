@@ -96,6 +96,7 @@ The "draft" field is included ONLY when proposing a complete new routine or a co
 Draft constraints:
 - A draft must have a non-empty name
 - A draft must contain at least one exercise (exercises array must not be empty)
+- A draft may include "notes": a short description of the routine, shown to the user on the routine screen and at the start of a workout. Omitting it in a revision keeps the existing description
 
 Exercise schema (inside draft.exercises):
 - title: must contain at least one ASCII letter or digit (a-z, 0-9)
@@ -173,6 +174,12 @@ function routinesSection(routineDetails: RoutineWithDetail[]): string {
 
     routineLines.push(`### ${routine.name} (id: ${routine.id})`);
 
+    // The routine's description, so edit/debrief drafts can see (and choose
+    // to preserve or revise) what the user reads at the start of a workout.
+    if (detail.notes) {
+      routineLines.push(neutralizeNotesForPrompt(detail.notes));
+    }
+
     // Merge and sort all exercises by their order
     const allExercises: Array<{ exercise: ExerciseDetail; supersetLabel: string | null }> = [];
 
@@ -201,6 +208,19 @@ No routines yet.`;
   }
 
   return `## Existing Routines\n\n${routineLines.join('\n')}`;
+}
+
+/**
+ * Routine notes are user free text dropped into a markdown-structured prompt,
+ * so a notes line starting with '#' would read as a section heading and could
+ * masquerade as prompt structure. Strip leading '#' runs (and the whitespace
+ * after them) from every line so notes always read as body text.
+ */
+function neutralizeNotesForPrompt(notes: string): string {
+  return notes
+    .split('\n')
+    .map((line) => line.replace(/^\s*#+\s*/, ''))
+    .join('\n');
 }
 
 function formatExerciseLine(
