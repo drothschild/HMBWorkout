@@ -11,7 +11,7 @@ import {
   StopwatchRun,
   StopwatchView,
 } from '@/state/exerciseStopwatch';
-import { vibrateForMinute } from './minuteVibration';
+import { vibrateAtZero, vibrateForMinute } from './minuteVibration';
 
 /** Comfortably over the 44pt minimum touch target, icon included. */
 const CONTROL_SIZE = 48;
@@ -25,23 +25,39 @@ interface ExerciseStopwatchProps {
   stopwatchKey: string | undefined;
   /** False while the session is paused: the clock freezes and stays silent. */
   running: boolean;
+  /**
+   * The entry's target duration, seconds. A positive value switches the card
+   * into a countdown (see `@/state/exerciseStopwatch`); 0 or undefined keeps
+   * the plain count-up stopwatch, minute vibrations included.
+   */
+  targetDurationSeconds?: number;
   /** Injected so the one side effect stays swappable and isolated. */
   onMinute?: () => void;
   /**
-   * The stop button's recorded exercise time, in whole seconds. Fires at most
-   * once per run — the caller writes it into the Duration field, which Log Set
-   * then records through the ordinary path. A stop before the first whole
-   * second of exercise time has elapsed (anywhere in the lead-in or the first
-   * running second) reports nothing at all rather than a 0 that would clobber
-   * the prefilled target.
+   * Fires once, in countdown mode only, on the advance where the run reaches
+   * 0:00 on its own — never on a manual Stop. Injected for the same reason as
+   * `onMinute`.
+   */
+  onZero?: () => void;
+  /**
+   * The stop button's recorded exercise time, in whole seconds — or, in
+   * countdown mode, the target once the run reaches 0:00 on its own, which
+   * behaves exactly like pressing Stop. Fires at most once per run — the
+   * caller writes it into the Duration field, which Log Set then records
+   * through the ordinary path. A stop before the first whole second of
+   * exercise time has elapsed (anywhere in the lead-in or the first running
+   * second) reports nothing at all rather than a 0 that would clobber the
+   * prefilled target.
    */
   onStop?: (elapsedSeconds: number) => void;
 }
 
 /**
- * Count-up stopwatch for duration-based exercises: a 5-second lead-in, then
- * elapsed exercise time, with a vibration at each full minute and its own
- * pause and stop controls.
+ * Stopwatch card for duration-based exercises: a 5-second lead-in, then
+ * either elapsed exercise time counting up (no target) or a countdown from
+ * the target (positive `targetDurationSeconds`), with its own pause and stop
+ * controls. Count-up mode vibrates at each full minute; countdown mode
+ * vibrates once, at 0:00, and then halts there.
  *
  * Display and feedback only — it dispatches no engine events and makes no
  * session-flow decisions. Its pause is the card's own and is *not* the session
@@ -58,7 +74,9 @@ interface ExerciseStopwatchProps {
 export function ExerciseStopwatch({
   stopwatchKey,
   running,
+  targetDurationSeconds,
   onMinute = vibrateForMinute,
+  onZero = vibrateAtZero,
   onStop,
 }: ExerciseStopwatchProps) {
   const theme = useTheme();
@@ -77,9 +95,11 @@ export function ExerciseStopwatch({
   // declared before the tick effect below (layout effects run in hook order,
   // which is what guarantees the commit-time tick reads fresh callbacks).
   const onMinuteRef = useRef(onMinute);
+  const onZeroRef = useRef(onZero);
   const onStopRef = useRef(onStop);
   useLayoutEffect(() => {
     onMinuteRef.current = onMinute;
+    onZeroRef.current = onZero;
     onStopRef.current = onStop;
   });
 
@@ -109,13 +129,19 @@ export function ExerciseStopwatch({
         running,
         nowMs: Date.now(),
         command,
+        targetDurationSeconds,
       });
       runRef.current = result.run;
       setView(result.view);
       setControl(result.run?.control ?? 'running');
       // The pure module latches milestones, so this fires once per minute even
-      // if ticks arrive late, bunched, or after a long background gap.
+      // if ticks arrive late, bunched, or after a long background gap. Never
+      // fires in countdown mode — vibrateAtZero below takes its place.
       if (result.vibrateAtMinute !== undefined) onMinuteRef.current();
+      // Countdown mode's single end-of-time buzz, latched the same way: fires
+      // on the one advance the run reaches 0:00 on its own, never on a manual
+      // Stop and never again afterwards.
+      if (result.vibrateAtZero) onZeroRef.current();
       // Latched the same way: only the advance that carried the stop reports a
       // duration, so a late tick can never rewrite the field.
       if (result.recordedSeconds !== undefined) onStopRef.current?.(result.recordedSeconds);
@@ -132,7 +158,7 @@ export function ExerciseStopwatch({
 
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [stopwatchKey, running, control]);
+  }, [stopwatchKey, running, control, targetDurationSeconds]);
 
   const send = (command: StopwatchCommand) => {
     pendingCommandRef.current = command;
