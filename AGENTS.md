@@ -165,7 +165,10 @@ misnomer — AI settings are in there too.
 - **`aiChatStore` is ephemeral with generation-counter invalidation.** `reset(mode)`
   clears the cached system prompt and bumps `generation`; a request that resolves after
   a reset is discarded rather than appended, and cannot repopulate the cache it just
-  cleared. That counter looks removable and is not. Deps are injected (`AiChatDeps`) so
+  cleared. That counter looks removable and is not. `acceptDraft` re-entry is latched in
+  the store — a second same-frame call returns `null` instead of writing a
+  duplicate routine; the screen's `accepting` state is cosmetic, so the latch
+  also looks removable and is not. Deps are injected (`AiChatDeps`) so
   the whole turn path tests without network or DB.
 
 ## Testing gotchas
