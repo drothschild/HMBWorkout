@@ -98,8 +98,14 @@ export function SetLogger({
       {isDurationBased ? (
         <View style={styles.inputGroup}>
           {/* Counts up so the user can see how long they actually held the
-              exercise; the Duration field stays theirs to fill in. */}
-          <ExerciseStopwatch stopwatchKey={stopwatchKey} running={!presenter.isPaused} />
+              exercise. Its stop button writes the elapsed seconds into the
+              Duration field below; the field stays theirs to edit either way,
+              and Log Set records it through the same path as a typed value. */}
+          <ExerciseStopwatch
+            stopwatchKey={stopwatchKey}
+            running={!presenter.isPaused}
+            onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
+          />
           <ThemedText>Duration (sec)</ThemedText>
           <TextInput
             style={styles.input}
