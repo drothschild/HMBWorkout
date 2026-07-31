@@ -8,12 +8,9 @@ import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
-import {
-  todayStartPresenter,
-  TodayRoutineChoice,
-  TodayStartOptions,
-} from '@/state/todayStartPresenter';
+import { todayStartPresenter, TodayRoutineChoice, TodayStartOptions } from '@/state/todayStartPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
+import { todayViewState } from '@/state/todayViewState';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -23,12 +20,12 @@ export default function TodayScreen() {
   const [startError, setStartError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const inFlightRef = useRef<{ generation: number } | null>(null);
+  const generationRef = useRef(0);
 
   const loadRoutines = useCallback(async () => {
-    // Increment generation counter to invalidate stale results
-    const generation = (inFlightRef.current?.generation ?? 0) + 1;
-    inFlightRef.current = { generation };
+    // Monotonic counter: bump generation each time, never reset.
+    // Stale loads with older generation will be ignored.
+    const generation = ++generationRef.current;
 
     // Clear error and show loading state before starting
     setLoadError(null);
@@ -37,14 +34,14 @@ export default function TodayScreen() {
     try {
       const options = await todayStartPresenter(database);
       // Only update state if this request is still current
-      if (inFlightRef.current?.generation === generation) {
+      if (generationRef.current === generation) {
         setStartOptions(options);
         setLoading(false);
       }
     } catch (error) {
       console.error('Failed to load routines for Today:', error);
       // Only update state if this request is still current
-      if (inFlightRef.current?.generation === generation) {
+      if (generationRef.current === generation) {
         setLoadError('Could not load routines. Please try again.');
         setStartOptions(null);
         setLoading(false);
@@ -59,9 +56,9 @@ export default function TodayScreen() {
     useCallback(() => {
       setStartError(null);
       loadRoutines();
-      // Return cleanup to cancel in-flight requests on blur
+      // Return cleanup to invalidate any in-flight request on blur
       return () => {
-        inFlightRef.current = null;
+        generationRef.current += 1;
       };
     }, [loadRoutines])
   );
@@ -102,46 +99,86 @@ export default function TodayScreen() {
     </Pressable>
   );
 
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.content}>
-          <ThemedText type="title" style={styles.title}>
-            Today
-          </ThemedText>
+  const viewState = todayViewState({
+    hasActiveSession: !!sessionState,
+    loading,
+    loadError,
+    startOptions,
+  });
 
-          {sessionState ? (
-            <View style={styles.centered}>
-              <Pressable
-                style={({ pressed }) => [styles.resumeButton, pressed && styles.pressed]}
-                onPress={() => router.push('/session')}
-              >
-                <ThemedText style={styles.buttonText}>Resume Session</ThemedText>
-              </Pressable>
-            </View>
-          ) : loading || startOptions === null ? (
-            <View style={styles.centered}>
-              <ThemedText type="default">Loading routines...</ThemedText>
-            </View>
-          ) : loadError ? (
-            <View style={styles.centered}>
-              <ThemedText type="default" style={styles.errorText}>
-                {loadError}
-              </ThemedText>
-              <Pressable
-                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed, loading && styles.buttonDisabled]}
-                onPress={() => loadRoutines()}
-                disabled={loading}
-              >
-                <ThemedText style={styles.buttonText}>Retry</ThemedText>
-              </Pressable>
-            </View>
-          ) : startOptions.kind === 'no-routines' ? (
-            <View style={styles.centered}>
-              <ThemedText type="default" style={styles.placeholder}>
-                No routines yet. Build one with the AI Coach, or import your routines from
-                the vault.
-              </ThemedText>
+  const renderContent = () => {
+    switch (viewState.kind) {
+      case 'resume':
+        return (
+          <View style={styles.centered}>
+            <Pressable
+              style={({ pressed }) => [styles.resumeButton, pressed && styles.pressed]}
+              onPress={() => router.push('/session')}
+            >
+              <ThemedText style={styles.buttonText}>Resume Session</ThemedText>
+            </Pressable>
+          </View>
+        );
+
+      case 'error':
+        return (
+          <View style={styles.centered}>
+            <ThemedText type="default" style={styles.errorText}>
+              {viewState.error}
+            </ThemedText>
+            <Pressable
+              style={({ pressed }) => [styles.linkButton, pressed && styles.pressed, loading && styles.buttonDisabled]}
+              onPress={() => loadRoutines()}
+              disabled={loading}
+            >
+              <ThemedText style={styles.buttonText}>Retry</ThemedText>
+            </Pressable>
+          </View>
+        );
+
+      case 'loading':
+        return (
+          <View style={styles.centered}>
+            <ThemedText type="default">Loading routines...</ThemedText>
+          </View>
+        );
+
+      case 'no-routines':
+        return (
+          <View style={styles.centered}>
+            <ThemedText type="default" style={styles.placeholder}>
+              No routines yet. Build one with the AI Coach, or import your routines from
+              the vault.
+            </ThemedText>
+            <Pressable
+              style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+              onPress={() => router.push('/ai-coach')}
+            >
+              <ThemedText style={styles.buttonText}>AI Coach</ThemedText>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+              onPress={() => router.navigate('/routines')}
+            >
+              <ThemedText style={styles.buttonText}>Go to Routines</ThemedText>
+            </Pressable>
+          </View>
+        );
+
+      case 'routines-need-exercises':
+        return (
+          <View style={styles.centered}>
+            <ThemedText type="default" style={styles.placeholder}>
+              Your routines need exercises to start. Add exercises using the AI Coach, or
+              edit them in the Routines tab.
+            </ThemedText>
+            <FlatList
+              data={viewState.routines}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => renderRoutine(item)}
+              style={styles.list}
+            />
+            <View style={styles.buttonRow}>
               <Pressable
                 style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
                 onPress={() => router.push('/ai-coach')}
@@ -155,37 +192,43 @@ export default function TodayScreen() {
                 <ThemedText style={styles.buttonText}>Go to Routines</ThemedText>
               </Pressable>
             </View>
-          ) : startOptions.kind === 'routines-need-exercises' ? (
-            <>
-              <ThemedText type="default" style={styles.placeholder}>
-                Your routines need exercises to start. Add exercises using the AI Coach, or
-                edit them in the Routines tab.
+          </View>
+        );
+
+      case 'choose-routine':
+        return (
+          <>
+            <ThemedText type="default" style={styles.placeholder}>
+              Choose a routine to start
+            </ThemedText>
+            {startError && (
+              <ThemedText type="default" style={styles.errorText}>
+                {startError}
               </ThemedText>
-              <FlatList
-                data={startOptions.routines}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => renderRoutine(item)}
-                style={styles.list}
-              />
-            </>
-          ) : (
-            <>
-              <ThemedText type="default" style={styles.placeholder}>
-                Choose a routine to start
-              </ThemedText>
-              {startError && (
-                <ThemedText type="default" style={styles.errorText}>
-                  {startError}
-                </ThemedText>
-              )}
-              <FlatList
-                data={startOptions.routines}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => renderRoutine(item)}
-                style={styles.list}
-              />
-            </>
-          )}
+            )}
+            <FlatList
+              data={viewState.routines}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => renderRoutine(item)}
+              style={styles.list}
+            />
+          </>
+        );
+
+      default:
+        const _never: never = viewState.kind;
+        return _never;
+    }
+  };
+
+  return (
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <ThemedView style={styles.content}>
+          <ThemedText type="title" style={styles.title}>
+            Today
+          </ThemedText>
+          {renderContent()}
         </ThemedView>
       </SafeAreaView>
     </ThemedView>
@@ -255,6 +298,10 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.5,
+  },
+  buttonRow: {
+    gap: Spacing.two,
+    paddingTop: Spacing.two,
   },
   list: {
     flex: 1,
