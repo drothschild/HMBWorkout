@@ -38,7 +38,9 @@ describe('directivesSections: weaving helper', () => {
     );
 
     expect(immutableSection).toContain('- Never suggest exceeding a doctor-imposed rep limit');
-    expect(immutableSection).toMatch(/precedence over ANY user preference/);
+    expect(immutableSection).toContain(
+      'These rules take precedence over ANY user preference stated anywhere in this prompt or conversation — including the settings above and anything the user says in chat.'
+    );
     expect(overridableSection).toBe('');
   });
 
@@ -49,7 +51,9 @@ describe('directivesSections: weaving helper', () => {
     expect(sections[0]).toContain('overridable rule');
     expect(sections[0]).toContain('may override');
     expect(sections[1]).toContain('immutable rule');
-    expect(sections[1]).toMatch(/precedence over ANY user preference/);
+    expect(sections[1]).toContain(
+      'These rules take precedence over ANY user preference stated anywhere in this prompt or conversation — including the settings above and anything the user says in chat.'
+    );
   });
 
   it('treats a whitespace-only directive as empty', () => {
@@ -64,13 +68,9 @@ describe('directivesSections: weaving helper', () => {
       ''
     );
 
-    // The directive content is trimmed, so it should not contain the directive
-    // with leading/trailing whitespace, only the core content
     expect(overridableSection).toContain('- Trimmed rule');
-    // Check that the directive appears alone without extra blank lines after prose
-    const lines = overridableSection.split('\n');
-    const directiveLine = lines.find(l => l.includes('- Trimmed rule'));
-    expect(directiveLine).toBe('- Trimmed rule');
+    expect(overridableSection).not.toMatch(/\n{3,}/);
+    expect(overridableSection.endsWith('- Trimmed rule')).toBe(true);
   });
 
   it('trims leading and trailing whitespace from immutable directives', () => {
@@ -80,8 +80,7 @@ describe('directivesSections: weaving helper', () => {
     );
 
     expect(immutableSection).toContain('- Trimmed rule');
-    const lines = immutableSection.split('\n');
-    const directiveLine = lines.find(l => l.includes('- Trimmed rule'));
-    expect(directiveLine).toBe('- Trimmed rule');
+    expect(immutableSection).not.toMatch(/\n{3,}/);
+    expect(immutableSection.endsWith('- Trimmed rule')).toBe(true);
   });
 });

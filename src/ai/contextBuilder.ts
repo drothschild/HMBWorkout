@@ -34,6 +34,11 @@ export const HISTORY_SETS_PER_EXERCISE = 5;
  */
 export const RECENT_WORKOUTS_IN_PROMPT = 10;
 
+export interface DirectivesProvider {
+  overridable: string;
+  immutable: string;
+}
+
 /**
  * Build the system prompt for Claude by composing user context:
  * - Coach persona and JSON response schema
@@ -48,13 +53,19 @@ export const RECENT_WORKOUTS_IN_PROMPT = 10;
  *
  * @param db WatermelonDB database instance
  * @param mode the conversation: 'create', 'edit' or 'debrief'
+ * @param directivesProvider optional injection for testing; defaults to shipped constants
  * @returns System prompt string for Claude API
  */
-export async function buildSystem(db: Database, mode: AiCoachMode): Promise<string> {
+export async function buildSystem(
+  db: Database,
+  mode: AiCoachMode,
+  directivesProvider?: DirectivesProvider
+): Promise<string> {
   const sections: string[] = [];
+  const provider = directivesProvider ?? { overridable: OVERRIDABLE_DIRECTIVES, immutable: IMMUTABLE_DIRECTIVES };
   const [overridableDirectivesSection, immutableDirectivesSection] = directivesSections(
-    OVERRIDABLE_DIRECTIVES,
-    IMMUTABLE_DIRECTIVES
+    provider.overridable,
+    provider.immutable
   );
 
   sections.push(personaSection(mode));

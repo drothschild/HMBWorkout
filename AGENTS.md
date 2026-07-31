@@ -256,7 +256,8 @@ is now a misnomer — AI settings are in there too.
 - **Immutable directives must remain the last section in `buildSystem`.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
-  Edit this invariant in `src/ai/coachDirectives.ts`.
+  The placement is enforced in `buildSystem` (`src/ai/contextBuilder.ts`); the directive
+  text itself lives in `src/ai/coachDirectives.ts`.
 
 ## Testing gotchas
 
@@ -282,7 +283,7 @@ is now a misnomer — AI settings are in there too.
 - `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
-  system-prompt builder, draft→repository accept path
+  system-prompt builder, coach directives, draft→repository accept path
 - `src/app/` — expo-router screens
 
 ## Boundaries

@@ -1607,26 +1607,80 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toMatch(/\n{3,}/);
     }, 30000);
 
-    it('places overridable directives before user goals when both are present', () => {
-      const [overridableSection] = directivesSections('- Overridable rule', '');
+    describe('Placement invariants in composed buildSystem', () => {
+      it('places overridable directives before user goals', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '',
+        });
 
-      expect(overridableSection).toContain('- Overridable rule');
-      expect(overridableSection).toContain('## Coach Directives (Default Behavior)');
-      // Verify the precedence prose is present
-      expect(overridableSection).toContain('may override');
-    });
+        const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
+        const goalsIdx = prompt.indexOf('## User Goals');
 
-    it('places immutable directives as the final section when composed with other sections', () => {
-      const [overridableSection, immutableSection] = directivesSections('- Overridable', '- Immutable');
+        expect(overridableIdx).toBeGreaterThan(-1);
+        expect(goalsIdx).toBeGreaterThan(-1);
+        expect(overridableIdx).toBeLessThan(goalsIdx);
+      }, 30000);
 
-      // Both sections should be present
-      expect(overridableSection).toContain('- Overridable');
-      expect(immutableSection).toContain('- Immutable');
+      it('places every other section before immutable directives', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '- IMMUTABLE_MARKER',
+        });
 
-      // Overridable section should not contain immutable prose
-      expect(overridableSection).not.toContain('precedence over ANY user preference');
-      // Immutable section should not contain overridable prose
-      expect(immutableSection).not.toContain('may override');
+        const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+        const goalsIdx = prompt.indexOf('## User Goals');
+        const equipmentIdx = prompt.indexOf('## Available Equipment');
+        const personalityIdx = prompt.indexOf('## Coaching Style');
+        const routinesIdx = prompt.indexOf('## Existing Routines');
+
+        expect(immutableIdx).toBeGreaterThan(-1);
+        expect(goalsIdx).toBeGreaterThan(-1);
+        expect(equipmentIdx).toBeGreaterThan(-1);
+        expect(personalityIdx).toBeGreaterThan(-1);
+        expect(routinesIdx).toBeGreaterThan(-1);
+
+        // All these sections must come before the immutable directives
+        expect(goalsIdx).toBeLessThan(immutableIdx);
+        expect(equipmentIdx).toBeLessThan(immutableIdx);
+        expect(personalityIdx).toBeLessThan(immutableIdx);
+        expect(routinesIdx).toBeLessThan(immutableIdx);
+      }, 30000);
+
+      it('ends with immutable directives', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        expect(prompt.trimEnd()).toContain('- IMMUTABLE_MARKER');
+        expect(prompt.trimEnd().endsWith('- IMMUTABLE_MARKER')).toBe(true);
+      }, 30000);
+
+      it('prevents composition from introducing excessive blank lines', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        // Three or more consecutive newlines indicate a composition error
+        expect(prompt).not.toMatch(/\n{3,}/);
+      }, 30000);
+
+      it('catches placement bugs by detecting section order changes', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
+        const goalsIdx = prompt.indexOf('## User Goals');
+        const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+
+        // The invariant: overridable < goals < immutable
+        expect(overridableIdx).toBeLessThan(goalsIdx);
+        expect(goalsIdx).toBeLessThan(immutableIdx);
+      }, 30000);
     });
   });
 });
