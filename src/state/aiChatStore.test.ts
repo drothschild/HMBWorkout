@@ -1,5 +1,6 @@
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
-import { RoutineDraft, DraftValidationError, AiTurn } from '@/ai/draftSchema';
+import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
+import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
 // Helper to create a test store with mocked dependencies
@@ -9,6 +10,7 @@ function makeStore(deps: Partial<AiChatDeps> = {}) {
   const fakeBuildSystem = jest.fn().mockResolvedValue('SYSTEM');
   const fakeAccept = jest.fn().mockResolvedValue('routine-id-1');
   const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: 'sk-test' });
+  const fakeSetSettings = jest.fn();
 
   const store = createAiChatStore({
     db: {} as never,
@@ -16,6 +18,7 @@ function makeStore(deps: Partial<AiChatDeps> = {}) {
     buildSystem: fakeBuildSystem,
     accept: fakeAccept,
     getSettings: fakeGetSettings,
+    setSettings: fakeSetSettings,
     ...deps,
   });
 
@@ -26,6 +29,7 @@ function makeStore(deps: Partial<AiChatDeps> = {}) {
     fakeBuildSystem,
     fakeAccept,
     fakeGetSettings,
+    fakeSetSettings,
   };
 }
 
@@ -343,10 +347,129 @@ describe('aiChatStore', () => {
     });
   });
 
+  describe('post-workout debrief', () => {
+    const debrief = {
+      kind: 'debrief',
+      routineId: 'routine-1',
+      sessionId: 'session-1',
+    } as const;
+
+    it('opens the conversation with the coach, not the user', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.mode).toEqual(debrief);
+      expect(fakeBuildSystem).toHaveBeenCalledWith({}, debrief);
+      expect(state.messages[1].turn).toEqual({ reply: 'How did that go?' });
+      expect(state.status).toBe('idle');
+    });
+
+    it('marks the opening message hidden so only the coach greeting is visible', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+        hidden: true,
+      });
+    });
+
+    it('preserves the opening message in wire content sent to the API', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+
+      await store.getState().openDebrief(debrief);
+
+      // The wire content must include the hidden opening message for the API
+      const callArgs = fakeChat.mock.calls[0][0];
+      expect(callArgs.messages).toHaveLength(1);
+      expect(callArgs.messages[0]).toEqual({
+        role: 'user',
+        content: DEBRIEF_OPENING_MESSAGE,
+      });
+    });
+
+    it('discards the previous conversation', async () => {
+      const { store, fakeChat } = makeStore();
+      fakeChat.mockResolvedValue({
+        reply: 'hi',
+        draft: { name: 'Draft', exercises: [{ title: 'Ex', kind: 'strength' as const }] },
+      });
+
+      store.getState().reset({ kind: 'create' });
+      await store.getState().send('build me something');
+      expect(store.getState().pendingDraft).not.toBeNull();
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(state.pendingDraft).toBeNull();
+      expect(state.messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
+    });
+
+    it('discards a reply that was in flight when the debrief opened', async () => {
+      const { store, fakeChat } = makeStore();
+
+      // Warm the cached system prompt so the deferred below is armed on the
+      // send under test rather than on a later request.
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first' });
+      await store.getState().send('hello');
+
+      let resolveStale: (turn: AiTurn) => void = () => {};
+      fakeChat.mockReturnValueOnce(
+        new Promise<AiTurn>((resolve) => {
+          resolveStale = resolve;
+        })
+      );
+      const inFlight = store.getState().send('build me something');
+
+      // The deferred must be genuinely in flight — otherwise this is vacuous
+      expect(fakeChat).toHaveBeenCalledTimes(2);
+
+      fakeChat.mockResolvedValue({ reply: 'How did that go?' });
+      const opening = store.getState().openDebrief(debrief);
+
+      resolveStale({ reply: 'stale answer' });
+      await inFlight;
+      await opening;
+
+      expect(store.getState().messages.map((message) => message.content)).toEqual([
+        DEBRIEF_OPENING_MESSAGE,
+        JSON.stringify({ reply: 'How did that go?' }),
+      ]);
+    });
+
+    it('reports a missing key without leaving a half-open conversation', async () => {
+      const { store, fakeChat } = makeStore({
+        getSettings: jest.fn().mockReturnValue({ anthropicKey: '' }) as never,
+      });
+
+      await store.getState().openDebrief(debrief);
+
+      const state = store.getState();
+      expect(fakeChat).not.toHaveBeenCalled();
+      expect(state.error).toEqual({ kind: 'missing_key' });
+      expect(state.mode).toEqual(debrief);
+    });
+  });
+
   describe('AC3.2 / AC5.3 - accept and write-path isolation', () => {
     it.each([
       { kind: 'create' } as const,
       { kind: 'edit', routineId: 'routine-1' } as const,
+      { kind: 'debrief', routineId: 'routine-1', sessionId: 'session-1' } as const,
     ])('calls accept with the draft and the live mode (%o), returns id', async (mode) => {
       const { store, fakeAccept, fakeChat } = makeStore();
 
@@ -464,6 +587,69 @@ describe('aiChatStore', () => {
       await Promise.all([promise1, promise2]);
 
       expect(fakeChat).toHaveBeenCalledTimes(1);
+    });
+
+    it('double acceptDraft fires exactly one write', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      let resolveAccept: (value: string) => void;
+      const deferredAccept = new Promise<string>((resolve) => {
+        resolveAccept = resolve;
+      });
+      fakeAccept.mockReturnValue(deferredAccept);
+
+      // Two same-frame taps: the screen's render-snapshot guard passes both,
+      // so the store itself must refuse the second call.
+      const promise1 = store.getState().acceptDraft();
+      const promise2 = store.getState().acceptDraft();
+
+      resolveAccept!('routine-id-1');
+      const [id1, id2] = await Promise.all([promise1, promise2]);
+
+      expect(fakeAccept).toHaveBeenCalledTimes(1);
+      expect(id1).toBe('routine-id-1');
+      expect(id2).toBeNull();
+      expect(store.getState().pendingDraft).toBeNull();
+    });
+
+    it('a new draft can be accepted after a successful accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draftA: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'first', draft: draftA });
+      await store.getState().send('create');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-1');
+      await store.getState().acceptDraft();
+
+      const draftB: RoutineDraft = {
+        name: 'Routine B',
+        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'second', draft: draftB });
+      await store.getState().send('another');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
+      expect(fakeAccept).toHaveBeenLastCalledWith({}, draftB, { kind: 'create' });
     });
 
     it('send during in-flight retry is a no-op', async () => {
@@ -591,6 +777,31 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingDraft).toBeNull();
 
       await expect(store.getState().acceptDraft()).rejects.toThrow('No pending draft to accept');
+    });
+
+    it('accept can be retried after a failed accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+
+      fakeAccept.mockRejectedValueOnce(new Error('db write failed'));
+      await expect(store.getState().acceptDraft()).rejects.toThrow('db write failed');
+
+      // The draft survives the failure and a second accept goes through.
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -851,6 +1062,314 @@ describe('aiChatStore', () => {
       expect(errorsDuring).toEqual([null]);
       expect(store.getState().status).toBe('idle');
       expect(store.getState().error).toBeNull();
+    });
+  });
+
+  describe('settings proposals — capture', () => {
+    const proposal: SettingsProposal = { goals: 'Run a 5k under 25 minutes' };
+
+    it('captures a settings proposal carried by a turn', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'want me to update that?', settingsProposal: proposal });
+
+      await store.getState().send('my goal is a faster 5k');
+
+      expect(store.getState().pendingSettingsProposal).toEqual(proposal);
+    });
+
+    it('replaces a pending proposal with a newer one', async () => {
+      const { store, fakeChat } = makeStore();
+      const second: SettingsProposal = { equipment: 'Dumbbells only' };
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first', settingsProposal: proposal });
+      await store.getState().send('change my goals');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'second', settingsProposal: second });
+      await store.getState().send('actually, my equipment');
+
+      expect(store.getState().pendingSettingsProposal).toEqual(second);
+    });
+
+    it('leaves a pending proposal untouched when a turn carries none', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first', settingsProposal: proposal });
+      await store.getState().send('change my goals');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'just chatting' });
+      await store.getState().send('hold on');
+
+      expect(store.getState().pendingSettingsProposal).toEqual(proposal);
+    });
+
+    it('reset clears the pending proposal', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'first', settingsProposal: proposal });
+      await store.getState().send('change my goals');
+
+      store.getState().reset({ kind: 'create' });
+
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('a proposal-only turn does not disturb the pending draft', async () => {
+      const { store, fakeChat } = makeStore();
+      const draft: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'here is a routine', draft });
+      await store.getState().send('build me something');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'and your goals?', settingsProposal: proposal });
+      await store.getState().send('also update my goals');
+
+      expect(store.getState().pendingDraft).toEqual(draft);
+      expect(store.getState().pendingSettingsProposal).toEqual(proposal);
+    });
+
+    it('a draft-only turn does not disturb the pending proposal', async () => {
+      const { store, fakeChat } = makeStore();
+      const draft: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({ reply: 'and your goals?', settingsProposal: proposal });
+      await store.getState().send('update my goals');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'here is a routine', draft });
+      await store.getState().send('build me something');
+
+      expect(store.getState().pendingSettingsProposal).toEqual(proposal);
+      expect(store.getState().pendingDraft).toEqual(draft);
+    });
+  });
+
+  describe('settings proposals — approve', () => {
+    async function storeWithProposal(proposal: SettingsProposal) {
+      const made = makeStore();
+
+      made.store.getState().reset({ kind: 'create' });
+      made.fakeChat.mockResolvedValueOnce({ reply: 'shall I?', settingsProposal: proposal });
+      await made.store.getState().send('change my settings');
+
+      return made;
+    }
+
+    it('writes both fields via setSettings and clears the proposal', async () => {
+      const { store, fakeSetSettings } = await storeWithProposal({
+        goals: 'Build strength',
+        equipment: 'Barbell and rack',
+      });
+
+      store.getState().approveSettingsProposal();
+
+      expect(fakeSetSettings).toHaveBeenCalledTimes(1);
+      expect(fakeSetSettings).toHaveBeenCalledWith({
+        aiGoals: 'Build strength',
+        aiEquipment: 'Barbell and rack',
+      });
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('writes only the field the proposal carries', async () => {
+      const { store, fakeSetSettings } = await storeWithProposal({ goals: 'Build strength' });
+
+      store.getState().approveSettingsProposal();
+
+      // toStrictEqual so an explicit `aiEquipment: undefined` — which would blank
+      // the user's equipment — fails rather than passing as an absent key.
+      expect(fakeSetSettings).toHaveBeenCalledWith({ aiGoals: 'Build strength' });
+      expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({ aiGoals: 'Build strength' });
+    });
+
+    it('keeps the conversation intact', async () => {
+      const { store } = await storeWithProposal({ goals: 'Build strength' });
+
+      const before = store.getState().messages;
+      store.getState().approveSettingsProposal();
+
+      expect(store.getState().messages).toEqual(before);
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().error).toBeNull();
+    });
+
+    it('rebuilds the system prompt on the next turn without clearing the chat', async () => {
+      const { store, fakeChat, fakeBuildSystem } = await storeWithProposal({ goals: 'Build strength' });
+
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+
+      store.getState().approveSettingsProposal();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'noted' });
+      await store.getState().send('thanks');
+
+      // The cached prompt embeds goals/equipment, so it must be rebuilt after a write
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+      expect(store.getState().messages).toHaveLength(4);
+    });
+
+    it('does not discard an in-flight response', async () => {
+      const { store, fakeChat, fakeSetSettings } = await storeWithProposal({ goals: 'Build strength' });
+
+      let resolveRequest: (value: AiTurn) => void;
+      fakeChat.mockReturnValueOnce(
+        new Promise<AiTurn>((resolve) => {
+          resolveRequest = resolve;
+        })
+      );
+
+      const sendPromise = store.getState().send('one more thing');
+      expect(fakeChat).toHaveBeenCalledTimes(2);
+
+      // Approving mid-flight must not behave like reset(): the conversation continues
+      store.getState().approveSettingsProposal();
+      expect(fakeSetSettings).toHaveBeenCalledTimes(1);
+
+      resolveRequest!({ reply: 'still here' });
+      await sendPromise;
+
+      expect(store.getState().messages).toHaveLength(4);
+      expect(store.getState().messages[3]).toEqual({
+        role: 'assistant',
+        content: JSON.stringify({ reply: 'still here' }),
+        turn: { reply: 'still here' },
+      });
+    });
+
+    it('validates again before writing and refuses an invalid proposal', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      // A turn that slipped past parseAiTurn — structured output is not a guarantee
+      fakeChat.mockResolvedValueOnce({ reply: 'shall I?', settingsProposal: { goals: '   ' } });
+      await store.getState().send('change my goals');
+
+      expect(() => store.getState().approveSettingsProposal()).toThrow(DraftValidationError);
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      // The rejected proposal stays pending so the card does not silently vanish
+      expect(store.getState().pendingSettingsProposal).toEqual({ goals: '   ' });
+    });
+
+    it('throws when there is no pending proposal', () => {
+      const { store, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      expect(() => store.getState().approveSettingsProposal()).toThrow(
+        'No pending settings proposal to approve'
+      );
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+    });
+
+    it('is the only settings write path touched by the store', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValueOnce(new AnthropicUnreachable('Network error'));
+      await store.getState().send('hello');
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'shall I?', settingsProposal: { goals: 'Build strength' } });
+      await store.getState().retry();
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+
+      store.getState().declineSettingsProposal();
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+
+      store.getState().reset({ kind: 'create' });
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('settings proposals — decline', () => {
+    async function storeWithProposal() {
+      const made = makeStore();
+
+      made.store.getState().reset({ kind: 'create' });
+      made.fakeChat.mockResolvedValueOnce({
+        reply: 'shall I?',
+        settingsProposal: { goals: 'Build strength' },
+      });
+      await made.store.getState().send('change my goals');
+
+      return made;
+    }
+
+    it('clears the proposal without writing settings', async () => {
+      const { store, fakeSetSettings } = await storeWithProposal();
+
+      store.getState().declineSettingsProposal();
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('keeps the conversation going', async () => {
+      const { store, fakeChat } = await storeWithProposal();
+
+      store.getState().declineSettingsProposal();
+
+      expect(store.getState().messages).toHaveLength(2);
+      expect(store.getState().status).toBe('idle');
+
+      fakeChat.mockResolvedValueOnce({ reply: 'no problem' });
+      await store.getState().send('leave it as is');
+
+      expect(store.getState().messages).toHaveLength(4);
+    });
+
+    it('leaves the cached system prompt in place', async () => {
+      const { store, fakeChat, fakeBuildSystem } = await storeWithProposal();
+
+      store.getState().declineSettingsProposal();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'no problem' });
+      await store.getState().send('leave it as is');
+
+      // Nothing was written, so the cached prompt is still accurate
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op when there is no pending proposal', () => {
+      const { store, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      expect(() => store.getState().declineSettingsProposal()).not.toThrow();
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('leaves a pending routine draft alone', async () => {
+      const { store, fakeChat } = makeStore();
+      const draft: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'both',
+        draft,
+        settingsProposal: { goals: 'Build strength' },
+      });
+      await store.getState().send('do both');
+
+      store.getState().declineSettingsProposal();
+
+      expect(store.getState().pendingDraft).toEqual(draft);
+      expect(store.getState().pendingSettingsProposal).toBeNull();
     });
   });
 });

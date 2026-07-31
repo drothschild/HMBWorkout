@@ -17,6 +17,7 @@ export default function RoutineDetailScreen() {
   const [routine, setRoutine] = useState<RoutineDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -38,6 +39,7 @@ export default function RoutineDetailScreen() {
 
   const handleStartSession = async () => {
     if (!id) return;
+    setStartError(null);
     setStarting(true);
     try {
       const event = await startSessionFromRoutine(database, id, `session-${Date.now()}`);
@@ -45,9 +47,12 @@ export default function RoutineDetailScreen() {
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
+      setStartError('Could not start that routine. Try again, or check it still has exercises.');
       setStarting(false);
     }
   };
+
+  const isRoutineStartable = routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
 
   if (!id || loading) {
     return (
@@ -183,14 +188,19 @@ export default function RoutineDetailScreen() {
           )}
         </ScrollView>
 
+        {startError && (
+          <ThemedText type="default" style={styles.errorText}>
+            {startError}
+          </ThemedText>
+        )}
         <Pressable
           style={({ pressed }) => [
             styles.startButton,
             pressed && styles.startButtonPressed,
-            starting && styles.startButtonDisabled,
+            (starting || !isRoutineStartable) && styles.startButtonDisabled,
           ]}
           onPress={handleStartSession}
-          disabled={starting}
+          disabled={starting || !isRoutineStartable}
         >
           <ThemedText type="default" style={styles.startButtonText}>
             {starting ? 'Starting...' : 'Start from this routine'}
@@ -337,5 +347,10 @@ const styles = StyleSheet.create({
   aiEditButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  errorText: {
+    textAlign: 'center',
+    color: '#FF6B6B',
+    marginBottom: Spacing.two,
   },
 });
