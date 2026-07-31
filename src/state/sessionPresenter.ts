@@ -25,9 +25,17 @@ export interface SessionPresenterOutput {
   loggedSets: LoggedSet[];
   progressionHint: string | undefined;
 
+  // Set position within the current entry (one-tap logging advances on log,
+  // so the screen needs to show where the workout stands). setNumber counts
+  // within the warmup or working segment; 0 when there is no current entry.
+  isWarmupSet: boolean;
+  setNumber: number;
+  totalSetsForEntry: number;
+  setPositionLabel: string;
+
   // User action handlers
   onLogSet(values: SetInputValues): void;
-  onSetDone(): void;
+  onSkipSet(): void;
   onPause(): void;
   onResume(): void;
   onSkipRest(): void;
@@ -94,6 +102,21 @@ export function createSessionPresenter(
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
   const restRemainingMs = sessionState.restRemainingMs || undefined;
 
+  // Derived set position: setIndex spans warmups then working sets, so the
+  // label counts within the current segment ("Warmup 1 of 2" / "Set 3 of 4").
+  const isWarmupSet = currentEntry ? sessionState.setIndex < currentEntry.warmupSets : false;
+  const setNumber = currentEntry
+    ? isWarmupSet
+      ? sessionState.setIndex + 1
+      : sessionState.setIndex - currentEntry.warmupSets + 1
+    : 0;
+  const totalSetsForEntry = currentEntry ? currentEntry.warmupSets + currentEntry.targetSets : 0;
+  const setPositionLabel = currentEntry
+    ? isWarmupSet
+      ? `Warmup ${setNumber} of ${currentEntry.warmupSets}`
+      : `Set ${setNumber} of ${currentEntry.targetSets}`
+    : '';
+
   return {
     currentExerciseId,
     currentExerciseTitle,
@@ -106,6 +129,10 @@ export function createSessionPresenter(
     restRemainingMs,
     loggedSets: sessionState.loggedSets ?? [],
     progressionHint,
+    isWarmupSet,
+    setNumber,
+    totalSetsForEntry,
+    setPositionLabel,
 
     // Handlers dispatch events to the engine
     onLogSet: (values: SetInputValues) => {
@@ -119,7 +146,9 @@ export function createSessionPresenter(
       });
     },
 
-    onSetDone: () => {
+    // Advance without logging a set (the engine's SetDone event). LogSet
+    // already advances on its own, so this is the "Skip Set" affordance.
+    onSkipSet: () => {
       dispatch({
         tag: 'SetDone',
         nowMs: Date.now(),

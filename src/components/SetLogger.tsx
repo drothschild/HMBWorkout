@@ -37,6 +37,10 @@ export function SetLogger({
         {presenter.currentExerciseTitle || 'Exercise'}
       </ThemedText>
 
+      {presenter.setPositionLabel !== '' && (
+        <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
+      )}
+
       {!isDurationBased && presenter.progressionHint && (
         <View style={styles.hintContainer}>
           <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
@@ -139,8 +143,8 @@ export function SetLogger({
           <ThemedText style={styles.buttonText}>Log Set</ThemedText>
         </Pressable>
 
-        <Pressable style={[styles.button, styles.successButton]} onPress={() => presenter.onSetDone()}>
-          <ThemedText style={styles.buttonText}>Set Done</ThemedText>
+        <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipSet()}>
+          <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
         </Pressable>
 
         <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipExercise()}>
@@ -161,6 +165,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: Spacing.three,
+  },
+  setPositionText: {
+    marginTop: Spacing.one,
+    opacity: 0.7,
   },
   hintContainer: {
     backgroundColor: '#E3F2FD',

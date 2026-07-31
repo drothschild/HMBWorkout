@@ -68,6 +68,25 @@ export function createActiveSessionStore(
   // This ensures all discard side effects are observed by the caller before dispatch returns.
   const pendingDiscardPromises: Promise<void>[] = [];
 
+  // Queue of pending set persists. One-tap logging emits the final set's
+  // PersistSet and CompleteSession in the same transition, and rill invokes
+  // executors fire-and-forget — so completion must wait for the persist or
+  // syncNow() can serialize the session without its last set (posting is
+  // idempotent by session id, so the missing set would never re-sync).
+  const pendingPersistPromises: Promise<unknown>[] = [];
+
+  async function drainPendingPersists(): Promise<void> {
+    while (pendingPersistPromises.length > 0) {
+      const p = pendingPersistPromises.shift()!;
+      try {
+        await p;
+      } catch (err) {
+        // The persist's own failure is already logged by the executor wrapper;
+        // completion must proceed regardless.
+      }
+    }
+  }
+
   // Create executors that interact with the database
   const executors: Partial<EffectExecutors> = {
     async onCreateSession({ sessionId, routineId, startedAtMs }) {
@@ -158,6 +177,11 @@ export function createActiveSessionStore(
       const sessionId = currentSessionState.sessionId;
       const finishedRoutineId = currentSessionState.routineId;
 
+      // The final set's persist was dispatched in the same transition as this
+      // completion; it must be on disk before the session closes and sync
+      // serializes the sets.
+      await drainPendingPersists();
+
       // Set ended_at and clear engine_state on the session in a single transaction
       // (using a fresh find() inside the write to ensure latest session instance)
       await database.write(async () => {
@@ -246,6 +270,17 @@ export function createActiveSessionStore(
 
     ...overrideExecutors,
   };
+
+  // Whatever persist executor is active — the default above or an injected
+  // one — its promise joins the queue so onCompleteSession can wait for it.
+  const activePersist = executors.onPersistSet;
+  if (activePersist) {
+    executors.onPersistSet = (set: LoggedSet) => {
+      const p = Promise.resolve(activePersist(set));
+      pendingPersistPromises.push(p);
+      return p;
+    };
+  }
 
   // Create the engine with the executors
   const engine = createEngine(executors);

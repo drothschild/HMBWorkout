@@ -32,9 +32,9 @@ checks.
 | C1 | Start a session from a routine with warm-ups | First exercise shows; warm-up sets before working sets |
 | C2 | On a strength exercise with prior history (e.g. prior 3×8 @ 100kg, RPE 7–8), look below the exercise title | Progression hint (e.g. "Increase weight by 2.5 kg" / "Hold current weight") renders as display-only text |
 | C3 | Enter reps + weight, open the RPE control | Offers 1–10 in 0.5 steps; blank = unrated |
-| C4 | Pick RPE 7.5, tap "Log Set" | Set appears in the log showing RPE 7.5 |
-| C5 | Tap "Log Set" several more times | Hint text persists and never changes which set/exercise is current (display-only) |
-| C6 | Tap "Set Done" on an exercise with rest > 0 | UI advances to rest; a rest countdown/notification is scheduled |
+| C4 | Pick RPE 7.5, tap "Log Set" | Set appears in the log showing RPE 7.5, and the position advances — one tap records AND moves the workout forward (with rest > 0 the rest countdown starts) |
+| C5 | Watch the "Warmup N of M" / "Set N of M" line as you log | It tracks every advancement; after the entry's final set the app moves to the next exercise, and after the final set of the last exercise the workout completes with no extra tap |
+| C6 | Tap "Skip Set" instead of logging | Position advances exactly as C4 but no set is added to the log |
 | C7 | Advance through a superset pair | After the first partner's set, the app moves to the second superset exercise before resting (AC8.1) |
 | C8 | Reach a stretch/cardio entry | Shows a duration input (no reps/weight); logging by duration advances (AC8.3) |
 
