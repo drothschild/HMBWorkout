@@ -100,7 +100,7 @@ export default function HistoryScreen() {
               >
                 <ThemedText type="subtitle">{item.routineName}</ThemedText>
                 <ThemedText type="default" style={styles.sessionMeta}>
-                  {formatSessionDate(item.endedAt)} · {item.setCount} sets
+                  {formatSessionDate(item.endedAt)} · {item.setCount} logged sets
                 </ThemedText>
                 <ThemedText type="small" style={styles.sessionHint}>
                   Long-press to delete

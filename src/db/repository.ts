@@ -180,13 +180,18 @@ export async function getSessionSets(
  *
  * Local-only: this removes the on-device rows only. A session already synced
  * to the vault keeps its markdown copy there — deleting here never touches
- * the bridge or the vault. Because syncNow() (src/sync/syncService.ts)
- * selects candidates by querying the sessions table directly, removing the
- * row here also removes it from the sync queue's candidate set.
+ * the bridge or the vault (HealthKit export also survives, written at session
+ * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
+ * by querying the sessions table directly, removing the row here also removes
+ * it from the sync queue's candidate set.
  *
  * Refuses to delete a session that is still in progress (no endedAt set) —
  * the active session must go through the session-flow "abandon" path
  * instead of being deleted out from under the engine.
+ *
+ * Atomicity: check-and-delete is one critical section — guards and deletion
+ * happen in a single writer transaction via database.batch so an app kill
+ * mid-loop cannot leave a truncated session with sync_status='local'.
  *
  * @param database The database instance
  * @param sessionId The session ID to delete
@@ -196,21 +201,21 @@ export async function deleteSession(
   database: Database,
   sessionId: string
 ): Promise<void> {
-  const session = await getSession(database, sessionId);
-  if (!session) {
-    throw new Error(`cannot delete session ${sessionId}: not found`);
-  }
-
-  if (session.endedAt === null || session.endedAt === undefined) {
-    throw new Error(`cannot delete session ${sessionId}: still in progress`);
-  }
-
   await database.write(async () => {
-    const sets = await getSessionSets(database, sessionId);
-    for (const set of sets) {
-      await set.destroyPermanently();
+    const session = await getSession(database, sessionId);
+    if (!session) {
+      throw new Error(`cannot delete session ${sessionId}: not found`);
     }
-    await session.destroyPermanently();
+
+    if (session.endedAt === null || session.endedAt === undefined) {
+      throw new Error(`cannot delete session ${sessionId}: still in progress`);
+    }
+
+    const sets = await getSessionSets(database, sessionId);
+    await database.batch(
+      ...sets.map((s) => s.prepareDestroyPermanently()),
+      session.prepareDestroyPermanently()
+    );
   });
 }
 

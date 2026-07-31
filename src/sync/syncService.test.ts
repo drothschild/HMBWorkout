@@ -7,7 +7,7 @@
 
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { createSession, deleteSession } from '@/db/repository';
+import { createSession, deleteSession, appendSet } from '@/db/repository';
 import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
 import { createSyncService } from './syncService';
 
@@ -213,6 +213,69 @@ describe('Sync Service', () => {
   });
 
   describe('deleted sessions are not queued for sync', () => {
+    it('posts a finished session when NOT deleted (control)', async () => {
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValue({ ok: true }),
+        postSession: jest.fn(),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Set up routine and exercise (same fixture as "transitions to synced" test)
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'exercise-1';
+          re._raw.order = 0; // Canonical 0-based order
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      // Create a finished session with a logged set
+      await createSession(database, {
+        sessionId: 'session-kept',
+        routineId: 'routine-1',
+        startedAtMs: Date.now() - 60000,
+      });
+      await appendSet(database, 'session-kept', 'routine-exercise-1', {
+        setType: 'working',
+        reps: 8,
+        weightKg: 100,
+      });
+      const session = await database.get('sessions').find('session-kept');
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      await syncService.syncNow();
+
+      // Verify postSession WAS called (session not deleted)
+      expect(mockBridgeClient.health).toHaveBeenCalled();
+      expect(mockBridgeClient.postSession).toHaveBeenCalled();
+    }, 15000);
+
     it('does not post a session that was deleted before syncNow runs', async () => {
       const mockBridgeClient = {
         health: jest.fn().mockResolvedValue({ ok: true }),
@@ -223,13 +286,45 @@ describe('Sync Service', () => {
 
       const syncService = createSyncService(database, mockBridgeClient);
 
-      // Create and finish a session, then delete it before sync ever runs.
+      // Set up routine and exercise (same fixture as control)
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'exercise-1';
+          re._raw.order = 0; // Canonical 0-based order
+          re._raw.warmup_sets = 0;
+        });
+      });
+
+      // Create and finish a session with a logged set, then delete it before sync ever runs.
       await createSession(database, {
         sessionId: 'session-deleted',
         routineId: 'routine-1',
         startedAtMs: Date.now(),
       });
-
+      await appendSet(database, 'session-deleted', 'routine-exercise-1', {
+        setType: 'working',
+        reps: 8,
+        weightKg: 100,
+      });
       const session = await database.get('sessions').find('session-deleted');
       await database.write(async () => {
         await (session as any).update((record: any) => {

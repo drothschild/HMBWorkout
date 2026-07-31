@@ -212,8 +212,8 @@ describe('Repository: session and set helpers', () => {
         await routinesTable.create((r: any) => {
           r._raw.id = routineId;
           r.name = 'Test Routine';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
         });
 
         const exercisesTable = database.get('exercises');
@@ -221,16 +221,16 @@ describe('Repository: session and set helpers', () => {
           e._raw.id = exerciseId;
           e.title = 'Bench Press';
           e.kind = 'strength';
-          e.created_at = Date.now();
+          e._raw.created_at = Date.now();
         });
 
         const routineExercisesTable = database.get('routine_exercises');
         await routineExercisesTable.create((re: any) => {
           re._raw.id = routineExerciseId;
-          re.routine_id = routineId;
-          re.exercise_id = exerciseId;
-          re.order = 0;
-          re.warmup_sets = 0;
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = exerciseId;
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
         });
       });
 

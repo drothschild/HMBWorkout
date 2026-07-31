@@ -2,9 +2,7 @@ import { Database, Q } from '@nozbe/watermelondb';
 
 export interface SessionHistoryItem {
   id: string;
-  routineId: string;
   routineName: string;
-  startedAt: number;
   endedAt: number;
   setCount: number;
 }
@@ -22,6 +20,23 @@ export async function sessionHistoryPresenter(db: Database): Promise<SessionHist
     .query(Q.where('ended_at', Q.notEq(null)))
     .fetch()) as any[];
 
+  // Batch-fetch all sets for all sessions to avoid N+1 queries
+  const sessionIds = sessions.map((s) => s.id);
+  const allSets = (await db
+    .get('session_sets')
+    .query(Q.where('session_id', Q.oneOf(sessionIds)))
+    .fetch()) as any[];
+
+  // Group sets by session_id for O(1) lookup
+  const setsBySessionId = new Map<string, any[]>();
+  for (const set of allSets) {
+    const sessionId = set._raw.session_id;
+    if (!setsBySessionId.has(sessionId)) {
+      setsBySessionId.set(sessionId, []);
+    }
+    setsBySessionId.get(sessionId)!.push(set);
+  }
+
   const result: SessionHistoryItem[] = [];
 
   for (const session of sessions) {
@@ -34,18 +49,13 @@ export async function sessionHistoryPresenter(db: Database): Promise<SessionHist
       // Routine no longer exists; fall back to showing its id.
     }
 
-    const sets = await db
-      .get('session_sets')
-      .query(Q.where('session_id', session.id))
-      .fetch();
+    const sessionSets = setsBySessionId.get(session.id) || [];
 
     result.push({
       id: session.id,
-      routineId,
       routineName,
-      startedAt: session._raw.started_at,
       endedAt: session._raw.ended_at,
-      setCount: sets.length,
+      setCount: sessionSets.length,
     });
   }
 
