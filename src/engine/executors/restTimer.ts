@@ -4,6 +4,15 @@
  * Deadline-based (no ticking timer inside app - engine handles via RestElapsed event).
  */
 
+/**
+ * Stable identifier for the rest alert. A scheduled OS notification outlives
+ * the process, so its identity must not live in process memory: scheduling
+ * under this identifier replaces a pending alert left by a previous process
+ * (the relaunch re-arm must not double-notify), and cancelling by it silences
+ * an alert this process never scheduled.
+ */
+export const REST_NOTIFICATION_ID = 'rest-timer';
+
 export interface NotificationAPIs {
   scheduleNotificationAsync: (payload: any) => Promise<string>;
   cancelScheduledNotificationAsync: (id: string) => Promise<void>;
@@ -18,7 +27,6 @@ export interface RestTimerExecutor {
 }
 
 export function createRestTimerExecutor(apis: NotificationAPIs): RestTimerExecutor {
-  let scheduledNotificationId: string | null = null;
   let permissionRequested = false;
 
   return {
@@ -30,7 +38,8 @@ export function createRestTimerExecutor(apis: NotificationAPIs): RestTimerExecut
       }
 
       // Schedule notification at exact deadline
-      scheduledNotificationId = await apis.scheduleNotificationAsync({
+      await apis.scheduleNotificationAsync({
+        identifier: REST_NOTIFICATION_ID,
         content: {
           title: 'Rest over',
           sound: true,
@@ -43,10 +52,10 @@ export function createRestTimerExecutor(apis: NotificationAPIs): RestTimerExecut
     },
 
     async onCancelRest() {
-      if (scheduledNotificationId) {
-        await apis.cancelScheduledNotificationAsync(scheduledNotificationId);
-        scheduledNotificationId = null;
-      }
+      // Only one rest alert can ever be pending (fixed identifier), so cancel
+      // unconditionally — there is no in-process record of whether the pending
+      // one belongs to this process or a killed predecessor.
+      await apis.cancelScheduledNotificationAsync(REST_NOTIFICATION_ID);
     },
 
     async onNotify(message: string) {
