@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -35,14 +35,17 @@ export default function AiCoachScreen() {
     return !settings.anthropicKey || settings.anthropicKey.trim() === '';
   });
 
-  // Synchronous reset on first render (and on a routineId change), before the
-  // selector calls below sample the store — a post-render effect would let one
-  // frame of the previous conversation paint first.
-  if (!didResetRef.current || lastRoutineIdRef.current !== routineId) {
-    didResetRef.current = true;
-    lastRoutineIdRef.current = routineId;
-    store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
-  }
+  // Reset before paint on first mount (and on a routineId change). A layout
+  // effect rather than a render-body write: writing the store mid-render makes
+  // React 19 log a setState-during-render error, while useLayoutEffect still
+  // runs before the frame paints, so no stale conversation is ever visible.
+  useLayoutEffect(() => {
+    if (!didResetRef.current || lastRoutineIdRef.current !== routineId) {
+      didResetRef.current = true;
+      lastRoutineIdRef.current = routineId;
+      store.getState().reset(routineId ? { kind: 'edit', routineId } : { kind: 'create' });
+    }
+  }, [routineId, store]);
 
   const messages = store((s) => s.messages);
   const pendingDraft = store((s) => s.pendingDraft);
