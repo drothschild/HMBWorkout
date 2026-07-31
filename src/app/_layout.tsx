@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { AppState, useColorScheme } from 'react-native';
 import { DatabaseProvider } from '@nozbe/watermelondb/react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -11,6 +11,7 @@ import { loadRules, RuleLoadError } from '@/engine/loadRules';
 import { loadActiveEngineState } from '@/db/engineState';
 import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
 import { rehydrateActiveSession } from '@/state/sessionRehydrate';
+import { reconcileForegroundedSession } from '@/state/foregroundReconcile';
 import { loadSettings, injectSettingsStorage } from '@/state/settings';
 import { secureStorageBackend } from '@/storage/secureStorage';
 import * as Notifications from 'expo-notifications';
@@ -76,6 +77,22 @@ export default function RootLayout() {
       }
     })();
   }, []);
+
+  // Foreground recovery: a rest whose deadline expired while the app was
+  // backgrounded (not killed) has no other reconcile path unless the session
+  // screen happens to be mounted. Subscribed only after boot, so a dispatch
+  // can never precede loadRules() or the rehydrate above.
+  useEffect(() => {
+    if (!rulesLoaded) return;
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        reconcileForegroundedSession(getActiveSessionStore(), Date.now()).catch((error) => {
+          console.error('Foreground session reconcile failed:', error);
+        });
+      }
+    });
+    return () => subscription.remove();
+  }, [rulesLoaded]);
 
   if (ruleError) {
     return (

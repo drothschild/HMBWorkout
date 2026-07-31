@@ -572,13 +572,17 @@ describe('characterization: session engine pre-migration behavior', () => {
       ).rejects.toThrow(/invalid event LogSet in phase done/);
     });
 
-    it('should reject RestElapsed when not in resting phase', async () => {
+    it('should reject RestElapsed where no rest could just have ended', async () => {
+      // Amended post-migration: RestElapsed became benign in warmup/working — a
+      // straggler countdown tick after a foreground reconcile recovered the
+      // phase (see appForegrounded.test.ts) — so the rejection pin moved to a
+      // phase where a rest cannot just have ended on its own.
       const engine = createEngine({});
-      engine.setState(makeState({ phase: 'working' }));
+      engine.setState(makeState({ phase: 'paused' }));
 
       await expect(
         engine.dispatch({ tag: 'RestElapsed', nowMs: 10000 })
-      ).rejects.toThrow(/invalid event RestElapsed in phase working/);
+      ).rejects.toThrow(/invalid event RestElapsed in phase paused/);
     });
 
     it('should reject RestElapsed if deadline not reached', async () => {
