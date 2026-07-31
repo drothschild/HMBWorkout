@@ -660,3 +660,168 @@ describe('advanceStopwatch — a new set clears the local controls', () => {
     expect(gone.recordedSeconds).toBeUndefined();
   });
 });
+
+/**
+ * Countdown mode: entries with a positive targetDurationSeconds count DOWN
+ * from the target after the same 5-second lead-in, halt at 0:00 exactly once
+ * (recording the target, buzzing once), and drop the per-minute milestones
+ * entirely. A target of 0 or absent must fall back to the plain count-up
+ * stopwatch pinned by every test above — this block only adds targetDurationSeconds.
+ */
+describe('advanceStopwatch — countdown mode', () => {
+  const TARGET = 60;
+
+  function atCountdown(
+    offsetMs: number,
+    run?: StopwatchRun,
+    running = true,
+    command?: StopwatchCommand,
+    target = TARGET
+  ) {
+    return advanceStopwatch(run, {
+      key: 'k',
+      running,
+      nowMs: T0 + offsetMs,
+      command,
+      targetDurationSeconds: target,
+    });
+  }
+
+  function armedCountdown(target = TARGET): StopwatchRun {
+    return atCountdown(0, undefined, true, undefined, target).run!;
+  }
+
+  test('the lead-in counts down 5..1 exactly like the plain stopwatch', () => {
+    const run = armedCountdown();
+    expect(atCountdown(999, run).view?.remainingLeadInSeconds).toBe(5);
+    expect(atCountdown(4999, run).view?.remainingLeadInSeconds).toBe(1);
+    expect(atCountdown(4999, run).view?.phase).toBe('leadIn');
+  });
+
+  test('running starts at the full target and counts down', () => {
+    const run = armedCountdown();
+    const { view } = atCountdown(LEAD_IN_SECONDS * 1000, run);
+    expect(view?.phase).toBe('running');
+    expect(view?.remainingSeconds).toBe(60);
+    expect(view?.display).toBe('1:00');
+    expect(view?.label).toBe('Remaining');
+  });
+
+  test('remaining time decreases one second at a time as exercise time passes', () => {
+    const run = armedCountdown();
+    expect(atCountdown(LEAD_IN_SECONDS * 1000 + 1000, run).view?.display).toBe('0:59');
+    expect(atCountdown(LEAD_IN_SECONDS * 1000 + 30_000, run).view?.display).toBe('0:30');
+    expect(atCountdown(LEAD_IN_SECONDS * 1000 + 59_000, run).view?.display).toBe('0:01');
+  });
+
+  test('halts at 0:00 exactly when exercise time reaches the target', () => {
+    const run = armedCountdown();
+    const { view } = atCountdown(LEAD_IN_SECONDS * 1000 + 60_000, run);
+    expect(view?.phase).toBe('stopped');
+    expect(view?.display).toBe('0:00');
+    expect(view?.remainingSeconds).toBe(0);
+    expect(view?.isStopped).toBe(true);
+    expect(view?.canPause).toBe(false);
+    expect(view?.canStop).toBe(false);
+  });
+
+  test('never shows overtime past 0:00, even on a single late tick', () => {
+    const run = armedCountdown();
+    // Backgrounded well past the target; a single late advance must still cap at 0:00.
+    const { view } = atCountdown(LEAD_IN_SECONDS * 1000 + 300_000, run);
+    expect(view?.display).toBe('0:00');
+    expect(view?.elapsedSeconds).toBe(60);
+    expect(view?.remainingSeconds).toBe(0);
+  });
+
+  test('writes the target as the recorded duration exactly once, on the crossing tick', () => {
+    const run = armedCountdown();
+    const atZero = atCountdown(LEAD_IN_SECONDS * 1000 + 60_000, run);
+    expect(atZero.recordedSeconds).toBe(60);
+
+    const later = atCountdown(LEAD_IN_SECONDS * 1000 + 90_000, atZero.run);
+    expect(later.recordedSeconds).toBeUndefined();
+    expect(later.view?.display).toBe('0:00');
+  });
+
+  test('vibrates exactly once, on the crossing tick, and never again', () => {
+    const run = armedCountdown();
+    const before = atCountdown(LEAD_IN_SECONDS * 1000 + 59_000, run);
+    expect(before.vibrateAtZero).toBe(false);
+
+    const atZero = atCountdown(LEAD_IN_SECONDS * 1000 + 60_000, before.run);
+    expect(atZero.vibrateAtZero).toBe(true);
+
+    const later = atCountdown(LEAD_IN_SECONDS * 1000 + 90_000, atZero.run);
+    expect(later.vibrateAtZero).toBe(false);
+  });
+
+  test('per-minute milestones never fire in countdown mode', () => {
+    let run = armedCountdown(180); // 3-minute target
+    const fired: number[] = [];
+    for (let s = 0; s <= 180; s += 1) {
+      const result = advanceStopwatch(run, {
+        key: 'k',
+        running: true,
+        nowMs: T0 + LEAD_IN_SECONDS * 1000 + s * 1000,
+        targetDurationSeconds: 180,
+      });
+      run = result.run!;
+      if (result.vibrateAtMinute !== undefined) fired.push(result.vibrateAtMinute);
+    }
+    expect(fired).toEqual([]);
+    expect(run.lastMilestone).toBe(0);
+  });
+
+  test('a manual stop before the target writes the actual elapsed time, not the target', () => {
+    const run = armedCountdown();
+    const stopped = atCountdown(LEAD_IN_SECONDS * 1000 + 10_000, run, true, 'stop');
+    expect(stopped.recordedSeconds).toBe(10);
+    expect(stopped.vibrateAtZero).toBe(false);
+    expect(stopped.view?.display).toBe('0:10');
+  });
+
+  test('stopping during the lead-in still records nothing, matching the plain stopwatch', () => {
+    const run = armedCountdown();
+    const stopped = atCountdown(2000, run, true, 'stop');
+    expect(stopped.recordedSeconds).toBeUndefined();
+    expect(stopped.view?.display).toBe('—');
+    expect(stopped.view?.phase).toBe('stopped');
+  });
+
+  test('pausing mid-countdown freezes the remaining time; resuming continues from there', () => {
+    const run = armedCountdown();
+    const paused = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000, run, false);
+    expect(paused.view?.display).toBe('0:40');
+    expect(paused.view?.isFrozen).toBe(true);
+
+    const stillPaused = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, paused.run, false);
+    expect(stillPaused.view?.display).toBe('0:40');
+
+    const resumed = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, stillPaused.run, true);
+    expect(resumed.view?.display).toBe('0:40');
+    expect(atCountdown(LEAD_IN_SECONDS * 1000 + 81_000, resumed.run).view?.display).toBe('0:39');
+  });
+
+  test('the local pause composes with the session pause while counting down', () => {
+    const run = armedCountdown();
+    const local = atCountdown(LEAD_IN_SECONDS * 1000 + 20_000, run, true, 'pause');
+    const both = atCountdown(LEAD_IN_SECONDS * 1000 + 80_000, local.run, false);
+    expect(both.view?.display).toBe('0:40');
+    expect(both.view?.isFrozen).toBe(true);
+  });
+
+  test('a target of exactly 0 falls back to the plain count-up stopwatch', () => {
+    const run = armed(); // armed with no target at all
+    const result = advanceStopwatch(run, {
+      key: 'k',
+      running: true,
+      nowMs: T0 + 65_000, // 60s of exercise time
+      targetDurationSeconds: 0,
+    });
+    expect(result.view?.label).toBe('Elapsed');
+    expect(result.view?.display).toBe('1:00');
+    expect(result.view?.remainingSeconds).toBe(0);
+    expect(result.vibrateAtMinute).toBe(1);
+  });
+});
