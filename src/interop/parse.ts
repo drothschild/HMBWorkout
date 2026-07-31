@@ -4,7 +4,6 @@
  */
 
 import { parseFlags, ContractError, ParsedDoc, WorkoutLine, SupersetGroup } from './format';
-import { SetType } from '@/db/models/SessionSet';
 import { ExerciseKind } from '@/db/models/Exercise';
 
 /**
