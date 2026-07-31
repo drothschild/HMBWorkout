@@ -164,6 +164,161 @@ describe('serialize', () => {
     });
   });
 
+  describe('Session set identity: what was performed, not what the row names now', () => {
+    // ReplaceExercise re-points a routine_exercises row. A session serialized
+    // after that swap — one still queued as sync_status='local' — must name the
+    // exercise its sets were actually performed as. Only the identity in the
+    // existing `- <exercise-id>:` slot changes; the line grammar does not.
+    const sessionRow = {
+      id: 'sess-swap',
+      routineId: 'push-06-01',
+      startedAt: new Date('2026-07-08T10:00:00Z'),
+      endedAt: new Date('2026-07-08T10:30:00Z'),
+      createdAt: new Date('2026-07-08T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    const routineExercises = [
+      {
+        id: 're-001',
+        // The row has already been swapped to the substitute.
+        exerciseId: 'dumbbell-floor-press',
+        order: 0,
+        supersetGroup: undefined,
+        warmupSets: 0,
+        targetSets: 4,
+        targetReps: 6,
+        targetDurationSeconds: undefined,
+        restSeconds: 90,
+        notes: undefined,
+      },
+    ];
+
+    const exercises = [
+      { id: 'barbell-bench-press', title: 'Barbell Bench Press', kind: 'strength' as const },
+      { id: 'dumbbell-floor-press', title: 'Dumbbell Floor Press', kind: 'strength' as const },
+    ];
+
+    test('names the exercise the set recorded, not the one the row was swapped to', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-001',
+          exerciseId: 'barbell-bench-press',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 80,
+          durationSeconds: undefined,
+          rpe: undefined,
+          position: 0,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6');
+      expect(markdown).not.toContain('dumbbell-floor-press');
+    });
+
+    test('falls back to the row for a set with no recorded identity', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-001',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 80,
+          durationSeconds: undefined,
+          rpe: undefined,
+          position: 0,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- dumbbell-floor-press: 1x6');
+    });
+
+    test('keeps the line grammar identical — only the identity slot differs', () => {
+      const withStamp = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-001',
+            exerciseId: 'barbell-bench-press',
+            setType: 'working' as const,
+            reps: 6,
+            weightKg: 80,
+            rpe: 8,
+            position: 0,
+          },
+        ] as any,
+        routineExercises as any,
+        exercises as any
+      );
+      const withoutStamp = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-001',
+            setType: 'working' as const,
+            reps: 6,
+            weightKg: 80,
+            rpe: 8,
+            position: 0,
+          },
+        ] as any,
+        routineExercises as any,
+        exercises as any
+      );
+
+      // Byte-identical once the id is normalized away: same flags, same order,
+      // same frontmatter, same block structure.
+      expect(withStamp.replace('barbell-bench-press', 'dumbbell-floor-press')).toBe(withoutStamp);
+    });
+
+    test('takes the kind flag from the exercise performed', () => {
+      const sets = [
+        {
+          routineExerciseId: 're-stretch',
+          exerciseId: 'hamstring-stretch',
+          setType: 'stretch' as const,
+          durationSeconds: 30,
+          position: 0,
+        },
+      ];
+
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        [
+          {
+            id: 're-stretch',
+            exerciseId: 'calf-stretch',
+            order: 0,
+            warmupSets: 0,
+            restSeconds: undefined,
+          },
+        ] as any,
+        [
+          { id: 'hamstring-stretch', title: 'Hamstring Stretch', kind: 'stretch' as const },
+          { id: 'calf-stretch', title: 'Calf Stretch', kind: 'stretch' as const },
+        ] as any
+      );
+
+      expect(markdown).toContain('- hamstring-stretch:');
+      expect(markdown).toContain('kind=stretch');
+    });
+  });
+
   describe('Task 2: Structured flags serialization', () => {
     test('serializeSession includes set_type for warmup/working sets', () => {
       const sessionRow = {
