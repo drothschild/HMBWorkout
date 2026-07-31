@@ -136,8 +136,9 @@ match event {
       if (p.nowMs < match state.restDeadlineMs { Some(d) -> d, None -> 0 })
       then Err("rest not elapsed")
       else (
-        -- setIndex already points at the upcoming set (SetDone advanced it),
-        -- so it must be preserved; the phase is recovered from its position.
+        -- setIndex already points at the upcoming set (the previous LogSet or
+        -- SetDone advanced it), so it must be preserved; the phase is
+        -- recovered from its position.
         let currentEntry = at(state.exerciseIndex, state.entries)?
         let nextPhase = if (state.setIndex < currentEntry.warmupSets) then Warmup else Working
         Ok({
@@ -164,7 +165,10 @@ match event {
       })
     ),
   SkipRest -> Err("invalid event SkipRest in phase " ++ h.phase_to_string(state.phase)),
-  SkipExercise if state.phase != Idle && state.phase != Done -> (
+  -- Stretching is excluded (symmetry with LogSet/SetDone): the cool-down must
+  -- never advance the workout, and skipping the last exercise would push
+  -- exerciseIndex out of range and strand StopStretching's entry lookup.
+  SkipExercise if state.phase != Idle && state.phase != Done && state.phase != Stretching -> (
       Ok({
         state: { state | exerciseIndex: state.exerciseIndex + 1, setIndex: 0, supersetPosition: 0, restDeadlineMs: None, restRemainingMs: None },
         effects: []
