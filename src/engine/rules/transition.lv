@@ -68,29 +68,32 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
             })
           ),
           None -> (
-            let nextExerciseIndex = groupEndIdx + 1
-            let workoutDone = nextExerciseIndex >= length(s.entries)
+            -- The entry right after this group may itself plan zero total
+            -- sets, or be the first member of a group that entirely does —
+            -- h.next_active_landing finds the real landing point (or proves
+            -- none remains) instead of assuming groupEndIdx + 1 is landable.
+            match h.next_active_landing(s.entries)(groupEndIdx + 1) {
+              None -> Ok({
+                state: { s | phase: Done, restDeadlineMs: None },
+                effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: h.distinct_exercise_count(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
+              }),
+              Some(landing) -> (
+                let nextEntry = at(landing.idx, s.entries)?
+                let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
+                let restDeadlineMs = nowMs + restSeconds * 1000
+                let nextSupersetPosition = landing.idx - landing.groupStart
 
-            if (workoutDone)
-            then Ok({
-              state: { s | phase: Done, restDeadlineMs: None },
-              effects: [CompleteSession({ summary: { startMs: s.startedAtMs, endMs: nowMs, exercisesCompleted: h.distinct_exercise_count(s.loggedSets), setsLogged: length(s.loggedSets), loggedSets: s.loggedSets } }), Notify({ message: "Workout complete" })]
-            })
-            else (
-              let nextEntry = at(nextExerciseIndex, s.entries)?
-              let restSeconds = h.rest_duration(currentEntry)(nextEntry)(false)
-              let restDeadlineMs = nowMs + restSeconds * 1000
-
-              if (restSeconds > 0)
-              then Ok({
-                state: { s | phase: Resting, exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: Some(restDeadlineMs) },
-                effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
-              })
-              else Ok({
-                state: { s | phase: h.phase_for(nextEntry)(0), exerciseIndex: nextExerciseIndex, setIndex: 0, supersetPosition: 0, restDeadlineMs: None },
-                effects: []
-              })
-            )
+                if (restSeconds > 0)
+                then Ok({
+                  state: { s | phase: Resting, exerciseIndex: landing.idx, setIndex: 0, supersetPosition: nextSupersetPosition, restDeadlineMs: Some(restDeadlineMs) },
+                  effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
+                })
+                else Ok({
+                  state: { s | phase: h.phase_for(nextEntry)(0), exerciseIndex: landing.idx, setIndex: 0, supersetPosition: nextSupersetPosition, restDeadlineMs: None },
+                  effects: []
+                })
+              )
+            }
           )
         }
       )
@@ -125,26 +128,52 @@ match event {
   -- A finished session is inert data already persisted; starting a new one replaces it completely.
   StartSession(p) if state.phase == Idle || state.phase == Done -> (
       let entries = p.routine.entries
-      let firstEntry = at(0, entries)?
-      let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working
-      Ok({
-        state: {
-          sessionId: p.sessionId,
-          routineId: p.routine.id,
-          phase: firstPhase,
-          exerciseIndex: 0,
-          setIndex: 0,
-          supersetPosition: 0,
-          restDeadlineMs: None,
-          restRemainingMs: None,
-          prePausePhase: None,
-          loggedSets: [],
-          lastLoggedSet: None,
-          startedAtMs: p.nowMs,
-          entries: entries
-        },
-        effects: [CreateSession({ sessionId: p.sessionId, routineId: p.routine.id, startedAtMs: p.nowMs })]
-      })
+      let _ = at(0, entries)?
+      -- entries[0] may itself plan zero total sets (or be the first member
+      -- of a group that entirely does) — land on whatever h.next_active_landing
+      -- says is actually active, same as advance_after_set's own landing sites.
+      match h.next_active_landing(entries)(0) {
+        None -> Ok({
+          state: {
+            sessionId: p.sessionId,
+            routineId: p.routine.id,
+            phase: Done,
+            exerciseIndex: 0,
+            setIndex: 0,
+            supersetPosition: 0,
+            restDeadlineMs: None,
+            restRemainingMs: None,
+            prePausePhase: None,
+            loggedSets: [],
+            lastLoggedSet: None,
+            startedAtMs: p.nowMs,
+            entries: entries
+          },
+          effects: [CreateSession({ sessionId: p.sessionId, routineId: p.routine.id, startedAtMs: p.nowMs }), CompleteSession({ summary: { startMs: p.nowMs, endMs: p.nowMs, exercisesCompleted: 0, setsLogged: 0, loggedSets: [] } }), Notify({ message: "Workout complete" })]
+        }),
+        Some(landing) -> (
+          let firstEntry = at(landing.idx, entries)?
+          let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working
+          Ok({
+            state: {
+              sessionId: p.sessionId,
+              routineId: p.routine.id,
+              phase: firstPhase,
+              exerciseIndex: landing.idx,
+              setIndex: 0,
+              supersetPosition: landing.idx - landing.groupStart,
+              restDeadlineMs: None,
+              restRemainingMs: None,
+              prePausePhase: None,
+              loggedSets: [],
+              lastLoggedSet: None,
+              startedAtMs: p.nowMs,
+              entries: entries
+            },
+            effects: [CreateSession({ sessionId: p.sessionId, routineId: p.routine.id, startedAtMs: p.nowMs })]
+          })
+        )
+      }
     ),
   StartSession(p) -> Err("invalid event StartSession in phase " ++ h.phase_to_string(state.phase)),
   -- Stretching is excluded: logging advances the workout, and the stretch

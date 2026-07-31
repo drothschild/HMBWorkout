@@ -119,6 +119,43 @@ let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round
   ).found
 )
 
+-- Where a fresh landing at or after `fromIdx` actually lands: the smallest
+-- index whose own warmupSets+targetSets is nonzero (a member is "active" at
+-- a fresh landing's round 0 iff 0 < its own total), together with the start
+-- of whichever contiguous supersetGroup run (or standalone singleton) it
+-- belongs to. The group start has to be tracked rather than assumed to be
+-- fromIdx, because a landing can skip an entire zero-set group to reach a
+-- LATER group whose own leading member(s) are also zero-set — supersetPosition
+-- must still be computed relative to THAT group's true start, or the next
+-- advance_after_set call rederives the wrong groupEndIdx from it. None means
+-- every entry from fromIdx to the end of the routine plans zero total sets.
+-- Precondition: fromIdx is itself already a group boundary (0, or one past a
+-- prior group's end) — both call sites in transition.lv satisfy this.
+let next_active_landing = fn(entries) -> fn(fromIdx) -> (
+  fold(
+    { idx: 0, groupStart: fromIdx, prevLabel: None, found: None },
+    fn(acc) -> fn(entry) -> (
+      match acc.found {
+        Some(f) -> { idx: acc.idx + 1, groupStart: acc.groupStart, prevLabel: acc.prevLabel, found: acc.found },
+        None ->
+          if (acc.idx < fromIdx)
+          then { idx: acc.idx + 1, groupStart: acc.groupStart, prevLabel: acc.prevLabel, found: None }
+          else (
+            let sameGroupAsPrev = match (acc.prevLabel, entry.supersetGroup) {
+              (Some(p), Some(c)) -> p == c,
+              _ -> false
+            }
+            let groupStart = if (acc.idx == fromIdx) then fromIdx else if (sameGroupAsPrev) then acc.groupStart else acc.idx
+            let isActive = (entry.warmupSets + entry.targetSets) > 0
+            let found = if (isActive) then Some({ idx: acc.idx, groupStart: groupStart }) else None
+            { idx: acc.idx + 1, groupStart: groupStart, prevLabel: entry.supersetGroup, found: found }
+          )
+      }
+    ),
+    entries
+  ).found
+)
+
 -- Count of distinct exercises with at least one logged set — "touched", not
 -- necessarily finished (a FinishSession mid-round counts an exercise the
 -- athlete only did one round of). Used for the session-complete summary's
