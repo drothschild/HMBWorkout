@@ -225,12 +225,31 @@ expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read those, no
 `target*` fields, when consuming a parsed session. Contract violations throw
 `ContractError`.
 
+`serializeSession` never emits a *partial* session: every logged set produces a line
+or the call throws. That is stronger than it sounds, because the function is driven by
+`routineExercises` and a set's row can be missing entirely — `upsertRoutine`'s drop
+branch destroys the row when an exercise leaves a routine, while a finished session
+still queued for sync keeps its sets. Those orphaned groups are emitted from the
+`session_sets.exercise_id` stamp and appended after the row-ordered lines (no row means
+no `order` to interleave by), without the row-supplied plan flags `superset`/`rest`,
+which died with it. A set with neither a stamp nor a surviving row is genuinely
+unidentifiable and throws — the session stays `'local'` with its data on-device, rather
+than the vault copy being written permanently short and marked `'synced'`. Do not
+restore a `continue` on the unresolved-exercise path: silently skipping a set is the
+data-loss bug itself.
+
 ## Sync (`src/sync`)
 
 Offline-first queue. Sessions are written locally with `sync_status='local'` and flip
 to `'synced'` only after a successful POST; `health()` gates all posting (unreachable
 bridge = no-op, not an error). Posting is idempotent by session id. Network vs HTTP
 failures are distinct types (`BridgeUnreachable` vs `BridgeHttpError`).
+
+`syncNow` must hand `serializeSession` an exercise record for every identity its sets
+carry, not just the ones the routine names today: it fetches the routine's exercises by
+`find()` and then the sets' *stamped* ids by `Q.oneOf` query. The query is deliberate —
+a stamped id with no surviving row must not take the whole session's sync down — and so
+is the union: drop it and every swapped or dropped-row set throws instead of exporting.
 
 ## HealthKit (`src/health`)
 
@@ -412,7 +431,11 @@ is now a misnomer — AI settings are in there too.
   rendering consequence: a swapped row's sets can span two performed identities,
   so session-detail entries key on the `(routineExerciseId, exerciseId)` pair
   (`sessionDetailPresenter` exposes both; `workout/[id].tsx` keys on the pair),
-  not the row id alone
+  not the row id alone. Resolving identity stamp-first is necessary but **not
+  sufficient**: a reader that *iterates* `routine_exercises` still loses sets whose
+  row was destroyed (`upsertRoutine`'s drop branch is the only `destroyPermanently`
+  on that table — `deleteRoutine` deliberately retains rows as history carriers).
+  Iterate the sets, or reconcile the leftovers, as `serializeSession` does
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)

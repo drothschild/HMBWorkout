@@ -62,12 +62,13 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
             exerciseIds.map((id) => database.get('exercises').find(id))
           );
 
-          // A set records what it was performed as, which after a
-          // ReplaceExercise swap is no longer any of the routine's current
-          // exercises — and serializeSession drops a set whose exercise record
-          // it cannot find. Fetch those too, by query rather than find(): a
-          // stamped id with no surviving row must not take the whole session's
-          // sync down with it.
+          // A set records what it was performed as, which is no longer any of
+          // the routine's current exercises once a ReplaceExercise swap or a
+          // routine edit has moved on — and serializeSession refuses to export
+          // a session whose set it cannot identify, so these records are what
+          // keep such a session syncable at all. Fetch them by query rather
+          // than find(): a stamped id with no surviving row must not take the
+          // whole session's sync down with it.
           const stampedExerciseIds = [
             ...new Set(
               sets
