@@ -272,23 +272,16 @@ export function SetLogger({
           </Pressable>
         </View>
 
-        <View style={styles.buttonRow}>
-          <Pressable
-            style={[styles.button, styles.warningButton, styles.rowButton]}
-            onPress={() => presenter.onSkipExercise()}
-          >
-            <ThemedText style={styles.buttonText}>Skip Exercise</ThemedText>
-          </Pressable>
-
-          {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+        {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+          <View style={styles.buttonRow}>
             <Pressable
               style={[styles.button, styles.successButton, styles.rowButton]}
               onPress={() => presenter.onStartStretching()}
             >
               <ThemedText style={styles.buttonText}>Stretch</ThemedText>
             </Pressable>
-          )}
-        </View>
+          </View>
+        )}
       </View>
     </ThemedView>
   );

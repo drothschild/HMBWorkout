@@ -7,6 +7,7 @@ import {
   AI_TURN_SCHEMA,
   SETTINGS_FIELD_MAX_LENGTH,
 } from './draftSchema';
+import { expectStructuredOutputSafe } from './structuredOutputSubset';
 
 describe('draftSchema', () => {
   describe('parseAiTurn', () => {
@@ -645,6 +646,15 @@ describe('draftSchema', () => {
   });
 
   describe('AI_TURN_SCHEMA', () => {
+    // The same guard `ALTERNATES_SCHEMA` carries, for the same reason and with
+    // a wider blast radius: an unsupported keyword anywhere in here is a 400 on
+    // every conversational turn, so the whole coach stops answering rather than
+    // one button failing. Bounds belong in `validateRoutineDraft`, which is
+    // where the ones enforced today already live.
+    test('carries no keyword the structured-output schema subset rejects', () => {
+      expectStructuredOutputSafe(AI_TURN_SCHEMA);
+    });
+
     test('has additionalProperties false on root object', () => {
       expect(AI_TURN_SCHEMA.additionalProperties).toBe(false);
     });

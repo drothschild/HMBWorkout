@@ -215,6 +215,37 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    the shell as a plain `0` that display code must treat as *no plan* — see the
    zero-planned-set rule in Boundaries.
 
+9. **A superset group round-robins by set, and `setIndex` becomes a
+   group-shared round number while advancing through one.** A group is a
+   contiguous run of entries sharing a `supersetGroup` label (`h.group_end_idx`
+   in `helpers.lv`; a standalone entry is a group of one). Finishing a set
+   hands off to the next group member still owed a set *this round*
+   (`h.next_active_idx`, curried over `(afterIdx, groupEndIdx, round)`) with no
+   rest; only when nobody after the current position qualifies does the group
+   decide whether to loop back for another round or move on. A member with
+   fewer prescribed sets than its partner is simply skipped once its own
+   `warmupSets + targetSets` is exhausted — the round does *not* end early
+   just because the round's last-*visited* member is done; every remaining
+   member's sets still get logged. Because a member is visited every round up
+   to its own completion and never after, its own count of *visits* always
+   equals the shared round number for as long as it keeps being visited (this
+   is a visit count, not strictly a logged-set count — `SetDone`/"Skip Set"
+   still advances it without logging anything) — this is what keeps
+   convention 7's `setIndex == 0` guard sound for a member reached only via a
+   superset hop, with no extra state needed. `phase` is re-derived
+   (`h.phase_for`) from whichever entry is actually landed on — never carried
+   over from the entry being left — on all three ways `advance_after_set` can
+   move: the same-round hop, the next-round loop-back, and advancing to a
+   genuinely different exercise/group entirely (this last one applies to
+   standalone entries too, not just superset groups: exhausting entry A and
+   landing on B with `B.warmupSets > 0` now correctly reads `Warmup`, where
+   the pre-round-robin code carried A's last phase over). `SkipExercise`
+   existed once and was removed: its unconditional index-jump could land on a
+   group member with real logged history while resetting `setIndex` to 0,
+   which would have made that guard unsound with no clean fix (skip *this*
+   member only, or the group's whole current round?) — removing the
+   affordance was simpler than picking one.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
@@ -237,6 +268,18 @@ unidentifiable and throws — the session stays `'local'` with its data on-devic
 than the vault copy being written permanently short and marked `'synced'`. Do not
 restore a `continue` on the unresolved-exercise path: silently skipping a set is the
 data-loss bug itself.
+
+Separately, every flag guard in that same line-building path (both the row-driven and
+the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
+`!== undefined`: WatermelonDB returns `null`, not `undefined`, for an unset optional
+column, so every optional field read off a DB row — `reps`, `weightKg`, `distanceM`,
+`durationSeconds`, `rpe` on `SessionSet`; `targetSets`, `targetReps`,
+`targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is subject to it.
+`syncService.ts`'s row-to-serializer mapping normalizes the same hazard at the shell
+boundary (`?? undefined`, matching its pre-existing `exerciseId` handling); keep both
+layers. A regression here is not a rejected sync — the bridge's `validateSessionDoc`
+never runs `parseFlags`, so a bad guard writes a `<flag>=null` line straight into the
+vault and the session still flips to `synced`.
 
 ## Sync (`src/sync`)
 
@@ -270,7 +313,13 @@ is now a misnomer — AI settings are in there too.
   `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
   the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
   jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
-  `AnthropicHttpError`), matching the sync convention.
+  `AnthropicHttpError`), matching the sync convention. The cost: no SDK means nothing
+  strips a `json_schema` of keywords the structured-output endpoint's subset doesn't
+  support (array/string/number bounds) — one in `ALTERNATES_SCHEMA` made the Replace
+  button 400 on every tap until it was caught (PR #71). Every schema handed to
+  `output_config.format` must pass `expectStructuredOutputSafe`
+  (`src/ai/structuredOutputSubset.ts`); put bounds in the validator instead, which is
+  where the SDKs put the keywords they strip.
 - **One turn shape, three declarations.** The `{ reply, draft?, settingsProposal? }`
   contract is stated in `AI_TURN_SCHEMA` (what the API enforces), in the
   `AiTurn`/`RoutineDraft`/`SettingsProposal` types plus `validateRoutineDraft` and
@@ -304,7 +353,10 @@ is now a misnomer — AI settings are in there too.
   `getExerciseWorkingSetHistory` joins by row id for pre-v3 sets (see the
   Boundaries stamp rule — stamped sets carry their own identity), so editing a
   routine never orphans logged history. An exercise the draft omits *is* deleted,
-  which is why the persona demands the full exercise list.
+  which is why the persona demands the full exercise list; that row's
+  still-unstamped sets are stamped with its outgoing `exercise_id` first, in the
+  same transaction, so dropping an exercise from the *plan* never erases what was
+  already *done*.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -387,6 +439,19 @@ is now a misnomer — AI settings are in there too.
   `emitDecoratorMetadata`. WatermelonDB models rely on legacy decorator semantics;
   class-fields-define would shadow the `@field`/`@relation` getters and silently break
   the models. Do not "modernize" these compiler options.
+- `npx tsc --noEmit` can report a false-positive route error on a **brand-new dynamic
+  route** — e.g. an "argument of type `/workout/${string}` is not assignable to
+  parameter of type ... 52 more ..." on a correct ``router.push(`/workout/${id}`)``.
+  Expo Router's typed routes come from `.expo/types/router.d.ts`, which is gitignored
+  and regenerated per-machine by Metro only when it notices the `src/app` route tree
+  change; a checkout that hasn't run `npm start`/`npm run ios` since a new `[id].tsx`
+  route landed is still type-checking against the old route set, so a structurally
+  correct template-literal push (the established pattern — see the existing
+  `/routine/${id}` and `/exercise/${id}` pushes) gets rejected as if the route didn't
+  exist. There is no CI job running `tsc`, so this only ever surfaces locally. Before
+  changing code to chase a route-shaped tsc error, regenerate types (run the dev
+  server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
+  re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
 
 ## Structure
 
@@ -424,17 +489,20 @@ is now a misnomer — AI settings are in there too.
   `getExerciseWorkingSetHistory`, `getSessionExerciseLog`,
   `getRecentSessionSummaries`, the vault export — resolves stamp-first,
   join-fallback. `updateRoutineExerciseExerciseId` is the ONLY path allowed to
-  re-point a row, and it must keep its layer-2 defense: inside the same
+  re-point a row, and the same layer-2 defense binds it and `upsertRoutine`'s
+  drop branch — the only other path that invalidates the join: inside the same
   `database.write`, stamp every attached null-stamped set with the row's outgoing
-  identity *before* re-pointing. A new reader that resolves a set's exercise
-  through the row alone reintroduces the PR #65 history-corruption bug. One
-  rendering consequence: a swapped row's sets can span two performed identities,
-  so session-detail entries key on the `(routineExerciseId, exerciseId)` pair
-  (`sessionDetailPresenter` exposes both; `workout/[id].tsx` keys on the pair),
-  not the row id alone. Resolving identity stamp-first is necessary but **not
-  sufficient**: a reader that *iterates* `routine_exercises` still loses sets whose
-  row was destroyed (`upsertRoutine`'s drop branch is the only `destroyPermanently`
-  on that table — `deleteRoutine` deliberately retains rows as history carriers).
+  identity *before* re-pointing or destroying the row. Any future path that does
+  either owes the same stamp. `deleteRoutine` is exempt only because it
+  deliberately retains the rows as history carriers rather than destroying them.
+  A new reader that resolves a set's exercise through the row alone reintroduces
+  the PR #65 history-corruption bug. One rendering consequence: a swapped row's
+  sets can span two performed identities, so session-detail entries key on the
+  `(routineExerciseId, exerciseId)` pair (`sessionDetailPresenter` exposes both;
+  `workout/[id].tsx` keys on the pair), not the row id alone. Resolving identity
+  stamp-first is necessary but **not sufficient**: a reader that *iterates*
+  `routine_exercises` still loses sets whose row was destroyed —
+  `upsertRoutine`'s drop branch is the only `destroyPermanently` on that table.
   Iterate the sets, or reconcile the leftovers, as `serializeSession` does
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
@@ -446,8 +514,9 @@ is now a misnomer — AI settings are in there too.
   `warmupSets + targetSets === 0`, and both consumers read that as *hide*
   (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
   from its "Up Next" line). The sum is the exact condition, not a conservative one:
-  `transition.lv` ends an entry at `allSetsForEntry = warmupSets + targetSets`, so
-  only a zero total can reach a zero denominator. `sessionDetailPresenter` is the
+  `h.next_active_idx` (`helpers.lv`) treats an entry as active for round `r` iff
+  `r < warmupSets + targetSets`, so only a zero total can reach a zero
+  denominator. `sessionDetailPresenter` is the
   third label site and needs no guard — it renders `Set N` with no total
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)

@@ -16,6 +16,7 @@ import {
 } from '@/db/repository';
 import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
 import { createSyncService } from './syncService';
+import { parseSession } from '@/interop/parse';
 
 describe('Sync Service', () => {
   let database: Database;
@@ -253,6 +254,89 @@ describe('Sync Service', () => {
       await createSyncService(database, makeClient(postSessionCalls)).syncNow();
 
       expect(postSessionCalls[0].markdown).toContain('- barbell-bench-press: 1x6');
+    });
+  });
+
+  describe('vault export omits unset optional fields cleanly', () => {
+    // WatermelonDB returns null (not undefined) for an unset optional column.
+    // syncService maps DB rows straight through, and serialize.ts's flag
+    // guards check `!== undefined` — null sails past them and gets emitted
+    // literally (e.g. "rpe=null"), which parseFlags then rejects. The interop
+    // roundtrip suite can't catch this class of bug: its fixtures pass
+    // undefined, which the guards handle correctly. Only a DB-backed path
+    // exercises the real null.
+    it('produces markdown that parseSession can read back, for a strength set with no RPE logged', async () => {
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValue({ ok: true }),
+        postSession: jest.fn(),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-1';
+          r.name = 'Test Routine';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-1';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.id = 'routine-exercise-1';
+          re._raw.routine_id = 'routine-1';
+          re._raw.exercise_id = 'exercise-1';
+          re._raw.order = 0;
+          re._raw.warmup_sets = 0;
+          // rest_seconds deliberately left unset (null), same as rpe/distanceM
+          // below — exercises the same guard bug on the routine_exercises side.
+        });
+      });
+
+      await createSession(database, {
+        sessionId: 'session-1',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+
+      // Real repository path: log a set with reps + weight, no RPE — matches
+      // the reported repro exactly. appendSet's create callback only assigns
+      // a column when the option is provided, so rpe/distanceM/durationSeconds
+      // stay at WatermelonDB's default for an unset optional column: null.
+      await appendSet(database, 'session-1', 'routine-exercise-1', {
+        setType: 'working',
+        reps: 6,
+        weightKg: 80,
+      });
+
+      const session = await database.get('sessions').find('session-1');
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      const syncService = createSyncService(database, mockBridgeClient);
+      await syncService.syncNow();
+
+      expect(mockBridgeClient.postSession).toHaveBeenCalledTimes(1);
+      const { markdown } = mockBridgeClient.postSession.mock.calls[0][0];
+
+      // The bridge's validateSessionDoc only checks frontmatter + block
+      // presence (workout-bridge/src/contract.ts) — it never runs parseFlags,
+      // so a "rpe=null" line is written into the vault as-is instead of being
+      // rejected. parseSession is the app-side grammar check standing in here
+      // for "is this valid contract markdown".
+      expect(() => parseSession(markdown)).not.toThrow();
     });
   });
 

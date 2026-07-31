@@ -73,7 +73,7 @@ describe('engine: loadRules', () => {
           LogSet(p) -> Ok({ state: state, effects: [] }),
           SetDone(p) -> Ok({ state: state, effects: [] }),
           RestElapsed(p) -> Ok({ state: state, effects: [] }),
-          SkipExercise -> Ok({ state: state, effects: [] }),
+          SkipRest -> Ok({ state: state, effects: [] }),
           PauseSession -> Ok({ state: state, effects: [] }),
           Resume(p) -> Ok({ state: state, effects: [] })
           -- FinishSession intentionally omitted
@@ -84,7 +84,7 @@ describe('engine: loadRules', () => {
         resolve: (modulePath: string) => {
           if (modulePath === 'types') {
             return `type Phase = Idle | Warmup | Working | Resting | Stretching | Paused | Done
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }), id: String } }) | LogSet({ reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipExercise | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: { entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }), id: String } }) | LogSet({ reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | PauseSession | Resume({ nowMs: Int }) | FinishSession({ nowMs: Int })
 type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float } }) | CompleteSession({ summary: { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }) } })
 alias SessionState = { sessionId: String, routineId: String, phase: Phase, exerciseIndex: Int, setIndex: Int, supersetPosition: Int, restDeadlineMs: Int, prePausePhase: String, loggedSets: List({ exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }), lastLoggedSet: { exerciseId: String, setType: String, reps: Int, weightKg: Float, durationSeconds: Int, rpe: Float }, startedAtMs: Int, entries: List({ exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: String }) }
 true`;

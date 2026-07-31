@@ -91,18 +91,21 @@ function buildSessionSetLine(
     flagParts.push(`kind=${exerciseData.kind}`);
   }
 
-  // Add rpe if present
-  if (set.rpe !== undefined) {
+  // Add rpe if present. `!= null` (not `!== undefined`): WatermelonDB returns
+  // null, not undefined, for an unset optional column, and a loose null check
+  // is the only guard that treats both as "absent" without also rejecting
+  // legitimate falsy values like 0.
+  if (set.rpe != null) {
     flagParts.push(`rpe=${set.rpe}`);
   }
 
   // Add weight if present (C1)
-  if (set.weightKg !== undefined) {
+  if (set.weightKg != null) {
     flagParts.push(`weight=${set.weightKg}`);
   }
 
   // Add distance if present (C1)
-  if (set.distanceM !== undefined) {
+  if (set.distanceM != null) {
     flagParts.push(`distance=${set.distanceM}`);
   }
 
@@ -112,7 +115,7 @@ function buildSessionSetLine(
   }
 
   // Add rest (from routine_exercise level)
-  if (re?.restSeconds !== undefined) {
+  if (re?.restSeconds != null) {
     if (re.restSeconds >= 60) {
       flagParts.push(`rest=${formatDuration(re.restSeconds)}`);
     } else {
@@ -123,10 +126,10 @@ function buildSessionSetLine(
   // Build set description
   // For sessions: logged sets are emitted as 1x<reps> (not target sets)
   let setDesc = '';
-  if (set.reps !== undefined) {
+  if (set.reps != null) {
     // Strength: 1x<logged-reps>
     setDesc = `1x${set.reps}`;
-  } else if (set.durationSeconds !== undefined) {
+  } else if (set.durationSeconds != null) {
     // Cardio/stretch: emit duration as flag (C2)
     flagParts.push(`duration=${formatDuration(set.durationSeconds)}`);
   }
@@ -300,8 +303,10 @@ export function serializeRoutine(
       flags.kind = exerciseData.kind;
     }
 
-    // Add duration for cardio/stretch
-    if (re.targetDurationSeconds !== undefined) {
+    // Add duration for cardio/stretch. `!= null`, not `!== undefined`: see
+    // the matching comment in serializeSession — WatermelonDB's unset
+    // optional columns surface as null here too.
+    if (re.targetDurationSeconds != null) {
       flags.durationSeconds = re.targetDurationSeconds;
     }
 
@@ -316,7 +321,7 @@ export function serializeRoutine(
     }
 
     // Add rest
-    if (re.restSeconds !== undefined) {
+    if (re.restSeconds != null) {
       flags.restSeconds = re.restSeconds;
     }
 
@@ -326,7 +331,7 @@ export function serializeRoutine(
     }
 
     let setDesc = '';
-    if (re.targetSets !== undefined && re.targetReps !== undefined) {
+    if (re.targetSets != null && re.targetReps != null) {
       setDesc = `${re.targetSets}x${re.targetReps}`;
     }
 

@@ -98,11 +98,16 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               routineExerciseId: (s as any).routineExerciseId,
               exerciseId: (s as any)._raw.exercise_id ?? undefined,
               setType: (s as any).setType,
-              reps: (s as any).reps,
-              weightKg: (s as any).weightKg,
-              distanceM: (s as any).distanceM,
-              durationSeconds: (s as any).durationSeconds,
-              rpe: (s as any).rpe,
+              // WatermelonDB returns null (not undefined) for an unset
+              // optional column. serializeSession's flag guards are
+              // undefined-typed, so normalize here at the shell boundary
+              // where the raw DB value first appears — same idiom as
+              // exerciseId above.
+              reps: (s as any).reps ?? undefined,
+              weightKg: (s as any).weightKg ?? undefined,
+              distanceM: (s as any).distanceM ?? undefined,
+              durationSeconds: (s as any).durationSeconds ?? undefined,
+              rpe: (s as any).rpe ?? undefined,
               position: (s as any)._raw.position,
             })),
             routineExercises.map((re) => ({
@@ -114,7 +119,8 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               targetSets: re._raw.target_sets,
               targetReps: re._raw.target_reps,
               targetDurationSeconds: re._raw.target_duration_seconds,
-              restSeconds: re._raw.rest_seconds,
+              // Same null-vs-undefined hazard as the set fields above.
+              restSeconds: re._raw.rest_seconds ?? undefined,
               notes: re._raw.notes,
             })),
             ([...exercises, ...stampedExercises] as any[]).map((e) => ({
