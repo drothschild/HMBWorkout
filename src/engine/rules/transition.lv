@@ -227,7 +227,11 @@ match event {
         })
       }
     ),
-  Resume(p) -> Err("invalid event Resume in phase " ++ h.phase_to_string(state.phase)),
+  -- Rehydrate dispatches Resume unconditionally after a relaunch to reconcile
+  -- a paused rest; in any other phase there is nothing to resume, so the event
+  -- is acknowledged as a no-op rather than rejected — an Err here becomes an
+  -- error banner on every relaunch of a session that wasn't paused.
+  Resume(p) -> Ok({ state: state, effects: [] }),
   FinishSession(p) if state.phase != Idle && state.phase != Done -> (
       let effects = if (state.phase == Resting)
         then [CancelRest, CompleteSession({ summary: { startMs: state.startedAtMs, endMs: p.nowMs, exercisesCompleted: state.exerciseIndex, setsLogged: length(state.loggedSets), loggedSets: state.loggedSets } }), Notify({ message: "Workout complete" })]
