@@ -1061,7 +1061,7 @@ describe('buildSystem: AI Coach context builder', () => {
       routineName: string;
       /** null leaves the session in progress. */
       endedAtMs: number | null;
-      exercises?: Array<{ exerciseId: string; title: string; workingSets: number }>;
+      exercises?: { exerciseId: string; title: string; workingSets: number }[];
     }): Promise<void> {
       const { sessionId, routineId, routineName, endedAtMs, exercises = [] } = options;
 
@@ -1326,7 +1326,7 @@ describe('buildSystem: AI Coach context builder', () => {
 
       // Two sessions a week apart, seeded with explicit timestamps so the
       // rendered dates are fixed rather than clock-dependent.
-      const weights: Array<{ weightKg: number; loggedAtMs: number }> = [
+      const weights: { weightKg: number; loggedAtMs: number }[] = [
         { weightKg: 100, loggedAtMs: Date.parse('2026-07-22T18:00:00.000Z') },
         { weightKg: 102.5, loggedAtMs: Date.parse('2026-07-29T18:00:00.000Z') },
       ];

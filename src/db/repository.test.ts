@@ -924,7 +924,7 @@ describe('Repository: session and set helpers', () => {
       routineName?: string;
       /** Omit to leave the session in progress. */
       endedAtMs?: number;
-      exercises?: Array<{ exerciseId: string; workingSets: number; warmupSets?: number }>;
+      exercises?: { exerciseId: string; workingSets: number; warmupSets?: number }[];
     }
 
     async function seedSession(options: SeedSessionOptions): Promise<void> {
