@@ -272,16 +272,16 @@ export function SetLogger({
           </Pressable>
         </View>
 
-        <View style={styles.buttonRow}>
-          {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+        {(presenter.phase === 'working' || presenter.phase === 'resting') && (
+          <View style={styles.buttonRow}>
             <Pressable
               style={[styles.button, styles.successButton, styles.rowButton]}
               onPress={() => presenter.onStartStretching()}
             >
               <ThemedText style={styles.buttonText}>Stretch</ThemedText>
             </Pressable>
-          )}
-        </View>
+          </View>
+        )}
       </View>
     </ThemedView>
   );

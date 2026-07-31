@@ -550,6 +550,63 @@ describe('Phase recovery across a superset hop when a partner has its own warmup
     expect(state.phase).toBe('done');
     expect(state.loggedSets).toHaveLength(4);
   });
+
+  it('a loop-back can land on a member still inside its own warmup sets', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // A: 2 warmup + 1 working = 3 total. B: 0 warmup + 3 working = 3 total.
+    // Deriving the loop-back's phase from the entry being LEFT (B, always
+    // working) rather than the entry being LANDED ON (A) would read
+    // 'working' here instead of the correct 'warmup'.
+    engine.setState(
+      makeState({
+        phase: 'warmup',
+        entries: makeEntries(2, [
+          { warmupSets: 2, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    // A's warmup 1 of 2 hops to B.
+    let state = await engine.dispatch(logSet(1000));
+    expect(state.loggedSets[0].setType).toBe('warmup');
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.phase).toBe('working');
+
+    // B's working 1 of 3 loops back to A for round 1 — A is still in its
+    // own warmup (round 1 < A's 2 warmup sets), so this must read 'warmup'.
+    state = await engine.dispatch(logSet(2000));
+    expect(state.loggedSets[1].setType).toBe('working');
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+    expect(state.phase).toBe('warmup');
+    expect(state.loggedSets[1].exerciseId).toBe('exercise-1');
+  });
+});
+
+describe('Phase derivation when advancing to a genuinely different exercise', () => {
+  it('reads the next entry\'s own warmup status, not the previous entry\'s last phase', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // Two standalone (non-superset) entries. A has no warmup, so its own
+    // phase is 'working' right up to its last set. B has a warmup. Base
+    // behavior carried A's 'working' phase over onto B; the round-robin
+    // rewrite instead derives B's phase from B's own warmupSets.
+    engine.setState(
+      makeState({
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 1, supersetGroup: '', restSeconds: 0 },
+          { warmupSets: 1, targetSets: 1, supersetGroup: '', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(1000));
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+    expect(state.phase).toBe('warmup');
+  });
 });
 
 describe('Three-member superset groups', () => {
