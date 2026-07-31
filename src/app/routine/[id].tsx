@@ -71,6 +71,17 @@ export default function RoutineDetailScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          {/* Explicit destination rather than router.back(): arriving via an
+              accepted AI draft puts the chat screen underneath, and popping
+              there is never where the user wants to go from a routine. */}
+          <Pressable
+            onPress={() => router.navigate('/routines')}
+            style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+          >
+            <ThemedText type="default" style={styles.backButtonText}>
+              ← Routines
+            </ThemedText>
+          </Pressable>
           <ThemedText type="title" style={styles.title}>
             {routine.name}
           </ThemedText>
@@ -184,6 +195,18 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: Spacing.four,
     paddingBottom: Spacing.four,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    padding: Spacing.two,
+    marginLeft: -Spacing.two,
+  },
+  backButtonPressed: {
+    opacity: 0.6,
+  },
+  backButtonText: {
+    color: '#007AFF',
+    fontWeight: '500',
   },
   title: {
     textAlign: 'center',
