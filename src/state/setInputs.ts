@@ -54,7 +54,10 @@ export interface SetInputTexts {
  * Log Set boundary. Invalid or empty fields are omitted entirely (the host
  * treats absent metrics as "not logged"); reps and duration truncate to
  * whole numbers, weight keeps decimals; rpe passes through only when set
- * and positive, matching the slider's "cleared" state.
+ * and positive, matching the slider's "cleared" state — and never at all
+ * for duration-based (stretch/cardio) entries, which have no RPE concept.
+ * This is defense in depth: the RPE UI is hidden for those entries too, but
+ * a stray leftover value must never be logged even if it reaches here.
  */
 export function buildLogSetValues(input: SetInputTexts): SetInputValues {
   const values: SetInputValues = {};
@@ -67,9 +70,9 @@ export function buildLogSetValues(input: SetInputTexts): SetInputValues {
     if (reps !== undefined) values.reps = Math.trunc(reps);
     const weight = parseSetInputText(input.weightText);
     if (weight !== undefined) values.weightLbs = weight;
-  }
 
-  if (input.rpe !== undefined && input.rpe > 0) values.rpe = input.rpe;
+    if (input.rpe !== undefined && input.rpe > 0) values.rpe = input.rpe;
+  }
 
   return values;
 }
