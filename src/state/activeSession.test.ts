@@ -828,10 +828,10 @@ describe('activeSession store', () => {
       // In reality, session.tsx computes the hint async via getExerciseWorkingSetHistory and computeProgressionHint
       // For this test, we verify the presenter can carry the hint when provided
       const mockDispatch = jest.fn(async () => null);
-      const presenter = createSessionPresenter(state!, mockDispatch, 'Increase weight by 2.5 kg');
+      const presenter = createSessionPresenter(state!, mockDispatch, 'Increase weight by 5 lbs');
 
       // Verify presenter surfaces the hint
-      expect(presenter.progressionHint).toBe('Increase weight by 2.5 kg');
+      expect(presenter.progressionHint).toBe('Increase weight by 5 lbs');
       expect(presenter.currentEntry?.kind).toBe('strength');
     }, 20000);
   });

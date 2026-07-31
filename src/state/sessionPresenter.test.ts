@@ -143,9 +143,11 @@ describe('createSessionPresenter', () => {
     const mockDispatch = jest.fn(async () => null);
     const presenter = createSessionPresenter(state, mockDispatch);
 
+    // The input field carries lbs; the presenter converts to canonical kg
+    // before the event crosses into the engine.
     presenter.onLogSet({
       reps: 8,
-      weightKg: 25,
+      weightLbs: 55,
       rpe: 7.5,
     });
 
@@ -153,12 +155,24 @@ describe('createSessionPresenter', () => {
       expect.objectContaining({
         tag: 'LogSet',
         reps: 8,
-        weightKg: 25,
+        weightKg: 24.95,
         rpe: 7.5,
         // One-tap logging: the engine advances on LogSet, so the event carries
         // the wall clock for rest-deadline math
         nowMs: expect.any(Number),
       })
+    );
+  });
+
+  test('leaves the LogSet weight undefined when no weight was entered', () => {
+    const state = createMockState();
+    const mockDispatch = jest.fn(async () => null);
+    const presenter = createSessionPresenter(state, mockDispatch);
+
+    presenter.onLogSet({ reps: 8 });
+
+    expect(mockDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: 'LogSet', reps: 8, weightKg: undefined })
     );
   });
 
@@ -300,9 +314,10 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [workingSet('ex-1', 8, 40), workingSet('ex-1', 6, 45)];
 
-      const prefill = computeSetPrefill(state, { reps: 12, weightKg: 100 });
+      const prefill = computeSetPrefill(state, { reps: 12, weightLbs: 100 });
 
-      expect(prefill).toEqual({ reps: 6, weightKg: 45 });
+      // Stored kg converts to display lbs on the way into the input: 45kg → 99lbs
+      expect(prefill).toEqual({ reps: 6, weightLbs: 99 });
     });
 
     test('ignores sets logged for other exercises', () => {
@@ -314,7 +329,7 @@ describe('createSessionPresenter', () => {
       state.exerciseIndex = 1;
       state.loggedSets = [workingSet('ex-2', 5, 60), workingSet('ex-1', 8, 40)];
 
-      expect(computeSetPrefill(state)).toEqual({ reps: 5, weightKg: 60 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 5, weightLbs: 132.5 });
     });
 
     test('a duplicated exercise entry prefills from the first entry sets', () => {
@@ -326,14 +341,14 @@ describe('createSessionPresenter', () => {
       state.exerciseIndex = 1;
       state.loggedSets = [workingSet('ex-1', 8, 40)];
 
-      expect(computeSetPrefill(state)).toEqual({ reps: 8, weightKg: 40 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 8, weightLbs: 88 });
     });
 
     test('a warmup set prefills the next set', () => {
       const state = createMockState();
-      // createMockState logs one warmup set: 10 reps at 20kg
+      // createMockState logs one warmup set: 10 reps at 20kg → 44lbs
 
-      expect(computeSetPrefill(state)).toEqual({ reps: 10, weightKg: 20 });
+      expect(computeSetPrefill(state)).toEqual({ reps: 10, weightLbs: 44 });
     });
 
     test('never prefills rpe, and a stored -1 sentinel does not leak', () => {
@@ -342,7 +357,7 @@ describe('createSessionPresenter', () => {
 
       const prefill = computeSetPrefill(state);
 
-      expect(prefill).toEqual({ reps: 8, weightKg: 40 });
+      expect(prefill).toEqual({ reps: 8, weightLbs: 88 });
       expect(prefill).not.toHaveProperty('rpe');
     });
 
@@ -378,7 +393,8 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      expect(computeSetPrefill(state, { reps: 5, weightKg: 80 })).toEqual({ reps: 5, weightKg: 80 });
+      // The history fallback is already in display lbs (the caller converts)
+      expect(computeSetPrefill(state, { reps: 5, weightLbs: 80 })).toEqual({ reps: 5, weightLbs: 80 });
       expect(computeSetPrefill(state)).toEqual({ reps: 8 }); // targetReps from the mock entry
     });
 
@@ -406,10 +422,10 @@ describe('createSessionPresenter', () => {
         jest.fn(async () => null),
         undefined,
         undefined,
-        { reps: 5, weightKg: 80 }
+        { reps: 5, weightLbs: 80 }
       );
 
-      expect(presenter.setPrefill).toEqual({ reps: 5, weightKg: 80 });
+      expect(presenter.setPrefill).toEqual({ reps: 5, weightLbs: 80 });
     });
   });
 
@@ -628,7 +644,7 @@ describe('createSessionPresenter', () => {
 
       expect(presenter.progressionHint).toBeDefined();
       expect(presenter.progressionHint?.toLowerCase()).toContain('increase');
-      expect(presenter.progressionHint).toContain('2.5');
+      expect(presenter.progressionHint).toContain('5 lbs');
     });
 
     test('surfaces hold hint when any working set has RPE > 8', () => {
@@ -771,8 +787,9 @@ describe('formatLoggedSetLine', () => {
     rpe: 7.5,
   };
 
-  test('renders reps, weight, and RPE when all are present', () => {
-    expect(formatLoggedSetLine(baseSet)).toBe('8 x 25kg RPE: 7.5');
+  test('renders reps, weight in display lbs, and RPE when all are present', () => {
+    // Stored 25kg renders as 55lbs (nearest 0.5 lb)
+    expect(formatLoggedSetLine(baseSet)).toBe('8 x 55lbs RPE: 7.5');
   });
 
   test('omits unset weight and the -1 RPE sentinel', () => {
@@ -782,7 +799,7 @@ describe('formatLoggedSetLine', () => {
   });
 
   test('omits null metrics, keeping only the weight', () => {
-    expect(formatLoggedSetLine({ ...baseSet, reps: null, rpe: null })).toBe('25kg');
+    expect(formatLoggedSetLine({ ...baseSet, reps: null, rpe: null })).toBe('55lbs');
   });
 
   test('renders a stretch set from its own duration', () => {
