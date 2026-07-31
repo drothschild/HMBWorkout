@@ -1,11 +1,10 @@
 import { StyleSheet, Pressable, FlatList, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
 import { todayStartPresenter, TodayRoutineChoice, TodayStartOptions } from '@/state/todayStartPresenter';
@@ -236,11 +235,11 @@ export default function TodayScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <ThemedView style={styles.content}>
           {renderContent()}
         </ThemedView>
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -254,8 +253,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
     gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
   },

@@ -1,10 +1,9 @@
 import { StyleSheet, Pressable, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 interface SectionRow {
@@ -32,7 +31,7 @@ export default function SettingsIndexScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         {SECTIONS.map((section) => (
           <Pressable
             key={section.href}
@@ -54,7 +53,7 @@ export default function SettingsIndexScreen() {
             </ThemedText>
           </Pressable>
         ))}
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -68,8 +67,8 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
     gap: Spacing.three,
   },

@@ -1,11 +1,10 @@
 import { StyleSheet, Pressable, FlatList, ActivityIndicator, View, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
@@ -157,7 +156,7 @@ export default function RoutinesScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <ThemedView style={styles.content}>
           {loading ? (
             <ThemedText type="default">Loading routines...</ThemedText>
@@ -214,7 +213,7 @@ export default function RoutinesScreen() {
             </>
           )}
         </ThemedView>
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -228,9 +227,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
     alignItems: 'center',
     gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
   },
   content: {

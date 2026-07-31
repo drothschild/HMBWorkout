@@ -1,11 +1,10 @@
 import { Pressable, ScrollView, StyleSheet, TextInput, View, useColorScheme } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { getSettings, setSettings } from '@/state/settings';
 
 type AiSettingsPatch = Partial<{
@@ -71,7 +70,7 @@ export default function AiCoachSettingsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <View style={styles.headerContainer}>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.navigate('/settings'))}
@@ -89,9 +88,9 @@ export default function AiCoachSettingsScreen() {
             The ScrollView earns its keep only when the keyboard is up:
             automaticallyAdjustKeyboardInsets insets the bottom and scrolls the
             focused field into view. A KeyboardAvoidingView was tried first and
-            verified broken here — nested under the tab navigator's header, tab
-            bar, and this screen's own BottomTabInset padding, it shrank the
-            column by ~12% and left the bottom-most field behind the keyboard. */}
+            verified broken here — nested under the tab navigator's header and
+            tab bar it shrank the column by only ~12%, leaving the bottom-most
+            field stranded behind the keyboard. */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -178,7 +177,7 @@ export default function AiCoachSettingsScreen() {
             />
           </ThemedView>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </ThemedView>
   );
 }
@@ -189,16 +188,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
   },
+  // The tabs navigator already draws the header and tab bar and reserves the
+  // safe area for both, so screens inside it must not wrap in a SafeAreaView:
+  // doing so re-applied the top inset under an existing header and cost ~125pt.
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Spacing.two,
   },
   backButton: {
     alignSelf: 'flex-start',

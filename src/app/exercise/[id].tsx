@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
+    paddingBottom: Spacing.three,
     maxWidth: MaxContentWidth,
     width: '100%',
   },
