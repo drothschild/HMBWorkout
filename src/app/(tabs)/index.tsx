@@ -27,8 +27,8 @@ export default function TodayScreen() {
     // Stale loads with older generation will be ignored.
     const generation = ++generationRef.current;
 
-    // Clear error and show loading state before starting
-    setLoadError(null);
+    // Keep any previous error visible while the retry runs (the error branch
+    // renders a disabled Retry button); it clears only when a load succeeds.
     setLoading(true);
 
     try {
@@ -36,6 +36,7 @@ export default function TodayScreen() {
       // Only update state if this request is still current
       if (generationRef.current === generation) {
         setStartOptions(options);
+        setLoadError(null);
         setLoading(false);
       }
     } catch (error) {
@@ -150,18 +151,20 @@ export default function TodayScreen() {
               No routines yet. Build one with the AI Coach, or import your routines from
               the vault.
             </ThemedText>
-            <Pressable
-              style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-              onPress={() => router.push('/ai-coach')}
-            >
-              <ThemedText style={styles.buttonText}>AI Coach</ThemedText>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-              onPress={() => router.navigate('/routines')}
-            >
-              <ThemedText style={styles.buttonText}>Go to Routines</ThemedText>
-            </Pressable>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => router.push('/ai-coach')}
+              >
+                <ThemedText style={styles.buttonText}>AI Coach</ThemedText>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => router.navigate('/routines')}
+              >
+                <ThemedText style={styles.buttonText}>Go to Routines</ThemedText>
+              </Pressable>
+            </View>
           </View>
         );
 
@@ -215,9 +218,10 @@ export default function TodayScreen() {
           </>
         );
 
-      default:
-        const _never: never = viewState.kind;
+      default: {
+        const _never: never = viewState;
         return _never;
+      }
     }
   };
 
@@ -300,6 +304,8 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     gap: Spacing.two,
     paddingTop: Spacing.two,
   },

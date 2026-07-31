@@ -7,15 +7,18 @@ import { TodayRoutineChoice, TodayStartOptions } from './todayStartPresenter';
  *
  * Precedence:
  * 1. Resume (active session) — highest priority, user is mid-workout
- * 2. Error (loadError) — visible even during retry (loading=true)
- * 3. Loading (no error, startOptions not yet resolved)
+ * 2. Error (loadError) — stays visible during an in-flight retry
+ * 3. Loading — a load is in flight, or the first load has not resolved yet
+ *    (the initial render happens before the focus effect fires)
  * 4. Presenter kind — once data is loaded, render per presenter state
  */
-export interface TodayViewState {
-  kind: 'resume' | 'error' | 'loading' | 'no-routines' | 'routines-need-exercises' | 'choose-routine';
-  error?: string;
-  routines?: TodayRoutineChoice[];
-}
+export type TodayViewState =
+  | { kind: 'resume' }
+  | { kind: 'error'; error: string }
+  | { kind: 'loading' }
+  | { kind: 'no-routines' }
+  | { kind: 'routines-need-exercises'; routines: TodayRoutineChoice[] }
+  | { kind: 'choose-routine'; routines: TodayRoutineChoice[] };
 
 export interface TodayViewStateInput {
   hasActiveSession: boolean;
@@ -27,27 +30,18 @@ export interface TodayViewStateInput {
 export function todayViewState(input: TodayViewStateInput): TodayViewState {
   const { hasActiveSession, loading, loadError, startOptions } = input;
 
-  // 1. Resume: active session always wins
   if (hasActiveSession) {
     return { kind: 'resume' };
   }
 
-  // 2. Error: visible even while loading (retry in flight)
   if (loadError) {
     return { kind: 'error', error: loadError };
   }
 
-  // 3. Loading: only when no error and data not yet resolved
-  if (loading) {
+  if (loading || !startOptions) {
     return { kind: 'loading' };
   }
 
-  // 4. Presenter state: startOptions must be resolved at this point
-  if (!startOptions) {
-    throw new Error('unexpected: startOptions is null but loading is false and no loadError');
-  }
-
-  // Exhaustive switch on presenter kind
   switch (startOptions.kind) {
     case 'no-routines':
       return { kind: 'no-routines' };
@@ -64,9 +58,9 @@ export function todayViewState(input: TodayViewStateInput): TodayViewState {
         routines: startOptions.routines,
       };
 
-    default:
-      // @ts-expect-error exhaustiveness check
-      const _never: never = startOptions.kind;
+    default: {
+      const _never: never = startOptions;
       return _never;
+    }
   }
 }
