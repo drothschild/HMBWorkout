@@ -14,12 +14,14 @@ export interface AiTurn {
 export interface SettingsProposal {
   goals?: string;
   equipment?: string;
+  personality?: string;
 }
 
 /**
- * Cap on a proposed goals/equipment string. These are free-text fields the user
- * would otherwise type by hand, and they are persisted in the settings blob;
- * the bound keeps a runaway model from dumping a conversation into storage.
+ * Cap on a proposed goals/equipment/personality string. These are free-text
+ * fields the user would otherwise type by hand, and they are persisted in the
+ * settings blob; the bound keeps a runaway model from dumping a conversation
+ * into storage.
  */
 export const SETTINGS_FIELD_MAX_LENGTH = 1000;
 
@@ -90,10 +92,11 @@ export const AI_TURN_SCHEMA = {
     settingsProposal: {
       type: 'object',
       description:
-        'Include only when the user asked to change their training goals or available equipment. At least one field is required',
+        'Include only when the user asked to change their training goals, available equipment, or coaching style. At least one field is required',
       properties: {
         goals: { type: 'string' },
         equipment: { type: 'string' },
+        personality: { type: 'string' },
       },
       additionalProperties: false,
     },
@@ -203,9 +206,12 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
 
   validateField('goals', obj.goals);
   validateField('equipment', obj.equipment);
+  validateField('personality', obj.personality);
 
-  if (obj.goals === undefined && obj.equipment === undefined) {
-    throw new DraftValidationError('a settings proposal must include goals, equipment, or both');
+  if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
+    throw new DraftValidationError(
+      'a settings proposal must include at least one of goals, equipment, or personality'
+    );
   }
 
   return obj as unknown as SettingsProposal;

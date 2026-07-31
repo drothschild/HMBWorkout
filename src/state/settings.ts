@@ -9,6 +9,7 @@ interface BridgeSettings {
   anthropicKey: string;
   aiGoals: string;
   aiEquipment: string;
+  aiPersonality: string;
 }
 
 interface StorageBackend {
@@ -25,6 +26,7 @@ const DEFAULT_SETTINGS: BridgeSettings = {
   anthropicKey: '',
   aiGoals: '',
   aiEquipment: '',
+  aiPersonality: '',
 };
 
 // Module-level cache, hydrated from storage at app boot

@@ -207,4 +207,60 @@ describe('Settings Persistence', () => {
     expect(settings.aiGoals).toBe('');
     expect(settings.aiEquipment).toBe('');
   });
+
+  // Coach personality setting
+  test('AI Coach: aiPersonality default is empty string', () => {
+    const settings = getSettings();
+    expect(settings.aiPersonality).toBe('');
+  });
+
+  test('AI Coach: persist and reload aiPersonality', async () => {
+    setSettings({ aiPersonality: 'Direct and no-nonsense; celebrate PRs' });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(fakeStorage).toHaveProperty('bridge_settings');
+    const stored = JSON.parse(fakeStorage.bridge_settings);
+    expect(stored.aiPersonality).toBe('Direct and no-nonsense; celebrate PRs');
+
+    // Simulate fresh app start
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+    expect(getSettings().aiPersonality).toBe('Direct and no-nonsense; celebrate PRs');
+  });
+
+  test('AI Coach: legacy blob without aiPersonality loads with empty default', async () => {
+    // Pre-seed storage with a blob written before the personality field existed
+    fakeStorage.bridge_settings = JSON.stringify({
+      baseUrl: 'http://mac.local:3000',
+      token: 'tok',
+      anthropicKey: 'sk-test',
+      aiGoals: 'get strong',
+      aiEquipment: 'dumbbells',
+    });
+
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+
+    const settings = getSettings();
+    expect(settings.aiPersonality).toBe('');
+    expect(settings.aiGoals).toBe('get strong');
+    expect(settings.aiEquipment).toBe('dumbbells');
+  });
+
+  test('AI Coach: setting aiPersonality does not affect other fields', async () => {
+    setSettings({ aiGoals: 'goals', aiEquipment: 'equipment' });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    setSettings({ aiPersonality: 'Upbeat hype coach' });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const stored = JSON.parse(fakeStorage.bridge_settings);
+    expect(stored.aiGoals).toBe('goals');
+    expect(stored.aiEquipment).toBe('equipment');
+    expect(stored.aiPersonality).toBe('Upbeat hype coach');
+  });
 });

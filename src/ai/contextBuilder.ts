@@ -53,6 +53,7 @@ export async function buildSystem(db: Database, mode: AiCoachMode): Promise<stri
   sections.push(personaSection(mode));
   sections.push(goalsSection());
   sections.push(equipmentSection());
+  sections.push(personalitySection());
 
   // Build routine details once, reuse for both routines and history sections
   const routines = await routineListPresenter(db);
@@ -88,7 +89,7 @@ Every response must be valid JSON with this structure:
 {
   "reply": "Your conversational message to the user",
   "draft": { /* only when proposing a new routine or revision */ },
-  "settingsProposal": { /* only when proposing new goals or equipment */ }
+  "settingsProposal": { /* only when proposing new goals, equipment, or coaching style */ }
 }
 
 The "draft" field is included ONLY when proposing a complete new routine or a complete revision of an existing routine. A draft always contains the full exercise list (not a diff).
@@ -105,11 +106,11 @@ Exercise schema (inside draft.exercises):
 - targetSets, targetReps: when present, must be integers >= 1
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 
-The "settingsProposal" field proposes new values for the "User Goals" and "Available Equipment" sections below. Never include a settingsProposal unless the user asked to change their goals or equipment — a workout question is not such a request. The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.
+The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below — its "goals", "equipment", and "personality" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style — a workout question is not such a request. The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.
 
 Settings proposal constraints:
-- A settings proposal must include at least one of "goals" or "equipment"
-- goals, equipment: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
+- A settings proposal must include at least one of "goals", "equipment", or "personality"
+- goals, equipment, personality: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
 - Each field is a full replacement for the user's current value, not an addition to it, so carry over any part of the current wording that should survive the change
 - Omit the field you are not changing rather than repeating its current value
 
@@ -162,6 +163,21 @@ Not specified.`;
   return `## Available Equipment
 
 ${equipment}`;
+}
+
+function personalitySection(): string {
+  const settings = getSettings();
+  const personality = settings.aiPersonality?.trim();
+
+  if (!personality) {
+    return `## Coaching Style
+
+Not specified.`;
+  }
+
+  return `## Coaching Style
+
+${personality}`;
 }
 
 function routinesSection(routineDetails: RoutineWithDetail[]): string {

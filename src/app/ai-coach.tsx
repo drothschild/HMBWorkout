@@ -186,6 +186,7 @@ export default function AiCoachScreen() {
         proposal={pendingSettingsProposal}
         currentGoals={settings.aiGoals}
         currentEquipment={settings.aiEquipment}
+        currentPersonality={settings.aiPersonality}
         onApprove={handleApproveSettings}
         onDecline={handleDeclineSettings}
       />
@@ -415,6 +416,7 @@ interface SettingsProposalCardProps {
   proposal: SettingsProposal;
   currentGoals: string;
   currentEquipment: string;
+  currentPersonality: string;
   onApprove: () => void;
   onDecline: () => void;
 }
@@ -423,6 +425,7 @@ function SettingsProposalCard({
   proposal,
   currentGoals,
   currentEquipment,
+  currentPersonality,
   onApprove,
   onDecline,
 }: SettingsProposalCardProps) {
@@ -436,6 +439,10 @@ function SettingsProposalCard({
 
   if (proposal.equipment !== undefined) {
     rows.push({ label: 'Equipment', current: currentEquipment, proposed: proposal.equipment });
+  }
+
+  if (proposal.personality !== undefined) {
+    rows.push({ label: 'Coaching style', current: currentPersonality, proposed: proposal.personality });
   }
 
   return (

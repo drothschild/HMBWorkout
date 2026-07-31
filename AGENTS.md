@@ -170,10 +170,10 @@ save path is testable in the node jest project.
 ## AI Coach (`src/ai`)
 
 Conversational routine authoring. The user brings their own Anthropic key; requests go
-straight to the API (never via the bridge) and the chat is never persisted. The three
-settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`) live in the existing
-`bridge_settings` blob, so `BridgeSettings` in `src/state/settings.ts` is now a
-misnomer — AI settings are in there too.
+straight to the API (never via the bridge) and the chat is never persisted. The four
+settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) live in
+the existing `bridge_settings` blob, so `BridgeSettings` in `src/state/settings.ts`
+is now a misnomer — AI settings are in there too.
 
 - **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
   `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
@@ -236,19 +236,19 @@ misnomer — AI settings are in there too.
   each set dated to the UTC day it was logged). `anthropicKey`/`token`/`baseUrl` must
   never appear — a regression test in `contextBuilder.test.ts` asserts this.
 - **A `settingsProposal` is proposed, never applied.** The model may propose new
-  `aiGoals`/`aiEquipment` when the user asks, but `approveSettingsProposal` is the only
-  path to `setSettings`, and it validates the proposal a second time first. Fields are
-  full replacements, so the patch is built from *present* keys only — spreading an
-  explicit `undefined` would blank the other field. `declineSettingsProposal` writes
-  nothing. The screen holds no approve/decline logic; it is not jest-covered.
+  `aiGoals`/`aiEquipment`/`aiPersonality` when the user asks, but
+  `approveSettingsProposal` is the only path to `setSettings`, and it validates the
+  proposal a second time first. Fields are full replacements, so the patch is built
+  from *present* keys only — spreading an explicit `undefined` would blank the other
+  field. `declineSettingsProposal` writes nothing. The screen holds no approve/decline logic; it is not jest-covered.
 - **`aiChatStore` is ephemeral, with two counters that are not interchangeable.**
   `generation` scopes the *conversation*: `reset(mode)` bumps it so a request resolving
   afterwards is discarded rather than appended. `systemEpoch` scopes the *prompt cache*
   alone and guards cache repopulation, so a `buildSystem` already in flight cannot write
   a stale prompt back. `reset` advances both; an approved settings write advances only
-  `systemEpoch` — the cached prompt embeds goals and equipment and must be rebuilt, but
-  the conversation continues and an in-flight response still lands. Collapsing the two
-  back into one counter reintroduces exactly that bug. `acceptDraft` re-entry is latched
+  `systemEpoch` — the cached prompt embeds goals, equipment, and coaching style and
+  must be rebuilt, but the conversation continues and an in-flight response still
+  lands. Collapsing the two back into one counter reintroduces exactly that bug. `acceptDraft` re-entry is latched
   in the store — a second same-frame call returns `null` instead of writing a duplicate
   routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
   and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without

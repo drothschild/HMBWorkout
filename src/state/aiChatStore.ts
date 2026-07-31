@@ -266,16 +266,17 @@ export function createAiChatStore(deps: AiChatDeps) {
         const proposal = validateSettingsProposal(state.pendingSettingsProposal);
 
         // Build the patch from present fields only — spreading an explicit
-        // `undefined` over the settings cache would blank the other field.
+        // `undefined` over the settings cache would blank the other fields.
         const patch: Parameters<typeof setSettings>[0] = {};
         if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
         if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
+        if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
 
         deps.setSettings(patch);
 
-        // The cached prompt embeds goals and equipment, so it is now stale. Clear
-        // it without bumping `generation`: the conversation carries on and an
-        // in-flight response must still be committed.
+        // The cached prompt embeds goals, equipment, and coaching style, so it is
+        // now stale. Clear it without bumping `generation`: the conversation
+        // carries on and an in-flight response must still be committed.
         invalidateCachedSystem();
 
         set({ pendingSettingsProposal: null });

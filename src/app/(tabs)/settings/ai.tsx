@@ -12,6 +12,7 @@ type AiSettingsPatch = Partial<{
   anthropicKey: string;
   aiGoals: string;
   aiEquipment: string;
+  aiPersonality: string;
 }>;
 
 const AUTOSAVE_DELAY_MS = 500;
@@ -22,6 +23,7 @@ export default function AiCoachSettingsScreen() {
   const [anthropicKey, setAnthropicKey] = useState(() => getSettings().anthropicKey);
   const [aiGoals, setAiGoals] = useState(() => getSettings().aiGoals);
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
+  const [aiPersonality, setAiPersonality] = useState(() => getSettings().aiPersonality);
 
   const pendingRef = useRef<AiSettingsPatch>({});
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +62,7 @@ export default function AiCoachSettingsScreen() {
       setAnthropicKey(settings.anthropicKey);
       setAiGoals(settings.aiGoals);
       setAiEquipment(settings.aiEquipment);
+      setAiPersonality(settings.aiPersonality);
     }, [flush])
   );
 
@@ -139,6 +142,24 @@ export default function AiCoachSettingsScreen() {
               onChangeText={(value) => {
                 setAiEquipment(value);
                 queueSave({ aiEquipment: value });
+              }}
+              multiline
+              numberOfLines={4}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Coaching Style
+            </ThemedText>
+            <TextInput
+              style={[styles.input, styles.multilineInput, { color: textInputColor }]}
+              placeholder="e.g. Direct and no-nonsense; celebrate PRs"
+              placeholderTextColor={placeholderColor}
+              value={aiPersonality}
+              onChangeText={(value) => {
+                setAiPersonality(value);
+                queueSave({ aiPersonality: value });
               }}
               multiline
               numberOfLines={4}
