@@ -267,6 +267,7 @@ describe('engine: dispatch loop with effect executors', () => {
         weightKg: 20.0,
         durationSeconds: 0,
         rpe: 7.0,
+        nowMs: 1000,
       };
 
       try {
@@ -397,12 +398,12 @@ describe('engine: dispatch loop with effect executors', () => {
 
   describe('state retention across phases: invalid events preserve state (M4)', () => {
     const phaseTests = [
-      { phase: 'idle' as const, validEvent: (s: any) => ({ tag: 'StartSession' as const, sessionId: 's', nowMs: 1000, routine: { id: 'r', entries: [] } }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'idle' },
+      { phase: 'idle' as const, validEvent: (s: any) => ({ tag: 'StartSession' as const, sessionId: 's', nowMs: 1000, routine: { id: 'r', entries: [] } }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'idle' },
       { phase: 'warmup' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'warmup' },
       { phase: 'working' as const, validEvent: (s: any) => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), invalidEvent: () => ({ tag: 'RestElapsed' as const, nowMs: 5000 }), description: 'working' },
-      { phase: 'resting' as const, validEvent: (s: any) => ({ tag: 'RestElapsed' as const, nowMs: s.restDeadlineMs + 1 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'resting' },
-      { phase: 'paused' as const, validEvent: (s: any) => ({ tag: 'Resume' as const, nowMs: 5000 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'paused' },
-      { phase: 'done' as const, validEvent: (s: any) => undefined, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0 }), description: 'done' },
+      { phase: 'resting' as const, validEvent: (s: any) => ({ tag: 'RestElapsed' as const, nowMs: s.restDeadlineMs + 1 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'resting' },
+      { phase: 'paused' as const, validEvent: (s: any) => ({ tag: 'Resume' as const, nowMs: 5000 }), invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'paused' },
+      { phase: 'done' as const, validEvent: (s: any) => undefined, invalidEvent: () => ({ tag: 'LogSet' as const, reps: 8, weightKg: 20.0, nowMs: 5000 }), description: 'done' },
     ];
 
     for (const tc of phaseTests) {
@@ -449,7 +450,7 @@ describe('engine: dispatch loop with effect executors', () => {
   });
 
   describe('effect mapping: deterministic endMs from event.nowMs (I1)', () => {
-    it('SetDone auto-complete path uses event.nowMs for endMs (deterministic)', async () => {
+    it('LogSet auto-complete path uses event.nowMs for endMs (deterministic)', async () => {
       const completeSessions: any[] = [];
       const executors = {
         onCreateSession: jest.fn(),
@@ -464,7 +465,7 @@ describe('engine: dispatch loop with effect executors', () => {
 
       const engine = createEngine(executors);
       const testStartMs = 5000;
-      const testEndMs = 75000; // SetDone nowMs (after the between-sets rest elapses)
+      const testEndMs = 75000; // final LogSet nowMs (after the between-sets rest elapses)
 
       engine.setState(makeState({ phase: 'idle' }));
 
@@ -479,18 +480,13 @@ describe('engine: dispatch loop with effect executors', () => {
 
       expect(state.phase).toBe('warmup');
 
-      // Log warmup set
+      // Log warmup set → advances into the between-sets rest, then elapse it
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 5,
         weightKg: 20.0,
         durationSeconds: 0,
         rpe: 6.0,
-      });
-
-      // SetDone warmup → rest between sets, then elapse it
-      state = await engine.dispatch({
-        tag: 'SetDone',
         nowMs: testStartMs + 5000,
       });
 
@@ -503,29 +499,53 @@ describe('engine: dispatch loop with effect executors', () => {
 
       expect(state.phase).toBe('working');
 
-      // Log the only working set
+      // Log the only working set — final set, completes the workout
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
         rpe: 7.5,
-      });
-
-      // SetDone with specific nowMs (this should trigger complete_session effect since it's the last set)
-      state = await engine.dispatch({
-        tag: 'SetDone',
         nowMs: testEndMs,
       });
 
       // Verify session is done
       expect(state.phase).toBe('done');
 
-      // Verify onCompleteSession was called with endMs from SetDone event
+      // Verify onCompleteSession was called with endMs from the LogSet event
       expect(executors.onCompleteSession).toHaveBeenCalled();
       expect(completeSessions).toHaveLength(1);
       expect(completeSessions[0].startMs).toBe(testStartMs);
-      expect(completeSessions[0].endMs).toBe(testEndMs); // Should be from SetDone.nowMs, not Date.now()
+      expect(completeSessions[0].endMs).toBe(testEndMs); // Should be from LogSet.nowMs, not Date.now()
+    });
+
+    it('SetDone (Skip Set) auto-complete path uses event.nowMs for endMs (deterministic)', async () => {
+      const completeSessions: any[] = [];
+      const executors = {
+        onCompleteSession: jest.fn((summary: any) => {
+          completeSessions.push(summary);
+        }),
+        onNotify: jest.fn(),
+      };
+
+      const engine = createEngine(executors);
+      const testEndMs = 75000;
+      engine.setState(
+        makeState({
+          phase: 'working',
+          startedAtMs: 5000,
+          entries: makeRoutine(1, [{ warmupSets: 0, targetSets: 1 }]).entries,
+        })
+      );
+
+      // Skipping the only set completes the workout without logging anything
+      const state = await engine.dispatch({ tag: 'SetDone', nowMs: testEndMs });
+
+      expect(state.phase).toBe('done');
+      expect(state.loggedSets).toHaveLength(0);
+      expect(completeSessions).toHaveLength(1);
+      expect(completeSessions[0].startMs).toBe(5000);
+      expect(completeSessions[0].endMs).toBe(testEndMs);
     });
 
     it('FinishSession uses event.nowMs for endMs (deterministic)', async () => {
@@ -606,26 +626,19 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(executors.onCreateSession).toHaveBeenCalled();
       expect(state.loggedSets.length).toBe(0);
 
-      // Step 2: LogSet warmup
+      // Step 2: LogSet warmup → records AND advances into the between-sets rest
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 5,
         weightKg: 20.0,
         durationSeconds: 0,
         rpe: 6.0,
-      });
-
-      expect(state.phase).toBe('warmup');
-      expect(state.loggedSets.length).toBe(1);
-      expect(state.loggedSets[0].setType).toBe('warmup');
-      expect(executors.onPersistSet).toHaveBeenCalledTimes(1);
-
-      // Step 3: SetDone after warmup → rests between sets (90s), then elapses
-      state = await engine.dispatch({
-        tag: 'SetDone',
         nowMs: 10000,
       });
 
+      expect(state.loggedSets.length).toBe(1);
+      expect(state.loggedSets[0].setType).toBe('warmup');
+      expect(executors.onPersistSet).toHaveBeenCalledTimes(1);
       expect(state.phase).toBe('resting'); // Rest between sets of exercise 0
       expect(state.restDeadlineMs).toBe(100000); // 10000 + 90*1000
 
@@ -638,25 +651,19 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(state.exerciseIndex).toBe(0);
       expect(state.setIndex).toBe(1);
 
-      // Step 4: LogSet working set 1
+      // Step 3: LogSet working set 1 → rest between sets, then elapse
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
         rpe: 7.5,
+        nowMs: 110000,
       });
 
       expect(state.loggedSets.length).toBe(2); // Now have warmup + working set
       expect(state.loggedSets[1].setType).toBe('working');
       expect(executors.onPersistSet).toHaveBeenCalledTimes(2);
-
-      // Step 5: SetDone for working set 1 → rest between sets, then elapse
-      state = await engine.dispatch({
-        tag: 'SetDone',
-        nowMs: 110000,
-      });
-
       expect(state.phase).toBe('resting');
 
       state = await engine.dispatch({
@@ -669,30 +676,24 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(state.setIndex).toBe(2);
       expect(state.phase).toBe('working');
 
-      // Step 6: LogSet working set 2
+      // Step 4: LogSet working set 2 (completes exercise 0, moves to rest before exercise 1)
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
         durationSeconds: 0,
         rpe: 8.0,
+        nowMs: 210000,
       });
 
       expect(state.loggedSets.length).toBe(3); // warmup + 2 working
       expect(executors.onPersistSet).toHaveBeenCalledTimes(3);
-
-      // Step 7: SetDone (completes exercise 0, moves to rest before exercise 1)
-      state = await engine.dispatch({
-        tag: 'SetDone',
-        nowMs: 210000,
-      });
-
       expect(state.phase).toBe('resting'); // Now resting before next exercise
       expect(state.exerciseIndex).toBe(1); // Advanced to next exercise
       expect(state.restDeadlineMs).toBe(300000); // 210000 + 90*1000
       expect(executors.onScheduleRest).toHaveBeenCalled();
 
-      // Step 8: RestElapsed (resume from rest)
+      // Step 5: RestElapsed (resume from rest)
       state = await engine.dispatch({
         tag: 'RestElapsed',
         nowMs: 300000,
@@ -703,24 +704,19 @@ describe('engine: dispatch loop with effect executors', () => {
       expect(state.setIndex).toBe(0);
       expect(executors.onCancelRest).toHaveBeenCalled();
 
-      // Step 9: LogSet for exercise 1
+      // Step 6: LogSet for exercise 1 — final set completes the workout
       state = await engine.dispatch({
         tag: 'LogSet',
         reps: 10,
         weightKg: 30.0,
         durationSeconds: 0,
         rpe: 7.0,
+        nowMs: 310000,
       });
 
       expect(state.loggedSets.length).toBe(4); // 3 previous + 1 new
       expect(state.loggedSets[3].exerciseId).toBe('exercise-1');
       expect(executors.onPersistSet).toHaveBeenCalledTimes(4);
-
-      // Step 10: SetDone for final set (completes workout)
-      state = await engine.dispatch({
-        tag: 'SetDone',
-        nowMs: 310000,
-      });
 
       // Should be done now
       expect(state.phase).toBe('done');
@@ -746,7 +742,7 @@ describe('engine: dispatch loop with effect executors', () => {
       const engine = createEngine(executors);
       engine.setState(makeState({ phase: 'idle' }));
 
-      const routine = makeRoutine(1, [{ warmupSets: 0, targetSets: 3 }]);
+      const routine = makeRoutine(1, [{ warmupSets: 0, targetSets: 3, restSeconds: 0 }]);
 
       // Start session
       let state = await engine.dispatch({
@@ -759,7 +755,7 @@ describe('engine: dispatch loop with effect executors', () => {
       const setsPerDispatch: number[] = [];
       setsPerDispatch.push(state.loggedSets.length); // 0
 
-      // Log 3 sets
+      // Log 3 sets — each one-tap log both records and advances
       for (let i = 0; i < 3; i++) {
         state = await engine.dispatch({
           tag: 'LogSet',
@@ -767,13 +763,9 @@ describe('engine: dispatch loop with effect executors', () => {
           weightKg: 20.0,
           durationSeconds: 0,
           rpe: 7.0 + i * 0.5, // 7.0, 7.5, 8.0
-        });
-        setsPerDispatch.push(state.loggedSets.length);
-
-        state = await engine.dispatch({
-          tag: 'SetDone',
           nowMs: 2000 + i * 10000,
         });
+        setsPerDispatch.push(state.loggedSets.length);
       }
 
       // Verify loggedSets grows monotonically

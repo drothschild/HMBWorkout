@@ -81,8 +81,12 @@ function normalize(state: SessionState): Partial<SessionState> {
 /**
  * fillEventDefaults: ensure all optional LogSet fields exist (Rill rule requires them).
  * When host omits a field, use a sentinel to preserve pre-migration behavior.
+ * nowMs (used by LogSet's merged advancement for rest-deadline math) defaults
+ * to 0 for tests that don't assert on deadlines.
  */
-function fillEventDefaults(event: Event): Event {
+type LogSetInput = Omit<Extract<Event, { tag: 'LogSet' }>, 'nowMs'> & { nowMs?: number };
+
+function fillEventDefaults(event: LogSetInput | Event): Event {
   if (event.tag === 'LogSet') {
     return {
       ...event,
@@ -90,6 +94,7 @@ function fillEventDefaults(event: Event): Event {
       weightKg: event.weightKg !== undefined ? event.weightKg : 0.0,
       durationSeconds: event.durationSeconds !== undefined ? event.durationSeconds : 0,
       rpe: event.rpe !== undefined ? event.rpe : -1.0, // Sentinel for absent RPE
+      nowMs: event.nowMs !== undefined ? event.nowMs : 0,
     };
   }
   return event;
@@ -141,10 +146,10 @@ function makeRoutine(exerciseCount = 1, overrides?: any): any {
 describe('characterization: session engine pre-migration behavior', () => {
   /**
    * C1: Full happy path with realistic fixtures
-   * StartSession → warmup LogSet → SetDone → working LogSet → SetDone → FinishSession
-   * Pins state/effects at every step.
+   * StartSession → warmup LogSet → working LogSet → final LogSet → done.
+   * One-tap logging: each LogSet records the set and advances the position.
    */
-  describe('C1: Full happy path (StartSession → warmups → working → FinishSession)', () => {
+  describe('C1: Full happy path (StartSession → warmups → working → done)', () => {
     it('should execute complete workout: warmup → working → done', async () => {
       const executors = {
         onCreateSession: jest.fn(),
@@ -177,23 +182,20 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.startedAtMs).toBe(1000);
       expect(executors.onCreateSession).toHaveBeenCalled();
 
-      // Step 2: LogSet (warmup, no RPE specified)
-      let logWarmupEvent: Event = {
-        tag: 'LogSet',
-        reps: 5,
-        weightKg: 20.0,
-        durationSeconds: 0,
-      };
-
-      state = await engine.dispatch(fillEventDefaults(logWarmupEvent));
+      // Step 2: LogSet (warmup, no RPE) — records and enters the between-sets rest
+      state = await engine.dispatch(
+        fillEventDefaults({
+          tag: 'LogSet',
+          reps: 5,
+          weightKg: 20.0,
+          durationSeconds: 0,
+          nowMs: 10000,
+        })
+      );
       expect(state.lastLoggedSet?.setType).toBe('warmup');
       expect(state.lastLoggedSet?.reps).toBe(5);
       expect(state.lastLoggedSet?.rpe).toBe(-1.0); // Sentinel: no RPE provided
       expect(executors.onPersistSet).toHaveBeenCalled();
-
-      // Step 3: SetDone (warmup complete → rest between sets, then working)
-      let setDoneEvent: Event = { tag: 'SetDone', nowMs: 10000 };
-      state = await engine.dispatch(setDoneEvent);
       expect(state.phase).toBe('resting'); // Rest between sets of exercise 0
       expect(state.restDeadlineMs).toBe(10000 + 60 * 1000);
 
@@ -202,41 +204,43 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(state.exerciseIndex).toBe(0);
       expect(state.setIndex).toBe(1); // Preserved across the rest
 
-      // Step 4: LogSet (working, with RPE)
-      let logWorkingEvent: Event = {
-        tag: 'LogSet',
-        reps: 8,
-        weightKg: 25.0,
-        durationSeconds: 0,
-        rpe: 7.5,
-      };
-
-      state = await engine.dispatch(fillEventDefaults(logWorkingEvent));
+      // Step 3: LogSet (working, with RPE) — final set of exercise 0, advances to exercise 1
+      state = await engine.dispatch(
+        fillEventDefaults({
+          tag: 'LogSet',
+          reps: 8,
+          weightKg: 25.0,
+          durationSeconds: 0,
+          rpe: 7.5,
+          nowMs: 75000,
+        })
+      );
       expect(state.lastLoggedSet?.setType).toBe('working');
       expect(state.lastLoggedSet?.rpe).toBe(7.5); // RPE provided
       expect(normalize(state).lastLoggedSet?.rpe).toBe(7.5); // Post-migration: still 7.5
-
-      // Step 5: SetDone (complete working set, advance to next exercise)
-      setDoneEvent = { tag: 'SetDone', nowMs: 75000 };
-      state = await engine.dispatch(setDoneEvent);
       expect(state.phase).toBe('resting'); // Now resting before exercise 1
       expect(state.exerciseIndex).toBe(1);
       expect(state.setIndex).toBe(0);
       expect(state.restDeadlineMs).toBe(75000 + 60 * 1000); // nowMs + restSeconds*1000
 
-      // Step 6: RestElapsed
+      // Step 4: RestElapsed
       let restElapsedEvent: Event = { tag: 'RestElapsed', nowMs: 135000 };
       state = await engine.dispatch(restElapsedEvent);
       expect(state.phase).toBe('working');
       expect(state.restDeadlineMs).toBe(0);
 
-      // Step 7: LogSet on exercise 1
-      state = await engine.dispatch(fillEventDefaults(logWorkingEvent));
+      // Step 5: LogSet on exercise 1 — final set of the final exercise completes the workout
+      state = await engine.dispatch(
+        fillEventDefaults({
+          tag: 'LogSet',
+          reps: 8,
+          weightKg: 25.0,
+          durationSeconds: 0,
+          rpe: 7.5,
+          nowMs: 140000,
+        })
+      );
       expect(state.lastLoggedSet?.exerciseId).toBe('exercise-1');
-
-      // Step 8: SetDone (final exercise, completes workout)
-      setDoneEvent = { tag: 'SetDone', nowMs: 140000 };
-      state = await engine.dispatch(setDoneEvent);
       expect(state.phase).toBe('done');
       expect(executors.onCompleteSession).toHaveBeenCalled();
     });
@@ -387,7 +391,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(state);
 
-      const event: Event = {
+      const event: LogSetInput = {
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
@@ -410,7 +414,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(state);
 
-      const event: Event = {
+      const event: LogSetInput = {
         tag: 'LogSet',
         reps: 8,
         weightKg: 25.0,
@@ -423,17 +427,17 @@ describe('characterization: session engine pre-migration behavior', () => {
       expect(normalize(currentState).lastLoggedSet?.rpe).toBe(7.5);
     });
 
-    it('should append multiple LogSets with varying RPE', async () => {
+    it('should append consecutive LogSets with varying RPE (each log advances)', async () => {
       const engine = createEngine({ onPersistSet: jest.fn() });
       const state = makeState({
         phase: 'warmup',
         exerciseIndex: 0,
         setIndex: 0,
-        entries: makeRoutine(1, [{ warmupSets: 2 }]).entries,
+        entries: makeRoutine(1, [{ warmupSets: 2, restSeconds: 0 }]).entries,
       });
       engine.setState(state);
 
-      // First LogSet without RPE
+      // First LogSet without RPE — advances to the second warmup set
       let currentState = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -443,9 +447,7 @@ describe('characterization: session engine pre-migration behavior', () => {
         })
       );
       expect(currentState.lastLoggedSet?.rpe).toBe(-1.0);
-
-      // SetDone, advance
-      await engine.dispatch({ tag: 'SetDone', nowMs: 10000 });
+      expect(currentState.setIndex).toBe(1);
 
       // Second LogSet with RPE
       currentState = await engine.dispatch(
@@ -458,6 +460,7 @@ describe('characterization: session engine pre-migration behavior', () => {
         })
       );
       expect(currentState.lastLoggedSet?.rpe).toBe(6.5);
+      expect(currentState.loggedSets).toHaveLength(2);
     });
   });
 
@@ -478,7 +481,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(initialState);
 
-      const event: Event = {
+      const event: LogSetInput = {
         tag: 'LogSet',
         reps: -5,
         weightKg: 20.0,
@@ -501,7 +504,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(initialState);
 
-      const event: Event = {
+      const event: LogSetInput = {
         tag: 'LogSet',
         reps: 8,
         weightKg: 20.0,
@@ -524,7 +527,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       engine.setState(initialState);
 
-      const event: Event = {
+      const event: LogSetInput = {
         tag: 'LogSet',
         reps: 8,
         weightKg: 20.0,
@@ -768,24 +771,22 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       expect(state.phase).toBe('warmup');
 
-      // LogSet warmup
+      // LogSet warmup → rest between sets, then working (within same exercise)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
           reps: 5,
           weightKg: 20.0,
           durationSeconds: 0,
+          nowMs: 10000,
         })
       );
-
-      // SetDone warmup → rest between sets, then working (within same exercise)
-      state = await engine.dispatch({ tag: 'SetDone', nowMs: 10000 });
       expect(state.phase).toBe('resting');
 
       state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 100000 });
       expect(state.phase).toBe('working');
 
-      // LogSet working exercise 0
+      // LogSet working exercise 0 → exercise 1 (same superset, no rest)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -793,16 +794,14 @@ describe('characterization: session engine pre-migration behavior', () => {
           weightKg: 25.0,
           durationSeconds: 0,
           rpe: 7.5,
+          nowMs: 105000,
         })
       );
-
-      // SetDone exercise 0 → exercise 1 (same superset, no rest)
-      state = await engine.dispatch({ tag: 'SetDone', nowMs: 105000 });
       expect(state.phase).toBe('working');
       expect(state.exerciseIndex).toBe(1);
       expect(state.supersetPosition).toBe(1);
 
-      // LogSet exercise 1
+      // LogSet exercise 1 → done (last exercise)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -810,28 +809,11 @@ describe('characterization: session engine pre-migration behavior', () => {
           weightKg: 15.0,
           durationSeconds: 0,
           rpe: 8.0,
+          nowMs: 110000,
         })
       );
-
-      // SetDone exercise 1 → done (last exercise)
-      state = await engine.dispatch({ tag: 'SetDone', nowMs: 110000 });
       expect(state.phase).toBe('done');
       expect(executors.onCompleteSession).toHaveBeenCalled();
-    });
-  });
-
-  /**
-   * C7: Stretching phase removed
-   * Stretching was an unreachable phase in the original types.
-   * Test verifies it is not part of the Phase union.
-   */
-  describe('C7: Phase union declaration (Stretching removed)', () => {
-    it('Phase union does not include Stretching', () => {
-      // Verify the declared Phase union in types.lv has no Stretching variant
-      // The transition rule operates on: Idle, Warmup, Working, Resting, Paused, Done
-      const phases = ['idle', 'warmup', 'working', 'resting', 'paused', 'done'];
-      expect(phases).not.toContain('stretching');
-      expect(phases).toHaveLength(6);
     });
   });
 
