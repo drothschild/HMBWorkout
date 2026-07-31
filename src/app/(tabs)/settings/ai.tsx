@@ -1,12 +1,4 @@
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-  useColorScheme,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -90,14 +82,22 @@ export default function AiCoachSettingsScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        {/* Fixed column, no whole-screen scrolling: the three free-text boxes
-            each take flex:1 and split the leftover height, so the screen fits
-            any device without magic heights. They carry no minHeight floor on
-            purpose — a floor is what would let the column overflow and clip the
-            focused field once the keyboard squeezes it. */}
-        <KeyboardAvoidingView
-          style={styles.content}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        {/* Fits on one screen by construction: contentContainer flexGrow:1 makes
+            the column exactly viewport-height, and the three free-text boxes each
+            take flex:1 to split the leftover space — so at rest the content can
+            never exceed the viewport and there is nothing to scroll.
+            The ScrollView earns its keep only when the keyboard is up:
+            automaticallyAdjustKeyboardInsets insets the bottom and scrolls the
+            focused field into view. A KeyboardAvoidingView was tried first and
+            verified broken here — nested under the tab navigator's header, tab
+            bar, and this screen's own BottomTabInset padding, it shrank the
+            column by ~12% and left the bottom-most field behind the keyboard. */}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           <View style={styles.titleRow}>
             <ThemedText type="default" style={styles.title}>
@@ -177,7 +177,7 @@ export default function AiCoachSettingsScreen() {
               multiline
             />
           </ThemedView>
-        </KeyboardAvoidingView>
+        </ScrollView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -212,9 +212,11 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '500',
   },
-  content: {
-    flex: 1,
+  scroll: {
     width: '100%',
+  },
+  content: {
+    flexGrow: 1,
     alignItems: 'stretch',
     gap: Spacing.two,
     paddingTop: Spacing.two,
