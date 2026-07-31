@@ -253,6 +253,10 @@ is now a misnomer — AI settings are in there too.
   routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
   and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
   network or DB.
+- **Immutable directives must remain the last section in `buildSystem`.** They are placed
+  after every section built from user-controlled free text (goals, equipment, personality,
+  routine notes, exercise titles) to preserve their precedence against injection attempts.
+  Edit this invariant in `src/ai/coachDirectives.ts`.
 
 ## Testing gotchas
 

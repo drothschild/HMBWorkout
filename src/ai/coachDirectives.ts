@@ -38,7 +38,9 @@
  * ---- EDIT HERE ----
  * Replace either empty string below to add directives. Keep each constant a
  * single string (a multi-line template literal is fine); one instruction per
- * line reads best once it lands in the composed prompt. For example
+ * line reads best once it lands in the composed prompt. Directives shape
+ * CONTENT, never the response format — a directive like "reply in plain prose"
+ * would break the JSON output contract enforced by parseAiTurn. For example
  * (commented out — this is style guidance, not shipped policy):
  *
  * export const OVERRIDABLE_DIRECTIVES = `- Default to a terse, no-nonsense coaching tone unless the user's Coaching Style says otherwise
@@ -50,4 +52,8 @@
  */
 export const OVERRIDABLE_DIRECTIVES = '';
 
+/**
+ * Non-negotiable behavioral constraints for the AI Coach.
+ * @see coachDirectives module docs for precedence and placement rules.
+ */
 export const IMMUTABLE_DIRECTIVES = '';

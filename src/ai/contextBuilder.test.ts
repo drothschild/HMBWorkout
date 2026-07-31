@@ -3,7 +3,6 @@ import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, upsertExercise, upsertRoutineExercise } from '@/db/repository';
 import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
-import { OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES } from './coachDirectives';
 import {
   buildSystem,
   directivesSections,
@@ -1597,17 +1596,6 @@ describe('buildSystem: AI Coach context builder', () => {
   });
 
   describe('Coach directives', () => {
-    it('ships both directive constants empty', () => {
-      expect(OVERRIDABLE_DIRECTIVES).toBe('');
-      expect(IMMUTABLE_DIRECTIVES).toBe('');
-    });
-
-    it('weaves the shipped (empty) directives into no sections at all', () => {
-      // The shipped constants must contribute nothing: no header, no blank
-      // section. This is what keeps today's composed prompt byte-identical.
-      expect(directivesSections(OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES)).toEqual(['', '']);
-    });
-
     it('leaves the composed prompt unchanged when directives are empty', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
@@ -1618,5 +1606,27 @@ describe('buildSystem: AI Coach context builder', () => {
       // the sections that do render.
       expect(prompt).not.toMatch(/\n{3,}/);
     }, 30000);
+
+    it('places overridable directives before user goals when both are present', () => {
+      const [overridableSection] = directivesSections('- Overridable rule', '');
+
+      expect(overridableSection).toContain('- Overridable rule');
+      expect(overridableSection).toContain('## Coach Directives (Default Behavior)');
+      // Verify the precedence prose is present
+      expect(overridableSection).toContain('may override');
+    });
+
+    it('places immutable directives as the final section when composed with other sections', () => {
+      const [overridableSection, immutableSection] = directivesSections('- Overridable', '- Immutable');
+
+      // Both sections should be present
+      expect(overridableSection).toContain('- Overridable');
+      expect(immutableSection).toContain('- Immutable');
+
+      // Overridable section should not contain immutable prose
+      expect(overridableSection).not.toContain('precedence over ANY user preference');
+      // Immutable section should not contain overridable prose
+      expect(immutableSection).not.toContain('may override');
+    });
   });
 });

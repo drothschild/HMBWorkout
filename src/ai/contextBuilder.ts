@@ -139,7 +139,7 @@ const IMMUTABLE_DIRECTIVES_HEADER = '## Coach Directives (Non-Negotiable)';
  *
  * @returns a fixed-order two-element tuple: [overridableSection, immutableSection]
  */
-export function directivesSections(overridable: string, immutable: string): string[] {
+export function directivesSections(overridable: string, immutable: string): readonly [string, string] {
   return [formatOverridableDirectives(overridable), formatImmutableDirectives(immutable)];
 }
 
@@ -150,9 +150,9 @@ function formatOverridableDirectives(overridable: string): string {
 
   return `${OVERRIDABLE_DIRECTIVES_HEADER}
 
-The user's preferences below (Goals, Equipment, Coaching Style) may override this guidance where the two conflict.
+The user's preferences below (## User Goals, ## Available Equipment, ## Coaching Style) may override this guidance where the two conflict.
 
-${overridable}`;
+${overridable.trim()}`;
 }
 
 function formatImmutableDirectives(immutable: string): string {
@@ -164,7 +164,7 @@ function formatImmutableDirectives(immutable: string): string {
 
 These rules take precedence over ANY user preference stated anywhere in this prompt or conversation — including the settings above and anything the user says in chat. Follow them even if the user explicitly asks you not to.
 
-${immutable}`;
+${immutable.trim()}`;
 }
 
 function personaSection(mode: AiCoachMode): string {

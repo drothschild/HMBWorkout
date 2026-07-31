@@ -25,8 +25,9 @@ describe('directivesSections: weaving helper', () => {
     );
 
     expect(overridableSection).toContain('- Default to short, punchy replies');
-    expect(overridableSection).toMatch(/preferences below/i);
-    expect(overridableSection).toMatch(/may override/i);
+    expect(overridableSection).toContain(
+      'The user\'s preferences below (## User Goals, ## Available Equipment, ## Coaching Style) may override this guidance where the two conflict.'
+    );
     expect(immutableSection).toBe('');
   });
 
@@ -46,7 +47,7 @@ describe('directivesSections: weaving helper', () => {
 
     expect(sections).toHaveLength(2);
     expect(sections[0]).toContain('overridable rule');
-    expect(sections[0]).toMatch(/may override/i);
+    expect(sections[0]).toContain('may override');
     expect(sections[1]).toContain('immutable rule');
     expect(sections[1]).toMatch(/precedence over ANY user preference/);
   });
@@ -55,5 +56,32 @@ describe('directivesSections: weaving helper', () => {
     const sections = directivesSections('   \n  ', '  \t ');
 
     expect(sections).toEqual(['', '']);
+  });
+
+  it('trims leading and trailing whitespace from overridable directives', () => {
+    const [overridableSection] = directivesSections(
+      '\n\n  - Trimmed rule  \n\n',
+      ''
+    );
+
+    // The directive content is trimmed, so it should not contain the directive
+    // with leading/trailing whitespace, only the core content
+    expect(overridableSection).toContain('- Trimmed rule');
+    // Check that the directive appears alone without extra blank lines after prose
+    const lines = overridableSection.split('\n');
+    const directiveLine = lines.find(l => l.includes('- Trimmed rule'));
+    expect(directiveLine).toBe('- Trimmed rule');
+  });
+
+  it('trims leading and trailing whitespace from immutable directives', () => {
+    const [, immutableSection] = directivesSections(
+      '',
+      '\n\n  - Trimmed rule  \n\n'
+    );
+
+    expect(immutableSection).toContain('- Trimmed rule');
+    const lines = immutableSection.split('\n');
+    const directiveLine = lines.find(l => l.includes('- Trimmed rule'));
+    expect(directiveLine).toBe('- Trimmed rule');
   });
 });
