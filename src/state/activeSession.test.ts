@@ -1089,6 +1089,86 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
     });
   });
 
+  describe('abandon: pending set persist drains before the session is discarded', () => {
+    function tick(): Promise<void> {
+      return new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it('onDiscardSession waits for the pending set persist before deleting the session', async () => {
+      // AbandonSession can race an in-flight LogSet persist: rill executors are
+      // fire-and-forget, so the LogSet dispatch resolves while its PersistSet
+      // write is still pending. The discard must drain the persist queue first
+      // (mirroring onCompleteSession) or the persist lands after the delete and
+      // leaves an orphaned session_sets row for a session that no longer exists.
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const persistDone = jest.fn();
+      const onPersistSet = jest.fn(() => persistGate.then(persistDone));
+
+      const store = createActiveSessionStore(database, {
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet,
+      });
+
+      const sessionId = 'session-abandon-drain';
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine: {
+          id: 'routine-abandon-drain',
+          name: 'Abandon Drain Routine',
+          entries: [
+            {
+              exerciseId: 'ex-abandon-drain',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              // Two target sets so logging one keeps the workout in progress
+              targetSets: 2,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 0,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      // Log a set and leave its persist in flight behind the gate
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 50,
+        durationSeconds: 0,
+        nowMs: Date.now(),
+      });
+      expect(onPersistSet).toHaveBeenCalledTimes(1);
+
+      // Abandon while the persist is still pending; the discard must park behind it
+      const abandonDispatch = store.getState().dispatch({ tag: 'AbandonSession' });
+
+      for (let i = 0; i < 10; i++) await tick();
+      let session = await getSession(database, sessionId);
+      expect(session).toBeDefined(); // the delete must not outrun the persist
+      expect(persistDone).not.toHaveBeenCalled();
+
+      // Let the persist land; the discard may now delete the session
+      releasePersist();
+      const result = await abandonDispatch;
+
+      expect(result).not.toBeNull(); // discard succeeded (idle state returned)
+      expect(persistDone).toHaveBeenCalled();
+      session = await getSession(database, sessionId);
+      expect(session).toBeUndefined();
+      expect(store.getState().sessionState).toBeNull();
+      expect(store.getState().lastError).toBeNull();
+    });
+  });
+
   describe('post-workout debrief', () => {
     const routineId = 'routine-debrief';
     let fakeStorage: { [key: string]: string };
