@@ -5,14 +5,14 @@ import {
   ActivityIndicator,
   ScrollView,
   View,
-  useColorScheme,
-} from 'react-native';
+  } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { getSettings, setSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';
@@ -21,7 +21,7 @@ import { testBridgeConnection, runImportRoutines, runSync } from '@/helpers/sett
 
 export default function BridgeSettingsScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
+  const theme = useTheme();
   const [baseUrl, setBaseUrl] = useState(() => getSettings().baseUrl);
   const [token, setToken] = useState(() => getSettings().token);
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
@@ -95,8 +95,8 @@ export default function BridgeSettingsScreen() {
   };
 
   const busy = testingConnection || importing || syncing;
-  const textInputColor = colorScheme === 'dark' ? '#fff' : '#000';
-  const placeholderColor = colorScheme === 'dark' ? '#999' : '#ccc';
+  const textInputColor = theme.text;
+  const placeholderColor = theme.textSecondary;
 
   return (
     <ThemedView style={styles.container}>
@@ -124,7 +124,7 @@ export default function BridgeSettingsScreen() {
               Bridge URL
             </ThemedText>
             <TextInput
-              style={[styles.input, { color: textInputColor }]}
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="http://mac.local:3000"
               placeholderTextColor={placeholderColor}
               value={baseUrl}
@@ -138,7 +138,7 @@ export default function BridgeSettingsScreen() {
               Bearer Token
             </ThemedText>
             <TextInput
-              style={[styles.input, { color: textInputColor }]}
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
               placeholder="Enter your token"
               placeholderTextColor={placeholderColor}
               value={token}
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
     borderWidth: 1,
-    borderColor: '#ccc',
+    // borderColor is theme-resolved inline
     borderRadius: 6,
     fontSize: 14,
   },

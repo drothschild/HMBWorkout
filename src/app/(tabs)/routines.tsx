@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { database } from '@/db';
 import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
@@ -66,6 +67,7 @@ function EntryPointButtons({ importLabel, importing, importMessage, onImport, on
 
 export default function RoutinesScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const [routines, setRoutines] = useState<RoutineListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -187,7 +189,11 @@ export default function RoutinesScreen() {
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <Pressable
-                    style={({ pressed }) => [styles.routineItem, pressed && styles.routineItemPressed]}
+                    style={({ pressed }) => [
+                      styles.routineItem,
+                      { borderBottomColor: theme.backgroundSelected },
+                      pressed && styles.routineItemPressed,
+                    ]}
                     onPress={() => handleRoutinePress(item.id)}
                   >
                     <View style={styles.routineInfo}>
@@ -291,8 +297,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.three,
     marginBottom: Spacing.two,
+    // borderBottomColor is theme-resolved inline
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
   },
   routineItemPressed: {
     opacity: 0.6,
