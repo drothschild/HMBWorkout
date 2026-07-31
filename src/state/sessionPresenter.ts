@@ -26,6 +26,12 @@ export interface SessionPresenterOutput {
   loggedSets: LoggedSet[];
   progressionHint: string | undefined;
 
+  // Copy for the finish-confirmation dialog. Finishing is irreversible (it
+  // triggers vault sync, the HealthKit export, and the debrief), so the screen
+  // always confirms; the message carries how much planned work remains so an
+  // early finish reads as an informed choice. Derived here to stay jest-covered.
+  finishConfirmation: { title: string; message: string };
+
   // Set position within the current entry (one-tap logging advances on log,
   // so the screen needs to show where the workout stands). setNumber counts
   // within the warmup or working segment; 0 when there is no current entry.
@@ -119,6 +125,20 @@ export function createSessionPresenter(
       : `Set ${setNumber} of ${currentEntry.targetSets}`
     : '';
 
+  // Finish-confirmation copy: the engine decides which phases allow
+  // FinishSession; the screen only confirms intent, with this message.
+  const totalEntries = sessionState.entries?.length ?? 0;
+  const remainingEntries = Math.max(0, totalEntries - sessionState.exerciseIndex);
+  const loggedCount = (sessionState.loggedSets ?? []).length;
+  const remainingClause =
+    remainingEntries > 0
+      ? ` ${remainingEntries} planned ${remainingEntries === 1 ? 'exercise remains' : 'exercises remain'}.`
+      : '';
+  const finishConfirmation = {
+    title: 'Finish workout?',
+    message: `You've logged ${loggedCount} ${loggedCount === 1 ? 'set' : 'sets'}.${remainingClause} Finish and save this workout?`,
+  };
+
   return {
     currentExerciseId,
     currentExerciseTitle,
@@ -132,6 +152,7 @@ export function createSessionPresenter(
     restRemainingMs,
     loggedSets: sessionState.loggedSets ?? [],
     progressionHint,
+    finishConfirmation,
     isWarmupSet,
     setNumber,
     totalSetsForEntry,

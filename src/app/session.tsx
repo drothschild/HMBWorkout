@@ -176,6 +176,16 @@ export default function SessionScreen() {
     );
   };
 
+  // Irreversible (kicks off sync, the HealthKit export, and the debrief), so
+  // finishing always confirms. Not destructive — data is saved, not deleted —
+  // hence no destructive button style; that stays unique to Abandon.
+  const confirmFinish = () => {
+    Alert.alert(presenter.finishConfirmation.title, presenter.finishConfirmation.message, [
+      { text: 'Keep going', style: 'cancel' },
+      { text: 'Finish', onPress: () => presenter.onFinishSession() },
+    ]);
+  };
+
   // Resting takes over the whole screen: big countdown, skip or pause only
   if (presenter.isResting || presenter.isRestPaused) {
     return (
@@ -254,7 +264,7 @@ export default function SessionScreen() {
             <>
               <Pressable
                 style={[styles.button, styles.finishButton]}
-                onPress={() => presenter.onFinishSession()}
+                onPress={confirmFinish}
               >
                 <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
               </Pressable>
