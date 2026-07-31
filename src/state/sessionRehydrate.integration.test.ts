@@ -132,6 +132,80 @@ describe('Session hydration and restart recovery', () => {
     expect(s.restRemainingMs).toBe(0); // nothing frozen once resumed
   });
 
+  it('Resume after rehydrating a warmup-phase state is a no-op, not an error', async () => {
+    // Boot dispatches Resume unconditionally after hydrating (_layout.tsx), so
+    // a session killed mid-warmup — never paused, nothing to resume — must not
+    // surface "invalid event Resume in phase warmup" as a lastError banner.
+    const store = createActiveSessionStore(database, {
+      onScheduleRest: jest.fn(),
+      onCancelRest: jest.fn(),
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    const routine = {
+      id: 'routine-warmup-resume',
+      name: 'Warmup Resume Routine',
+      entries: [
+        {
+          exerciseId: 'ex-wr1',
+          kind: 'strength' as const,
+          warmupSets: 2,
+          targetSets: 3,
+          targetReps: 8,
+          targetDurationSeconds: 0,
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+      ],
+    };
+
+    const sessionId = 'test-hydrate-warmup';
+    const now = Date.now();
+
+    // StartSession with warmup sets puts the engine in warmup; the app is
+    // killed here without pausing, so this is the state on disk at relaunch.
+    await store.getState().dispatch({
+      tag: 'StartSession',
+      sessionId,
+      nowMs: now,
+      routine,
+    });
+    const warmupState = store.getState().sessionState;
+    expect(warmupState!.phase).toBe('warmup');
+    await saveEngineState(database, sessionId, warmupState!);
+
+    // Relaunch simulation: fresh store, hydrate, then the boot-time Resume
+    const scheduleRest2 = jest.fn();
+    const store2 = createActiveSessionStore(database, {
+      onScheduleRest: scheduleRest2,
+      onCancelRest: jest.fn(),
+      onNotify: jest.fn(),
+      onPersistSet: jest.fn(),
+      onCompleteSession: jest.fn(),
+    });
+
+    const loaded = await loadActiveEngineState(database);
+    expect(loaded).not.toBeNull();
+    store2.getState().hydrate(loaded!);
+
+    const result = await store2.getState().dispatch({
+      tag: 'Resume',
+      nowMs: now + 60_000,
+    });
+
+    // A Resume with nothing to resume succeeds as a no-op: no error, state
+    // untouched, no rest timer armed.
+    expect(store2.getState().lastError).toBeNull();
+    expect(result).not.toBeNull();
+    const s = store2.getState().sessionState!;
+    expect(s.phase).toBe('warmup');
+    expect(s.exerciseIndex).toBe(0);
+    expect(s.setIndex).toBe(0);
+    expect(scheduleRest2).not.toHaveBeenCalled();
+  });
+
   it('persists and loads mid-session state with deadline info intact (AC10.4/AC10.6)', async () => {
     // AC10.4: Serialized SessionState persisted mid-session rehydrates after app restart
     // AC10.6: Rest deadline is preserved for reconciliation after rehydration
