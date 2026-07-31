@@ -11,7 +11,8 @@ export interface SessionDetailSetLine {
   id: string;
   setType: string;
   line: string;
-  /** Formatted label (e.g. "Warmup 1", "Set 3") with independent counters per type */
+  /** Formatted label: per-type counters (e.g. "Warmup 1", "Set 3") for planned
+   * exercises, plain 1..n numbering (e.g. "1", "2") for otherSets */
   label: string;
 }
 
@@ -50,7 +51,7 @@ export interface SessionDetail {
    * here with zero logged sets. Conversely, if an exercise was removed from the
    * routine, its logged sets will appear in otherSets instead. Full fidelity is
    * unrecoverable because session_sets carries only routine_exercise_id, not
-   * exercise_id. See AGENTS.md ticket C3 (PR #31) for the design tradeoff.
+   * exercise_id (routines are deletable, history is preserved).
    */
   exercises: SessionDetailExercise[];
   /**
@@ -79,15 +80,10 @@ function formatSessionSetLine(set: SessionSet): string {
   );
 }
 
-function toSetLine(set: SessionSet, warmupIndex: number, workingIndex: number): SessionDetailSetLine {
-  const setType = set.setType as string;
-  const label = setType === 'warmup'
-    ? `Warmup ${warmupIndex + 1}`
-    : `Set ${workingIndex + 1}`;
-
+function toSetLine(set: SessionSet, label: string): SessionDetailSetLine {
   return {
     id: set.id,
-    setType,
+    setType: set.setType as string,
     line: formatSessionSetLine(set),
     label,
   };
@@ -100,8 +96,8 @@ function toSetLine(set: SessionSet, warmupIndex: number, workingIndex: number): 
  *
  * Degrades gracefully when the routine (or one of its routine_exercises
  * rows) no longer exists — see SessionDetail's field docs — rather than
- * silently losing logged history, matching AGENTS.md's "routines are
- * deletable while history is preserved" invariant (ticket C3, PR #31).
+ * silently losing logged history, matching the invariant that routines are
+ * deletable while history is preserved.
  *
  * @param db The database instance
  * @param sessionId The finished session to show
@@ -133,11 +129,10 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
     let workingCount = 0;
     const formattedSets = entry.sets.map((set) => {
       const setType = set.setType as string;
-      if (setType === 'warmup') {
-        return toSetLine(set, warmupCount++, -1);
-      } else {
-        return toSetLine(set, -1, workingCount++);
-      }
+      const label = setType === 'warmup'
+        ? `Warmup ${warmupCount++ + 1}`
+        : `Set ${workingCount++ + 1}`;
+      return toSetLine(set, label);
     });
 
     return {

@@ -105,8 +105,10 @@ describe('sessionDetailPresenter', () => {
     expect(detail!.exercises[0].sets).toHaveLength(2);
     expect(detail!.exercises[0].sets[0].setType).toBe('warmup');
     expect(detail!.exercises[0].sets[0].line).toBe('10 x 44lbs');
+    expect(detail!.exercises[0].sets[0].label).toBe('Warmup 1');
     expect(detail!.exercises[0].sets[1].setType).toBe('working');
     expect(detail!.exercises[0].sets[1].line).toBe('8 x 132.5lbs RPE: 7.5');
+    expect(detail!.exercises[0].sets[1].label).toBe('Set 1');
 
     // Planned exercise that was skipped: present with an empty sets array,
     // not omitted — that it was planned and never logged is information.
@@ -115,6 +117,70 @@ describe('sessionDetailPresenter', () => {
     expect(detail!.exercises[1].sets).toEqual([]);
 
     expect(detail!.otherSets).toEqual([]);
+  });
+
+  it('labels warmup and working sets independently with multiple sets per type', async () => {
+    await seedRoutine();
+    await createSession(database, {
+      sessionId: 'session-1',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    // Three warmup sets
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'warmup',
+      reps: 10,
+      weightKg: 20,
+    });
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'warmup',
+      reps: 8,
+      weightKg: 40,
+    });
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'warmup',
+      reps: 5,
+      weightKg: 50,
+    });
+    // Two working sets
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+      rpe: 7.5,
+    });
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+      rpe: 8.0,
+    });
+    const endedAt = Date.now();
+    await database.write(async () => {
+      const session = await database.get('sessions').find('session-1');
+      await (session as any).update((record: any) => {
+        record._raw.ended_at = endedAt;
+      });
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-1');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.exercises[0].sets).toHaveLength(5);
+
+    // Three warmup sets labeled independently
+    expect(detail!.exercises[0].sets[0].label).toBe('Warmup 1');
+    expect(detail!.exercises[0].sets[0].setType).toBe('warmup');
+    expect(detail!.exercises[0].sets[1].label).toBe('Warmup 2');
+    expect(detail!.exercises[0].sets[1].setType).toBe('warmup');
+    expect(detail!.exercises[0].sets[2].label).toBe('Warmup 3');
+    expect(detail!.exercises[0].sets[2].setType).toBe('warmup');
+
+    // Two working sets labeled independently
+    expect(detail!.exercises[0].sets[3].label).toBe('Set 1');
+    expect(detail!.exercises[0].sets[3].setType).toBe('working');
+    expect(detail!.exercises[0].sets[4].label).toBe('Set 2');
+    expect(detail!.exercises[0].sets[4].setType).toBe('working');
   });
 
   it('falls back to the routine id when the routine has been deleted, but still lists its exercises', async () => {
@@ -309,6 +375,22 @@ describe('sessionDetailPresenter', () => {
     expect(detail!.otherSets).toHaveLength(2);
     expect(detail!.otherSets[0].line).toBe('10 x 110lbs');
     expect(detail!.otherSets[1].line).toBe('8 x 110lbs');
+  });
+
+  it('returns null for endedAt when the session has not been marked ended', async () => {
+    await seedRoutine();
+    await createSession(database, {
+      sessionId: 'session-1',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    // Do not update ended_at, leaving it null (session still in progress)
+
+    const detail = await sessionDetailPresenter(database, 'session-1');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.sessionId).toBe('session-1');
+    expect(detail!.endedAt).toBeNull();
   });
 
   it('keeps duplicate-exercise entries as separate exercises with distinct routineExerciseIds', async () => {

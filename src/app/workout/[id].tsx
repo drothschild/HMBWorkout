@@ -33,6 +33,7 @@ export default function SessionDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!id) {
+        setError(null);
         setLoading(false);
         return;
       }
@@ -178,10 +179,10 @@ export default function SessionDetailScreen() {
               <ThemedText type="default" style={styles.skippedText}>
                 Logged against an exercise since removed from this routine.
               </ThemedText>
-              {detail.otherSets.map((set, idx) => (
+              {detail.otherSets.map((set) => (
                 <View key={set.id} style={styles.setRow}>
                   <ThemedText type="default" style={styles.setLine}>
-                    {idx + 1}. {set.line}
+                    {set.label}. {set.line}
                   </ThemedText>
                 </View>
               ))}
