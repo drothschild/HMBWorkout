@@ -38,6 +38,36 @@ export interface SessionPresenterOutput {
 }
 
 /**
+ * Format one logged set for the session screen's Logged Sets list.
+ * Reps/weight/duration may legitimately be null or undefined, and rpe carries
+ * the host's -1 sentinel for "not logged" (see SENTINEL_TO_OPTION_MAP in
+ * engine/index.ts) — absent metrics are omitted rather than rendered.
+ * Each set formats from its own setType, so a session mixing strength and
+ * duration exercises renders every line correctly.
+ */
+export function formatLoggedSetLine(set: LoggedSet): string {
+  const parts: string[] = [];
+
+  if (set.setType === 'stretch' || set.setType === 'cardio') {
+    if (set.durationSeconds != null) {
+      parts.push(`${set.durationSeconds}s`);
+    }
+  } else if (set.reps != null && set.weightKg != null) {
+    parts.push(`${set.reps} x ${set.weightKg}kg`);
+  } else if (set.reps != null) {
+    parts.push(`${set.reps} reps`);
+  } else if (set.weightKg != null) {
+    parts.push(`${set.weightKg}kg`);
+  }
+
+  if (set.rpe != null && set.rpe !== -1) {
+    parts.push(`RPE: ${set.rpe}`);
+  }
+
+  return parts.length > 0 ? parts.join(' ') : '—';
+}
+
+/**
  * Create a session presenter from state and dispatch.
  * Pure function - no hooks, no side effects, fully testable.
  *
