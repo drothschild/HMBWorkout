@@ -320,14 +320,18 @@ describe('Repository: session and set helpers', () => {
         endSession: false,
       });
 
-      await expect(deleteSession(database, 'session-delete-3')).rejects.toThrow();
+      await expect(deleteSession(database, 'session-delete-3')).rejects.toThrow(
+        'cannot delete session session-delete-3: still in progress'
+      );
 
       expect(await getSession(database, 'session-delete-3')).toBeDefined();
       expect(await getSessionSets(database, 'session-delete-3')).toHaveLength(2);
     }, 15000);
 
     it('throws when the session does not exist', async () => {
-      await expect(deleteSession(database, 'session-does-not-exist')).rejects.toThrow();
+      await expect(deleteSession(database, 'session-does-not-exist')).rejects.toThrow(
+        'cannot delete session session-does-not-exist: not found'
+      );
     }, 10000);
   });
 
