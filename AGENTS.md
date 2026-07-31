@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-29
+Last verified: 2026-07-30
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -152,9 +152,13 @@ misnomer — AI settings are in there too.
   exercise but never updates an existing one's title or kind — a draft must not rename
   or re-kind an exercise out from under other routines. Title reuse therefore maps to
   the same record, which is why the persona pushes the model toward existing titles.
-- **Drafts are whole routines, never diffs.** `upsertRoutine` deletes and recreates
-  every `routine_exercise` row, so accepting an edit draft that omits an exercise
-  removes it. The persona demands the full exercise list for this reason.
+- **Drafts are whole routines, never diffs.** `upsertRoutine` reconciles
+  `routine_exercise` rows *in place* — a surviving entry keeps its row id, because
+  `session_sets.routine_exercise_id` points through it and delete-and-recreate would
+  orphan every previously logged set. Rows it cannot match are destroyed, so accepting
+  an edit draft that omits an exercise (or lists it fewer times than the stored routine
+  does) still removes the extra rows. The persona demands the full exercise list for
+  this reason.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -229,6 +233,11 @@ misnomer — AI settings are in there too.
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
 - Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
+- A routine may list the same exercise more than once, so a routine *entry* is
+  identified by its `routine_exercises` row id, never by `exercise_id` — React list
+  keys, logged-set attribution (`session_sets.routine_exercise_id`), and
+  `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
+  therefore surface it (`ExerciseDetail.routineExerciseId`)
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones
