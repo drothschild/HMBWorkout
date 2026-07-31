@@ -1593,4 +1593,134 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('bridge.local');
     }, 30000);
   });
+
+  describe('Coach directives', () => {
+    it('weaves the shipped directive content into the composed prompt in pinned order', async () => {
+      // The constants now ship with real content (2026-07-31), so the default
+      // composition must carry both sections: overridable before the user's
+      // settings, immutable last, with the whitespace hygiene intact.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
+      const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+      expect(overridableIdx).toBeGreaterThan(-1);
+      expect(immutableIdx).toBeGreaterThan(-1);
+      expect(overridableIdx).toBeLessThan(prompt.indexOf('## User Goals'));
+      const lastHeaderIdx = Math.max(
+        ...[...prompt.matchAll(/^## .*$/gm)].map((m) => m.index ?? -1)
+      );
+      expect(immutableIdx).toBe(lastHeaderIdx);
+      expect(prompt).not.toMatch(/\n{3,}/);
+    }, 30000);
+
+    describe('Placement invariants in composed buildSystem', () => {
+      it('places overridable directives before user goals', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '',
+        });
+
+        const overridableIdx = prompt.indexOf('## Coach Directives (Default Behavior)');
+        const goalsIdx = prompt.indexOf('## User Goals');
+
+        expect(overridableIdx).toBeGreaterThan(-1);
+        expect(goalsIdx).toBeGreaterThan(-1);
+        expect(overridableIdx).toBeLessThan(goalsIdx);
+        // An empty injected directive contributes no header at all.
+        expect(prompt).not.toContain('## Coach Directives (Non-Negotiable)');
+      }, 30000);
+
+      it('places every other section before immutable directives', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+        const goalsIdx = prompt.indexOf('## User Goals');
+        const equipmentIdx = prompt.indexOf('## Available Equipment');
+        const personalityIdx = prompt.indexOf('## Coaching Style');
+        const routinesIdx = prompt.indexOf('## Existing Routines');
+
+        expect(immutableIdx).toBeGreaterThan(-1);
+        expect(goalsIdx).toBeGreaterThan(-1);
+        expect(equipmentIdx).toBeGreaterThan(-1);
+        expect(personalityIdx).toBeGreaterThan(-1);
+        expect(routinesIdx).toBeGreaterThan(-1);
+
+        // All these sections must come before the immutable directives
+        expect(goalsIdx).toBeLessThan(immutableIdx);
+        expect(equipmentIdx).toBeLessThan(immutableIdx);
+        expect(personalityIdx).toBeLessThan(immutableIdx);
+        expect(routinesIdx).toBeLessThan(immutableIdx);
+      }, 30000);
+
+      it('ends with immutable directives', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        expect(prompt.trimEnd()).toContain('- IMMUTABLE_MARKER');
+        expect(prompt.trimEnd().endsWith('- IMMUTABLE_MARKER')).toBe(true);
+      }, 30000);
+
+      it('prevents composition from introducing excessive blank lines', async () => {
+        const prompt = await buildSystem(database, { kind: 'create' }, {
+          overridable: '- OVERRIDABLE_MARKER',
+          immutable: '- IMMUTABLE_MARKER',
+        });
+
+        // Three or more consecutive newlines indicate a composition error
+        expect(prompt).not.toMatch(/\n{3,}/);
+      }, 30000);
+
+      it('ends with immutable directives in debrief mode, after the workout addendum', async () => {
+        // Debrief appends the most user-authored text (routine name, exercise
+        // titles) after everything else — the immutable section must still land
+        // last, or the anti-injection ordering silently breaks for this mode.
+        await database.write(async () => {
+          await database.get('routines').create((r: any) => {
+            r._raw.id = 'routine-place-debrief';
+            r.name = 'Placement Day';
+            r.created_at = Date.now();
+            r.updated_at = Date.now();
+          });
+          await database.get('exercises').create((e: any) => {
+            e._raw.id = 'exercise-place-bench';
+            e.title = 'Bench Press';
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        });
+        const re = await upsertRoutineExercise(database, 'routine-place-debrief', {
+          exerciseId: 'exercise-place-bench',
+          order: 0,
+          targetSets: 3,
+          targetReps: 8,
+        });
+        await createSession(database, {
+          sessionId: 'session-place-debrief',
+          routineId: 'routine-place-debrief',
+          startedAtMs: Date.now() - 3600000,
+        });
+        await appendSet(database, 'session-place-debrief', (re as any).id, {
+          setType: 'working',
+          reps: 8,
+          weightKg: 100,
+        });
+
+        const prompt = await buildSystem(
+          database,
+          { kind: 'debrief', routineId: 'routine-place-debrief', sessionId: 'session-place-debrief' },
+          { overridable: '', immutable: '- IMMUTABLE_MARKER' }
+        );
+
+        expect(prompt.indexOf('Bench Press')).toBeLessThan(
+          prompt.indexOf('## Coach Directives (Non-Negotiable)')
+        );
+        expect(prompt.trimEnd().endsWith('- IMMUTABLE_MARKER')).toBe(true);
+      }, 30000);
+    });
+  });
 });
