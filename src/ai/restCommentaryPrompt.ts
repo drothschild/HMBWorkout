@@ -188,8 +188,7 @@ ${neutralizeForPrompt(directives)}`);
   ].filter((segment) => segment.length > 0);
 
   const upNext = [
-    neutralizeForPrompt(exercise.title),
-    `(${exercise.kind})`,
+    `${neutralizeForPrompt(exercise.title)} (${exercise.kind})`,
     ...metricSegments,
   ].join(' | ');
 
