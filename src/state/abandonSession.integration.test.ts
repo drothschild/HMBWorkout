@@ -86,9 +86,8 @@ describe('abandoning an in-progress workout', () => {
       nowMs: 1000,
       routine,
     });
-    await store.getState().dispatch({ tag: 'LogSet', reps: 10, weightKg: 20 });
-    await store.getState().dispatch({ tag: 'SetDone', nowMs: 2000 });
-    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 40 });
+    await store.getState().dispatch({ tag: 'LogSet', reps: 10, weightKg: 20, nowMs: 2000 });
+    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 40, nowMs: 3000 });
   });
 
   afterEach(async () => {

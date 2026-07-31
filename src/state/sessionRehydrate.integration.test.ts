@@ -23,7 +23,7 @@ describe('Session hydration and restart recovery', () => {
 
   it('rehydrates a paused mid-session state and Resume re-arms the frozen rest (AC2.3/AC10.4)', async () => {
     // 1. Build a valid engine state by driving through transitions:
-    // StartSession → LogSet → SetDone → (engine advances to resting) → Pause → serialize
+    // StartSession → LogSet (records + advances into rest) → Pause → serialize
     const store = createActiveSessionStore(database, {
       onScheduleRest: jest.fn(),
       onCancelRest: jest.fn(),
@@ -71,32 +71,26 @@ describe('Session hydration and restart recovery', () => {
       routine,
     });
 
-    // LogSet to complete warmup
+    // LogSet the warmup — one tap records it and enters the between-sets rest
     await store.getState().dispatch({
       tag: 'LogSet',
       reps: 10,
       weightKg: 20,
       durationSeconds: 0,
+      nowMs: now + 2000,
     });
 
-    // SetDone to complete warmup set
-    await store.getState().dispatch({
-      tag: 'SetDone',
-      nowMs: now + 5000,
-    });
+    // Cut the warmup rest short to reach the working set
+    await store.getState().dispatch({ tag: 'SkipRest' });
 
-    // LogSet for working set
+    // LogSet the working set — final set of ex-c1, advances to ex-c2 and
+    // starts the 90s between-exercise rest
     await store.getState().dispatch({
       tag: 'LogSet',
       reps: 8,
       weightKg: 25,
       durationSeconds: 0,
       rpe: 7.5,
-    });
-
-    // SetDone to complete working set and enter resting
-    await store.getState().dispatch({
-      tag: 'SetDone',
       nowMs: now + 10000,
     });
 
@@ -132,7 +126,7 @@ describe('Session hydration and restart recovery', () => {
     const s = store2.getState().sessionState!;
     expect(s.loggedSets.length).toBeGreaterThan(0); // sets intact after hydration
     expect(s.phase).toBe('resting'); // paused rest resumes with the frozen remainder
-    // SetDone at now+10s started a 90s rest (deadline now+100s); paused at now+20s
+    // The final LogSet at now+10s started a 90s rest (deadline now+100s); paused at now+20s
     // froze 80s, so resuming at now+100s re-arms the deadline at now+180s.
     expect(s.restDeadlineMs).toBe(now + 180_000);
     expect(s.restRemainingMs).toBe(0); // nothing frozen once resumed

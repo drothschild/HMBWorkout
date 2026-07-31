@@ -31,11 +31,47 @@ export function SetLogger({
 }: SetLoggerProps) {
   const isDurationBased = presenter.currentEntry?.kind === 'stretch' || presenter.currentEntry?.kind === 'cardio';
 
+  // Free-form stretch cool-down: conditional rendering only — the engine
+  // rejects LogSet/SetDone in this phase, so nothing can advance mid-stretch.
+  // Finish Session stays available in the session screen's footer.
+  if (presenter.isStretching) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText type="subtitle">Stretching</ThemedText>
+        <ThemedText style={styles.stretchingHint}>
+          Take your time — the workout is paused where you left it.
+        </ThemedText>
+
+        <ScrollView style={styles.loggedSets}>
+          <ThemedText type="subtitle">Logged Sets</ThemedText>
+          {presenter.loggedSets.map((set, idx) => (
+            <View key={idx} style={styles.setRow}>
+              <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
+            </View>
+          ))}
+        </ScrollView>
+
+        <View style={styles.buttonGroup}>
+          <Pressable
+            style={[styles.button, styles.primaryButton]}
+            onPress={() => presenter.onStopStretching()}
+          >
+            <ThemedText style={styles.buttonText}>Done Stretching</ThemedText>
+          </Pressable>
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="subtitle">
         {presenter.currentExerciseTitle || 'Exercise'}
       </ThemedText>
+
+      {presenter.setPositionLabel !== '' && (
+        <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
+      )}
 
       {!isDurationBased && presenter.progressionHint && (
         <View style={styles.hintContainer}>
@@ -139,8 +175,8 @@ export function SetLogger({
           <ThemedText style={styles.buttonText}>Log Set</ThemedText>
         </Pressable>
 
-        <Pressable style={[styles.button, styles.successButton]} onPress={() => presenter.onSetDone()}>
-          <ThemedText style={styles.buttonText}>Set Done</ThemedText>
+        <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipSet()}>
+          <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
         </Pressable>
 
         <Pressable style={[styles.button, styles.warningButton]} onPress={() => presenter.onSkipExercise()}>
@@ -161,6 +197,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: Spacing.three,
+  },
+  setPositionText: {
+    marginTop: Spacing.one,
+    opacity: 0.7,
+  },
+  stretchingHint: {
+    marginTop: Spacing.two,
+    opacity: 0.7,
   },
   hintContainer: {
     backgroundColor: '#E3F2FD',

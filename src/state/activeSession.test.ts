@@ -108,7 +108,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -139,6 +141,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7,
+        nowMs: Date.now(),
       });
 
       // Verify appendSet (mocked) was called with the right parameters
@@ -173,7 +176,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -199,6 +204,7 @@ describe('activeSession store', () => {
         reps: 8,
         weightKg: 50,
         rpe: 7.5,
+        nowMs: Date.now(),
       });
 
       const storeState = store.getState();
@@ -219,7 +225,9 @@ describe('activeSession store', () => {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
             warmupSets: 0,
-            targetSets: 1,
+            // Two target sets: logging one set advances mid-exercise instead
+            // of completing the workout (one-tap logging advances on log)
+            targetSets: 2,
             targetReps: 8,
             targetDurationSeconds: 0,
             restSeconds: 60,
@@ -244,6 +252,7 @@ describe('activeSession store', () => {
         durationSeconds: 0,
         reps: 8,
         weightKg: 50,
+        nowMs: Date.now(),
       });
 
       // Verify engine state is persisted in store
@@ -268,6 +277,7 @@ describe('activeSession store', () => {
         tag: 'LogSet',
         durationSeconds: 0,
         reps: 8,
+        nowMs: Date.now(),
       });
 
       const state = store.getState();
@@ -479,6 +489,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7.5,
+        nowMs: Date.now(),
       });
 
       // Debug: check for errors in store
@@ -487,8 +498,18 @@ describe('activeSession store', () => {
         console.error('Store error:', storeState.lastError);
       }
 
-      // Query database directly for the persisted set
-      const sets = await getSessionSets(database, sessionId);
+      // One-tap logging: this was the entry's only set, so the dispatch also
+      // completed the workout, and the fire-and-forget persist may still be in
+      // flight when dispatch resolves. Wait for the row to land.
+      let sets: any[] = [];
+      for (let attempt = 0; attempt < 50 && sets.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+        try {
+          sets = await getSessionSets(database, sessionId);
+        } catch {
+          // LokiJS's record cache can race the in-flight write; retry
+        }
+      }
       expect(sets).toHaveLength(1);
       expect((sets[0] as any).rpe).toBe(7.5);
       expect((sets[0] as any).reps).toBe(8);
@@ -598,6 +619,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 7,
+        nowMs: Date.now(),
       });
 
       // Debug: check for errors
@@ -859,6 +881,7 @@ describe('activeSession store', () => {
         weightKg: 50,
         durationSeconds: 0,
         rpe: 3.3, // Invalid RPE value (fails 0.5-step increment check)
+        nowMs: Date.now(),
       });
 
       // After invalid event:
@@ -975,6 +998,174 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
         // Clean up the unhandledRejection listener
         process.removeListener('unhandledRejection', unhandledRejectionHandler);
       }
+    });
+  });
+
+  describe('one-tap completion: final persist lands before the session closes', () => {
+    function tick(): Promise<void> {
+      return new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it('onCompleteSession waits for the pending set persist before writing ended_at', async () => {
+      // The merged LogSet transition emits [PersistSet, CompleteSession] in one
+      // dispatch, and rill executors are fire-and-forget — completion must not
+      // outrun the final set's write or the synced markdown misses it.
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const persistDone = jest.fn();
+      const onPersistSet = jest.fn(() => persistGate.then(persistDone));
+
+      const syncFn = jest.fn(async () => {});
+      const store = createActiveSessionStore(
+        database,
+        {
+          onScheduleRest: jest.fn(),
+          onCancelRest: jest.fn(),
+          onNotify: jest.fn(),
+          onPersistSet,
+        },
+        syncFn,
+        {
+          ensureAuthorized: jest.fn(async () => 'authorized' as const),
+          requestAuthorization: jest.fn(async () => true),
+          saveWorkoutSample: jest.fn(async () => undefined),
+        }
+      );
+
+      const sessionId = 'session-persist-drain';
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine: {
+          id: 'routine-persist-drain',
+          name: 'Persist Drain Routine',
+          entries: [
+            {
+              exerciseId: 'ex-drain',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              targetSets: 1,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 0,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      // The final set: records, completes the workout, and leaves the persist in flight
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 50,
+        durationSeconds: 0,
+        nowMs: Date.now(),
+      });
+      expect(store.getState().sessionState?.phase).toBe('done');
+      expect(onPersistSet).toHaveBeenCalledTimes(1);
+
+      // Completion must be parked behind the un-persisted set
+      for (let i = 0; i < 10; i++) await tick();
+      let session = (await database.get('sessions').find(sessionId)) as any;
+      expect(session._raw.ended_at).toBeNull();
+      expect(syncFn).not.toHaveBeenCalled();
+
+      // Let the persist land; completion may now proceed
+      releasePersist();
+      for (let attempt = 0; attempt < 50; attempt++) {
+        session = (await database.get('sessions').find(sessionId)) as any;
+        if (session._raw.ended_at) break;
+        await tick();
+      }
+      expect(session._raw.ended_at).toBeTruthy();
+      expect(syncFn).toHaveBeenCalled();
+      expect(persistDone.mock.invocationCallOrder[0]).toBeLessThan(
+        syncFn.mock.invocationCallOrder[0]
+      );
+    });
+  });
+
+  describe('abandon: pending set persist drains before the session is discarded', () => {
+    function tick(): Promise<void> {
+      return new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it('onDiscardSession waits for the pending set persist before deleting the session', async () => {
+      // AbandonSession can race an in-flight LogSet persist: rill executors are
+      // fire-and-forget, so the LogSet dispatch resolves while its PersistSet
+      // write is still pending. The discard must drain the persist queue first
+      // (mirroring onCompleteSession) or the persist lands after the delete and
+      // leaves an orphaned session_sets row for a session that no longer exists.
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const persistDone = jest.fn();
+      const onPersistSet = jest.fn(() => persistGate.then(persistDone));
+
+      const store = createActiveSessionStore(database, {
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet,
+      });
+
+      const sessionId = 'session-abandon-drain';
+      await store.getState().dispatch({
+        tag: 'StartSession',
+        sessionId,
+        nowMs: Date.now(),
+        routine: {
+          id: 'routine-abandon-drain',
+          name: 'Abandon Drain Routine',
+          entries: [
+            {
+              exerciseId: 'ex-abandon-drain',
+              kind: 'strength' as const,
+              warmupSets: 0,
+              // Two target sets so logging one keeps the workout in progress
+              targetSets: 2,
+              targetReps: 8,
+              targetDurationSeconds: 0,
+              restSeconds: 0,
+              supersetGroup: '',
+            },
+          ],
+        },
+      });
+
+      // Log a set and leave its persist in flight behind the gate
+      await store.getState().dispatch({
+        tag: 'LogSet',
+        reps: 8,
+        weightKg: 50,
+        durationSeconds: 0,
+        nowMs: Date.now(),
+      });
+      expect(onPersistSet).toHaveBeenCalledTimes(1);
+
+      // Abandon while the persist is still pending; the discard must park behind it
+      const abandonDispatch = store.getState().dispatch({ tag: 'AbandonSession' });
+
+      for (let i = 0; i < 10; i++) await tick();
+      let session = await getSession(database, sessionId);
+      expect(session).toBeDefined(); // the delete must not outrun the persist
+      expect(persistDone).not.toHaveBeenCalled();
+
+      // Let the persist land; the discard may now delete the session
+      releasePersist();
+      const result = await abandonDispatch;
+
+      expect(result).not.toBeNull(); // discard succeeded (idle state returned)
+      expect(persistDone).toHaveBeenCalled();
+      session = await getSession(database, sessionId);
+      expect(session).toBeUndefined();
+      expect(store.getState().sessionState).toBeNull();
+      expect(store.getState().lastError).toBeNull();
     });
   });
 

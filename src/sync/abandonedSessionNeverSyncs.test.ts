@@ -27,7 +27,9 @@ const routine = {
       exerciseId: 'bench-press-db',
       kind: 'strength' as const,
       warmupSets: 0,
-      targetSets: 1,
+      // Two target sets: logging one keeps the session in progress (one-tap
+      // logging advances on log), so it can still be abandoned or finished.
+      targetSets: 2,
       targetReps: 8,
       targetDurationSeconds: 0,
       restSeconds: 0,
@@ -54,7 +56,7 @@ describe('abandoned sessions and the sync queue', () => {
         exerciseId: 'bench-press-db',
         order: 0,
         warmupSets: 0,
-        targetSets: 1,
+        targetSets: 2,
         targetReps: 8,
         restSeconds: 0,
       },
@@ -82,7 +84,7 @@ describe('abandoned sessions and the sync queue', () => {
       nowMs: 1000,
       routine,
     });
-    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 60 });
+    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 60, nowMs: 2000 });
     await store.getState().dispatch({ tag: 'AbandonSession' });
 
     // Session two: logged into, then finished normally.
@@ -92,7 +94,7 @@ describe('abandoned sessions and the sync queue', () => {
       nowMs: 3000,
       routine,
     });
-    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 65 });
+    await store.getState().dispatch({ tag: 'LogSet', reps: 8, weightKg: 65, nowMs: 3500 });
     await store.getState().dispatch({ tag: 'FinishSession', nowMs: 4000 });
     await flush();
   });
