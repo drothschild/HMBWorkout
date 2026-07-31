@@ -44,8 +44,10 @@ export default function RoutineDetailScreen() {
     try {
       const event = await startSessionFromRoutine(database, id, `session-${Date.now()}`);
       const next = await activeSessionStore.getState().dispatch(event);
-      // dispatch returns null on TransitionError (engine rejected the event).
-      // This is belt-and-braces: C1 fix lets Done→Idle work, but guard here anyway.
+      // dispatch returns null when the engine rejected the event or when
+      // persisting the accepted transition failed. A successful StartSession
+      // always resolves to the new in-progress state, so null here means the
+      // start did not take effect — do not navigate.
       if (!next) {
         setStartError('Could not start that routine. Try again, or check it still has exercises.');
         return;

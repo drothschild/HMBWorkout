@@ -1,5 +1,5 @@
 import { routineStartMode } from './routineStartMode';
-import { mockSessionState } from './test-utils';
+import { mockSessionState } from './test-helpers';
 
 describe('routineStartMode', () => {
 

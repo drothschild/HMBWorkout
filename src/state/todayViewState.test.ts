@@ -1,5 +1,5 @@
 import { todayViewState, TodayViewStateInput } from './todayViewState';
-import { mockSessionState } from './test-utils';
+import { mockSessionState } from './test-helpers';
 
 describe('todayViewState', () => {
 
@@ -194,10 +194,10 @@ describe('todayViewState', () => {
         expected: 'choose-routine',
       },
       {
-        // Idle phase in-store is unreachable by construction: the store maps idle→null on
-        // the sibling branch, and boot hydrate only loads non-done states. This row pins
-        // fail-closed behavior if idle ever surfaces: treat it as a session in progress
-        // (cannot start new workout during an idle session, though this should not occur).
+        // Idle phase in-store is unreachable by construction: no rule ever emits an
+        // Idle state, saveEngineState skips done, and boot hydrate only loads live
+        // states. This row pins fail-closed behavior if idle ever surfaces: treat it
+        // as a session in progress.
         name: 'idle phase (unreachable production case) blocks starting',
         input: {
           sessionState: mockSessionState('idle'),

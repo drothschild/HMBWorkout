@@ -607,7 +607,7 @@ describe('characterization: session engine pre-migration behavior', () => {
     });
 
     it('should reject StartSession from each in-progress phase (warmup, working, resting, stretching, paused)', async () => {
-      const inProgressPhases: Array<'warmup' | 'working' | 'resting' | 'stretching' | 'paused'> = [
+      const inProgressPhases: ('warmup' | 'working' | 'resting' | 'stretching' | 'paused')[] = [
         'warmup',
         'working',
         'resting',

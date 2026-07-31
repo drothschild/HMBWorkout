@@ -63,14 +63,25 @@ describe('Integration: StartSession from Done phase (C1)', () => {
       ]
     );
 
-    const store = createActiveSessionStore(database);
+    // Stub the two unmanaged external systems (sync + HealthKit); the store,
+    // engine, and DB stay real.
+    const store = createActiveSessionStore(
+      database,
+      undefined,
+      async () => {},
+      {
+        ensureAuthorized: jest.fn(async () => 'authorized'),
+        requestAuthorization: jest.fn(async () => true),
+        saveWorkoutSample: jest.fn(async () => {}),
+      } as any
+    );
 
     // === First session: Start and finish ===
     const session1Id = `session-${Date.now()}-1`;
     const event1 = await startSessionFromRoutine(database, routine1Id, session1Id);
 
     let state = await store.getState().dispatch(event1);
-    expect(state).toBeDefined();
+    expect(state).not.toBeNull();
     expect(state?.sessionId).toBe(session1Id);
     expect(state?.phase).toBe('working'); // No warmup, goes straight to working
 
@@ -82,14 +93,14 @@ describe('Integration: StartSession from Done phase (C1)', () => {
       durationSeconds: 0,
       rpe: 8,
     });
-    expect(logState).toBeDefined();
+    expect(logState).not.toBeNull();
 
     // Mark set done — this should advance to Done since it's the only set
     let finishState = await store.getState().dispatch({
       tag: 'SetDone',
       nowMs: Date.now(),
     });
-    expect(finishState).toBeDefined();
+    expect(finishState).not.toBeNull();
     expect(finishState?.phase).toBe('done');
 
     // === Critical assertion: Verify the store shows done state ===
@@ -105,7 +116,7 @@ describe('Integration: StartSession from Done phase (C1)', () => {
     const newSessionState = await store.getState().dispatch(event2);
 
     // MUST succeed (not null) with a new sessionId and new phase
-    expect(newSessionState).toBeDefined();
+    expect(newSessionState).not.toBeNull();
     expect(newSessionState?.sessionId).toBe(session2Id);
     expect(newSessionState?.phase).toBe('working'); // Should be in working phase (no warmup)
     expect(newSessionState?.routineId).toBe(routine2Id);
@@ -114,5 +125,10 @@ describe('Integration: StartSession from Done phase (C1)', () => {
 
     // Verify the old session data is NOT present (fresh state, not residue)
     expect(newSessionState?.loggedSets.length).toBe(0);
+
+    // The store must hold the new session too — screens subscribe to the
+    // store, not to dispatch's return value.
+    expect(store.getState().sessionState?.sessionId).toBe(session2Id);
+    expect(store.getState().sessionState?.phase).toBe('working');
   }, 30000);
 });

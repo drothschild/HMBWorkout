@@ -1,5 +1,5 @@
 import { canStartSession } from './canStartSession';
-import { mockSessionState } from './test-utils';
+import { mockSessionState } from './test-helpers';
 
 describe('canStartSession', () => {
   it('returns true when sessionState is null (no active session)', () => {
