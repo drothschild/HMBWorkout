@@ -171,7 +171,9 @@ describe('draftSchema', () => {
     });
 
     test('rejects non-string personality', () => {
-      expect(() => validateSettingsProposal({ personality: 42 })).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal({ personality: 42 })).toThrow(
+        'personality, when present, must be a non-empty string'
+      );
     });
 
     test('rejects whitespace-only goals', () => {
@@ -183,7 +185,9 @@ describe('draftSchema', () => {
     });
 
     test('rejects whitespace-only personality', () => {
-      expect(() => validateSettingsProposal({ personality: '   ' })).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal({ personality: '   ' })).toThrow(
+        'personality, when present, must be a non-empty string'
+      );
     });
 
     test('rejects goals longer than the field maximum', () => {
@@ -201,7 +205,11 @@ describe('draftSchema', () => {
     test('rejects personality longer than the field maximum', () => {
       const personality = 'p'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
 
-      expect(() => validateSettingsProposal({ personality })).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal({ personality })).toThrow(
+        `personality must be at most ${SETTINGS_FIELD_MAX_LENGTH} characters, got ${
+          SETTINGS_FIELD_MAX_LENGTH + 1
+        }`
+      );
     });
 
     test('accepts a field exactly at the field maximum', () => {
