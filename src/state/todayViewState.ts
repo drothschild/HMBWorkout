@@ -7,7 +7,8 @@ import { TodayRoutineChoice, TodayStartOptions } from './todayStartPresenter';
  *
  * Precedence:
  * 1. Resume (active session) — highest priority, user is mid-workout
- * 2. Error (loadError) — stays visible during an in-flight retry
+ * 2. Error (loadError) — stays visible while any load is in flight (retry or
+ *    focus reload); it clears only on a successful load
  * 3. Loading — a load is in flight, or the first load has not resolved yet
  *    (the initial render happens before the focus effect fires)
  * 4. Presenter kind — once data is loaded, render per presenter state

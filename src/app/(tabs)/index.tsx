@@ -27,8 +27,9 @@ export default function TodayScreen() {
     // Stale loads with older generation will be ignored.
     const generation = ++generationRef.current;
 
-    // Keep any previous error visible while the retry runs (the error branch
-    // renders a disabled Retry button); it clears only when a load succeeds.
+    // Keep any previous error visible while any load is in flight — a Retry
+    // tap or the automatic focus reload (the error branch renders a disabled
+    // Retry button). It clears only when a load succeeds.
     setLoading(true);
 
     try {
@@ -305,6 +306,7 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     gap: Spacing.two,
     paddingTop: Spacing.two,
