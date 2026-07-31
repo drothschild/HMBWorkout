@@ -1,5 +1,5 @@
 import { StyleSheet, Pressable, FlatList, View, Alert } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
@@ -15,6 +15,7 @@ import {
 } from '@/state/sessionHistoryPresenter';
 
 export default function HistoryScreen() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
@@ -90,12 +91,17 @@ export default function HistoryScreen() {
             style={styles.list}
             renderItem={({ item }) => (
               <View style={styles.sessionItem}>
-                <View style={styles.sessionInfo}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${item.routineName} from ${formatSessionDate(item.endedAt)}`}
+                  style={({ pressed }) => [styles.sessionInfo, pressed && styles.sessionInfoPressed]}
+                  onPress={() => router.push(`/workout/${item.id}`)}
+                >
                   <ThemedText type="subtitle">{item.routineName}</ThemedText>
                   <ThemedText type="default" style={styles.sessionMeta}>
                     {formatSessionDate(item.endedAt)} · {formatSetCountLabel(item.setCount)}
                   </ThemedText>
-                </View>
+                </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Delete ${item.routineName}`}
@@ -153,6 +159,9 @@ const styles = StyleSheet.create({
   },
   sessionInfo: {
     flex: 1,
+  },
+  sessionInfoPressed: {
+    opacity: 0.6,
   },
   sessionMeta: {
     opacity: 0.6,

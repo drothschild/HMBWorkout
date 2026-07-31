@@ -54,8 +54,11 @@ regeneration; anything that must persist belongs in a config plugin (`plugins/`)
   vault's `_sync/` folder over Tailscale. Its own README documents endpoints.
 - The markdown contract is shared code, **copied** into both repos
   (`src/interop/format.ts` here → `src/contract.ts` there). There is no shared
-  package: if you change the markdown grammar, update **both** copies or the bridge
-  will reject valid sessions.
+  package, but the bridge copy is document-level only (frontmatter/block
+  structure, plus `parseDuration` and `ContractError`): change those shared
+  pieces in **both** repos or the bridge will reject valid sessions. Line-level
+  flag grammar (rest, warmup, set_type, …) lives solely in this repo's
+  `parseFlags` and needs no bridge mirror.
 
 ## Architecture: Functional Core / Imperative Shell (FCIS)
 
@@ -285,7 +288,10 @@ is now a misnomer — AI settings are in there too.
 
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
-- Markdown grammar changes must be mirrored in `../workout-bridge/src/contract.ts`
+- Markdown grammar changes to the shared pieces — document-level structure,
+  `parseDuration`, `ContractError` — must be mirrored in
+  `../workout-bridge/src/contract.ts`; line-level flag changes (`parseFlags`) are
+  app-only
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and

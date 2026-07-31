@@ -11,6 +11,13 @@ import { SetType } from '@/db/models/SessionSet';
 import { ExerciseKind } from '@/db/models/Exercise';
 
 /**
+ * Set types the markdown grammar accepts: everything the app writes, plus
+ * 'drop' — the app never writes it, but it stays legal in hand-authored
+ * vault files.
+ */
+export type MarkdownSetType = SetType | 'drop';
+
+/**
  * A single exercise line in a workout block (before grouping).
  * Represents one line: `- <exercise-id>: [<sets>x<reps>] [flags…]`
  *
@@ -38,7 +45,7 @@ export interface WorkoutLine {
   weight?: number; // logged weight in kg, session sets only
   distance?: number; // logged distance in m, session sets only (cardio)
   // Logged session: actual set type
-  setType?: SetType;
+  setType?: MarkdownSetType;
   // Session lines only: honest aliases populated by parseSession — the
   // sets×reps slot in a session line carries LOGGED values ("1x<logged reps>"),
   // so consumers should read these instead of the target* fields.
@@ -101,7 +108,7 @@ export interface ParsedFlags {
   durationSeconds?: number;
   hint?: string;
   rpe?: number;
-  setType?: SetType;
+  setType?: MarkdownSetType;
   weight?: number; // kg, session sets only
   distance?: number; // m, session sets only (cardio)
 }
@@ -187,9 +194,9 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
     }
 
     case 'set_type': {
-      const validTypes: SetType[] = ['warmup', 'working', 'drop'];
-      return validTypes.includes(valueStr as SetType)
-        ? ['setType', valueStr as SetType]
+      const validTypes: MarkdownSetType[] = ['warmup', 'working', 'drop', 'stretch', 'cardio'];
+      return validTypes.includes(valueStr as MarkdownSetType)
+        ? ['setType', valueStr as MarkdownSetType]
         : null;
     }
 
