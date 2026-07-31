@@ -74,11 +74,11 @@ export function hasAnthropicKey(settings: { anthropicKey: string }): boolean {
  * Build the cache key for an exercise question target.
  *
  * Keyed per entry (not per exercise), so a duplicate exercise pays twice:
- * `sessionId#entryIdx` scopes uniquely within a session. This is deliberate —
- * each entry can be performed with different intensity or technique, so
- * answers should be cached separately. A cheaper alternative would be
- * `sessionId#exerciseId`, but the entry-level boundary is safer and mirrors
- * the AGENTS.md entry-identity invariant.
+ * `sessionId#entryIdx` scopes uniquely within a session. The prompt carries
+ * nothing entry-specific, so the duplicate-entry double-call buys no better
+ * answer — it is the accepted cost of mirroring restCommentaryStore and the
+ * AGENTS.md entry-identity boundary (an entry is its row, never its
+ * exercise). `sessionId#exerciseId` would be cheaper with identical output.
  */
 export function exerciseQuestionKey(target: ExerciseQuestionTarget): string {
   return `${target.sessionId}#${target.entryIdx}`;

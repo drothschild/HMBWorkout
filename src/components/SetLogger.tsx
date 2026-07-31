@@ -328,10 +328,12 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     borderWidth: 1,
     borderRadius: 4,
-    maxHeight: 220,
   },
   questionAnswerScroll: {
-    flex: 1,
+    // The height bound lives on the scroller, NOT as flex/maxHeight on the
+    // wrapper: flex:1 inside an auto-height parent collapses to 0 in Yoga,
+    // and a wrapper maxHeight is only a ceiling, never a height source.
+    maxHeight: 220,
   },
   questionAnswerContent: {
     padding: Spacing.two,
