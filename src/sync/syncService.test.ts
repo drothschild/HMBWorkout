@@ -7,7 +7,7 @@
 
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { createSession } from '@/db/repository';
+import { createSession, deleteSession } from '@/db/repository';
 import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
 import { createSyncService } from './syncService';
 
@@ -210,6 +210,41 @@ describe('Sync Service', () => {
       // Verify postSession was NOT called (zero posts attempted)
       expect(mockBridgeClient.postSession).not.toHaveBeenCalled();
     });
+  });
+
+  describe('deleted sessions are not queued for sync', () => {
+    it('does not post a session that was deleted before syncNow runs', async () => {
+      const mockBridgeClient = {
+        health: jest.fn().mockResolvedValue({ ok: true }),
+        postSession: jest.fn(),
+        getRoutines: jest.fn(),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+
+      // Create and finish a session, then delete it before sync ever runs.
+      await createSession(database, {
+        sessionId: 'session-deleted',
+        routineId: 'routine-1',
+        startedAtMs: Date.now(),
+      });
+
+      const session = await database.get('sessions').find('session-deleted');
+      await database.write(async () => {
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      await deleteSession(database, 'session-deleted');
+
+      await syncService.syncNow();
+
+      // The row is gone, so the candidate query in syncNow() never selects it.
+      expect(mockBridgeClient.health).toHaveBeenCalled();
+      expect(mockBridgeClient.postSession).not.toHaveBeenCalled();
+    }, 15000);
   });
 
   describe('error handling', () => {
