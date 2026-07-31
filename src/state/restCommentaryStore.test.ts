@@ -335,6 +335,8 @@ describe('createRestCommentaryStore', () => {
       expect(loadHistory).not.toHaveBeenCalled();
       expect(store.getState().text).toBeNull();
       expect(store.getState().pending).toBe(false);
+      // The byte-identical guarantee: with no key, no slot is ever reserved.
+      expect(store.getState().attempted).toBe(false);
     });
 
     it('treats a whitespace-only key as no key', async () => {
@@ -354,7 +356,20 @@ describe('createRestCommentaryStore', () => {
 
       expect(store.getState().text).toBeNull();
       expect(store.getState().pending).toBe(false);
+      // A failed attempt keeps the slot reserved for the life of the rest.
+      expect(store.getState().attempted).toBe(true);
       expect(logError).toHaveBeenCalled();
+    });
+
+    it('clears attempted when the rest ends', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
+      const store = makeStore();
+
+      await store.getState().show(target());
+      expect(store.getState().attempted).toBe(true);
+
+      store.getState().hide();
+      expect(store.getState().attempted).toBe(false);
     });
 
     it('swallows and logs an HTTP failure', async () => {

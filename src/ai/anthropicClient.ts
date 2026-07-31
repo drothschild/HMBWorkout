@@ -121,7 +121,7 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
   const fetch = fetchFn ?? globalThis.fetch;
 
   return {
-    /** @returns the comment, normalized to one bounded paragraph */
+    /** @returns the first non-empty text block, raw; callers normalize. */
     async comment(request: { system: string; message: string }): Promise<string> {
       let response: Response;
       try {

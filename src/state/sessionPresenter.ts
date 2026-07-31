@@ -82,8 +82,9 @@ export interface SessionPresenterOutput {
 
 /**
  * True when the session is in a resting or paused-mid-rest state.
- * Used by both the presenter and restCommentaryTarget to detect when
- * the athlete is taking a rest break.
+ * Encodes the presenter's combined isResting/isRestPaused predicate as one
+ * check for restCommentaryTarget's use; the presenter itself still derives
+ * the two flags separately for display.
  */
 export function isRestingPhase(sessionState: SessionState): boolean {
   return sessionState.phase === 'resting' || (sessionState.phase === 'paused' && Boolean(sessionState.restRemainingMs));
