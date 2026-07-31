@@ -282,9 +282,10 @@ is now a misnomer — AI settings are in there too.
   rows by `exerciseId` (oldest `order` first, so duplicated exercises match
   deterministically) and survivors keep their row ids. That stability is
   load-bearing: `session_sets.routine_exercise_id` references those rows and
-  `getExerciseWorkingSetHistory` joins by row id, so editing a routine never
-  orphans logged history. An exercise the draft omits *is* deleted, which is why
-  the persona demands the full exercise list.
+  `getExerciseWorkingSetHistory` joins by row id for pre-v3 sets (see the
+  Boundaries stamp rule — stamped sets carry their own identity), so editing a
+  routine never orphans logged history. An exercise the draft omits *is* deleted,
+  which is why the persona demands the full exercise list.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -335,12 +336,15 @@ is now a misnomer — AI settings are in there too.
   `exerciseQuestionKey`, answer never persisted), and Replace-button alternates
   (`alternates*` + `acceptAlternate` — validate on receipt AND at swap; `kind`
   always from the entry, never the model; duplicate titles rejected at slug level)
-  each have their own prompt builder and client. All follow the same rules:
-  free text neutralized, immutable directives last, secret-leak regression tests,
-  network-vs-HTTP failure types, every failure swallowed (a workout never depends
-  on the AI), deps injected for the node jest project. Known accepted debt: the
-  POST/parse boilerplate and `neutralizeForPrompt` now exist in three copies —
-  hoisting them is a tracked follow-up; don't add a fourth copy.
+  each have their own prompt builder, and their own client except rest commentary,
+  whose `createRestCommentaryClient` sits alongside the conversation client inside
+  `anthropicClient.ts`. All follow the same rules: free text neutralized, immutable
+  directives last, secret-leak regression tests, network-vs-HTTP failure types,
+  every failure swallowed (a workout never depends on the AI), deps injected for
+  the node jest project. Known accepted debt: `neutralizeForPrompt` exists in
+  three copies and the POST/parse boilerplate in four (both `anthropicClient.ts`
+  factories, plus the question and alternates clients) — hoisting them is a
+  tracked follow-up; don't add another of either.
 - **Immutable directives must remain the last section in `buildSystem`.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
@@ -404,7 +408,11 @@ is now a misnomer — AI settings are in there too.
   re-point a row, and it must keep its layer-2 defense: inside the same
   `database.write`, stamp every attached null-stamped set with the row's outgoing
   identity *before* re-pointing. A new reader that resolves a set's exercise
-  through the row alone reintroduces the PR #65 history-corruption bug
+  through the row alone reintroduces the PR #65 history-corruption bug. One
+  rendering consequence: a swapped row's sets can span two performed identities,
+  so session-detail entries key on the `(routineExerciseId, exerciseId)` pair
+  (`sessionDetailPresenter` exposes both; `workout/[id].tsx` keys on the pair),
+  not the row id alone
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)

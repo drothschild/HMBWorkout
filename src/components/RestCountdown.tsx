@@ -46,9 +46,11 @@ function formatMs(ms: number): string {
  *
  * The wall-clock arithmetic is load-bearing beyond display: a deadline that
  * expires while the app is backgrounded (or the session modal is dismissed) is
- * reconciled by the first tick after resume/remount, which is why no AppState
- * foreground listener exists (see AGENTS.md, engine convention 5). A
- * decrementing counter would silently break that reconciliation.
+ * reconciled by the first tick after resume/remount. AppForegrounded
+ * (src/state/foregroundReconcile.ts) covers the same case when this screen is
+ * NOT mounted; a straggler tick racing that reconcile is benign — RestElapsed
+ * is Ok-no-effects in the phases recovery lands in (see AGENTS.md, engine
+ * convention 5). A decrementing counter would silently break this.
  */
 export function RestCountdown({
   deadlineMs,
