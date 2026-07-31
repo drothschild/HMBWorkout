@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Database } from '@nozbe/watermelondb';
 import { createEngine, EffectExecutors, TransitionError } from '@/engine/index';
 import { SessionState, Event, LoggedSet } from '@/engine/types';
-import { createSession, appendSet, getSessionSets } from '@/db/repository';
+import { createSession, appendSet, getSessionSets, discardInProgressSession } from '@/db/repository';
 import { saveEngineState } from '@/db/engineState';
 import type { HealthKitSaveDeps } from '@/health/saveWorkout';
 
@@ -50,6 +50,11 @@ export function createActiveSessionStore(
 ) {
   // Track current session state for executors
   let currentSessionState: SessionState | null = null;
+
+  // rill fires effect executors without awaiting them, but a caller that awaits
+  // dispatch must not be able to observe an abandoned workout still on disk.
+  // dispatch() picks this up and awaits it before returning.
+  let pendingDiscard: Promise<void> | null = null;
 
   // Create executors that interact with the database
   const executors: Partial<EffectExecutors> = {
@@ -109,6 +114,14 @@ export function createActiveSessionStore(
         durationSeconds: set.durationSeconds ?? undefined,
         rpe: set.rpe ?? undefined,
       });
+    },
+
+    onDiscardSession(sessionId: string) {
+      // Abandon: delete the session and its sets outright. Sync and HealthKit
+      // are untouched here by construction — both hang off onCompleteSession,
+      // which an abandoned workout never emits.
+      pendingDiscard = discardInProgressSession(database, sessionId);
+      return pendingDiscard;
     },
 
     async onScheduleRest(deadlineMs: number) {
@@ -222,15 +235,25 @@ export function createActiveSessionStore(
         // Track current state for executors
         currentSessionState = newState;
 
-        // After successful transition, save the engine state
-        // (but not if session is done — onCompleteSession clears it)
-        if (newState && newState.phase !== 'done') {
+        // Settle an abandon's deletion before returning (see pendingDiscard).
+        if (pendingDiscard) {
+          const discard = pendingDiscard;
+          pendingDiscard = null;
+          await discard;
+        }
+
+        // Neither an abandoned nor a completed session has a live row to persist
+        // into: abandon deletes the row, and onCompleteSession clears the column.
+        const hasSession = newState.phase !== 'idle';
+        if (hasSession && newState.phase !== 'done') {
           await saveEngineState(database, newState.sessionId, newState);
         }
 
-        // Update store state
+        // The store's `null` and the engine's `idle` phase are one state in two
+        // encodings — no workout in progress. Abandon returns the engine to idle,
+        // and the screens gate their start/resume affordances on the null.
         set({
-          sessionState: newState,
+          sessionState: hasSession ? newState : null,
           lastError: null,
         });
 

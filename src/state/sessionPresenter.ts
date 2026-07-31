@@ -34,6 +34,7 @@ export interface SessionPresenterOutput {
   onSkipExercise(): void;
   onStartStretching(): void;
   onFinishSession(): void;
+  onAbandonSession(): void;
 }
 
 /**
@@ -130,6 +131,14 @@ export function createSessionPresenter(
       dispatch({
         tag: 'FinishSession',
         nowMs: Date.now(),
+      });
+    },
+
+    // Throws the workout away. The engine decides which phases allow it and
+    // emits the discard; the screen only has to confirm the intent.
+    onAbandonSession: () => {
+      dispatch({
+        tag: 'AbandonSession',
       });
     },
   };

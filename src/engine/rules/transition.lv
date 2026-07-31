@@ -205,5 +205,40 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
         effects: effects
       })
     ),
-  FinishSession(p) -> Err("invalid event FinishSession in phase " ++ h.phase_to_string(state.phase))
+  FinishSession(p) -> Err("invalid event FinishSession in phase " ++ h.phase_to_string(state.phase)),
+  AbandonSession if state.phase != Idle && state.phase != Done -> (
+      -- Throw the workout away. DiscardSession tells the host to delete the
+      -- session and its sets; deliberately no CompleteSession, so nothing is
+      -- synced to the vault or exported to HealthKit. A rest timer armed for
+      -- the discarded workout has to be cancelled or it fires for a session
+      -- that no longer exists. (Paused mid-rest already cancelled it, which is
+      -- why this keys off restDeadlineMs rather than the phase.)
+      let effects = match state.restDeadlineMs {
+        Some(d) -> [CancelRest, DiscardSession({ sessionId: state.sessionId })],
+        None -> [DiscardSession({ sessionId: state.sessionId })]
+      }
+      -- Return a fresh Idle state rather than a terminal one: Idle is the phase
+      -- StartSession accepts, so a new workout can begin immediately after.
+      Ok({
+        state: {
+          sessionId: "",
+          routineId: "",
+          phase: Idle,
+          exerciseIndex: 0,
+          setIndex: 0,
+          supersetPosition: 0,
+          restDeadlineMs: None,
+          restRemainingMs: None,
+          prePausePhase: None,
+          loggedSets: [],
+          lastLoggedSet: None,
+          startedAtMs: 0,
+          entries: []
+        },
+        effects: effects
+      })
+    ),
+  -- Idle has no workout to abandon; Done is already written, synced and
+  -- exported, so removing it is a different operation from abandoning one.
+  AbandonSession -> Err("invalid event AbandonSession in phase " ++ h.phase_to_string(state.phase))
 })

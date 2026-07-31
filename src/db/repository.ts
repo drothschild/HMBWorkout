@@ -176,6 +176,43 @@ export async function getSessionSets(
 }
 
 /**
+ * Discard a session outright, along with every set logged into it.
+ *
+ * This is the abandon path, and deliberately not a "delete a finished workout"
+ * path: it makes no ended_at check, because the whole point is to throw away a
+ * session that is still running. The persisted engine state lives on the session
+ * row, so removing the row is also what stops restart recovery from rehydrating
+ * the discarded workout.
+ *
+ * A session that is already gone is not an error — abandoning is idempotent.
+ *
+ * @param database The database instance
+ * @param sessionId The session ID to discard
+ */
+export async function discardInProgressSession(
+  database: Database,
+  sessionId: string
+): Promise<void> {
+  await database.write(async () => {
+    const sets = (await database
+      .get('session_sets')
+      .query(Q.where('session_id', sessionId))
+      .fetch()) as SessionSet[];
+
+    for (const set of sets) {
+      await set.destroyPermanently();
+    }
+
+    try {
+      const session = await database.get('sessions').find(sessionId);
+      await session.destroyPermanently();
+    } catch {
+      // Already discarded; any orphaned sets were removed above regardless.
+    }
+  });
+}
+
+/**
  * Get all working-type sets for an exercise across all sessions (prior history).
  * Used for progression hint evaluation: rules compute hints based on prior working sets,
  * not current-session sets.

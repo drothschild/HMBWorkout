@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, View, Pressable, ScrollView } from 'react-native';
+import { Alert, StyleSheet, View, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -98,6 +98,26 @@ export default function SessionScreen() {
 
   const presenter = createSessionPresenter(sessionState, dispatch, progressionHint);
 
+  // Destructive and unrecoverable: the workout and its logged sets are deleted
+  // and never reach the vault, so it takes an explicit confirmation.
+  const confirmAbandon = () => {
+    Alert.alert(
+      'Abandon workout?',
+      'This workout and every set you have logged will be deleted. It will not be saved to your vault.',
+      [
+        { text: 'Keep going', style: 'cancel' },
+        {
+          text: 'Abandon',
+          style: 'destructive',
+          onPress: () => {
+            presenter.onAbandonSession();
+            router.back();
+          },
+        },
+      ]
+    );
+  };
+
   // Resting takes over the whole screen: big countdown, cancel or pause only
   if (presenter.isResting || presenter.isRestPaused) {
     return (
@@ -173,12 +193,17 @@ export default function SessionScreen() {
               <ThemedText style={styles.buttonText}>Close</ThemedText>
             </Pressable>
           ) : (
-            <Pressable
-              style={[styles.button, styles.finishButton]}
-              onPress={() => presenter.onFinishSession()}
-            >
-              <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
-            </Pressable>
+            <>
+              <Pressable
+                style={[styles.button, styles.finishButton]}
+                onPress={() => presenter.onFinishSession()}
+              >
+                <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+              </Pressable>
+              <Pressable style={styles.button} onPress={confirmAbandon}>
+                <ThemedText style={styles.abandonText}>Abandon workout</ThemedText>
+              </Pressable>
+            </>
           )}
         </View>
       </SafeAreaView>
@@ -234,5 +259,8 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  abandonText: {
+    color: '#FF3B30',
   },
 });

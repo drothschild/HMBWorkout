@@ -65,7 +65,8 @@ export type Event =
   | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'StartStretching' }
   | { tag: 'Resume'; nowMs: number }
-  | { tag: 'FinishSession'; nowMs: number };
+  | { tag: 'FinishSession'; nowMs: number }
+  | { tag: 'AbandonSession' };
 
 /**
  * Effect (discriminated union) — all side effects emitted by the engine.
@@ -76,4 +77,5 @@ export type Effect =
   | { tag: 'CancelRest' }
   | { tag: 'Notify'; message: string }
   | { tag: 'PersistSet'; set: LoggedSet }
-  | { tag: 'CompleteSession'; summary: unknown };
+  | { tag: 'CompleteSession'; summary: unknown }
+  | { tag: 'DiscardSession'; sessionId: string };
