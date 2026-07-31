@@ -22,6 +22,8 @@ import {
   createSession,
   findRoutineExerciseIdByOrder,
   getExerciseWorkingSetHistory,
+  getRecentSessionSummaries,
+  getSessionExerciseLog,
   updateRoutineExerciseExerciseId,
 } from './repository';
 
@@ -305,6 +307,224 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
       for (const set of sets) {
         expect((set as any)._raw.exercise_id ?? null).toBeNull();
       }
+    });
+  });
+
+  describe('getSessionExerciseLog after a swap', () => {
+    // The history drilldown reads through this. A past session's sets must
+    // render under the exercise they were performed as, not under whatever the
+    // routine entry names today.
+    it('titles a past session’s sets by the exercise they were logged as', async () => {
+      await logPastSessions(ORIGINAL_EXERCISE, ['session-week-1']);
+
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+      const log = await getSessionExerciseLog(database, 'session-week-1', ROUTINE_ID);
+
+      expect(log).toHaveLength(1);
+      expect(log[0].exerciseId).toBe(ORIGINAL_EXERCISE);
+      expect(log[0].title).toBe('Barbell Bench Press');
+      expect(log[0].sets).toHaveLength(2);
+      // The entry is still the same routine row, and its prescription — which
+      // belongs to the plan, not the exercise — is unchanged by the swap.
+      expect(log[0].routineExerciseId).toBe(rowId);
+      expect(log[0].targetSets).toBe(4);
+      expect(log[0].targetReps).toBe(6);
+    });
+
+    it('titles a legacy set by the row’s exercise, the same fallback history uses', async () => {
+      // Never swapped, so the row still names what the sets were performed as.
+      await logPastSessions(undefined, ['session-week-1']);
+
+      const log = await getSessionExerciseLog(database, 'session-week-1', ROUTINE_ID);
+
+      expect(log[0].exerciseId).toBe(ORIGINAL_EXERCISE);
+      expect(log[0].title).toBe('Barbell Bench Press');
+      expect(log[0].sets).toHaveLength(2);
+    });
+
+    it('titles a session performed after the swap by the substitute', async () => {
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+      await createSession(database, {
+        sessionId: 'session-today',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-today', rowId, {
+        setType: 'working',
+        reps: 8,
+        exerciseId: REPLACEMENT_EXERCISE,
+      });
+
+      const log = await getSessionExerciseLog(database, 'session-today', ROUTINE_ID);
+
+      expect(log[0].exerciseId).toBe(REPLACEMENT_EXERCISE);
+      expect(log[0].title).toBe('Dumbbell Floor Press');
+      expect(log[0].sets).toHaveLength(1);
+    });
+
+    it('still reports a planned entry the session never logged, under its current name', async () => {
+      // No sets at all for this entry: there is no performed identity to read,
+      // so the plan's own name is the only honest answer.
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+      await createSession(database, {
+        sessionId: 'session-skipped',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+
+      const log = await getSessionExerciseLog(database, 'session-skipped', ROUTINE_ID);
+
+      expect(log).toHaveLength(1);
+      expect(log[0].exerciseId).toBe(REPLACEMENT_EXERCISE);
+      expect(log[0].title).toBe('Dumbbell Floor Press');
+      expect(log[0].sets).toEqual([]);
+    });
+
+    it('keeps two entries of the same routine apart when only one was swapped', async () => {
+      let secondRowId = '';
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = ROUTINE_ID;
+          re.exerciseId = ORIGINAL_EXERCISE;
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        secondRowId = (row as any).id;
+      });
+
+      await createSession(database, {
+        sessionId: 'session-week-1',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-week-1', rowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await appendSet(database, 'session-week-1', secondRowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+
+      await updateRoutineExerciseExerciseId(database, secondRowId, REPLACEMENT_EXERCISE);
+
+      const log = await getSessionExerciseLog(database, 'session-week-1', ROUTINE_ID);
+
+      expect(log.map((entry) => [entry.routineExerciseId, entry.exerciseId])).toEqual([
+        [rowId, ORIGINAL_EXERCISE],
+        [secondRowId, ORIGINAL_EXERCISE],
+      ]);
+      expect(log.every((entry) => entry.sets.length === 1)).toBe(true);
+    });
+  });
+
+  describe('getRecentSessionSummaries after a swap', () => {
+    // exerciseCount is a count of DISTINCT exercises trained. Resolving that
+    // through the routine_exercises join collapses two entries onto one
+    // exercise the moment a swap makes them name the same movement — so a
+    // finished workout that trained two exercises retroactively reports one.
+    it('counts the exercises a past session actually trained, not the ones its routine names now', async () => {
+      let secondRowId = '';
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = ROUTINE_ID;
+          re.exerciseId = REPLACEMENT_EXERCISE;
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        secondRowId = (row as any).id;
+      });
+
+      await createSession(database, {
+        sessionId: 'session-week-1',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-week-1', rowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await appendSet(database, 'session-week-1', secondRowId, {
+        setType: 'working',
+        reps: 10,
+        exerciseId: REPLACEMENT_EXERCISE,
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      // Both entries now name the same exercise.
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(2);
+      expect(summary.workingSetCount).toBe(2);
+    });
+
+    it('still counts a routine’s duplicate entries as one exercise trained', async () => {
+      // The rule the join was there to enforce, and which must survive: the
+      // same movement listed twice is one exercise trained, not two.
+      let secondRowId = '';
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').create((re: any) => {
+          re.routineId = ROUTINE_ID;
+          re.exerciseId = ORIGINAL_EXERCISE;
+          re.order = 1;
+          re.warmupSets = 0;
+        });
+        secondRowId = (row as any).id;
+      });
+
+      await createSession(database, {
+        sessionId: 'session-week-1',
+        routineId: ROUTINE_ID,
+        startedAtMs: Date.now(),
+      });
+      await appendSet(database, 'session-week-1', rowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await appendSet(database, 'session-week-1', secondRowId, {
+        setType: 'working',
+        reps: 6,
+        exerciseId: ORIGINAL_EXERCISE,
+      });
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(1);
+      expect(summary.workingSetCount).toBe(2);
+    });
+
+    it('falls back to the join for legacy sets, the priority order used everywhere', async () => {
+      await logPastSessions(undefined, ['session-week-1']);
+      await database.write(async () => {
+        const session = await database.get('sessions').find('session-week-1');
+        await (session as any).update((record: any) => {
+          record._raw.ended_at = Date.now();
+        });
+      });
+
+      const [summary] = await getRecentSessionSummaries(database, 10);
+
+      expect(summary.exerciseCount).toBe(1);
+      expect(summary.workingSetCount).toBe(2);
     });
   });
 

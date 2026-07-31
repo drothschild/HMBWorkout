@@ -1,6 +1,6 @@
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
-import { createSession, appendSet } from '@/db/repository';
+import { createSession, appendSet, updateRoutineExerciseExerciseId } from '@/db/repository';
 import { sessionDetailPresenter } from './sessionDetailPresenter';
 
 describe('sessionDetailPresenter', () => {
@@ -260,6 +260,51 @@ describe('sessionDetailPresenter', () => {
     // ...but its logged set is not silently lost.
     expect(detail!.otherSets).toHaveLength(1);
     expect(detail!.otherSets[0].line).toBe('10 x 88lbs');
+  });
+
+  it('renders a past session under the exercise performed, not the substitute swapped in later', async () => {
+    // The history drilldown for a workout done weeks ago must not be rewritten
+    // by a mid-session Replace that happened afterwards. The sets are stamped
+    // with what they were performed as; the routine row has moved on.
+    await seedRoutine();
+    await database.write(async () => {
+      await database.get('exercises').create((e: any) => {
+        e._raw.id = 'ex-floor-press';
+        e.title = 'Dumbbell Floor Press';
+        e.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+    });
+
+    await createSession(database, {
+      sessionId: 'session-1',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-1', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+      exerciseId: 'ex-bench',
+    });
+    await database.write(async () => {
+      const session = await database.get('sessions').find('session-1');
+      await (session as any).update((record: any) => {
+        record._raw.ended_at = Date.now();
+      });
+    });
+
+    await updateRoutineExerciseExerciseId(database, 're-bench', 'ex-floor-press');
+
+    const detail = await sessionDetailPresenter(database, 'session-1');
+
+    expect(detail!.exercises[0].title).toBe('Bench Press');
+    expect(detail!.exercises[0].exerciseId).toBe('ex-bench');
+    expect(detail!.exercises[0].sets).toHaveLength(1);
+    expect(detail!.exercises[0].sets[0].line).toBe('8 x 132.5lbs');
+    // The set is accounted for by a planned entry, so it is not swept into the
+    // generically-labelled orphan list.
+    expect(detail!.otherSets).toEqual([]);
   });
 
   it('filters the -1 RPE sentinel and renders duration-only sets, matching formatLoggedSetLine conventions', async () => {

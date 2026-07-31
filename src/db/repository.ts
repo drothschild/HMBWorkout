@@ -546,11 +546,18 @@ export async function getRecentSessionSummaries(
     volume.setCount += 1;
 
     // A routine that lists the same exercise twice is still one exercise
-    // trained. If the routine_exercise row is gone its id is the only identity
-    // the set has left, so it counts as its own exercise.
+    // trained — so the count is over exercise identities, not rows. Which
+    // makes the identity the load-bearing part: the set's own exercise_id
+    // wins, because a swap can make two rows name the same exercise and
+    // collapse a workout that genuinely trained two. The join is the fallback
+    // for sets written before that column, and if the routine_exercise row is
+    // gone too, the row id is the only identity the set has left.
     const routineExerciseId = (set as any).routineExerciseId as string;
+    const performedExerciseId = (set as any)._raw.exercise_id as string | null;
     volume.exercises.add(
-      exerciseIdByRoutineExerciseId.get(routineExerciseId) ?? routineExerciseId
+      performedExerciseId ??
+        exerciseIdByRoutineExerciseId.get(routineExerciseId) ??
+        routineExerciseId
     );
   }
 
@@ -594,9 +601,14 @@ async function mapRoutineExercisesToExercises(
  * One planned exercise of a routine, paired with the sets a single session
  * actually logged against it.
  *
- * routineExerciseId identifies this entry (the routine_exercises row id), not
- * exerciseId: a routine may list the same exercise more than once, so
+ * routineExerciseId identifies the routine entry (the routine_exercises row
+ * id), not exerciseId: a routine may list the same exercise more than once, so
  * exerciseId alone cannot serve as a unique key (AGENTS.md boundary rule).
+ *
+ * `exerciseId` is what the sets were *performed* as, which after a
+ * ReplaceExercise swap is not what the row names today. A row therefore keys a
+ * list entry together with its exerciseId, not on its own — read
+ * `(routineExerciseId, exerciseId)` as the pair.
  */
 export interface SessionExerciseLogEntry {
   routineExerciseId: string;
@@ -617,6 +629,18 @@ export interface SessionExerciseLogEntry {
  * was planned and never logged is part of how the workout went. Sets pointing
  * at a routine_exercise that no longer belongs to this routine are dropped;
  * they can only exist if the routine was edited after the session ended.
+ *
+ * **Sets are titled by what they were performed as.** ReplaceExercise
+ * re-points a routine entry, so the row's current exercise_id is the plan as it
+ * stands *now*, not what a session weeks ago actually did. Each set therefore
+ * resolves through its own `exercise_id`, falling back to the row's only when
+ * it has none — the priority order `getExerciseWorkingSetHistory` establishes.
+ * A row with no sets this session has no performed identity to read, so it
+ * reports under the exercise it currently names.
+ *
+ * The prescription stays with the entry either way: targets belong to the plan,
+ * not the exercise, and a swap leaves them untouched — so the sets performed
+ * under the old identity were performed against these same targets.
  *
  * @param database The database instance
  * @param sessionId The finished session to read sets from
@@ -641,14 +665,8 @@ export async function getSessionExerciseLog(
     return [];
   }
 
-  const exerciseIds = [...new Set(routineExercises.map((re) => (re as any)._raw.exercise_id))];
-  const exercises = await database
-    .get('exercises')
-    .query(Q.where('id', Q.oneOf(exerciseIds)))
-    .fetch();
-
-  const titleById = new Map<string, string>(
-    exercises.map((exercise) => [exercise.id, (exercise as any).title as string])
+  const currentExerciseIdByRow = new Map<string, string>(
+    routineExercises.map((re) => [re.id, (re as any)._raw.exercise_id as string])
   );
 
   const sets = sessionSets ?? (await getSessionSets(database, sessionId));
@@ -663,21 +681,84 @@ export async function getSessionExerciseLog(
     }
   }
 
-  return routineExercises.map((re) => {
-    const raw = (re as any)._raw;
-    const exerciseId = raw.exercise_id as string;
+  /** What a set was performed as: its own stamp, else the row it hangs off. */
+  const performedExerciseId = (set: SessionSet): string => {
+    const stamped = (set as any)._raw.exercise_id as string | null;
+    if (stamped) return stamped;
+    return currentExerciseIdByRow.get((set as any).routineExerciseId as string) ?? '';
+  };
 
-    return {
+  // Titles are needed for every identity that can surface: the rows' current
+  // exercises, plus every identity the sets themselves recorded.
+  const neededExerciseIds = new Set<string>(currentExerciseIdByRow.values());
+  for (const set of sets) {
+    const performed = performedExerciseId(set);
+    if (performed) neededExerciseIds.add(performed);
+  }
+
+  const exercises = await database
+    .get('exercises')
+    .query(Q.where('id', Q.oneOf([...neededExerciseIds])))
+    .fetch();
+
+  const titleById = new Map<string, string>(
+    exercises.map((exercise) => [exercise.id, (exercise as any).title as string])
+  );
+
+  const entries: SessionExerciseLogEntry[] = [];
+
+  for (const re of routineExercises) {
+    const raw = (re as any)._raw;
+    const plan = {
       routineExerciseId: re.id,
-      exerciseId,
-      title: titleById.get(exerciseId) ?? exerciseId,
       order: raw.order as number,
       targetSets: raw.target_sets ?? undefined,
       targetReps: raw.target_reps ?? undefined,
       targetDurationSeconds: raw.target_duration_seconds ?? undefined,
-      sets: setsByRoutineExerciseId.get(re.id) ?? [],
     };
-  });
+
+    const rowSets = setsByRoutineExerciseId.get(re.id) ?? [];
+
+    if (rowSets.length === 0) {
+      const exerciseId = currentExerciseIdByRow.get(re.id) as string;
+      entries.push({
+        ...plan,
+        exerciseId,
+        title: titleById.get(exerciseId) ?? exerciseId,
+        sets: [],
+      });
+      continue;
+    }
+
+    // Split the row's sets by performed identity, in encounter order. One
+    // session can only ever produce one identity per row — the engine refuses
+    // to swap an entry once a set is recorded against it, and a swap stamps
+    // every unstamped set on its way past — so this is normally a single
+    // group. It is written as a partition anyway so that a row carrying two
+    // eras degrades into two correctly-titled entries rather than one
+    // mislabelled one.
+    const setsByPerformedId = new Map<string, SessionSet[]>();
+    for (const set of rowSets) {
+      const exerciseId = performedExerciseId(set);
+      const existing = setsByPerformedId.get(exerciseId);
+      if (existing) {
+        existing.push(set);
+      } else {
+        setsByPerformedId.set(exerciseId, [set]);
+      }
+    }
+
+    for (const [exerciseId, performedSets] of setsByPerformedId) {
+      entries.push({
+        ...plan,
+        exerciseId,
+        title: titleById.get(exerciseId) ?? exerciseId,
+        sets: performedSets,
+      });
+    }
+  }
+
+  return entries;
 }
 
 /**

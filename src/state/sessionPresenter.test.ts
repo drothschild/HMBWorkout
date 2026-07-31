@@ -2,7 +2,9 @@ import {
   computeSetPrefill,
   createSessionPresenter,
   currentExerciseHasLoggedSet,
+  currentExerciseId,
   formatLoggedSetLine,
+  historyPrefillStillApplies,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
@@ -551,6 +553,85 @@ describe('createSessionPresenter', () => {
       state.exerciseIndex = 5;
 
       expect(currentExerciseHasLoggedSet(state)).toBe(false);
+    });
+  });
+
+  describe('currentExerciseId', () => {
+    // The session screen's per-exercise effects (prefill, progression hint)
+    // key on this. exerciseIndex alone is not enough: ReplaceExercise rewrites
+    // entries[exerciseIndex].exerciseId in place, so the index can stay put
+    // while the exercise underneath it changes.
+    test('is the current entry’s exercise id', () => {
+      expect(currentExerciseId(createMockState())).toBe('ex-1');
+    });
+
+    test('changes when the entry at the current index is swapped', () => {
+      const before = createMockState();
+      const after = createMockState();
+      after.entries = [{ ...after.entries[0], exerciseId: 'ex-substitute' }];
+
+      expect(before.exerciseIndex).toBe(after.exerciseIndex);
+      expect(currentExerciseId(before)).not.toBe(currentExerciseId(after));
+    });
+
+    test('is empty for no state, or an exercise index with no entry', () => {
+      const stranded = createMockState();
+      stranded.exerciseIndex = 5;
+
+      expect(currentExerciseId(null)).toBe('');
+      expect(currentExerciseId(undefined)).toBe('');
+      expect(currentExerciseId(stranded)).toBe('');
+    });
+  });
+
+  describe('historyPrefillStillApplies', () => {
+    // The cross-session history prefill is fetched async. By the time it
+    // resolves the workout may have moved on, so the result is applied only if
+    // the state it was fetched for is still the state on screen.
+    const target = { sessionId: 'session-1', exerciseIndex: 0, exerciseId: 'ex-1' };
+
+    const untouched = (): SessionState => {
+      const state = createMockState();
+      state.loggedSets = [];
+      return state;
+    };
+
+    test('applies when session, index and exercise all still match', () => {
+      expect(historyPrefillStillApplies(untouched(), target)).toBe(true);
+    });
+
+    test('does not apply once the workout moved to another session', () => {
+      const state = untouched();
+      state.sessionId = 'session-2';
+
+      expect(historyPrefillStillApplies(state, target)).toBe(false);
+    });
+
+    test('does not apply once the workout moved to another exercise', () => {
+      const state = untouched();
+      state.entries = [state.entries[0], { ...state.entries[0], idx: 1, exerciseId: 'ex-2' }];
+      state.exerciseIndex = 1;
+
+      expect(historyPrefillStillApplies(state, target)).toBe(false);
+    });
+
+    test('does not apply when the entry was swapped under the same index', () => {
+      // The swap case: index and session are unchanged, but the exercise the
+      // history was fetched for is no longer the one being performed. Without
+      // the exerciseId check this would prefill the substitute's inputs with
+      // the original's numbers.
+      const state = untouched();
+      state.entries = [{ ...state.entries[0], exerciseId: 'ex-substitute' }];
+
+      expect(state.exerciseIndex).toBe(target.exerciseIndex);
+      expect(state.sessionId).toBe(target.sessionId);
+      expect(historyPrefillStillApplies(state, target)).toBe(false);
+    });
+
+    test('does not apply once a set has been logged for the exercise', () => {
+      // createMockState logs a warmup for ex-1: the user is mid-exercise and
+      // whatever is in the inputs is theirs, not ours to overwrite.
+      expect(historyPrefillStillApplies(createMockState(), target)).toBe(false);
     });
   });
 

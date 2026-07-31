@@ -22,6 +22,15 @@ export function serializeSession(
   },
   sets: Array<{
     routineExerciseId: string;
+    /**
+     * The exercise this set was performed as (session_sets.exercise_id). Fills
+     * the line's existing identity slot in preference to the routine row's
+     * exerciseId: ReplaceExercise re-points that row, so a session still queued
+     * for sync would otherwise serialize under whatever the routine names by
+     * the time the bridge comes back. Absent on sets written before the column
+     * existed — those fall back to the row, as everywhere else.
+     */
+    exerciseId?: string;
     setType: SetType;
     reps?: number;
     weightKg?: number;
@@ -79,9 +88,6 @@ export function serializeSession(
   // Build lines in order of routine_exercises
   for (const re of routineExercises) {
     const exerciseSets = setsByExercise.get(re.id) || [];
-    const exerciseData = exercises.find(e => e.id === re.exerciseId);
-
-    if (!exerciseData) continue;
 
     // Get all sets for this exercise
     const exerciseSetsInOrder = exerciseSets.sort((a, b) => a.position - b.position);
@@ -89,6 +95,15 @@ export function serializeSession(
     // If superset, need to group; handle adjacent superset exercises
     // For now, emit each set as a line with superset flag
     for (const set of exerciseSetsInOrder) {
+      // What the set was performed as, not what its routine row names today.
+      // The row supplies everything else on the line — the prescription belongs
+      // to the plan and survives a swap untouched — so only the identity (and
+      // the kind read off it) comes from the set.
+      const performedExerciseId = set.exerciseId || re.exerciseId;
+      const exerciseData = exercises.find(e => e.id === performedExerciseId);
+
+      if (!exerciseData) continue;
+
       // Build flags manually for sessions to always include set_type
       const flagParts: string[] = [];
 
@@ -143,7 +158,7 @@ export function serializeSession(
       const flagStr = flagParts.join(' ');
       // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
       const parts = [setDesc, flagStr].filter(p => p);
-      const line = `- ${re.exerciseId}: ${parts.join(' ')}`;
+      const line = `- ${performedExerciseId}: ${parts.join(' ')}`;
       workoutLines.push(line);
     }
   }

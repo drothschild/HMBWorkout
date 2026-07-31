@@ -11,7 +11,8 @@ import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSessio
 import {
   computeSetPrefill,
   createSessionPresenter,
-  currentExerciseHasLoggedSet,
+  currentExerciseId,
+  historyPrefillStillApplies,
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { formatSetInputValue } from '@/state/setInputs';
@@ -91,7 +92,13 @@ export default function SessionScreen() {
   const questionText = exerciseQuestionStore((state) => state.text);
   const questionPending = exerciseQuestionStore((state) => state.pending);
 
-  // Compute progression hint when exercise changes
+  // The exercise being performed, as a primitive effect key. Every per-exercise
+  // effect below depends on this rather than on exerciseIndex alone:
+  // ReplaceExercise rewrites entries[exerciseIndex].exerciseId in place, so the
+  // index can stay put while the exercise underneath it changes.
+  const currentEntryExerciseId = currentExerciseId(sessionState);
+
+  // Compute progression hint when the exercise changes
   useEffect(() => {
     const computeHint = async () => {
       if (!sessionState) {
@@ -130,10 +137,11 @@ export default function SessionScreen() {
     };
 
     computeHint();
-    // Recompute only when the current exercise changes (primitive dep — the
+    // Recompute only when the current exercise changes (primitive deps — the
     // hint is per-exercise; depending on the entries array reference re-ran it
-    // on every dispatch).
-  }, [sessionState?.exerciseIndex]);
+    // on every dispatch). The exercise id is part of that: a swap changes the
+    // exercise without changing the index.
+  }, [sessionState?.exerciseIndex, currentEntryExerciseId]);
 
   // Prefill the set inputs on exercise change (and on mount, which restores
   // them after rehydration): the exercise's own last in-session set wins, then
@@ -176,16 +184,18 @@ export default function SessionScreen() {
         if (latest.weightKg != null) fallback.weightLbs = kgToLbs(latest.weightKg);
         if (fallback.reps === undefined && fallback.weightLbs === undefined) return;
 
-        // The closure's sessionState is a snapshot from when the effect ran,
-        // and dispatches during the query don't re-run this effect (deps are
-        // sessionId+exerciseIndex only). Bail unless fresh store state still
-        // matches the effect keys and the exercise has no in-session set.
+        // The closure's sessionState is a snapshot from when the effect ran, so
+        // the result is applied only if fresh store state still matches every
+        // effect key — including the exercise id, which a swap changes without
+        // touching the session or the index.
         const fresh = activeSessionStore.getState().sessionState;
         if (
           !fresh ||
-          fresh.sessionId !== sessionState.sessionId ||
-          fresh.exerciseIndex !== sessionState.exerciseIndex ||
-          currentExerciseHasLoggedSet(fresh)
+          !historyPrefillStillApplies(fresh, {
+            sessionId: sessionState.sessionId,
+            exerciseIndex: sessionState.exerciseIndex,
+            exerciseId: entry.exerciseId,
+          })
         ) {
           return;
         }
@@ -200,8 +210,10 @@ export default function SessionScreen() {
     return () => {
       cancelled = true;
     };
-    // Primitive deps on purpose (see the progression-hint effect above).
-  }, [sessionState?.sessionId, sessionState?.exerciseIndex]);
+    // Primitive deps on purpose (see the progression-hint effect above). The
+    // exercise id is one of them, so a swap re-prefills for the substitute
+    // instead of leaving the replaced exercise's numbers in the inputs.
+  }, [sessionState?.sessionId, sessionState?.exerciseIndex, currentEntryExerciseId]);
 
   // Engine state carries only exercise ids, so titles are resolved shell-side.
   // Entries are otherwise fixed for a session's lifetime, but ReplaceExercise

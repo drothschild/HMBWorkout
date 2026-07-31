@@ -74,8 +74,12 @@ everything else only shapes payloads and runs side effects.
   store** — if you find yourself branching on `phase` to decide what happens next, it
   belongs in a `.lv` rule, not TS.
 - The AI slice is shell-only and deliberately does not touch the engine: it authors
-  *routines* (data), never session flow. A routine produced by the AI is
-  indistinguishable from a hand-built one by the time the engine sees it.
+  *data* (routines, alternate exercises, descriptions), never session flow. A routine
+  produced by the AI is indistinguishable from a hand-built one by the time the
+  engine sees it. The one AI feature that changes a *running* session — the Replace
+  button — still decides nothing shell-side: `exerciseReplaceStore` dispatches a
+  `ReplaceExercise` event and the `.lv` rule alone decides whether the swap happens
+  (see engine convention 7).
 
 ### Non-obvious engine conventions (will bite you)
 
@@ -151,6 +155,17 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    The module sits outside `_layout.tsx` so the node jest project covers it (screens are
    not jest-covered), and it takes the store structurally rather than importing the
    global one, so tests can pass a `createActiveSessionStore` instance.
+   The kill case is the only one the boot path owns. A warm foreground (backgrounded,
+   not killed) past the deadline needs no `AppState` listener: `RestCountdown`
+   (`src/components/RestCountdown.tsx`) derives remaining time from the wall clock
+   (`deadlineMs - Date.now()`), ticks synchronously on mount and every 250ms while a
+   rest is on screen, and dispatches `RestElapsed` on the first tick at or past the
+   deadline. The session screen stays mounted across backgrounding, and a dismissed
+   session modal re-ticks on remount, so every warm path reconciles as soon as a rest
+   is visible again — and nothing outside the session screen reads the phase in the
+   meantime. Do not "fix" the warm case with a foreground `Resume` dispatch:
+   Resume-in-Paused would silently un-pause a deliberately paused workout on every
+   app switch, and Resume in any other phase is the error-banner trap above.
 
    The *foreground* sibling of that boot path is `AppForegrounded`
    (`src/state/foregroundReconcile.ts`, wired to an AppState listener in
@@ -178,7 +193,18 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    optional `exerciseTitles` map on `createSessionPresenter`, which exposes
    `currentExerciseTitle` and falls back to the raw id when an exercise is missing.
 
-7. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
+7. **`ReplaceExercise` swaps a running entry's identity, under engine guards.** The
+   event carries `{ idx, exerciseId }`; the rule requires `idx == exerciseIndex`
+   (a pick made after the workout moved on is rejected, not misapplied),
+   `setIndex == 0` (an entry with any logged or skipped set is committed), and
+   phase `Warmup | Working`. The rule rebuilds `entries` with a position-counting
+   `fold` using functional record update (`{ entry | exerciseId: ... }`), so the
+   closed-record field-loss hazard in convention 6 cannot occur. The shell's write
+   ordering around the dispatch is load-bearing: ensure the exercise record exists →
+   dispatch → only on `Ok` re-point the routine row — a rejected swap must never
+   leave the routine pointing where the session isn't.
+
+8. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
    way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,
    `prePausePhase`/`supersetGroup` → `""` — so TS read sites can stay non-nullable.
    `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list. Presenters
@@ -256,15 +282,13 @@ is now a misnomer — AI settings are in there too.
   rows by `exerciseId` (oldest `order` first, so duplicated exercises match
   deterministically) and survivors keep their row ids. That stability is
   load-bearing: `session_sets.routine_exercise_id` references those rows and
-  `getExerciseWorkingSetHistory` falls back to that join for any set written
-  before schema v3, which carries no `exercise_id` of its own — for those the
-  row is the only record of what was performed. An exercise the draft omits
-  *is* deleted, which is why the persona demands the full exercise list; its
-  row's still-unstamped sets are therefore stamped with the row's outgoing
-  `exercise_id` in the same transaction, just before the destroy. Dropping an
-  exercise from the *plan* must never erase what was already *done* — the same
-  layer-2 defense `updateRoutineExerciseExerciseId` applies before re-pointing
-  a row, and for the same reason.
+  `getExerciseWorkingSetHistory` joins by row id for pre-v3 sets (see the
+  Boundaries stamp rule — stamped sets carry their own identity), so editing a
+  routine never orphans logged history. An exercise the draft omits *is* deleted,
+  which is why the persona demands the full exercise list; that row's
+  still-unstamped sets are stamped with its outgoing `exercise_id` first, in the
+  same transaction, so dropping an exercise from the *plan* never erases what was
+  already *done*.
 - **The conversation mode owns the routine id.** `acceptDraft(db, draft, mode)` mints
   `routine-<epoch>` in create mode and forces `mode.routineId` in edit *and debrief*
   mode; drafts carry no routine id. Accepting in either of those always overwrites the
@@ -309,6 +333,21 @@ is now a misnomer — AI settings are in there too.
   routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
   and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
   network or DB.
+- **Three one-shot AI features share the conversation slice's conventions without
+  its store.** Rest commentary (`restCommentary*`), the exercise Question button
+  (`exerciseQuestion*` — ephemeral per-entry cache keyed by
+  `exerciseQuestionKey`, answer never persisted), and Replace-button alternates
+  (`alternates*` + `acceptAlternate` — validate on receipt AND at swap; `kind`
+  always from the entry, never the model; duplicate titles rejected at slug level)
+  each have their own prompt builder, and their own client except rest commentary,
+  whose `createRestCommentaryClient` sits alongside the conversation client inside
+  `anthropicClient.ts`. All follow the same rules: free text neutralized, immutable
+  directives last, secret-leak regression tests, network-vs-HTTP failure types,
+  every failure swallowed (a workout never depends on the AI), deps injected for
+  the node jest project. Known accepted debt: `neutralizeForPrompt` exists in
+  three copies and the POST/parse boilerplate in four (both `anthropicClient.ts`
+  factories, plus the question and alternates clients) — hoisting them is a
+  tracked follow-up; don't add another of either.
 - **Immutable directives must remain the last section in `buildSystem`.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
@@ -322,6 +361,11 @@ is now a misnomer — AI settings are in there too.
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
+- Because of that boundary, **layout in `src/components`/`src/app` is invisible to
+  every suite**: a green run proves nothing about it (PR #66 shipped a 2pt-collapsed
+  ScrollView past 159 passing tests — `flex: 1` inside an auto-height parent).
+  Verify layout changes in the simulator, or model the node tree with Yoga, before
+  calling them done.
 - `watchman: false` is required — watchman's crawl hangs jest startup on this machine.
 - ts-jest transform pins `useDefineForClassFields: false` + `experimentalDecorators`/
   `emitDecoratorMetadata`. WatermelonDB models rely on legacy decorator semantics;
@@ -339,7 +383,8 @@ is now a misnomer — AI settings are in there too.
 - `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
-  system-prompt builder, coach directives, draft→repository accept path
+  system-prompt builder, coach directives, draft→repository accept path, plus the
+  one-shot features (rest commentary, exercise question, replace alternates)
 - `src/app/` — expo-router screens
 
 ## Boundaries
@@ -355,13 +400,25 @@ is now a misnomer — AI settings are in there too.
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
   `upsertRoutine`'s duplicate matching all depend on that row id. Presenters must
   therefore surface it (`ExerciseDetail.routineExerciseId`)
-- That row is also the *fallback* exercise identity for every `session_sets` row
-  written before schema v3, so any path that destroys or re-points one must first
-  stamp its still-unstamped sets with the row's outgoing `exercise_id`, in the
-  same transaction. Two paths do (`upsertRoutine`'s drop branch and
-  `updateRoutineExerciseExerciseId`); a third would have to as well.
-  `deleteRoutine` needs no stamp — it deliberately retains the rows as history
-  carriers rather than destroying them
+- **A set's performed exercise is its own `session_sets.exercise_id` (schema v3),
+  not the row's.** The row's `exercise_id` is mutable (the Replace flow re-points
+  it), so the row join is only the *legacy fallback* for pre-v3 sets whose stamp is
+  null. `appendSet` stamps every new set from the engine entry (the value
+  `onPersistSet` already verified), and every identity reader —
+  `getExerciseWorkingSetHistory`, `getSessionExerciseLog`,
+  `getRecentSessionSummaries`, the vault export — resolves stamp-first,
+  join-fallback. `updateRoutineExerciseExerciseId` is the ONLY path allowed to
+  re-point a row, and the same layer-2 defense binds it and `upsertRoutine`'s
+  drop branch — the only other path that invalidates the join: inside the same
+  `database.write`, stamp every attached null-stamped set with the row's outgoing
+  identity *before* re-pointing or destroying the row. Any future path that does
+  either owes the same stamp. `deleteRoutine` is exempt only because it
+  deliberately retains the rows as history carriers rather than destroying them.
+  A new reader that resolves a set's exercise through the row alone reintroduces
+  the PR #65 history-corruption bug. One rendering consequence: a swapped row's
+  sets can span two performed identities, so session-detail entries key on the
+  `(routineExerciseId, exerciseId)` pair (`sessionDetailPresenter` exposes both;
+  `workout/[id].tsx` keys on the pair), not the row id alone
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)
