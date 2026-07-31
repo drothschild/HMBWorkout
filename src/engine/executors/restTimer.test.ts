@@ -79,7 +79,7 @@ describe('createRestTimerExecutor', () => {
     const mockCancel = jest.fn(async () => undefined);
 
     const executor = createRestTimerExecutor({
-      scheduleNotificationAsync: jest.fn(async () => 'rest-timer'),
+      scheduleNotificationAsync: jest.fn(async () => 'os-generated-id-def'),
       cancelScheduledNotificationAsync: mockCancel,
       setNotificationHandler: jest.fn(),
       requestPermission: jest.fn(async () => 'granted'),

@@ -1,7 +1,13 @@
+import * as Notifications from 'expo-notifications';
+import { createRealNotificationApis } from './notificationApis';
+
 /**
  * Test: createRealNotificationApis adapter to expo-notifications
  * Verifies that the production adapter correctly maps payloads and forwards
- * the stable identifier so re-scheduling replaces pending alerts (AC2.1)
+ * the stable identifier so re-scheduling replaces pending alerts.
+ * Guards the REST_NOTIFICATION_ID constant in restTimer.ts and the
+ * kill-mid-rest relaunch replacement behavior (when re-arming, the fixed
+ * identifier makes the OS replace a pending notification instead of stacking).
  */
 
 jest.mock('expo-notifications', () => ({
@@ -11,9 +17,6 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
   SchedulableTriggerInputTypes: { DATE: 'date' },
 }));
-
-import * as Notifications from 'expo-notifications';
-import { createRealNotificationApis } from './notificationApis';
 
 describe('createRealNotificationApis', () => {
   beforeEach(() => {
@@ -54,6 +57,8 @@ describe('createRealNotificationApis', () => {
       trigger: null,
     });
 
+    // ObjectContaining checks hasProperty before comparing, so this fails if
+    // the `identifier: payload.identifier,` line is deleted from the adapter.
     expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         identifier: undefined,
