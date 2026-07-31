@@ -148,15 +148,7 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
   // For otherSets (from deleted exercises), just use simple numbering
   const otherSets = allSets
     .filter((set) => !accountedForSetIds.has(set.id))
-    .map((set, idx) => {
-      const label = String(idx + 1);
-      return {
-        id: set.id,
-        setType: set.setType as string,
-        line: formatSessionSetLine(set),
-        label,
-      };
-    });
+    .map((set, idx) => toSetLine(set, String(idx + 1)));
 
   return {
     sessionId: session.id,

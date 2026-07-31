@@ -371,10 +371,12 @@ describe('sessionDetailPresenter', () => {
     expect(detail).not.toBeNull();
     // No planned exercises
     expect(detail!.exercises).toHaveLength(0);
-    // All sets are orphaned
+    // All sets are orphaned, numbered 1..n in position order
     expect(detail!.otherSets).toHaveLength(2);
     expect(detail!.otherSets[0].line).toBe('10 x 110lbs');
     expect(detail!.otherSets[1].line).toBe('8 x 110lbs');
+    expect(detail!.otherSets[0].label).toBe('1');
+    expect(detail!.otherSets[1].label).toBe('2');
   });
 
   it('returns null for endedAt when the session has not been marked ended', async () => {
