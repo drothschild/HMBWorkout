@@ -931,6 +931,106 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
     });
   });
 
+  describe('null (WatermelonDB unset-column value) round-trips the same as undefined', () => {
+    // WatermelonDB returns null, not undefined, for an unset optional column.
+    // syncService normalizes this at the shell boundary (see the DB-backed
+    // case in syncService.test.ts), but serialize.ts's own flag guards must
+    // be null-safe independently: any other caller that passes a raw DB
+    // value straight through must not get e.g. "rpe=null" in the output.
+    test('serializeSession: null rpe/distance/restSeconds are omitted, not emitted as "null"', () => {
+      const sessionRow = {
+        id: 'sess-defense-001',
+        routineId: 'push-06-01',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+
+      const sets = [
+        {
+          routineExerciseId: 're-001',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 80,
+          durationSeconds: null,
+          distanceM: null,
+          rpe: null,
+          position: 0,
+        },
+      ];
+
+      const routineExercises = [
+        {
+          id: 're-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: null,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [
+        { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+      ];
+
+      const markdown = serializeSession(sessionRow as any, sets as any, routineExercises as any, exercises as any);
+
+      expect(markdown).not.toContain('null');
+      expect(() => parseSession(markdown)).not.toThrow();
+
+      const set0 = parseSession(markdown).exercises[0] as WorkoutLine;
+      expect(set0.rpe).toBeUndefined();
+      expect(set0.distance).toBeUndefined();
+      expect(set0.restSeconds).toBeUndefined();
+    });
+
+    test('serializeRoutine: null targetDurationSeconds/restSeconds/targetSets are omitted, not emitted as "null"', () => {
+      const routineRow = {
+        id: 'routine-defense-001',
+        name: 'Push Day',
+        notes: undefined,
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        updatedAt: new Date('2026-07-08T10:00:00Z'),
+      };
+
+      const routineExercises = [
+        {
+          id: 're-001',
+          exerciseId: 'plank',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          // A duration-based (stretch) entry: target_sets/target_reps/
+          // rest_seconds are legitimately unset in the DB, which WatermelonDB
+          // surfaces as null, never undefined.
+          targetSets: null,
+          targetReps: null,
+          targetDurationSeconds: 30,
+          restSeconds: null,
+          notes: undefined,
+        },
+      ];
+
+      const exercises = [{ id: 'plank', title: 'Plank', kind: 'stretch' as const }];
+
+      const markdown = serializeRoutine(routineRow as any, routineExercises as any, exercises as any);
+
+      expect(markdown).not.toContain('null');
+      expect(() => parseRoutine(markdown)).not.toThrow();
+
+      const line0 = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(line0.targetDurationSeconds).toBe(30);
+      expect(line0.restSeconds).toBeUndefined();
+      expect(line0.targetSets).toBeUndefined();
+    });
+  });
+
   describe('AC3.1: bodyweight sets (weight 0) round-trip', () => {
     test('a logged set with weightKg 0 survives serialize → parse', () => {
       const sessionRow = {

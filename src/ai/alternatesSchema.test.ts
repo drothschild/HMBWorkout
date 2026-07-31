@@ -8,6 +8,7 @@ import {
   validateExerciseAlternates,
 } from './alternatesSchema';
 import { DraftValidationError, slugifyTitle } from './draftSchema';
+import { expectStructuredOutputSafe } from './structuredOutputSubset';
 
 const ALTERNATE = {
   title: 'Dumbbell Floor Press',
@@ -167,8 +168,12 @@ describe('ALTERNATES_SCHEMA', () => {
     expect(Object.keys(item.properties).sort()).toEqual(['description', 'title']);
   });
 
-  it('bounds the array in the schema as well as in the validator', () => {
-    expect(ALTERNATES_SCHEMA.properties.alternates.maxItems).toBe(EXERCISE_ALTERNATES_MAX);
-    expect(ALTERNATES_SCHEMA.properties.alternates.minItems).toBe(1);
+  // A `minItems`/`maxItems` pair here is what made the Replace button fail on
+  // every tap: the endpoint rejected the whole request, so there was never an
+  // alternate to show. The bounds are not lost — `validateExerciseAlternates`
+  // enforces both (covered above), which is where the SDKs put the keywords
+  // they strip. See `structuredOutputSubset.ts`.
+  it('carries no keyword the structured-output schema subset rejects', () => {
+    expectStructuredOutputSafe(ALTERNATES_SCHEMA);
   });
 });

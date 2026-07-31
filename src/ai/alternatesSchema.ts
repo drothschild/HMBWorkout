@@ -54,11 +54,18 @@ export const ALTERNATE_DESCRIPTION_MAX_LENGTH = 600;
 export const ALTERNATES_SCHEMA = {
   type: 'object',
   properties: {
+    // No `minItems`/`maxItems` here, and none of the other count/length/range
+    // keywords either: the structured-output endpoint compiles this schema and
+    // rejects the entire request with a 400 when it carries a keyword outside
+    // the supported subset. The official SDKs strip those and re-check them
+    // client-side; this feature's client is a hand-rolled fetch by design, so
+    // nothing strips them for us — an unsupported keyword here is a Replace
+    // button that fails on every tap. `validateExerciseAlternates` enforces the
+    // 1..EXERCISE_ALTERNATES_MAX bounds instead, which is where the SDKs put
+    // them anyway; the description and the prompt do the steering.
     alternates: {
       type: 'array',
       description: 'Substitute exercises, best first',
-      minItems: 1,
-      maxItems: EXERCISE_ALTERNATES_MAX,
       items: {
         type: 'object',
         properties: {

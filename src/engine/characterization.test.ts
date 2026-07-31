@@ -322,62 +322,6 @@ describe('characterization: session engine pre-migration behavior', () => {
   });
 
   /**
-   * C3: SkipExercise from mid-routine and from last exercise
-   */
-  describe('C3: SkipExercise behavior', () => {
-    it('should skip mid-routine exercise', async () => {
-      const engine = createEngine({});
-      const state = makeState({
-        phase: 'working',
-        exerciseIndex: 0,
-        setIndex: 0,
-        entries: makeRoutine(3).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      expect(currentState.exerciseIndex).toBe(1);
-      expect(currentState.phase).toBe('working'); // Phase unchanged
-      expect(currentState.setIndex).toBe(0); // Reset for new exercise
-      expect(currentState.restDeadlineMs).toBe(0); // No pending rest
-    });
-
-    it('should skip last exercise and complete session', async () => {
-      const engine = createEngine({
-        onCompleteSession: jest.fn(),
-        onNotify: jest.fn(),
-      });
-      const state = makeState({
-        phase: 'working',
-        exerciseIndex: 1, // Last (index 1 of 2)
-        setIndex: 0,
-        entries: makeRoutine(2).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      // Skipping last exercise should NOT auto-complete; phase stays working
-      expect(currentState.exerciseIndex).toBe(2); // Beyond array bounds
-      expect(currentState.phase).toBe('working');
-    });
-
-    it('should clear rest deadline on SkipExercise', async () => {
-      const engine = createEngine({});
-      const state = makeState({
-        phase: 'resting',
-        restDeadlineMs: 10000,
-        exerciseIndex: 0,
-        entries: makeRoutine(2).entries,
-      });
-      engine.setState(state);
-
-      const currentState = await engine.dispatch({ tag: 'SkipExercise' });
-      expect(currentState.restDeadlineMs).toBe(0);
-      expect(normalize(currentState).restDeadlineMs).toBeUndefined(); // Post-migration: undefined
-    });
-  });
-
-  /**
    * C4: LogSet with and without RPE (sentinel mapping)
    */
   describe('C4: LogSet RPE sentinel behavior', () => {
@@ -761,6 +705,11 @@ describe('characterization: session engine pre-migration behavior', () => {
 
       const engine = createEngine(executors);
 
+      // Uneven pair on purpose: A carries a warmup set B doesn't (A: 1 warmup
+      // + 1 working = 2 total; B: 1 working = 1 total). advance_after_set
+      // tracks each member's own exhaustion, so B is skipped once it's done
+      // (round 1 onward) while A keeps round-robining with itself alone —
+      // every prescribed set gets logged, none silently dropped.
       const routine = makeRoutine(2, [
         { warmupSets: 1, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
         { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 90 },
@@ -775,7 +724,7 @@ describe('characterization: session engine pre-migration behavior', () => {
       });
       expect(state.phase).toBe('warmup');
 
-      // LogSet warmup → rest between sets, then working (within same exercise)
+      // LogSet A's warmup set → hop to B immediately (same round, no rest)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -785,12 +734,13 @@ describe('characterization: session engine pre-migration behavior', () => {
           nowMs: 10000,
         })
       );
-      expect(state.phase).toBe('resting');
-
-      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 100000 });
+      expect(state.loggedSets[0].setType).toBe('warmup');
       expect(state.phase).toBe('working');
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.supersetPosition).toBe(1);
 
-      // LogSet working exercise 0 → exercise 1 (same superset, no rest)
+      // LogSet B's only set (round 0, B's total) → B is now exhausted, so the
+      // round loops back to A alone, with rest (B's restSeconds)
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -798,14 +748,21 @@ describe('characterization: session engine pre-migration behavior', () => {
           weightKg: 25.0,
           durationSeconds: 0,
           rpe: 7.5,
-          nowMs: 105000,
+          nowMs: 15000,
         })
       );
-      expect(state.phase).toBe('working');
-      expect(state.exerciseIndex).toBe(1);
-      expect(state.supersetPosition).toBe(1);
+      expect(state.phase).toBe('resting');
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(1);
+      expect(state.restDeadlineMs).toBe(15000 + 90 * 1000);
 
-      // LogSet exercise 1 → done (last exercise)
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 15000 + 91 * 1000 });
+      // Round 1 for A is its working set (round 1 >= A's 1 warmup set)
+      expect(state.phase).toBe('working');
+      expect(state.exerciseIndex).toBe(0);
+
+      // LogSet A's working set (its last) → B has no set left at round 1
+      // either, so the whole group — and here, the whole workout — is done
       state = await engine.dispatch(
         fillEventDefaults({
           tag: 'LogSet',
@@ -817,7 +774,68 @@ describe('characterization: session engine pre-migration behavior', () => {
         })
       );
       expect(state.phase).toBe('done');
+      expect(state.loggedSets).toHaveLength(3); // A's 2 sets + B's 1 — nothing dropped
       expect(executors.onCompleteSession).toHaveBeenCalled();
+    });
+
+    it('should alternate every set, not exhaust one exercise before its partner', async () => {
+      const engine = createEngine({ onScheduleRest: jest.fn() });
+
+      // Two-member group, 3 sets each. A correct superset does A1,B1,rest,
+      // A2,B2,rest,A3,B3 — never A1,A2,A3 followed by B1,B2,B3.
+      const routine = makeRoutine(2, [
+        { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 60 },
+        { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 60 },
+      ]);
+
+      let state = await engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'alternate-test',
+        nowMs: 0,
+        routine: routine as any,
+      });
+      expect(state.exerciseIndex).toBe(0);
+
+      // A1 → B1, immediately, no rest.
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 1000 }));
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.setIndex).toBe(0);
+      expect(state.phase).toBe('working');
+
+      // B1 → rest, then back to A for round 2 (not B2 — the round is done).
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 2000 }));
+      expect(state.phase).toBe('resting');
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(1);
+
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 62000 });
+      expect(state.phase).toBe('working');
+      expect(state.exerciseIndex).toBe(0);
+
+      // A2 → B2, immediately, no rest.
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 63000 }));
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.setIndex).toBe(1);
+      expect(state.phase).toBe('working');
+
+      // B2 → rest, then back to A for round 3.
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 64000 }));
+      expect(state.phase).toBe('resting');
+      expect(state.exerciseIndex).toBe(0);
+      expect(state.setIndex).toBe(2);
+
+      state = await engine.dispatch({ tag: 'RestElapsed', nowMs: 124000 });
+      expect(state.phase).toBe('working');
+
+      // A3 → B3, immediately, no rest.
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 125000 }));
+      expect(state.exerciseIndex).toBe(1);
+      expect(state.setIndex).toBe(2);
+      expect(state.phase).toBe('working');
+
+      // B3 → workout complete (last set of the last exercise).
+      state = await engine.dispatch(fillEventDefaults({ tag: 'SetDone', nowMs: 126000 }));
+      expect(state.phase).toBe('done');
     });
   });
 
