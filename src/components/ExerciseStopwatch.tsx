@@ -44,17 +44,22 @@ export function ExerciseStopwatch({
   // The parent recreates its callbacks every render (the presenter is rebuilt
   // each time), so keep the alert in a ref: the interval must not be torn down
   // and re-armed on every parent render. Written in a layout effect since the
-  // tick that reads it is also layout-timed.
+  // tick that reads it is also layout-timed — and this effect must stay
+  // declared before the tick effect below (layout effects run in hook order,
+  // which is what guarantees the commit-time tick reads a fresh onMinute).
   const onMinuteRef = useRef(onMinute);
   useLayoutEffect(() => {
     onMinuteRef.current = onMinute;
   });
 
-  // Tick once before paint (useLayoutEffect) to avoid one-frame layout jump
-  // when view mounts undefined and pops in on the first post-paint useEffect.
-  // Manages interval and tick atomically to prevent stale-interval races: the
-  // layout tick runs at commit, old clearInterval runs post-paint. A single
-  // layout effect keeps tick → clearInterval(old) → setInterval(new) atomic.
+  // Tick once before paint (useLayoutEffect) to avoid a one-frame layout jump
+  // when view mounts undefined. One layout effect owns both the tick and the
+  // interval so they cannot drift apart. React runs layout cleanups in the
+  // mutation phase and layout creates in the layout phase of the same
+  // synchronous commit, so the sequence is clearInterval(old) → tick(new
+  // closure) → setInterval(new), with no window for a stale running=true tick
+  // to fire after a freeze has been committed. Splitting the interval back
+  // into a passive effect reintroduces that race.
   useLayoutEffect(() => {
     const tick = () => {
       const result = advanceStopwatch(runRef.current, {
