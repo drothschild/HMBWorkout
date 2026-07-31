@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { Database } from '@nozbe/watermelondb';
-import { AiTurn, RoutineDraft, DraftValidationError } from '@/ai/draftSchema';
+import {
+  AiTurn,
+  RoutineDraft,
+  DraftValidationError,
+  SettingsProposal,
+  validateSettingsProposal,
+} from '@/ai/draftSchema';
 import { acceptDraft as acceptDraftFn } from '@/ai/acceptDraft';
 import {
   AnthropicHttpError,
@@ -8,13 +14,15 @@ import {
   createAnthropicClient,
   AiChatMessage,
 } from '@/ai/anthropicClient';
-import { buildSystem as buildSystemFn, AiCoachMode } from '@/ai/contextBuilder';
-import { getSettings } from '@/state/settings';
+import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
+import { getSettings, setSettings } from '@/state/settings';
+import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
   content: string; // wire content: user text, or raw AiTurn JSON for assistant turns
   turn?: AiTurn; // parsed turn for rendering (assistant only)
+  hidden?: boolean; // when true, not rendered in the UI but still sent to API
 }
 
 export type AiChatError =
@@ -29,12 +37,16 @@ interface AiChatState {
   mode: AiCoachMode;
   messages: AiDisplayMessage[];
   pendingDraft: RoutineDraft | null;
+  pendingSettingsProposal: SettingsProposal | null;
   status: 'idle' | 'sending' | 'error';
   error: AiChatError | null;
   reset(mode: AiCoachMode): void;
+  openDebrief(mode: DebriefMode): Promise<void>;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
-  acceptDraft(): Promise<string>;
+  acceptDraft(): Promise<string | null>;
+  approveSettingsProposal(): void;
+  declineSettingsProposal(): void;
 }
 
 export interface AiChatDeps {
@@ -43,6 +55,7 @@ export interface AiChatDeps {
   buildSystem: typeof buildSystemFn;
   accept: typeof acceptDraftFn;
   getSettings: typeof getSettings;
+  setSettings: typeof setSettings;
 }
 
 function mapError(error: unknown): AiChatError {
@@ -66,13 +79,30 @@ export function createAiChatStore(deps: AiChatDeps) {
   let cachedSystem: string | null = null;
   // Generation counter to discard stale responses after reset() invalidates ongoing requests
   let generation = 0;
+  // Epoch counter for the prompt cache alone. It advances on every event that
+  // makes the cached prompt wrong, which is a strictly larger set than the events
+  // that invalidate a conversation: reset() does both, while an approved settings
+  // change only stales the prompt and must leave in-flight responses alone.
+  let systemEpoch = 0;
+
+  function invalidateCachedSystem() {
+    cachedSystem = null;
+    systemEpoch++;
+  }
+
+  // Synchronous in-flight latch for acceptDraft: same-frame double-taps pass the
+  // screen's render-snapshot guard, so the store must refuse re-entry itself
+  let acceptInFlight = false;
 
   async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string, gen: number): Promise<AiTurn> {
     let system = cachedSystem;
     if (system === null) {
+      const epoch = systemEpoch;
       system = await deps.buildSystem(deps.db, mode);
-      // A reset() during the build must not repopulate the cache it just cleared.
-      if (generation === gen) cachedSystem = system;
+      // A reset() or an approved settings write during the build must not
+      // repopulate the cache it just cleared. This request still uses the prompt
+      // it started with — it is already committed — but the next one rebuilds.
+      if (systemEpoch === epoch) cachedSystem = system;
     }
 
     // If generation changed during buildSystem, abort before creating billable client.
@@ -108,6 +138,9 @@ export function createAiChatStore(deps: AiChatDeps) {
           ],
           status: 'idle',
           pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+          pendingSettingsProposal: turn.settingsProposal
+            ? turn.settingsProposal
+            : currentState.pendingSettingsProposal,
         }));
       } catch (error) {
         if (generation !== gen) return;
@@ -118,23 +151,59 @@ export function createAiChatStore(deps: AiChatDeps) {
       }
     }
 
+    // Shared turn-start body: check key, set status, call runTurn. Used by
+    // openDebrief, send, and retry to avoid drifting copies.
+    async function startTurn(newMessages: AiDisplayMessage[], mode: AiCoachMode) {
+      const settings = deps.getSettings();
+      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+        set({
+          status: 'error',
+          error: { kind: 'missing_key' },
+        });
+        return;
+      }
+
+      const gen = generation;
+      set({
+        messages: newMessages,
+        status: 'sending',
+        error: null,
+      });
+
+      await runTurn(gen, newMessages, mode, settings.anthropicKey);
+    }
+
     return {
       mode: { kind: 'create' },
       messages: [],
       pendingDraft: null,
+      pendingSettingsProposal: null,
       status: 'idle',
       error: null,
 
       reset(mode: AiCoachMode) {
-        cachedSystem = null;
+        invalidateCachedSystem();
         generation++;
         set({
           mode,
           messages: [],
           pendingDraft: null,
+          pendingSettingsProposal: null,
           status: 'idle',
           error: null,
         });
+      },
+
+      async openDebrief(mode: DebriefMode) {
+        // A debrief is a conversation the coach starts, so the opening turn is
+        // sent for the user. Going through reset() first keeps the generation
+        // and prompt-cache rules identical to every other conversation start.
+        get().reset(mode);
+
+        // Send the opening message but mark it hidden: the user never typed it,
+        // and the AI's greeting should be the first visible message.
+        const newMessages: AiDisplayMessage[] = [{ role: 'user', content: DEBRIEF_OPENING_MESSAGE, hidden: true }];
+        await startTurn(newMessages, mode);
       },
 
       async send(text: string) {
@@ -144,24 +213,8 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
         const newMessages: AiDisplayMessage[] = [...state.messages, { role: 'user', content: text }];
-        const gen = generation;
-        set({
-          messages: newMessages,
-          status: 'sending',
-          error: null,
-        });
-
-        await runTurn(gen, newMessages, state.mode, settings.anthropicKey);
+        await startTurn(newMessages, state.mode);
       },
 
       async retry() {
@@ -176,31 +229,61 @@ export function createAiChatStore(deps: AiChatDeps) {
           return;
         }
 
-        const settings = deps.getSettings();
-        if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
-          set({
-            status: 'error',
-            error: { kind: 'missing_key' },
-          });
-          return;
-        }
-
-        const gen = generation;
-        set({ status: 'sending', error: null });
-
-        await runTurn(gen, state.messages, state.mode, settings.anthropicKey);
+        await startTurn(state.messages, state.mode);
       },
 
       async acceptDraft() {
+        if (acceptInFlight) {
+          return null;
+        }
+
         const state = get();
 
         if (state.pendingDraft === null) {
           throw new Error('No pending draft to accept');
         }
 
-        const id = await deps.accept(deps.db, state.pendingDraft, state.mode);
-        set({ pendingDraft: null });
-        return id;
+        acceptInFlight = true;
+        try {
+          const id = await deps.accept(deps.db, state.pendingDraft, state.mode);
+          set({ pendingDraft: null });
+          return id;
+        } finally {
+          acceptInFlight = false;
+        }
+      },
+
+      approveSettingsProposal() {
+        const state = get();
+
+        if (state.pendingSettingsProposal === null) {
+          throw new Error('No pending settings proposal to approve');
+        }
+
+        // Validate twice: structured output is not a guarantee, and this is the
+        // last point before the values reach persistent storage. Throwing here
+        // leaves the proposal pending so the card stays on screen.
+        const proposal = validateSettingsProposal(state.pendingSettingsProposal);
+
+        // Build the patch from present fields only — spreading an explicit
+        // `undefined` over the settings cache would blank the other field.
+        const patch: Parameters<typeof setSettings>[0] = {};
+        if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
+        if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
+
+        deps.setSettings(patch);
+
+        // The cached prompt embeds goals and equipment, so it is now stale. Clear
+        // it without bumping `generation`: the conversation carries on and an
+        // in-flight response must still be committed.
+        invalidateCachedSystem();
+
+        set({ pendingSettingsProposal: null });
+      },
+
+      declineSettingsProposal() {
+        // Nothing was written, so the cached prompt is still accurate.
+        set({ pendingSettingsProposal: null });
       },
     };
   });
@@ -227,6 +310,7 @@ export function getAiChatStore() {
       buildSystem: buildSystemFn,
       accept: acceptDraftFn,
       getSettings,
+      setSettings,
     });
   }
   return globalStore;

@@ -10,5 +10,6 @@ export default class Exercise extends Model {
   @text('kind') kind!: ExerciseKind;
   @text('muscle_group') muscleGroup?: string;
   @text('equipment') equipment?: string;
+  @text('description') description?: string | null;
   @readonly @date('created_at') createdAt!: Date;
 }
