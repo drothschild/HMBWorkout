@@ -274,9 +274,9 @@ export function createAiChatStore(deps: AiChatDeps) {
 
         deps.setSettings(patch);
 
-        // The cached prompt embeds goals and equipment, so it is now stale. Clear
-        // it without bumping `generation`: the conversation carries on and an
-        // in-flight response must still be committed.
+        // The cached prompt embeds goals, equipment, and coaching style, so it is
+        // now stale. Clear it without bumping `generation`: the conversation
+        // carries on and an in-flight response must still be committed.
         invalidateCachedSystem();
 
         set({ pendingSettingsProposal: null });
