@@ -466,6 +466,69 @@ describe('aiChatStore', () => {
       expect(fakeChat).toHaveBeenCalledTimes(1);
     });
 
+    it('double acceptDraft fires exactly one write', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      let resolveAccept: (value: string) => void;
+      const deferredAccept = new Promise<string>((resolve) => {
+        resolveAccept = resolve;
+      });
+      fakeAccept.mockReturnValue(deferredAccept);
+
+      // Two same-frame taps: the screen's render-snapshot guard passes both,
+      // so the store itself must refuse the second call.
+      const promise1 = store.getState().acceptDraft();
+      const promise2 = store.getState().acceptDraft();
+
+      resolveAccept!('routine-id-1');
+      const [id1, id2] = await Promise.all([promise1, promise2]);
+
+      expect(fakeAccept).toHaveBeenCalledTimes(1);
+      expect(id1).toBe('routine-id-1');
+      expect(id2).toBeNull();
+      expect(store.getState().pendingDraft).toBeNull();
+    });
+
+    it('a new draft can be accepted after a successful accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draftA: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'first', draft: draftA });
+      await store.getState().send('create');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-1');
+      await store.getState().acceptDraft();
+
+      const draftB: RoutineDraft = {
+        name: 'Routine B',
+        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'second', draft: draftB });
+      await store.getState().send('another');
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
+      expect(fakeAccept).toHaveBeenLastCalledWith({}, draftB, { kind: 'create' });
+    });
+
     it('send during in-flight retry is a no-op', async () => {
       const { store, fakeChat } = makeStore();
 
@@ -591,6 +654,31 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingDraft).toBeNull();
 
       await expect(store.getState().acceptDraft()).rejects.toThrow('No pending draft to accept');
+    });
+
+    it('accept can be retried after a failed accept', async () => {
+      const { store, fakeAccept, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      const draft: RoutineDraft = {
+        name: 'Test Routine',
+        exercises: [{ title: 'Push-up', kind: 'strength' }],
+      };
+      fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
+      await store.getState().send('create routine');
+
+      fakeAccept.mockRejectedValueOnce(new Error('db write failed'));
+      await expect(store.getState().acceptDraft()).rejects.toThrow('db write failed');
+
+      // The draft survives the failure and a second accept goes through.
+      expect(store.getState().pendingDraft).toEqual(draft);
+
+      fakeAccept.mockResolvedValueOnce('routine-id-2');
+      const id = await store.getState().acceptDraft();
+
+      expect(id).toBe('routine-id-2');
+      expect(fakeAccept).toHaveBeenCalledTimes(2);
     });
   });
 

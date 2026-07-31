@@ -96,6 +96,11 @@ export default function AiCoachScreen() {
     setAcceptError(null);
     try {
       const id = await store.getState().acceptDraft();
+      if (id === null) {
+        // A concurrent accept already owns this draft; that call navigates
+        // (and clears `accepting`) when it settles.
+        return;
+      }
       setAccepting(false);
       router.push(`/routine/${id}`);
     } catch (err) {
