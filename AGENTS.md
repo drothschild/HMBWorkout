@@ -131,9 +131,13 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
    Rehydrating is a `hydrate` call, not a dispatch, and the boot path
    (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
-   **only when the saved phase is `paused`** — `transition.lv` accepts `Resume` in that
-   one phase and returns `Err` everywhere else, and a session killed mid-warmup or
-   mid-rest has no frozen deadline to reconcile anyway. Rejections are never silent:
+   **only when the saved phase is `paused` or `resting`** — the two phases where
+   `transition.lv` defines a meaning for it (thaw a pause-frozen rest; re-arm or
+   recover a kill-mid-rest deadline — rest alerts use a fixed OS notification
+   identifier, `REST_NOTIFICATION_ID`, precisely so that boot re-arm replaces the
+   pre-kill alert and cancel works across process generations). Every other phase
+   returns `Err`, and a session killed mid-warmup or mid-set has nothing to
+   reconcile anyway. Rejections are never silent:
    any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
    `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.
    So an unconditional Resume at boot greets the user with a red banner rather than
