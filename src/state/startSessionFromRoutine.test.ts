@@ -142,6 +142,12 @@ describe('startSessionFromRoutine', () => {
         re._raw.routine_id = 'routine-3';
         re._raw.exercise_id = 'rowing';
         re._raw.order = 0;
+        // Persona guidance (contextBuilder.ts): duration-based exercises get
+        // targetSets: 1 ("a timed hold is still one planned set in the
+        // session flow") — this fixture mirrors an AI-authored draft, not
+        // the vault-import path, where target_sets is validly absent instead
+        // (see AGENTS.md's zero-planned-set Boundaries rule).
+        re._raw.target_sets = 1;
         re._raw.target_duration_seconds = 300;
       });
 
@@ -149,6 +155,7 @@ describe('startSessionFromRoutine', () => {
         re._raw.routine_id = 'routine-3';
         re._raw.exercise_id = 'stretching';
         re._raw.order = 1;
+        re._raw.target_sets = 1;
         re._raw.target_duration_seconds = 120;
       });
     });
@@ -199,5 +206,43 @@ describe('startSessionFromRoutine', () => {
     await expect(
       startSessionFromRoutine(db, 'routine-empty', 'session-123')
     ).rejects.toThrow(/no exercises/);
+  });
+
+  it('refuses to start a session where every exercise plans zero total sets', async () => {
+    // Distinct from the no-exercises case above: this routine has an entry,
+    // but the engine's h.next_active_landing would find nothing active in it
+    // at StartSession, which now rejects rather than instantly completing
+    // (see AGENTS.md engine convention 10). Reachable in practice: targetSets
+    // is optional on an AI draft, and startSessionFromRoutine already maps a
+    // missing value to 0 below.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-all-zero';
+        r.name = 'All Zero Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'planking';
+        e.title = 'Plank Hold';
+        e._raw.kind = 'stretch';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-all-zero';
+        re._raw.exercise_id = 'planking';
+        re._raw.order = 0;
+        re._raw.warmup_sets = 0;
+        re._raw.target_sets = 0;
+      });
+    });
+
+    await expect(
+      startSessionFromRoutine(db, 'routine-all-zero', 'session-123')
+    ).rejects.toThrow(/no entry with any sets to perform/);
   });
 });

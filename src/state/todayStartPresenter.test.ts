@@ -7,6 +7,9 @@ interface SeedRoutine {
   name: string;
   exerciseCount: number;
   createdAt: number;
+  /** Seeds every exercise with target_sets: 0 instead of 3 — the vault-import
+   *  shape for cardio/stretch entries (AGENTS.md's zero-planned-set rule). */
+  allZeroSets?: boolean;
 }
 
 async function seedRoutine(db: Database, routine: SeedRoutine): Promise<void> {
@@ -23,7 +26,7 @@ async function seedRoutine(db: Database, routine: SeedRoutine): Promise<void> {
         re._raw.routine_id = routine.id;
         re._raw.exercise_id = `${routine.id}-ex-${order}`;
         re._raw.order = order;
-        re._raw.target_sets = 3;
+        re._raw.target_sets = routine.allZeroSets ? 0 : 3;
         re._raw.target_reps = 8;
         re._raw.rest_seconds = 90;
       });
@@ -64,8 +67,8 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'choose-routine',
       routines: [
-        { id: 'routine-push', name: 'Push Day', exerciseCount: 1, startable: true },
-        { id: 'routine-pull', name: 'Pull Day', exerciseCount: 2, startable: true },
+        { id: 'routine-push', name: 'Push Day', exerciseCount: 1, hasActiveExercise: true, startable: true },
+        { id: 'routine-pull', name: 'Pull Day', exerciseCount: 2, hasActiveExercise: true, startable: true },
       ],
     });
   });
@@ -80,8 +83,8 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'routines-need-exercises',
       routines: [
-        { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, startable: false },
-        { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, startable: false },
+        { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, hasActiveExercise: false, startable: false },
+        { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, hasActiveExercise: false, startable: false },
       ],
     });
   });
@@ -96,8 +99,28 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'choose-routine',
       routines: [
-        { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, startable: false },
-        { id: 'routine-full', name: 'Full Day', exerciseCount: 3, startable: true },
+        { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, hasActiveExercise: false, startable: false },
+        { id: 'routine-full', name: 'Full Day', exerciseCount: 3, hasActiveExercise: true, startable: true },
+      ],
+    });
+  });
+
+  it('treats a routine with exercises that all plan zero total sets as unstartable, same as having none', async () => {
+    const now = Date.now();
+    await seedRoutine(db, {
+      id: 'routine-all-zero',
+      name: 'Recovery Day',
+      exerciseCount: 2,
+      createdAt: now,
+      allZeroSets: true,
+    });
+
+    const options = await todayStartPresenter(db);
+
+    expect(options).toEqual({
+      kind: 'routines-need-exercises',
+      routines: [
+        { id: 'routine-all-zero', name: 'Recovery Day', exerciseCount: 2, hasActiveExercise: false, startable: false },
       ],
     });
   });

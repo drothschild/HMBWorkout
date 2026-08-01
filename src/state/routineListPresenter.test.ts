@@ -64,6 +64,48 @@ describe('routineListPresenter', () => {
       id: 'routine-1',
       name: 'Push Day',
       exerciseCount: 2,
+      hasActiveExercise: true,
+    });
+  });
+
+  it('reports hasActiveExercise: false when every exercise plans zero total sets', async () => {
+    // Reachable via vault import, where cardio/stretch entries validly carry
+    // no target_sets at all (AGENTS.md's zero-planned-set Boundaries rule) —
+    // distinct from having no exercises at all, which exerciseCount already
+    // covers.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-all-zero';
+        r.name = 'Recovery Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'rowing';
+        e.title = 'Rowing';
+        e._raw.kind = 'cardio';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-all-zero';
+        re._raw.exercise_id = 'rowing';
+        re._raw.order = 0;
+        re._raw.target_duration_seconds = 1800;
+      });
+    });
+
+    const routines = await routineListPresenter(db);
+
+    expect(routines).toHaveLength(1);
+    expect(routines[0]).toEqual({
+      id: 'routine-all-zero',
+      name: 'Recovery Day',
+      exerciseCount: 1,
+      hasActiveExercise: false,
     });
   });
 

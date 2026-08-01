@@ -51,19 +51,22 @@ export default function RoutineDetailScreen() {
       // always resolves to the new in-progress state, so null here means the
       // start did not take effect — do not navigate.
       if (!next) {
-        setStartError('Could not start that routine. Try again, or check it still has exercises.');
+        setStartError('Could not start that routine. Try again, or check it still plans some sets.');
         return;
       }
       router.push('/session');
     } catch (error) {
       console.error('Failed to start session:', error);
-      setStartError('Could not start that routine. Try again, or check it still has exercises.');
+      setStartError('Could not start that routine. Try again, or check it still plans some sets.');
     } finally {
       setStarting(false);
     }
   };
 
-  const isRoutineStartable = !!routine && routine.supersetGroups.length + routine.standaloneExercises.length > 0;
+  // hasActiveExercise is false both when there are no exercises at all and
+  // when every one plans zero total sets (warmupSets + targetSets === 0) —
+  // startSessionFromRoutine refuses both the same way.
+  const isRoutineStartable = !!routine && routine.hasActiveExercise;
   const startMode = routineStartMode({ sessionState, isRoutineStartable });
 
   if (!id || loading) {

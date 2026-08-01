@@ -529,6 +529,18 @@ is now a misnomer — AI settings are in there too.
   persisted by a build predating that rule comes back sitting on exactly such an
   entry. `sessionDetailPresenter` is the
   third label site and needs no guard — it renders `Set N` with no total
+- Starting a session mirrors that same condition one layer up.
+  `startSessionFromRoutine` refuses a routine where *every* entry has
+  `warmupSets + targetSets === 0`, the same as it already refused one with no
+  exercises at all — a routine can have exercises yet still have nothing for
+  `h.next_active_landing` to land on (every cardio/stretch entry from a vault
+  import validly carries no `target_sets`, since `parseWorkoutLine` rejects
+  sets×reps for those kinds). `hasActiveExercise` carries that sum-based check
+  through `routineListPresenter` and `routineDetailPresenter` into
+  `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start
+  button, so a routine that can't actually be started never renders as
+  startable — the engine's `Err` is a backstop for a case the shell should
+  already have kept the user from reaching, not the only guard against it
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones

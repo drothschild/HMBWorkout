@@ -59,6 +59,15 @@ export async function startSessionFromRoutine(
     throw new Error(`Cannot start session: routine ${routineId} has no exercises`);
   }
 
+  // A routine whose every entry plans zero total sets is just as unstartable:
+  // the engine itself now rejects it (h.next_active_landing finds nothing
+  // active), so refuse it at the same layer as the no-exercises guard above
+  // rather than surfacing the engine's generic Err to every caller.
+  const hasActiveEntry = entries.some((entry) => entry.warmupSets + entry.targetSets > 0);
+  if (!hasActiveEntry) {
+    throw new Error(`Cannot start session: routine ${routineId} has no entry with any sets to perform`);
+  }
+
   return {
     tag: 'StartSession',
     sessionId,
