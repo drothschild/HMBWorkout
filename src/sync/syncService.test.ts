@@ -15,7 +15,7 @@ import {
   updateRoutineExerciseExerciseId,
 } from '@/db/repository';
 import { BridgeUnreachable, BridgeHttpError } from './bridgeClient';
-import { createSyncService } from './syncService';
+import { createSyncService, defaultTargetSetsForDurationLine } from './syncService';
 import { parseSession } from '@/interop/parse';
 
 describe('Sync Service', () => {
@@ -726,6 +726,29 @@ describe('Sync Service', () => {
 
       const updatedSessionB = await database.get('sessions').find('session-b');
       expect((updatedSessionB as any).customSyncStatus).toBe('synced');
+    });
+  });
+
+  describe('defaultTargetSetsForDurationLine', () => {
+    it('returns the targetSets value unchanged when it is defined', () => {
+      expect(defaultTargetSetsForDurationLine(5, undefined)).toBe(5);
+      expect(defaultTargetSetsForDurationLine(3, 2)).toBe(3);
+      expect(defaultTargetSetsForDurationLine(0, 0)).toBe(0);
+    });
+
+    it('defaults to 1 when targetSets is undefined and warmupSets is undefined', () => {
+      expect(defaultTargetSetsForDurationLine(undefined, undefined)).toBe(1);
+    });
+
+    it('defaults to 1 when targetSets is undefined and warmupSets is 0', () => {
+      expect(defaultTargetSetsForDurationLine(undefined, 0)).toBe(1);
+    });
+
+    it('returns undefined when targetSets is undefined but warmupSets is > 0 (entry already has sets)', () => {
+      // This guards against the sync warmup case: if warmupSets is 2, the entry
+      // already has 2 sets of activity, so don't add a third.
+      expect(defaultTargetSetsForDurationLine(undefined, 1)).toBeUndefined();
+      expect(defaultTargetSetsForDurationLine(undefined, 2)).toBeUndefined();
     });
   });
 });

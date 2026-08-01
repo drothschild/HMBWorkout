@@ -21,7 +21,7 @@ import { BridgeClient } from './bridgeClient';
 // Default to 1 when the total would otherwise be zero, matching the AI
 // persona's convention for duration-based exercises (contextBuilder.ts), so
 // an exercise's origin doesn't change whether the engine ever visits it.
-function defaultTargetSetsForKind(
+export function defaultTargetSetsForDurationLine(
   targetSets: number | undefined,
   warmupSets: number | undefined
 ): number | undefined {
@@ -213,7 +213,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
                     kind,
                     order,
                     supersetGroup: supersetLabel,
-                    targetSets: defaultTargetSetsForKind(line.targetSets, line.warmupSets),
+                    targetSets: defaultTargetSetsForDurationLine(line.targetSets, line.warmupSets),
                     targetReps: line.targetReps,
                     targetDurationSeconds: line.targetDurationSeconds,
                     restSeconds: line.restSeconds,
@@ -230,7 +230,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
                   exerciseId: line.exerciseId,
                   kind,
                   order,
-                  targetSets: defaultTargetSetsForKind(line.targetSets, line.warmupSets),
+                  targetSets: defaultTargetSetsForDurationLine(line.targetSets, line.warmupSets),
                   targetReps: line.targetReps,
                   targetDurationSeconds: line.targetDurationSeconds,
                   restSeconds: line.restSeconds,
