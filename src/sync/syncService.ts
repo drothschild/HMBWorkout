@@ -13,6 +13,20 @@ import { parseRoutine } from '@/interop/parse';
 import { ContractError } from '@/interop/format';
 import { BridgeClient } from './bridgeClient';
 
+// Cardio/stretch lines never carry sets×reps (parse.ts), so targetSets is
+// always undefined for them — which the engine reads as "nothing to do"
+// (helpers.lv keys activity off warmupSets + targetSets). Default to 1,
+// matching the AI persona's convention for duration-based exercises
+// (contextBuilder.ts), so an exercise's origin doesn't change whether the
+// engine ever visits it.
+function defaultTargetSetsForKind(
+  kind: string,
+  targetSets: number | undefined
+): number | undefined {
+  if (targetSets !== undefined) return targetSets;
+  return kind === 'cardio' || kind === 'stretch' ? 1 : undefined;
+}
+
 /**
  * Create a sync service with the given database and bridge client.
  */
@@ -187,12 +201,13 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
                 // Superset group
                 const supersetLabel = entry.supersetLabel;
                 for (const line of entry.exercises) {
+                  const kind = line.kind || 'strength';
                   allExercises.push({
                     exerciseId: line.exerciseId,
-                    kind: line.kind || 'strength',
+                    kind,
                     order,
                     supersetGroup: supersetLabel,
-                    targetSets: line.targetSets,
+                    targetSets: defaultTargetSetsForKind(kind, line.targetSets),
                     targetReps: line.targetReps,
                     targetDurationSeconds: line.targetDurationSeconds,
                     restSeconds: line.restSeconds,
@@ -204,11 +219,12 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
               } else {
                 // Single line
                 const line = entry;
+                const kind = line.kind || 'strength';
                 allExercises.push({
                   exerciseId: line.exerciseId,
-                  kind: line.kind || 'strength',
+                  kind,
                   order,
-                  targetSets: line.targetSets,
+                  targetSets: defaultTargetSetsForKind(kind, line.targetSets),
                   targetReps: line.targetReps,
                   targetDurationSeconds: line.targetDurationSeconds,
                   restSeconds: line.restSeconds,
