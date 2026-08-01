@@ -294,6 +294,29 @@ carry, not just the ones the routine names today: it fetches the routine's exerc
 a stamped id with no surviving row must not take the whole session's sync down — and so
 is the union: drop it and every swapped or dropped-row set throws instead of exporting.
 
+`importRoutines` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
+default a duration-based entry's `targetSets` to 1 when it is undefined/null and `warmupSets`
+is 0 (or undefined), so it doesn't reach the engine as zero-total. Both layers share the same
+condition — `importRoutines`'s own default is redundant by construction given `upsertRoutine`
+sees every write either layer produces, so only the direct unit tests on
+`defaultTargetSetsForDurationLine` (not the import integration tests) prove it does anything
+on its own. This is necessary because the vault contract permits strength exercises to use
+`duration=` in place of sets×reps (`parse.ts`), not just cardio/stretch, and the presence of
+duration alone signals a potential zero-total entry. The default does **not** gate on
+`targetDurationSeconds` being set — an entry with `targetSets` undefined and `warmupSets` 0 is
+zero-total whether it has duration or not (e.g., an AI-drafted strength exercise with only
+title and kind) — but it only fires when `targetSets` is *absent*: an explicit `targetSets: 0`
+(a malformed vault line like `0x10`) still passes through unmodified and can still reach the
+engine zero-total, a pre-existing authoring-error case this default doesn't address. An entry
+with explicit `warmup=2` and no target sets still totals 2 and is never defaulted. This mirrors
+the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
+below) so a routine's origin — hand-authored in the vault vs. drafted by the coach — never
+changes whether every exercise in it actually gets performed.
+
+**Note:** routines already imported before this fix were left with `target_sets = null`
+for their zero-total exercises. A manual re-import will heal them via the update branch
+of `upsertRoutine`, which recalculates the default on every routine edit.
+
 ## HealthKit (`src/health`)
 
 Write-only. All HealthKit errors are logged and swallowed — a Health failure must

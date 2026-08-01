@@ -1708,6 +1708,124 @@ describe('Repository: session and set helpers', () => {
       expect(await getExerciseWorkingSetHistory(database, 'ex-earned')).toHaveLength(1);
       expect(await getExerciseWorkingSetHistory(database, 'ex-substitute')).toHaveLength(0);
     }, 15000);
+
+    it('defaults targetSets to 1 for duration-based entries where targetSets is undefined and warmupSets is zero', async () => {
+      // Defense-in-depth: if a zero-total entry (targetSets undefined, warmupSets 0)
+      // reaches upsertRoutine, it should default targetSets to 1 here — regardless of
+      // whether targetDurationSeconds is set. This protects against zero-total entries
+      // being silently skipped by the engine, and catches cases where the sync-side or
+      // AI-side defaulting was missed.
+      const routineId = 'routine-defense-depth';
+      await upsertExercise(database, 'plank', 'Plank', 'strength');
+
+      await upsertRoutine(database, routineId, 'Defense Depth Test', [
+        {
+          exerciseId: 'plank',
+          order: 0,
+          targetDurationSeconds: 30,
+          // targetSets is undefined (not passed), warmupSets is undefined
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [plankRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Should have defaulted to 1, not left as null
+      expect(plankRow.targetSets).toBe(1);
+      expect(plankRow.targetDurationSeconds).toBe(30);
+    }, 10000);
+
+    it('does not default targetSets when warmupSets is already set (avoids changing zero-total to one-set if warmup exists)', async () => {
+      // If an entry has warmup=2 and no targetSets, the total is already 2.
+      // We should not add another working set on top of it.
+      const routineId = 'routine-warmup-guard';
+      await upsertExercise(database, 'easy-cardio', 'Easy Cardio', 'cardio');
+
+      await upsertRoutine(database, routineId, 'Warmup Guard Test', [
+        {
+          exerciseId: 'easy-cardio',
+          order: 0,
+          warmupSets: 2,
+          targetDurationSeconds: 60,
+          // targetSets is undefined (not passed)
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [cardioRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Should remain null because warmupSets is already 2 (non-zero total)
+      expect(cardioRow.targetSets).toBeNull();
+      expect(cardioRow.warmupSets).toBe(2);
+      expect(cardioRow.targetDurationSeconds).toBe(60);
+    }, 10000);
+
+    it('defaults targetSets to 1 even when targetDurationSeconds is undefined (AI draft case)', async () => {
+      // Important 2: An AI draft can have neither targetSets nor targetDurationSeconds set
+      // (only title and kind required by the schema). This entry would be zero-total
+      // (no warmup, no target sets, no duration), so it should still get defaulted to 1.
+      const routineId = 'routine-ai-draft';
+      await upsertExercise(database, 'plank', 'Plank', 'strength');
+
+      await upsertRoutine(database, routineId, 'AI Draft Test', [
+        {
+          exerciseId: 'plank',
+          order: 0,
+          // targetSets is undefined, targetDurationSeconds is undefined, warmupSets is undefined
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [plankRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Should default to 1 even without duration, preventing zero-total entries
+      expect(plankRow.targetSets).toBe(1);
+      expect(plankRow.targetDurationSeconds).toBeNull();
+      expect(plankRow.warmupSets).toBe(0);
+    }, 10000);
+
+    it('UPDATE branch also applies the targetSets default for zero-total entries', async () => {
+      // Minor 3b: The UPDATE path (when updating an existing routine_exercise row)
+      // must also apply the defaulting logic, not just the CREATE path.
+      const routineId = 'routine-update-branch';
+      await upsertExercise(database, 'walk', 'Walk', 'cardio');
+
+      // First upsert: create with targetSets=2
+      await upsertRoutine(database, routineId, 'First Version', [
+        {
+          exerciseId: 'walk',
+          order: 0,
+          targetSets: 2,
+          warmupSets: 0,
+        },
+      ]);
+
+      // Second upsert: update to be zero-total (no targetSets, no warmup)
+      // The UPDATE path should default it to 1, not leave it null
+      await upsertRoutine(database, routineId, 'Updated Version', [
+        {
+          exerciseId: 'walk',
+          order: 0,
+          warmupSets: 0,
+          // targetSets is undefined (not passed)
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [walkRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Should have defaulted to 1, not reverted to null
+      expect(walkRow.targetSets).toBe(1);
+      expect(walkRow.warmupSets).toBe(0);
+    }, 10000);
   });
 
   describe('getRecentSessionSummaries', () => {

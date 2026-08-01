@@ -1154,13 +1154,23 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
+      // Defense-in-depth: default targetSets to 1 for entries that would otherwise
+      // be zero-total (no warmupSets and no targetSets). This catches any zero-total
+      // entries that make it through without being defaulted upstream (sync-layer or
+      // AI accept-path), ensuring the engine always has at least one set to visit.
+      // The condition matches layer 1 (sync/syncService.ts): key on "no warmup + no target"
+      // regardless of whether targetDurationSeconds is set or not.
+      const defaultedTargetSets =
+        exerciseEntry.targetSets ??
+        ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
+
       const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
       if (existing) {
         await existing.update((re: any) => {
           re.order = exerciseEntry.order;
           re.supersetGroup = exerciseEntry.supersetGroup ?? null;
           re.warmupSets = exerciseEntry.warmupSets ?? 0;
-          re.targetSets = exerciseEntry.targetSets ?? null;
+          re.targetSets = defaultedTargetSets ?? null;
           re.targetReps = exerciseEntry.targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
@@ -1173,7 +1183,7 @@ export async function upsertRoutine(
           re._raw.order = exerciseEntry.order;
           if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
           re.warmupSets = exerciseEntry.warmupSets ?? 0;
-          if (exerciseEntry.targetSets !== undefined) re.targetSets = exerciseEntry.targetSets;
+          if (defaultedTargetSets !== undefined) re.targetSets = defaultedTargetSets;
           if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
