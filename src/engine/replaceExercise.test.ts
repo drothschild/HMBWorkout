@@ -263,7 +263,7 @@ describe('ReplaceExercise: guards', () => {
     ).rejects.toThrow();
   });
 
-  it.each(['idle', 'done', 'resting', 'paused', 'stretching'] as const)(
+  it.each(['idle', 'done', 'resting', 'paused'] as const)(
     'rejects in phase %s',
     async (phase) => {
       const engine = createEngine(makeExecutors());

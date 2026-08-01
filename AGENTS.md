@@ -145,8 +145,8 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    *replaces* the pre-kill alert rather than double-notifying, and `CancelRest` can
    silence an alert this process never scheduled. The pair is exhaustive by
    construction rather than enumeration: every rule writing `restDeadlineMs: Some(...)`
-   also sets `phase: Resting`, and `PauseSession`/`StartStretching` clear it on the way
-   out — no other phase can hold a deadline to reconcile. Every other phase returns
+   also sets `phase: Resting`, and `PauseSession` clears it on the way out — no
+   other phase can hold a deadline to reconcile. Every other phase returns
    `Err`, and rejections are never silent:
    any `Err` from `transition` surfaces as a thrown `TransitionError` that the store's
    `dispatch` catches into `lastError`, which `session.tsx` renders as an error banner.

@@ -269,11 +269,11 @@ describe('SetDone remains advance-without-logging (Skip Set)', () => {
 });
 
 describe('LogSet/SetDone dispatched while already resting', () => {
-  // The phase guard on LogSet/SetDone excludes Idle/Done/Paused/Stretching but
-  // not Resting (e.g. logging a set early from the rest screen). Whatever
+  // The phase guard on LogSet/SetDone excludes Idle/Done/Paused but not
+  // Resting (e.g. logging a set early from the rest screen). Whatever
   // advance_after_set decides next, it must cancel the alert it's superseding
   // in every branch that clears restDeadlineMs — the same discipline
-  // RestElapsed, SkipRest, PauseSession, and StartStretching already apply.
+  // RestElapsed, SkipRest, and PauseSession already apply.
 
   it('cancels the pending rest alert when a mid-exercise set is logged early', async () => {
     const { executors } = makeRecordingExecutors();

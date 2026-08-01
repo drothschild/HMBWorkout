@@ -37,7 +37,6 @@ checks.
 | C6 | Tap "Skip Set" instead of logging | Position advances exactly as C4 but no set is added to the log |
 | C7 | Advance through a superset pair | After the first partner's set, the app moves to the second superset exercise before resting (AC8.1) |
 | C8 | Reach a stretch/cardio entry | Shows a duration input (no reps/weight); logging by duration advances (AC8.3) |
-| C9 | Tap "Stretch" during a working set | Stretching view replaces the logger (no log/skip controls); "Done Stretching" returns to the same set and "Finish Session" still completes the workout from stretching |
 
 ## Phase D — Rest alert, audible/haptic (AC2.1)
 | Step | Action | Expected |

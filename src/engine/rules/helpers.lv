@@ -7,7 +7,6 @@ let phase_to_string = fn(phase) -> (
     Warmup -> "warmup",
     Working -> "working",
     Resting -> "resting",
-  Stretching -> "stretching",
     Paused -> "paused",
     Done -> "done"
   }
@@ -47,8 +46,8 @@ let validate_set = fn(set) -> (
 -- Which phase (Warmup vs Working) applies to `entry` at the given 0-based
 -- position in its own sets — i.e. how many of its own warmup+working sets
 -- have already been logged. Shared by every "recover phase from position"
--- site (RestElapsed, SkipRest, StopStretching, superset advancement) so they
--- can never disagree.
+-- site (RestElapsed, SkipRest, superset advancement) so they can never
+-- disagree.
 let phase_for = fn(entry) -> fn(setIndex) -> (
   if (setIndex < entry.warmupSets) then Warmup else Working
 )

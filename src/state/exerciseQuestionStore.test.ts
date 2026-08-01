@@ -474,10 +474,6 @@ describe('exerciseQuestionTarget', () => {
     expect(exerciseQuestionTarget(state({ phase: 'done' }))).toBeNull();
   });
 
-  it('is null while stretching', () => {
-    expect(exerciseQuestionTarget(state({ phase: 'stretching' }))).toBeNull();
-  });
-
   it('is null when idle (before session starts)', () => {
     expect(exerciseQuestionTarget(state({ phase: 'idle' }))).toBeNull();
   });

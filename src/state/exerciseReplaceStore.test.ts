@@ -108,7 +108,7 @@ describe('replaceExerciseTarget', () => {
   });
 
   it('is null in phases where there is no exercise in progress', () => {
-    for (const phase of ['idle', 'done', 'resting', 'paused', 'stretching'] as const) {
+    for (const phase of ['idle', 'done', 'resting', 'paused'] as const) {
       expect(replaceExerciseTarget(makeState({ phase }))).toBeNull();
     }
   });
