@@ -294,6 +294,16 @@ carry, not just the ones the routine names today: it fetches the routine's exerc
 a stamped id with no surviving row must not take the whole session's sync down — and so
 is the union: drop it and every swapped or dropped-row set throws instead of exporting.
 
+`importRoutines` defaults `targetSets` to 1 for `cardio`/`stretch` exercises that parsed
+with it unset — the vault contract forbids sets×reps on those kinds (`parse.ts`), so
+without this default they reach the engine at `warmupSets + targetSets === 0`, which
+every "is this entry active" check in `helpers.lv` reads as nothing to do: silently
+skipped when elsewhere in a routine, or invisible to round-robin hand-off when sharing a
+superset group with a set-based partner that lands first. This mirrors the AI persona's
+own convention for duration-based exercises (`targetSets: 1`, see AI Coach below) so a
+routine's origin — hand-authored in the vault vs. drafted by the coach — never changes
+whether every exercise in it actually gets performed.
+
 ## HealthKit (`src/health`)
 
 Write-only. All HealthKit errors are logged and swallowed — a Health failure must
