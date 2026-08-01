@@ -185,7 +185,7 @@ export default function TodayScreen() {
         return (
           <View style={styles.centered}>
             <ThemedText type="default" style={styles.placeholder}>
-              Your routines aren't ready to start — add exercises, or make sure each one
+              Your routines aren’t ready to start — add exercises, or make sure each one
               plans some sets, using the AI Coach or the Routines tab.
             </ThemedText>
             <FlatList
