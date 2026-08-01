@@ -331,6 +331,34 @@ describe('LogSet/SetDone dispatched while already resting', () => {
     expect(executors.onCancelRest).toHaveBeenCalled();
     expect(calls).toEqual(['PersistSet', 'CancelRest', 'CompleteSession', 'Notify']);
   });
+
+  it('cancels the pending rest alert when a landing skips a zero-set entry to reach the next exercise', async () => {
+    // The fourth sibling exit alongside the three above (same-entry loop-back,
+    // superset hand-off, workoutDone) — the group-exhausted branch's landing
+    // on a later exercise, with no new rest configured. Left untested here it
+    // would have no signal at all: mutating this exact effects list to []
+    // still passes the rest of the suite.
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 20000,
+        setIndex: 0,
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(15000));
+
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.phase).toBe('working');
+    expect(executors.onCancelRest).toHaveBeenCalled();
+  });
 });
 
 describe('Superset groups with mismatched set counts', () => {
@@ -572,11 +600,37 @@ describe('Zero-set entries are skipped when landed on fresh, not just when loope
       })
     );
 
-    const state = await engine.dispatch(logSet(1000)); // final set of entries[0]
+    let state = await engine.dispatch(logSet(1000)); // final set of entries[0]
     expect(state.exerciseIndex).toBe(3);
     expect(state.setIndex).toBe(0);
     expect(state.supersetPosition).toBe(1);
     expect(state.loggedSets).toHaveLength(1);
+
+    // The whole reason groupStart is tracked (not just the index skipped
+    // from) is so THIS advance_after_set call rederives groupStartIdx as
+    // exerciseIndex(3) - supersetPosition(1) = 2 — entries[2]'s true
+    // position, the actual start of group B — rather than mistaking
+    // entries[3] for its own group's start. Logging entries[3]'s remaining
+    // two sets proves it: each loops back to itself (group B has no other
+    // active member), and the third exhausts it and completes the workout,
+    // rather than landing somewhere wrong or erroring.
+    state = await engine.dispatch(logSet(2000));
+    expect(state.exerciseIndex).toBe(3);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(3000));
+    expect(state.exerciseIndex).toBe(3);
+    expect(state.setIndex).toBe(2);
+
+    state = await engine.dispatch(logSet(4000));
+    expect(state.phase).toBe('done');
+    expect(state.loggedSets).toHaveLength(4);
+    expect(state.loggedSets.map((s) => s.exerciseId)).toEqual([
+      'exercise-0',
+      'exercise-3',
+      'exercise-3',
+      'exercise-3',
+    ]);
   });
 
   it('does not drop the prescribed rest when a landing skips ahead to an entry that reuses an earlier group label', async () => {
