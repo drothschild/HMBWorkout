@@ -26,7 +26,6 @@ export interface SessionPresenterOutput {
   isPaused: boolean;
   isResting: boolean;
   isRestPaused: boolean;
-  isStretching: boolean;
   restDeadlineMs: number | undefined;
   restRemainingMs: number | undefined;
   loggedSets: LoggedSet[];
@@ -77,8 +76,6 @@ export interface SessionPresenterOutput {
   onResume(): void;
   onSkipRest(): void;
   onRestElapsed(): void;
-  onStartStretching(): void;
-  onStopStretching(): void;
   onFinishSession(): void;
   onAbandonSession(): Promise<SessionState | null>;
 }
@@ -397,7 +394,6 @@ export function createSessionPresenter(
     isPaused: sessionState.phase === 'paused',
     isResting: sessionState.phase === 'resting',
     isRestPaused: sessionState.phase === 'paused' && restRemainingMs !== undefined,
-    isStretching: sessionState.phase === 'stretching',
     restDeadlineMs,
     restRemainingMs,
     loggedSets: sessionState.loggedSets ?? [],
@@ -463,18 +459,6 @@ export function createSessionPresenter(
       dispatch({
         tag: 'RestElapsed',
         nowMs: Date.now(),
-      });
-    },
-
-    onStartStretching: () => {
-      dispatch({
-        tag: 'StartStretching',
-      });
-    },
-
-    onStopStretching: () => {
-      dispatch({
-        tag: 'StopStretching',
       });
     },
 

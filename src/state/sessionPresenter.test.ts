@@ -283,27 +283,6 @@ describe('createSessionPresenter', () => {
     });
   });
 
-  describe('stretch cool-down', () => {
-    test('exposes isStretching only for the stretching phase', () => {
-      const state = createMockState();
-      expect(createSessionPresenter(state, jest.fn()).isStretching).toBe(false);
-
-      state.phase = 'stretching';
-      expect(createSessionPresenter(state, jest.fn()).isStretching).toBe(true);
-    });
-
-    test('dispatches StopStretching on done-stretching action', () => {
-      const state = createMockState();
-      state.phase = 'stretching';
-      const mockDispatch = jest.fn(async () => null);
-      const presenter = createSessionPresenter(state, mockDispatch);
-
-      presenter.onStopStretching();
-
-      expect(mockDispatch).toHaveBeenCalledWith({ tag: 'StopStretching' });
-    });
-  });
-
   test('dispatches FinishSession on finish action', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);

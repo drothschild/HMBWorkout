@@ -69,38 +69,6 @@ export function SetLogger({
     setNumber: presenter.setNumber,
   });
 
-  // Free-form stretch cool-down: conditional rendering only — the engine
-  // rejects LogSet/SetDone in this phase, so nothing can advance mid-stretch.
-  // Finish Session stays available in the session screen's footer.
-  if (presenter.isStretching) {
-    return (
-      <ThemedView style={styles.container}>
-        <ThemedText style={styles.exerciseTitle}>Stretching</ThemedText>
-        <ThemedText style={styles.stretchingHint}>
-          Take your time — the workout is paused where you left it.
-        </ThemedText>
-
-        <ScrollView style={styles.loggedSets}>
-          <ThemedText type="smallBold">{`Logged sets (${presenter.loggedSetCount})`}</ThemedText>
-          {presenter.loggedSets.map((set, idx) => (
-            <View key={idx} style={setRowStyle}>
-              <ThemedText>{formatLoggedSetLine(set)}</ThemedText>
-            </View>
-          ))}
-        </ScrollView>
-
-        <View style={styles.buttonGroup}>
-          <Pressable
-            style={[styles.button, styles.primaryButton]}
-            onPress={() => presenter.onStopStretching()}
-          >
-            <ThemedText style={styles.buttonText}>Done Stretching</ThemedText>
-          </Pressable>
-        </View>
-      </ThemedView>
-    );
-  }
-
   return (
     <ThemedView style={styles.container}>
       <View style={styles.exerciseTitleRow}>
@@ -271,17 +239,6 @@ export function SetLogger({
             <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
           </Pressable>
         </View>
-
-        {(presenter.phase === 'working' || presenter.phase === 'resting') && (
-          <View style={styles.buttonRow}>
-            <Pressable
-              style={[styles.button, styles.successButton, styles.rowButton]}
-              onPress={() => presenter.onStartStretching()}
-            >
-              <ThemedText style={styles.buttonText}>Stretch</ThemedText>
-            </Pressable>
-          </View>
-        )}
       </View>
     </ThemedView>
   );
@@ -340,10 +297,6 @@ const styles = StyleSheet.create({
   },
   setPositionText: {
     marginTop: Spacing.one,
-    opacity: 0.7,
-  },
-  stretchingHint: {
-    marginTop: Spacing.two,
     opacity: 0.7,
   },
   hintContainer: {
@@ -418,9 +371,6 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: '#007AFF',
-  },
-  successButton: {
-    backgroundColor: '#34C759',
   },
   warningButton: {
     backgroundColor: '#FF9500',

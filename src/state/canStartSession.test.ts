@@ -22,10 +22,6 @@ describe('canStartSession', () => {
     expect(canStartSession(mockSessionState('resting'))).toBe(false);
   });
 
-  it('returns false when sessionState is in stretching phase', () => {
-    expect(canStartSession(mockSessionState('stretching'))).toBe(false);
-  });
-
   it('returns false when sessionState is in paused phase', () => {
     expect(canStartSession(mockSessionState('paused'))).toBe(false);
   });
