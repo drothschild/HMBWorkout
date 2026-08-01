@@ -733,6 +733,8 @@ describe('Sync Service', () => {
     it('returns the targetSets value unchanged when it is defined', () => {
       expect(defaultTargetSetsForDurationLine(5, undefined)).toBe(5);
       expect(defaultTargetSetsForDurationLine(3, 2)).toBe(3);
+      // An explicit 0 (e.g. a malformed vault line like `0x10`) is honored as
+      // author intent, not defaulted — only an absent targetSets is defaulted.
       expect(defaultTargetSetsForDurationLine(0, 0)).toBe(0);
     });
 
