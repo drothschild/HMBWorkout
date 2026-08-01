@@ -1154,15 +1154,15 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
-      // Defense-in-depth: default targetSets to 1 for duration-based exercises
-      // (ones with targetDurationSeconds set) that would otherwise be zero-total.
-      // This catches any duration-only entries (targetSets undefined, warmupSets 0)
-      // that make it through without being defaulted upstream.
+      // Defense-in-depth: default targetSets to 1 for entries that would otherwise
+      // be zero-total (no warmupSets and no targetSets). This catches any zero-total
+      // entries that make it through without being defaulted upstream (sync-layer or
+      // AI accept-path), ensuring the engine always has at least one set to visit.
+      // The condition matches layer 1 (sync/syncService.ts): key on "no warmup + no target"
+      // regardless of whether targetDurationSeconds is set or not.
       const defaultedTargetSets =
         exerciseEntry.targetSets ??
-        (exerciseEntry.targetDurationSeconds !== undefined && (exerciseEntry.warmupSets ?? 0) === 0
-          ? 1
-          : undefined);
+        ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
 
       const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
       if (existing) {
