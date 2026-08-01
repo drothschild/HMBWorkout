@@ -1154,13 +1154,23 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
+      // Defense-in-depth: default targetSets to 1 for duration-based exercises
+      // (ones with targetDurationSeconds set) that would otherwise be zero-total.
+      // This catches any duration-only entries (targetSets undefined, warmupSets 0)
+      // that make it through without being defaulted upstream.
+      const defaultedTargetSets =
+        exerciseEntry.targetSets ??
+        (exerciseEntry.targetDurationSeconds !== undefined && (exerciseEntry.warmupSets ?? 0) === 0
+          ? 1
+          : undefined);
+
       const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
       if (existing) {
         await existing.update((re: any) => {
           re.order = exerciseEntry.order;
           re.supersetGroup = exerciseEntry.supersetGroup ?? null;
           re.warmupSets = exerciseEntry.warmupSets ?? 0;
-          re.targetSets = exerciseEntry.targetSets ?? null;
+          re.targetSets = defaultedTargetSets ?? null;
           re.targetReps = exerciseEntry.targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
@@ -1173,7 +1183,7 @@ export async function upsertRoutine(
           re._raw.order = exerciseEntry.order;
           if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
           re.warmupSets = exerciseEntry.warmupSets ?? 0;
-          if (exerciseEntry.targetSets !== undefined) re.targetSets = exerciseEntry.targetSets;
+          if (defaultedTargetSets !== undefined) re.targetSets = defaultedTargetSets;
           if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
