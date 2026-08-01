@@ -294,15 +294,23 @@ carry, not just the ones the routine names today: it fetches the routine's exerc
 a stamped id with no surviving row must not take the whole session's sync down — and so
 is the union: drop it and every swapped or dropped-row set throws instead of exporting.
 
-`importRoutines` defaults `targetSets` to 1 for `cardio`/`stretch` exercises that parsed
-with it unset — the vault contract forbids sets×reps on those kinds (`parse.ts`), so
-without this default they reach the engine at `warmupSets + targetSets === 0`, which
-every "is this entry active" check in `helpers.lv` reads as nothing to do: silently
-skipped when elsewhere in a routine, or invisible to round-robin hand-off when sharing a
-superset group with a set-based partner that lands first. This mirrors the AI persona's
-own convention for duration-based exercises (`targetSets: 1`, see AI Coach below) so a
-routine's origin — hand-authored in the vault vs. drafted by the coach — never changes
-whether every exercise in it actually gets performed.
+`importRoutines` and `upsertRoutine` (shared by both vault import and AI accept paths)
+enforce that duration-based exercises never reach the engine with `warmupSets + targetSets === 0`.
+When an entry carries `targetDurationSeconds` but has no explicit `targetSets` and no
+`warmupSets`, both layers default `targetSets` to 1. This is necessary because the vault
+contract permits strength exercises to use `duration=` in place of sets×reps (`parse.ts`),
+not just cardio/stretch, so the presence of duration alone — not kind — signals a zero-total
+entry that would be silently skipped: every "is this entry active" check in `helpers.lv`
+reads `warmupSets + targetSets === 0` as nothing to do. The default is gated on the entry
+being zero-total; an entry with explicit `warmup=2` and duration but no sets still totals 2
+and is never defaulted. This mirrors the AI persona's own convention for duration-based
+exercises (`targetSets: 1`, see AI Coach below) so a routine's origin — hand-authored in
+the vault vs. drafted by the coach — never changes whether every exercise in it actually
+gets performed.
+
+**Note:** routines already imported before this fix were left with `target_sets = null`
+for their duration-based exercises. A manual re-import will heal them via the update branch
+of `upsertRoutine`, which recalculates the default on every routine edit.
 
 ## HealthKit (`src/health`)
 
