@@ -1017,7 +1017,7 @@ describe('createSessionPresenter', () => {
       expect(presenter.routineNotes).toBe('Focus on bar speed today.');
     });
 
-    test('falls back to index 0 rather than -1 when no entry has a nonzero total (defensive; the engine rejects this at StartSession)', () => {
+    test('falls back to index 0 rather than -1 when entries is empty (defensive; the engine rejects this at StartSession)', () => {
       const state = createMockState();
       state.loggedSets = [];
       state.exerciseIndex = 0;
