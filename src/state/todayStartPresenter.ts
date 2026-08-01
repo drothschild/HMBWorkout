@@ -12,6 +12,8 @@ export interface TodayRoutineChoice {
   id: string;
   name: string;
   exerciseCount: number;
+  /** Carried through from RoutineListItem — see startable's derivation below. */
+  hasActiveExercise: boolean;
   startable: boolean;
 }
 

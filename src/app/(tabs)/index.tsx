@@ -106,7 +106,9 @@ export default function TodayScreen() {
           ? 'Starting...'
           : item.startable
             ? `${item.exerciseCount} exercises`
-            : 'No exercises yet'}
+            : item.exerciseCount === 0
+              ? 'No exercises yet'
+              : 'No sets planned'}
       </ThemedText>
     </Pressable>
   );
@@ -183,8 +185,8 @@ export default function TodayScreen() {
         return (
           <View style={styles.centered}>
             <ThemedText type="default" style={styles.placeholder}>
-              Your routines need exercises to start. Add exercises using the AI Coach, or
-              edit them in the Routines tab.
+              Your routines aren't ready to start — add exercises, or make sure each one
+              plans some sets, using the AI Coach or the Routines tab.
             </ThemedText>
             <FlatList
               data={viewState.routines}

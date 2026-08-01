@@ -10,7 +10,8 @@ import { Event, RoutineEntry, ExerciseKind } from '@/engine/types';
  * @param routineId ID of routine to start
  * @param sessionId ID for new session
  * @returns StartSession event (tag already set)
- * @throws Error if the routine is not found or has no exercises
+ * @throws Error if the routine is not found, has no exercises, or has
+ *         exercises that all plan zero total sets
  */
 export async function startSessionFromRoutine(
   db: Database,
