@@ -557,12 +557,11 @@ describe('characterization: session engine pre-migration behavior', () => {
       ).rejects.toThrow(/invalid event StartSession in phase working/);
     });
 
-    it('should reject StartSession from each in-progress phase (warmup, working, resting, stretching, paused)', async () => {
-      const inProgressPhases: ('warmup' | 'working' | 'resting' | 'stretching' | 'paused')[] = [
+    it('should reject StartSession from each in-progress phase (warmup, working, resting, paused)', async () => {
+      const inProgressPhases: ('warmup' | 'working' | 'resting' | 'paused')[] = [
         'warmup',
         'working',
         'resting',
-        'stretching',
         'paused',
       ];
 

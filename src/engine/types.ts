@@ -3,7 +3,7 @@
  * All types are JSON-serializable by construction (no functions, no Dates).
  */
 
-export type SessionPhase = 'idle' | 'warmup' | 'working' | 'resting' | 'stretching' | 'paused' | 'done';
+export type SessionPhase = 'idle' | 'warmup' | 'working' | 'resting' | 'paused' | 'done';
 export type SetType = 'warmup' | 'working' | 'stretch' | 'cardio';
 export type ExerciseKind = 'strength' | 'cardio' | 'stretch';
 
@@ -67,8 +67,6 @@ export type Event =
   // pick made about an entry the workout has already moved past.
   | { tag: 'ReplaceExercise'; idx: number; exerciseId: string }
   | { tag: 'PauseSession'; nowMs: number }
-  | { tag: 'StartStretching' }
-  | { tag: 'StopStretching' }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'AppForegrounded'; nowMs: number }
   | { tag: 'FinishSession'; nowMs: number }

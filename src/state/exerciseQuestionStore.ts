@@ -86,9 +86,8 @@ export function exerciseQuestionKey(target: ExerciseQuestionTarget): string {
 
 /**
  * Derive the current in-progress exercise from engine state, or null when
- * there is no exercise to ask about — no session, the session is done, a
- * free-form stretch cooldown (not tied to a specific entry), or the
- * full-screen rest takeover (`isRestingPhase`, the same predicate
+ * there is no exercise to ask about — no session, the session is done, or
+ * the full-screen rest takeover (`isRestingPhase`, the same predicate
  * `restCommentaryTarget` uses).
  */
 export function exerciseQuestionTarget(
@@ -96,7 +95,7 @@ export function exerciseQuestionTarget(
   exerciseTitles?: Record<string, string>
 ): ExerciseQuestionTarget | null {
   if (!sessionState) return null;
-  if (sessionState.phase === 'done' || sessionState.phase === 'stretching' || sessionState.phase === 'idle') return null;
+  if (sessionState.phase === 'done' || sessionState.phase === 'idle') return null;
   if (isRestingPhase(sessionState)) return null;
 
   const entry = sessionState.entries?.[sessionState.exerciseIndex];

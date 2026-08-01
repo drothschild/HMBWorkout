@@ -76,7 +76,6 @@ describe('AbandonSession — accepted from every in-progress phase', () => {
     'warmup',
     'working',
     'resting',
-    'stretching',
     'paused',
   ];
 
