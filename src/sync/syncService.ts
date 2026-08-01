@@ -13,18 +13,24 @@ import { parseRoutine } from '@/interop/parse';
 import { ContractError } from '@/interop/format';
 import { BridgeClient } from './bridgeClient';
 
-// Cardio/stretch lines never carry sets×reps (parse.ts), so targetSets is
-// always undefined for them — which the engine reads as "nothing to do"
-// (helpers.lv keys activity off warmupSets + targetSets). Default to 1,
-// matching the AI persona's convention for duration-based exercises
-// (contextBuilder.ts), so an exercise's origin doesn't change whether the
-// engine ever visits it.
+// Duration-based lines never carry sets×reps (parse.ts), so targetSets is
+// undefined for them — which the engine reads as "nothing to do"
+// (helpers.lv keys activity off warmupSets + targetSets). An undefined
+// targetSets at this point means the line has duration instead of sets×reps,
+// regardless of kind (cardio/stretch forces duration; strength allows it).
+// Default to 1 when the total would otherwise be zero, matching the AI
+// persona's convention for duration-based exercises (contextBuilder.ts), so
+// an exercise's origin doesn't change whether the engine ever visits it.
 function defaultTargetSetsForKind(
-  kind: string,
-  targetSets: number | undefined
+  targetSets: number | undefined,
+  warmupSets: number | undefined
 ): number | undefined {
   if (targetSets !== undefined) return targetSets;
-  return kind === 'cardio' || kind === 'stretch' ? 1 : undefined;
+  // Only default if the entry would otherwise be zero-total (no warmup + no target sets)
+  if ((warmupSets ?? 0) === 0) {
+    return 1;
+  }
+  return undefined;
 }
 
 /**
@@ -207,7 +213,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
                     kind,
                     order,
                     supersetGroup: supersetLabel,
-                    targetSets: defaultTargetSetsForKind(kind, line.targetSets),
+                    targetSets: defaultTargetSetsForKind(line.targetSets, line.warmupSets),
                     targetReps: line.targetReps,
                     targetDurationSeconds: line.targetDurationSeconds,
                     restSeconds: line.restSeconds,
@@ -224,7 +230,7 @@ export function createSyncService(database: Database, bridgeClient: BridgeClient
                   exerciseId: line.exerciseId,
                   kind,
                   order,
-                  targetSets: defaultTargetSetsForKind(kind, line.targetSets),
+                  targetSets: defaultTargetSetsForKind(line.targetSets, line.warmupSets),
                   targetReps: line.targetReps,
                   targetDurationSeconds: line.targetDurationSeconds,
                   restSeconds: line.restSeconds,
