@@ -355,12 +355,85 @@ created: 2026-07-08
           durationSeconds: 30,
           rpe: -1.0,
           nowMs: 1000 + guard,
-        } as any);
+        });
         guard++;
       }
 
       expect(state.phase).toBe('done');
+      expect(state.loggedSets).toHaveLength(3); // goblet-squat: 2 sets, calf-stretch: 1 set
       expect(state.loggedSets.some((s: any) => s.exerciseId === 'calf-stretch')).toBe(true);
+      expect(state.loggedSets.filter((s: any) => s.exerciseId === 'goblet-squat')).toHaveLength(2);
+    });
+
+    it('logs a strength duration-only exercise in a superset (plank in superset with goblet-squat)', async () => {
+      // A plank is kind=strength but uses duration instead of sets×reps.
+      // It shares a superset group with goblet-squat (set-based). Without a
+      // targetSets default for duration-based strength exercises, plank is
+      // silently dropped. This test proves that kind === 'cardio' || kind ===
+      // 'stretch' is the wrong discriminator — duration-based entries need
+      // defaulting regardless of kind.
+      const supersetPlankRoutineMarkdown = `---
+type: workout-routine
+id: routine-superset-plank-1
+updated: 2026-07-08
+tags: []
+created: 2026-07-08
+---
+
+\`\`\`workout
+- goblet-squat: 2x8 superset=ss1 rest=0
+- plank: kind=strength duration=0:30 superset=ss1 rest=0
+\`\`\`
+`;
+      const mockBridgeClient = {
+        health: jest.fn(),
+        postSession: jest.fn(),
+        getRoutines: jest.fn().mockResolvedValueOnce([
+          {
+            id: 'routine-superset-plank-1',
+            updated: Date.now(),
+            markdown: supersetPlankRoutineMarkdown,
+          },
+        ]),
+        getRoutine: jest.fn(),
+      };
+
+      const syncService = createSyncService(database, mockBridgeClient);
+      await syncService.importRoutines();
+
+      const startEvent = await startSessionFromRoutine(
+        database,
+        'routine-superset-plank-1',
+        'session-superset-plank-1'
+      );
+      const engine = createEngine({
+        onCreateSession: jest.fn(),
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+        onDiscardSession: jest.fn(),
+      });
+
+      let state = await engine.dispatch(startEvent);
+      let guard = 0;
+      while (state.phase !== 'done' && guard < 10) {
+        state = await engine.dispatch({
+          tag: 'LogSet',
+          reps: 8,
+          weightKg: 20,
+          durationSeconds: 30,
+          rpe: -1.0,
+          nowMs: 1000 + guard,
+        });
+        guard++;
+      }
+
+      expect(state.phase).toBe('done');
+      expect(state.loggedSets).toHaveLength(3); // goblet-squat: 2 sets, plank: 1 set
+      expect(state.loggedSets.some((s: any) => s.exerciseId === 'plank')).toBe(true);
+      expect(state.loggedSets.filter((s: any) => s.exerciseId === 'goblet-squat')).toHaveLength(2);
     });
   });
 });
