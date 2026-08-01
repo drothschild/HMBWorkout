@@ -294,22 +294,24 @@ carry, not just the ones the routine names today: it fetches the routine's exerc
 a stamped id with no surviving row must not take the whole session's sync down — and so
 is the union: drop it and every swapped or dropped-row set throws instead of exporting.
 
-`importRoutines` and `upsertRoutine` (shared by both vault import and AI accept paths)
-enforce that duration-based exercises never reach the engine with `warmupSets + targetSets === 0`.
-When an entry carries `targetDurationSeconds` but has no explicit `targetSets` and no
-`warmupSets`, both layers default `targetSets` to 1. This is necessary because the vault
-contract permits strength exercises to use `duration=` in place of sets×reps (`parse.ts`),
-not just cardio/stretch, so the presence of duration alone — not kind — signals a zero-total
-entry that would be silently skipped: every "is this entry active" check in `helpers.lv`
-reads `warmupSets + targetSets === 0` as nothing to do. The default is gated on the entry
-being zero-total; an entry with explicit `warmup=2` and duration but no sets still totals 2
-and is never defaulted. This mirrors the AI persona's own convention for duration-based
-exercises (`targetSets: 1`, see AI Coach below) so a routine's origin — hand-authored in
-the vault vs. drafted by the coach — never changes whether every exercise in it actually
-gets performed.
+`syncNow` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
+enforce that zero-total exercises never reach the engine with `warmupSets + targetSets === 0`.
+Both layers share the same condition: if `targetSets` is undefined/null and `warmupSets` is
+0 (or undefined, which defaults to 0), they default `targetSets` to 1. This is necessary
+because the vault contract permits strength exercises to use `duration=` in place of sets×reps
+(`parse.ts`), not just cardio/stretch, and the presence of duration alone signals a potential
+zero-total entry. Critically, the default does **not** gate on `targetDurationSeconds` being
+set: an entry with `targetSets` undefined and `warmupSets` 0 is zero-total whether it has
+duration or not (e.g., an AI-drafted strength exercise with only title and kind). Every
+"is this entry active" check in `helpers.lv` reads `warmupSets + targetSets === 0` as nothing
+to do, so defaulting prevents silent skips. The default is gated on the entry being zero-total;
+an entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
+This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`,
+see AI Coach below) so a routine's origin — hand-authored in the vault vs. drafted by the
+coach — never changes whether every exercise in it actually gets performed.
 
 **Note:** routines already imported before this fix were left with `target_sets = null`
-for their duration-based exercises. A manual re-import will heal them via the update branch
+for their zero-total exercises. A manual re-import will heal them via the update branch
 of `upsertRoutine`, which recalculates the default on every routine edit.
 
 ## HealthKit (`src/health`)
