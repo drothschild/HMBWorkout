@@ -28,6 +28,14 @@ export interface RoutineDetail {
   notes: string | null;
   supersetGroups: SupersetGroupDetail[];
   standaloneExercises: ExerciseDetail[];
+  /**
+   * True if at least one exercise (superset or standalone) plans a nonzero
+   * total (warmupSets + targetSets) — the engine's own definition of
+   * "active" (h.next_active_landing / h.next_active_idx, transition.lv).
+   * False here means starting this routine is refused by
+   * `startSessionFromRoutine`, same as having no exercises at all.
+   */
+  hasActiveExercise: boolean;
 }
 
 /**
@@ -103,6 +111,10 @@ export async function routineDetailPresenter(
       })
     );
 
+    const hasActiveExercise = routineExercises.some(
+      (re) => (re._raw.warmup_sets || 0) + (re._raw.target_sets || 0) > 0
+    );
+
     return {
       id: routineId,
       name: (routine as any).name,
@@ -111,6 +123,7 @@ export async function routineDetailPresenter(
       notes: normalizeNotes((routine as any).notes as string | undefined),
       supersetGroups: supersetGroupsArray,
       standaloneExercises,
+      hasActiveExercise,
     };
   } catch (error) {
     // Routine not found or error accessing

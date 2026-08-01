@@ -86,7 +86,9 @@ describe('todayViewState', () => {
     });
 
     it('maps routines-need-exercises with its routines payload', () => {
-      const routines = [{ id: 'r1', name: 'Empty', exerciseCount: 0, startable: false }];
+      const routines = [
+        { id: 'r1', name: 'Empty', exerciseCount: 0, hasActiveExercise: false, startable: false },
+      ];
       const result = todayViewState({
         sessionState: null,
         loading: false,
@@ -98,7 +100,9 @@ describe('todayViewState', () => {
     });
 
     it('maps choose-routine with its routines payload', () => {
-      const routines = [{ id: 'r1', name: 'Push Day', exerciseCount: 3, startable: true }];
+      const routines = [
+        { id: 'r1', name: 'Push Day', exerciseCount: 3, hasActiveExercise: true, startable: true },
+      ];
       const result = todayViewState({
         sessionState: null,
         loading: false,

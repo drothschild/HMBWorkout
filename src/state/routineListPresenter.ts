@@ -4,6 +4,15 @@ export interface RoutineListItem {
   id: string;
   name: string;
   exerciseCount: number;
+  /**
+   * True if at least one exercise plans a nonzero total (warmupSets +
+   * targetSets) — matching the engine's own definition of "active"
+   * (h.next_active_landing / h.next_active_idx, transition.lv). A routine
+   * can have exercises yet still be unstartable if every one is like the
+   * vault-import shape for cardio/stretch entries, which validly carries no
+   * target_sets at all (AGENTS.md's zero-planned-set Boundaries rule).
+   */
+  hasActiveExercise: boolean;
 }
 
 /**
@@ -23,10 +32,15 @@ export async function routineListPresenter(db: Database): Promise<RoutineListIte
       .query(Q.where('routine_id', routineId))
       .fetch()) as any[];
 
+    const hasActiveExercise = routineExercises.some(
+      (re) => (re._raw.warmup_sets || 0) + (re._raw.target_sets || 0) > 0
+    );
+
     result.push({
       id: routineId,
       name: routine.name,
       exerciseCount: routineExercises.length,
+      hasActiveExercise,
     });
   }
 

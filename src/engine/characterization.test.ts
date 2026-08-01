@@ -644,7 +644,7 @@ describe('characterization: session engine pre-migration behavior', () => {
   });
 
   /**
-   * C6: Superset routine (if reachable via rest_duration logic)
+   * C6: Superset routine
    * Two consecutive exercises with same supersetGroup skip rest between.
    */
   describe('C6: Superset group behavior', () => {

@@ -331,6 +331,34 @@ describe('LogSet/SetDone dispatched while already resting', () => {
     expect(executors.onCancelRest).toHaveBeenCalled();
     expect(calls).toEqual(['PersistSet', 'CancelRest', 'CompleteSession', 'Notify']);
   });
+
+  it('cancels the pending rest alert when a landing skips a zero-set entry to reach the next exercise', async () => {
+    // The fourth sibling exit alongside the three above (same-entry loop-back,
+    // superset hand-off, workoutDone) — the group-exhausted branch's landing
+    // on a later exercise, with no new rest configured. Left untested here it
+    // would have no signal at all: mutating this exact effects list to []
+    // still passes the rest of the suite.
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        phase: 'resting',
+        restDeadlineMs: 20000,
+        setIndex: 0,
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(15000));
+
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.phase).toBe('working');
+    expect(executors.onCancelRest).toHaveBeenCalled();
+  });
 });
 
 describe('Superset groups with mismatched set counts', () => {
@@ -426,6 +454,210 @@ describe('Superset groups with mismatched set counts', () => {
     expect(state.loggedSets).toHaveLength(3);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].setsLogged).toBe(3);
+  });
+});
+
+// A zero-set entry (warmupSets + targetSets === 0) is never active at any
+// round (round < 0 is never true), so it must never be landed on — not just
+// never LOOPED BACK to, which the group above already gets right. These pin
+// the "landing on a fresh entry/group" sites: StartSession, and
+// advance_after_set's group-exhausted branch that moves to the next entry.
+describe('Zero-set entries are skipped when landed on fresh, not just when looped back to', () => {
+  it('StartSession skips a standalone zero-set entries[0], landing directly on entries[1]', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+
+    const state = await engine.dispatch({
+      tag: 'StartSession',
+      sessionId: 'session-zero-standalone',
+      nowMs: 1000,
+      routine: {
+        id: 'routine-zero-standalone',
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 0, restSeconds: 60 },
+          { warmupSets: 0, targetSets: 2, restSeconds: 60 },
+        ]),
+      },
+    } as any);
+
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+    expect(state.phase).toBe('working');
+    expect(state.loggedSets).toHaveLength(0);
+  });
+
+  it('StartSession skips a zero-set entry that is the first member of its own group, landing on its active partner', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+
+    const state = await engine.dispatch({
+      tag: 'StartSession',
+      sessionId: 'session-zero-first-of-group',
+      nowMs: 1000,
+      routine: {
+        id: 'routine-zero-first-of-group',
+        entries: makeEntries(2, [
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 1, targetSets: 2, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      },
+    } as any);
+
+    expect(state.exerciseIndex).toBe(1);
+    expect(state.setIndex).toBe(0);
+    // The landing member's true offset within the group (1), not 0 — proves
+    // supersetPosition is tracked from the group's real start, not the index
+    // we happened to skip from.
+    expect(state.supersetPosition).toBe(1);
+    // Derived from the landing entry's own warmupSets, not entries[0]'s.
+    expect(state.phase).toBe('warmup');
+    expect(state.loggedSets).toHaveLength(0);
+  });
+
+  it('StartSession rejects a routine where every entry plans zero total sets', async () => {
+    // Not the "instant completion" arm this once was: CreateSession and
+    // CompleteSession in the same dispatch has no ordering guarantee the
+    // shell can honor (the store assigns currentSessionState only after
+    // dispatch returns), so a real store either strands the new session row
+    // forever or re-completes whatever the PREVIOUS session was — including
+    // a duplicate HealthKit export. Rejecting outright, the same way an
+    // empty routine already is, avoids the hazard entirely.
+    const { executors, summaries } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+
+    await expect(
+      engine.dispatch({
+        tag: 'StartSession',
+        sessionId: 'session-all-zero',
+        nowMs: 1000,
+        routine: {
+          id: 'routine-all-zero',
+          entries: makeEntries(2, [
+            { warmupSets: 0, targetSets: 0, restSeconds: 60 },
+            { warmupSets: 0, targetSets: 0, restSeconds: 60 },
+          ]),
+        },
+      } as any)
+    ).rejects.toThrow(/routine has no entry with any sets to perform/);
+
+    expect(executors.onCreateSession).not.toHaveBeenCalled();
+    expect(summaries).toHaveLength(0);
+  });
+
+  it('advance_after_set skips a standalone zero-set entry reached via the next-group branch', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        setIndex: 1, // about to log the final set of entries[0]
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 2, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, restSeconds: 60 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(1000)); // final set of entries[0]
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+    expect(state.loggedSets).toHaveLength(1);
+  });
+
+  it('advance_after_set skips a zero-set entry that is the first member of the next group', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        setIndex: 1, // about to log the final set of entries[0]
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 2, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'B', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 2, supersetGroup: 'B', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(1000)); // final set of entries[0]
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+    expect(state.supersetPosition).toBe(1);
+    expect(state.loggedSets).toHaveLength(1);
+  });
+
+  it('skips two consecutive entirely-zero groups to land on the first active entry after them', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        setIndex: 1, // about to log the final set of entries[0]
+        entries: makeEntries(4, [
+          { warmupSets: 0, targetSets: 2, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, restSeconds: 0 },
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'B', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 3, supersetGroup: 'B', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    let state = await engine.dispatch(logSet(1000)); // final set of entries[0]
+    expect(state.exerciseIndex).toBe(3);
+    expect(state.setIndex).toBe(0);
+    expect(state.supersetPosition).toBe(1);
+    expect(state.loggedSets).toHaveLength(1);
+
+    // The whole reason groupStart is tracked (not just the index skipped
+    // from) is so THIS advance_after_set call rederives groupStartIdx as
+    // exerciseIndex(3) - supersetPosition(1) = 2 — entries[2]'s true
+    // position, the actual start of group B — rather than mistaking
+    // entries[3] for its own group's start. Logging entries[3]'s remaining
+    // two sets proves it: each loops back to itself (group B has no other
+    // active member), and the third exhausts it and completes the workout,
+    // rather than landing somewhere wrong or erroring.
+    state = await engine.dispatch(logSet(2000));
+    expect(state.exerciseIndex).toBe(3);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch(logSet(3000));
+    expect(state.exerciseIndex).toBe(3);
+    expect(state.setIndex).toBe(2);
+
+    state = await engine.dispatch(logSet(4000));
+    expect(state.phase).toBe('done');
+    expect(state.loggedSets).toHaveLength(4);
+    expect(state.loggedSets.map((s) => s.exerciseId)).toEqual([
+      'exercise-0',
+      'exercise-3',
+      'exercise-3',
+      'exercise-3',
+    ]);
+  });
+
+  it('does not drop the prescribed rest when a landing skips ahead to an entry that reuses an earlier group label', async () => {
+    // Group labels are only required to be contiguous, not unique routine-wide
+    // (h.group_end_idx already treats a non-adjacent label repeat as a new
+    // group). A landing that now skips a zero-set entry in between must not
+    // mistake that label reuse for "still the same superset" and drop the
+    // rest — entries[0] and entries[2] both use label 'A', but entries[1]
+    // (label 'B') separates them into two unrelated one-member groups.
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    engine.setState(
+      makeState({
+        entries: makeEntries(3, [
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 60 },
+          { warmupSets: 0, targetSets: 0, supersetGroup: 'B', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 1, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const state = await engine.dispatch(logSet(1000)); // final (only) set of entries[0]
+    expect(state.exerciseIndex).toBe(2);
+    expect(state.setIndex).toBe(0);
+    expect(state.phase).toBe('resting');
+    expect(state.restDeadlineMs).toBe(1000 + 60 * 1000);
+    expect(executors.onScheduleRest).toHaveBeenCalledWith(61000);
   });
 });
 

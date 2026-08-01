@@ -10,7 +10,8 @@ import { Event, RoutineEntry, ExerciseKind } from '@/engine/types';
  * @param routineId ID of routine to start
  * @param sessionId ID for new session
  * @returns StartSession event (tag already set)
- * @throws Error if the routine is not found or has no exercises
+ * @throws Error if the routine is not found, has no exercises, or has
+ *         exercises that all plan zero total sets
  */
 export async function startSessionFromRoutine(
   db: Database,
@@ -57,6 +58,15 @@ export async function startSessionFromRoutine(
   // abandon. Refuse it here so no caller can create one, however it navigated.
   if (entries.length === 0) {
     throw new Error(`Cannot start session: routine ${routineId} has no exercises`);
+  }
+
+  // A routine whose every entry plans zero total sets is just as unstartable:
+  // the engine itself now rejects it (h.next_active_landing finds nothing
+  // active), so refuse it at the same layer as the no-exercises guard above
+  // rather than surfacing the engine's generic Err to every caller.
+  const hasActiveEntry = entries.some((entry) => entry.warmupSets + entry.targetSets > 0);
+  if (!hasActiveEntry) {
+    throw new Error(`Cannot start session: routine ${routineId} has no entry with any sets to perform`);
   }
 
   return {

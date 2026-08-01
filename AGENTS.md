@@ -246,6 +246,52 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    member only, or the group's whole current round?) — removing the
    affordance was simpler than picking one.
 
+10. **A zero-set entry is never *landed on*, only skipped past.** Convention
+    9's `h.next_active_idx` refuses to hand off or loop back to a member whose
+    own `warmupSets + targetSets` is 0 (`round < 0` is never true), but that
+    only governs positions *inside* a group already being visited. The two
+    sites that land on a *fresh* position — `StartSession`, and
+    `advance_after_set`'s "this group is done, move on" branch — took
+    `entries[0]` and `groupEndIdx + 1` on faith, so a zero-set entry reached
+    either way was landed on and accepted one phantom `LogSet`/`SetDone`
+    before the engine moved past it. Both now go through
+    `h.next_active_landing(entries)(fromIdx)`, which returns the first index at
+    or after `fromIdx` with a nonzero total **and** the true start of the
+    contiguous `supersetGroup` run that index belongs to. Tracking that start
+    is not redundant bookkeeping: a landing can skip an entire zero-set group
+    to reach a later one whose own leading members are also zero-set, and
+    `supersetPosition` has to be `idx - groupStart` for *that* group or the
+    next `advance_after_set` rederives `groupStartIdx` — and so `groupEndIdx`
+    — from a wrong origin. It is not a drop-in for `h.next_active_idx` at the
+    within-group sites: it presumes `fromIdx` is itself a group boundary (0,
+    or one past a prior group's end), which is the one thing both call sites
+    guarantee and a within-group hop would not. `None` means every entry from
+    `fromIdx` on plans zero sets. In `advance_after_set` that is the ordinary
+    end of the workout — the existing end-of-routine arm, unchanged. At
+    `StartSession` it is `Err`, not a special "instant completion": emitting
+    `CreateSession` and `CompleteSession` in the same dispatch has no ordering
+    guarantee the host can honor (`activeSession.ts` swaps in the new session
+    state only after `dispatch` returns, so effects race against whatever
+    session was current a moment earlier) — an earlier version of this fix
+    tried the instant-completion arm and it either stranded the new session
+    forever on a fresh store, or, starting from `phase: Done`, re-completed
+    and re-exported to HealthKit whatever the *previous* session was. Rejecting
+    an all-zero routine outright, the same as the empty-routine guard one line
+    above, was simpler than teaching the host a new effect-ordering contract
+    for a shape a real routine should not produce anyway.
+
+    One more consequence: `landing.idx` is no longer necessarily adjacent to
+    `groupEndIdx`, so the group-exhausted branch stopped calling
+    `h.rest_duration` for its rest decision (deleted from helpers.lv — this
+    was its only caller). `rest_duration`'s "same superset" check was a label
+    comparison, sound only between genuinely adjacent entries — group labels
+    are contiguous, not routine-unique (`h.group_end_idx`'s own docstring), so
+    a landing that skips a zero-set entry can reach a *later* entry that
+    happens to reuse an earlier group's label. Landing here already proves the
+    current group is exhausted, so `currentEntry.restSeconds` applies
+    unconditionally instead — the same value `rest_duration` always resolved
+    to at this call site anyway, once nextEntry was guaranteed adjacent.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
@@ -537,10 +583,28 @@ is now a misnomer — AI settings are in there too.
   `warmupSets + targetSets === 0`, and both consumers read that as *hide*
   (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
   from its "Up Next" line). The sum is the exact condition, not a conservative one:
-  `h.next_active_idx` (`helpers.lv`) treats an entry as active for round `r` iff
-  `r < warmupSets + targetSets`, so only a zero total can reach a zero
-  denominator. `sessionDetailPresenter` is the
+  both activity predicates in `helpers.lv` key on that sum — `h.next_active_idx`
+  treats an entry as active for round `r` iff `r < warmupSets + targetSets`, and
+  `h.next_active_landing` iff the sum is nonzero — so only a zero total can reach a
+  zero denominator. Engine convention 10 now keeps `exerciseIndex` off zero-set
+  entries in the first place, which demotes these guards to a layer-2 defense but
+  does **not** make them dead code: rehydrate restores a stored `exerciseIndex`
+  through a `hydrate` call that no rule ever validates (convention 5), so a session
+  persisted by a build predating that rule comes back sitting on exactly such an
+  entry. `sessionDetailPresenter` is the
   third label site and needs no guard — it renders `Set N` with no total
+- Starting a session mirrors that same condition one layer up.
+  `startSessionFromRoutine` refuses a routine where *every* entry has
+  `warmupSets + targetSets === 0`, the same as it already refused one with no
+  exercises at all — a routine can have exercises yet still have nothing for
+  `h.next_active_landing` to land on (every cardio/stretch entry from a vault
+  import validly carries no `target_sets`, since `parseWorkoutLine` rejects
+  sets×reps for those kinds). `hasActiveExercise` carries that sum-based check
+  through `routineListPresenter` and `routineDetailPresenter` into
+  `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start
+  button, so a routine that can't actually be started never renders as
+  startable — the engine's `Err` is a backstop for a case the shell should
+  already have kept the user from reaching, not the only guard against it
 - AI turn payload shapes *and* validation bounds must be mirrored across
   `AI_TURN_SCHEMA`, the validators, and the persona prompt (all in `src/ai`)
 - The AI accept path may create exercises but must never mutate existing ones

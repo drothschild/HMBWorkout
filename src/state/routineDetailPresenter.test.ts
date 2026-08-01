@@ -294,4 +294,67 @@ describe('routineDetailPresenter', () => {
     expect(detail!.standaloneExercises[0].routineExerciseId).toBe(firstRowId);
     expect(detail!.standaloneExercises[1].routineExerciseId).toBe(secondRowId);
   });
+
+  it('reports hasActiveExercise: false when every exercise plans zero total sets', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-all-zero';
+        r.name = 'Recovery Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'rowing';
+        e.title = 'Rowing';
+        e._raw.kind = 'cardio';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-all-zero';
+        re._raw.exercise_id = 'rowing';
+        re._raw.order = 0;
+        re._raw.target_duration_seconds = 1800;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-all-zero');
+
+    expect(detail!.hasActiveExercise).toBe(false);
+  });
+
+  it('reports hasActiveExercise: true when at least one exercise plans a nonzero total, superset or standalone', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-mixed';
+        r.name = 'Mixed Day';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'bench-press';
+        e.title = 'Bench Press';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-mixed';
+        re._raw.exercise_id = 'bench-press';
+        re._raw.order = 0;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 8;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-mixed');
+
+    expect(detail!.hasActiveExercise).toBe(true);
+  });
 });

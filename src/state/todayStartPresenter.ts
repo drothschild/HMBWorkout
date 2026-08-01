@@ -3,13 +3,17 @@ import { routineListPresenter } from './routineListPresenter';
 
 /**
  * A saved routine offered as a starting point on the Today screen.
- * `startable` is false when the routine has no exercises: starting it would
- * produce an empty session, which `startSessionFromRoutine` rejects.
+ * `startable` is false when the routine has no exercises, or when it has
+ * exercises but none plan any sets (warmupSets + targetSets === 0 for all of
+ * them) — either way starting it would produce a session `startSessionFromRoutine`
+ * rejects.
  */
 export interface TodayRoutineChoice {
   id: string;
   name: string;
   exerciseCount: number;
+  /** Carried through from RoutineListItem — see startable's derivation below. */
+  hasActiveExercise: boolean;
   startable: boolean;
 }
 
@@ -38,7 +42,7 @@ export async function todayStartPresenter(db: Database): Promise<TodayStartOptio
 
   const routinesWithStartable = routines.map((routine) => ({
     ...routine,
-    startable: routine.exerciseCount > 0,
+    startable: routine.exerciseCount > 0 && routine.hasActiveExercise,
   }));
 
   const hasStartable = routinesWithStartable.some((r) => r.startable);
