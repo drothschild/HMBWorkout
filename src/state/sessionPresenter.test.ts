@@ -96,6 +96,16 @@ describe('createSessionPresenter', () => {
     );
   });
 
+  describe('startedAtMs', () => {
+    test('exposes the session start time for the header stopwatch', () => {
+      const state = createMockState();
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.startedAtMs).toBe(state.startedAtMs);
+    });
+  });
+
   describe('set position within the current entry', () => {
     // Mock entry: warmupSets 1, targetSets 3 → 4 positions in total
 
