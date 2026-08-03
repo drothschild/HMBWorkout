@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
 import { ReplaceExercise } from '@/components/ReplaceExercise';
+import { WorkoutStopwatch } from '@/components/WorkoutStopwatch';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import {
   computeSetPrefill,
@@ -457,6 +458,7 @@ export default function SessionScreen() {
             <View style={styles.headerRow}>
               <ThemedText type="smallBold">{presenter.routineName ?? 'Active Session'}</ThemedText>
               <View style={styles.headerControls}>
+                <WorkoutStopwatch startedAtMs={presenter.startedAtMs} />
                 <ThemedText type="small" style={styles.phaseText}>
                   {presenter.phase}
                 </ThemedText>

@@ -24,6 +24,14 @@ export interface SessionPresenterOutput {
   currentEntry: RoutineEntry | undefined;
   phase: string;
   isPaused: boolean;
+  /**
+   * Wall-clock ms the session started (engine state, passed through
+   * unchanged). The header stopwatch computes `now - startedAtMs` itself on
+   * its own ticking interval — see `computeElapsedMs`
+   * (`@/state/workoutStopwatch`) and engine convention 5 in AGENTS.md for why
+   * this is never paused/frozen.
+   */
+  startedAtMs: number;
   isResting: boolean;
   isRestPaused: boolean;
   restDeadlineMs: number | undefined;
@@ -392,6 +400,7 @@ export function createSessionPresenter(
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
+    startedAtMs: sessionState.startedAtMs,
     isResting: sessionState.phase === 'resting',
     isRestPaused: sessionState.phase === 'paused' && restRemainingMs !== undefined,
     restDeadlineMs,
