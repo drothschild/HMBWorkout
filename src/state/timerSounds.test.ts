@@ -263,6 +263,33 @@ describe('timerSounds', () => {
       );
     });
 
+    it('prepares exactly once per sequence, before any beep', async () => {
+      // Guards the I1 fix. Two mutations previously survived the whole suite:
+      // deleting `await apis.prepare()` (no player is ever constructed, so every
+      // beep throws), and moving prepare() into the per-beep callback (the very
+      // thing playSound's contract forbids). Order and count both matter, so
+      // assert both rather than presence alone.
+      const order: string[] = [];
+      const apis: TimerSoundAPIs = {
+        prepare: jest.fn(async () => {
+          order.push('prepare');
+        }),
+        playOne: jest.fn(async () => {
+          order.push('play');
+        }),
+        delay: jest.fn(async () => {
+          order.push('delay');
+        }),
+        recordWarning: jest.fn(),
+      };
+
+      await createTimerSoundExecutor(apis).playRestComplete();
+
+      expect(apis.prepare).toHaveBeenCalledTimes(1);
+      expect(order[0]).toBe('prepare');
+      expect(order.filter((step) => step === 'prepare')).toHaveLength(1);
+    });
+
     it('mutation test: must fail if beep count collapses to 1', async () => {
       // This test explicitly verifies that if playBeepSequence is broken
       // to always play 1 beep instead of the requested count, this test fails.

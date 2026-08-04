@@ -16,8 +16,8 @@
  */
 
 /**
- * Configuration for creating a sound instance with a beep sequence.
- * Specifies the exact number of beeps to play in the sequence.
+ * How many beeps a given timer event emits. This is the whole of a pattern's
+ * identity — nothing else differs between them.
  */
 export interface SoundConfig {
   beepCount: number;
@@ -114,8 +114,10 @@ export async function playBeepSequence(
 
 /**
  * Create a timer sound executor with injected audio APIs.
- * C3/C4 Note: Creates fresh sound instances for each pattern (not cached across patterns).
- * The underlying audio player (beepSound in timerSoundPlayer) is cached for efficiency.
+ *
+ * Every pattern shares one prepared player (see playBeepSequence's note on the
+ * cached instance) — `prepare()` runs once per *sequence*, never per beep, and
+ * the beep count is the only thing that varies between patterns.
  */
 export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecutor {
   /**
