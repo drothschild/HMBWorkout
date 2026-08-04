@@ -96,6 +96,25 @@ describe('createSessionPresenter', () => {
     );
   });
 
+  describe('startedAtMs', () => {
+    test('exposes the session start time for the header stopwatch', () => {
+      const state = createMockState();
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.startedAtMs).toBe(state.startedAtMs);
+    });
+
+    test('passes SessionState.phase through unchanged', () => {
+      const state = createMockState();
+      state.phase = 'done';
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.phase).toBe('done');
+    });
+  });
+
   describe('set position within the current entry', () => {
     // Mock entry: warmupSets 1, targetSets 3 → 4 positions in total
 

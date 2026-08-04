@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
 import { ReplaceExercise } from '@/components/ReplaceExercise';
+import { WorkoutStopwatch } from '@/components/WorkoutStopwatch';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import {
   computeSetPrefill,
@@ -455,8 +456,11 @@ export default function SessionScreen() {
         >
           <View style={[styles.header, { borderBottomColor: theme.backgroundSelected }]}>
             <View style={styles.headerRow}>
-              <ThemedText type="smallBold">{presenter.routineName ?? 'Active Session'}</ThemedText>
+              <ThemedText type="smallBold" style={styles.routineNameText} numberOfLines={1}>
+                {presenter.routineName ?? 'Active Session'}
+              </ThemedText>
               <View style={styles.headerControls}>
+                <WorkoutStopwatch startedAtMs={presenter.startedAtMs} isDone={presenter.phase === 'done'} />
                 <ThemedText type="small" style={styles.phaseText}>
                   {presenter.phase}
                 </ThemedText>
@@ -569,10 +573,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  // A long routine name must truncate rather than push headerControls
+  // (stopwatch, phase, Pause/Resume) off-screen — confirmed by simulator
+  // check that it otherwise does exactly that (Pause becomes unreachable).
+  routineNameText: {
+    flexShrink: 1,
+    marginRight: Spacing.two,
+  },
   headerControls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+    flexShrink: 0,
   },
   phaseText: {
     opacity: 0.7,

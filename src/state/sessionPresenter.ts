@@ -24,6 +24,16 @@ export interface SessionPresenterOutput {
   currentEntry: RoutineEntry | undefined;
   phase: string;
   isPaused: boolean;
+  /**
+   * Wall-clock ms the session started (engine state, passed through
+   * unchanged). The header stopwatch computes elapsed time itself on its own
+   * ticking interval — see `computeElapsedSeconds`/`computeElapsedMs`
+   * (`@/state/workoutStopwatch`) for why it keeps running through
+   * pause/resume and only freezes once the session reaches `done`:
+   * `SessionState` has no accumulated-pause-duration field to freeze
+   * against.
+   */
+  startedAtMs: number;
   isResting: boolean;
   isRestPaused: boolean;
   restDeadlineMs: number | undefined;
@@ -392,6 +402,7 @@ export function createSessionPresenter(
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
+    startedAtMs: sessionState.startedAtMs,
     isResting: sessionState.phase === 'resting',
     isRestPaused: sessionState.phase === 'paused' && restRemainingMs !== undefined,
     restDeadlineMs,
