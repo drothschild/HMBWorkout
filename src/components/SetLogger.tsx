@@ -259,7 +259,7 @@ export function SetLogger({
 
             <View style={styles.rpeButtonContainer}>
               <Pressable
-                style={[styles.button, styles.secondaryButton]}
+                style={[styles.button, styles.secondaryButton, styles.rowButton]}
                 onPress={() => {
                   onRpePopupOpenChange?.(false);
                   onRpePopupConfirm?.(undefined);
@@ -271,7 +271,7 @@ export function SetLogger({
               </Pressable>
 
               <Pressable
-                style={[styles.button, styles.primaryButton]}
+                style={[styles.button, styles.primaryButton, styles.rowButton]}
                 onPress={() => {
                   onRpePopupOpenChange?.(false);
                   onRpePopupConfirm?.(currentRpe);
