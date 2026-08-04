@@ -3,8 +3,6 @@ import {
   createTimerSoundExecutor,
   TimerSoundAPIs,
   TimerSoundExecutor,
-  SoundConfig,
-  SoundInstance,
 } from '@/state/timerSounds';
 
 /**
@@ -29,20 +27,16 @@ import {
  */
 
 /**
- * Wrapper around expo-audio's AudioPlayer that implements SoundInstance.
+ * Wrapper around expo-audio's AudioPlayer.
+ * Used internally to cache and replay a single beep sound.
  */
-class ExpoAudioSoundInstance implements SoundInstance {
+class ExpoAudioSoundInstance {
   private player: AudioPlayer;
 
   constructor() {
     // Create an AudioPlayer with the beep asset using the factory function
     // The require() call bundles the asset at build time
     this.player = createAudioPlayer(require('@/assets/sounds/beep.wav'));
-  }
-
-  async loadAsync(): Promise<void> {
-    // AudioPlayer loads the source automatically on construction
-    // This is a no-op in the new API
   }
 
   async playAsync(): Promise<void> {
@@ -69,7 +63,7 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
   // Cache a single beep sound instance; reuse for all patterns (C4 optimization)
   let beepSound: ExpoAudioSoundInstance | null = null;
 
-  // I4 Fix: Lazy-initialize audio mode on first playback (not at module scope).
+  // I1 Fix: Lazy-initialize audio mode on first playback (not at module scope).
   // This avoids setting a global iOS audio session before the user opens a workout.
   //
   // The promise is memoized rather than guarded by a boolean: the mode must actually be
@@ -94,73 +88,43 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
   let audioModePromise: Promise<void> | null = null;
   function initializeAudioMode(): Promise<void> {
     if (!audioModePromise) {
-      // Respect the mute switch (playsInSilentMode: false) but allow mixing, so beeps
-      // don't interrupt the user's music in the gym.
-      audioModePromise = setAudioModeAsync({
-        playsInSilentMode: false,
-        interruptionMode: 'mixWithOthers',
-      }).catch((error: unknown) => {
-        console.warn('Failed to set audio mode:', error);
-      });
+      // I1 Fix: Make the deferral structural to ensure the native call doesn't happen
+      // synchronously. This ensures the invariant that suspends at the first await
+      // before any native call.
+      audioModePromise = Promise.resolve()
+        .then(() =>
+          setAudioModeAsync({
+            playsInSilentMode: false,
+            interruptionMode: 'mixWithOthers',
+          })
+        )
+        .catch((error: unknown) => {
+          console.warn('Failed to set audio mode:', error);
+        });
     }
     return audioModePromise;
   }
 
-  /**
-   * Play a sequence of beeps with brief silence between them.
-   * Each beep is ~100ms, with ~150ms between beeps to allow audio to complete
-   * and create a distinct rhythm.
-   */
-  async function playBeepSequence(beepCount: number): Promise<void> {
-    // Initialize audio mode on first playback (I4 lazy initialization)
-    await initializeAudioMode();
-
-    // Load once and cache the sound instance
-    if (!beepSound) {
-      beepSound = new ExpoAudioSoundInstance();
-      await beepSound.loadAsync();
-    }
-
-    // Play the beep sequence with natural timing
-    for (let i = 0; i < beepCount; i++) {
-      try {
-        // Each call to playAsync() plays the beep
-        await beepSound.playAsync();
-      } catch (error) {
-        // Log but continue - a single beep failure shouldn't stop the sequence
-        console.warn(`Failed to play beep ${i + 1}/${beepCount}:`, error as Error);
-      }
-
-      // Brief delay before next beep (beep duration ~100ms + gap ~50ms)
-      if (i < beepCount - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-    }
-  }
-
   return {
-    createSoundInstance(config: SoundConfig): SoundInstance {
-      // C3 Fix: Capture config and read beepCount at play time, not creation time.
-      // This ensures different patterns (2/3/4 beeps) all share the same cached
-      // beepSound instance but each pattern produces the correct number of beeps.
-      // If we read config.tones.length at creation time, only the first pattern
-      // to call this method would be cached; subsequent patterns would reuse
-      // the first pattern's beep count. Reading at play time fixes this.
+    async prepare(): Promise<void> {
+      // Called once per sequence, before the beep loop. The audio-mode work itself
+      // happens once per *process* — initializeAudioMode memoises its promise, so
+      // every later call awaits the already-settled one.
+      await initializeAudioMode();
 
-      // Return a wrapper that plays the appropriate beep sequence
-      return {
-        async loadAsync() {
-          // Pre-loading is handled on first playAsync call
-        },
+      // Load once and cache the sound instance
+      if (!beepSound) {
+        beepSound = new ExpoAudioSoundInstance();
+      }
+    },
 
-        async playAsync() {
-          // Read beep count at play time from the captured config.
-          // This allows different patterns to reuse the same cached beepSound
-          // while each producing the correct sequence.
-          const beepCount = config.tones.length;
-          await playBeepSequence(beepCount);
-        },
-      };
+    async playOne(): Promise<void> {
+      // Play a single beep
+      await beepSound!.playAsync();
+    },
+
+    async delay(durationMs: number): Promise<void> {
+      return new Promise((resolve) => setTimeout(resolve, durationMs));
     },
 
     recordWarning(message: string, error: Error): void {
@@ -186,8 +150,7 @@ function createDefaultTimerSoundExecutor() {
 // C4 Fix: Lazy-initialize executor so all three sound functions share
 // the same cached beepSound instance. This eliminates the memory leak of
 // creating a new executor (and new player) for each sound pattern.
-// With C3 fixed (beepCount read at play time), one executor handles all patterns.
-// I4: Initialization is deferred until first playback (via createDefaultTimerSoundAPIs).
+// Initialization is deferred until first playback (via createDefaultTimerSoundAPIs).
 let defaultExecutor: TimerSoundExecutor | null = null;
 function getDefaultExecutor(): TimerSoundExecutor {
   if (!defaultExecutor) {
