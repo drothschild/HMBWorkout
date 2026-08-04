@@ -148,6 +148,18 @@ function parseWorkoutLine(line: string): WorkoutLine | null {
     }
     targetSets = parseInt(match[1], 10);
     targetReps = parseInt(match[2], 10);
+
+    // 0x10 matches \d+x\d+ (syntactically fine) but "zero sets of N reps" is
+    // semantically nonsensical — the same class of problem as cardio/stretch
+    // with sets×reps or strength missing sets×reps below, so it is rejected
+    // rather than silently defaulted. Unlike an *absent* targetSets (which
+    // defaultTargetSetsForDurationLine in sync/syncService.ts defaults to 1),
+    // an explicit 0 is a deliberate-looking statement from the author; there
+    // is no single "correct" set count to substitute for it, and doing so
+    // silently would launder a likely typo into a plan the author never wrote.
+    if (targetSets === 0) {
+      throw new ContractError(`Sets×reps cannot have zero sets: ${line}`);
+    }
   }
 
   // Validate: cardio/stretch cannot have sets×reps
