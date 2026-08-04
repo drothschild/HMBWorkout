@@ -65,3 +65,15 @@ describe('Progress fill graphical component colors', () => {
     );
   });
 });
+
+describe('AI Coach error bubble colors', () => {
+  const AA_NORMAL_TEXT_MINIMUM = 4.5;
+  const ERROR_BUBBLE_BACKGROUND = '#FFE5E5';
+  const ERROR_BUBBLE_TEXT = '#CC0000';
+
+  it('error bubble text clears WCAG AA contrast (4.5:1) against error bubble background', () => {
+    expect(contrastRatio(ERROR_BUBBLE_TEXT, ERROR_BUBBLE_BACKGROUND)).toBeGreaterThanOrEqual(
+      AA_NORMAL_TEXT_MINIMUM
+    );
+  });
+});
