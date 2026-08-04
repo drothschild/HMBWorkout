@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, StyleSheet, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SymbolView } from 'expo-symbols';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
@@ -25,6 +26,9 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
+
+/** Icon size for pause/resume controls in header. */
+const HEADER_CONTROL_ICON_SIZE = 24;
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: any = null;
@@ -462,13 +466,33 @@ export default function SessionScreen() {
               <View style={styles.headerControls}>
                 <WorkoutStopwatch startedAtMs={presenter.startedAtMs} isDone={presenter.phase === 'done'} />
                 {presenter.isPaused && (
-                  <Pressable onPress={() => presenter.onResume()}>
-                    <ThemedText style={styles.resumeText}>Resume</ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Resume workout"
+                    hitSlop={Spacing.two}
+                    onPress={() => presenter.onResume()}
+                  >
+                    <SymbolView
+                      name="play.circle.fill"
+                      size={HEADER_CONTROL_ICON_SIZE}
+                      tintColor={theme.text}
+                      fallback={<ThemedText style={styles.controlFallback}>▶</ThemedText>}
+                    />
                   </Pressable>
                 )}
                 {!presenter.isPaused && presenter.phase !== 'done' && (
-                  <Pressable onPress={() => presenter.onPause()}>
-                    <ThemedText style={styles.pauseText}>Pause</ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Pause workout"
+                    hitSlop={Spacing.two}
+                    onPress={() => presenter.onPause()}
+                  >
+                    <SymbolView
+                      name="pause.circle.fill"
+                      size={HEADER_CONTROL_ICON_SIZE}
+                      tintColor={theme.text}
+                      fallback={<ThemedText style={styles.controlFallback}>⏸</ThemedText>}
+                    />
                   </Pressable>
                 )}
               </View>
@@ -596,9 +620,6 @@ const styles = StyleSheet.create({
   errorText: {
     color: 'white',
   },
-  pauseText: {
-    color: '#FF9500',
-  },
   progressBlock: {
     marginTop: Spacing.two,
   },
@@ -618,8 +639,9 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#34C759',
   },
-  resumeText: {
-    color: '#34C759',
+  controlFallback: {
+    fontSize: 16,
+    lineHeight: HEADER_CONTROL_ICON_SIZE,
   },
   content: {
     flex: 1,
