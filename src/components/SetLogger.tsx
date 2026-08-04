@@ -504,6 +504,7 @@ const styles = StyleSheet.create({
   },
   rpeHint: {
     fontSize: 14,
+    lineHeight: 20,
     opacity: 0.7,
   },
   rpeButtonContainer: {
