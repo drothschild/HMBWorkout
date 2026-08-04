@@ -8,9 +8,11 @@
  * lighter pre-fix values (#007AFF, #FF9500, #34C759, #208AEF) for text/
  * fill-with-text uses: none of them pass the 4.5:1 bar. (Note: a non-text
  * graphical fill is governed by a lower 3:1 bar under WCAG 1.4.11 instead —
- * this does not mean every lighter value clears even that lower bar, e.g.
- * #34C759 as session.tsx's progressFill measures ~1.70:1 against its track;
- * check the actual pairing before assuming a graphical use is fine.)
+ * this does not mean every lighter value clears even that lower bar — e.g.
+ * the pre-fix light-mode progressFill pairing (#34C759 on light track
+ * #E0E1E6) measured ~1.70:1, which is why session.tsx's light-mode fill
+ * moved to its own token in `progressColors.ts` instead; check the actual
+ * pairing before assuming a graphical use is fine.)
  *
  * Note: These constants are used as text color on both white (light mode)
  * and black (dark mode) backgrounds. Contrast must pass two independent checks:
