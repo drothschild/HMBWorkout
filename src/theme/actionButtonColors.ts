@@ -5,8 +5,10 @@
  * fills that carry white text, e.g. a chat bubble and a tag) — each the
  * original brand color darkened just enough to clear WCAG AA contrast
  * (4.5:1) against white — see contrastRatio.test.ts. Do not swap in the
- * lighter pre-fix values (#007AFF, #FF9500, #34C759, #208AEF): none of them
- * pass.
+ * lighter pre-fix values (#007AFF, #FF9500, #34C759, #208AEF) for text/
+ * fill-with-text uses: none of them pass the 4.5:1 bar. (Note: the lighter
+ * values remain acceptable as graphical fills without text overlays, which
+ * require only the 3:1 contrast ratio for graphical objects under WCAG 1.4.11.)
  *
  * Note: These constants are used as text color on both white (light mode)
  * and black (dark mode) backgrounds. Contrast must pass two independent checks:

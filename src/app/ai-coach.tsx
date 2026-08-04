@@ -437,6 +437,7 @@ function SettingsProposalCard({
   onDecline,
 }: SettingsProposalCardProps) {
   const theme = useTheme();
+  const isDark = theme.background !== Colors.light.background;
 
   const rows: { label: string; current: string; proposed: string }[] = [];
 
@@ -482,10 +483,9 @@ function SettingsProposalCard({
           style={({ pressed }) => [
             styles.declineButton,
             {
-              borderColor:
-                theme.background === Colors.light.background
-                  ? ThemedBackgroundText.backgroundElementTextLight
-                  : ThemedBackgroundText.backgroundElementTextDark,
+              borderColor: isDark
+                ? ThemedBackgroundText.backgroundElementTextDark
+                : ThemedBackgroundText.backgroundElementTextLight,
             },
             pressed && styles.pressed,
           ]}
@@ -496,10 +496,9 @@ function SettingsProposalCard({
             style={[
               styles.declineButtonText,
               {
-                color:
-                  theme.background === Colors.light.background
-                    ? ThemedBackgroundText.backgroundElementTextLight
-                    : ThemedBackgroundText.backgroundElementTextDark,
+                color: isDark
+                  ? ThemedBackgroundText.backgroundElementTextDark
+                  : ThemedBackgroundText.backgroundElementTextLight,
               },
             ]}
           >
@@ -567,7 +566,7 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
         <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
-          <ThemedText type="link" style={[styles.errorLinkText, { color: ThemedBackgroundText.errorBubbleText }]}>
+          <ThemedText type="link" style={styles.errorLinkText}>
             Open Settings
           </ThemedText>
         </Pressable>
@@ -820,6 +819,7 @@ const styles = StyleSheet.create({
   },
   errorLinkText: {
     color: ThemedBackgroundText.errorBubbleText,
+    textDecorationLine: 'underline',
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,
