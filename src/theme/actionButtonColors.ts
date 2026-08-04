@@ -28,11 +28,14 @@ export const ActionButtonColor = {
 } as const;
 
 /**
- * Status hues that don't belong in the action-button palette above
- * but carry the same white-text-on-solid-fill contrast requirement (4.5:1).
+ * Status hues that don't belong in the action-button palette above.
+ * Like ActionButtonColor, these are used as text color on both white
+ * (light mode) and black (dark mode) backgrounds and pass WCAG AA (4.5:1).
  *
  * - danger: Session error banner and error text (replaces #FF6B6B and #ff4444)
- * - success: Success text (replaces #4CAF50)
+ * - success: Success text (replaces #4CAF50). Currently shares ActionButtonColor.finish's
+ *   value (#23863C) but is an independent token — they have different roles (action button
+ *   fill vs. status text) and may need independent tuning in the future.
  */
 export const StatusColor = {
   danger: '#EA0C00',
