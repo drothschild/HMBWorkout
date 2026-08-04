@@ -29,13 +29,22 @@ export const ActionButtonColor = {
 
 /**
  * Status hues that don't belong in the action-button palette above.
- * Like ActionButtonColor, these are used as text color on both white
- * (light mode) and black (dark mode) backgrounds and pass WCAG AA (4.5:1).
+ * Both pass WCAG AA (4.5:1) against white (light mode) and black (dark mode),
+ * but their *roles* differ — retune with the right one in mind:
  *
- * - danger: Session error banner and error text (replaces #FF6B6B and #ff4444)
- * - success: Success text (replaces #4CAF50). Currently shares ActionButtonColor.finish's
- *   value (#23863C) but is an independent token — they have different roles (action button
- *   fill vs. status text) and may need independent tuning in the future.
+ * - danger: two roles. (a) Text color on the base background — error text on
+ *   Today / Routines / Bridge settings / routine + exercise detail,
+ *   ReplaceExercise, and session.tsx's abandonText; these are what replaced
+ *   #FF6B6B and #ff4444. (b) A solid fill carrying white text — session.tsx's
+ *   errorBanner, which predates that replacement. contrastRatio is symmetric,
+ *   so the "danger vs white" test covers the white-on-danger fill case too,
+ *   but both roles constrain any retune.
+ * - success: text only — the status lines on Routines and Bridge settings
+ *   (replaced #4CAF50). Never used as a fill. Currently shares
+ *   ActionButtonColor.finish's value (#23863C) but is an independent token:
+ *   different roles (action-button fill carrying white text vs. status text on
+ *   the page background), so coupling them would mean retuning the button
+ *   silently moved this text. See progressColors.ts for the same reasoning.
  */
 export const StatusColor = {
   danger: '#EA0C00',
