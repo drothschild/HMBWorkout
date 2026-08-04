@@ -492,9 +492,6 @@ export default function SessionScreen() {
           )}
 
           <View style={styles.content}>
-            {/* Renders nothing on its own when there is no entry to replace —
-                'done' included, since replaceExerciseTarget rejects that phase. */}
-            <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
             {presenter.phase !== 'done' && (
               <SetLogger
                 presenter={presenter}
@@ -517,6 +514,9 @@ export default function SessionScreen() {
                 }}
               />
             )}
+            {/* Renders nothing on its own when there is no entry to replace —
+                'done' included, since replaceExerciseTarget rejects that phase. */}
+            <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
           </View>
 
           <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>

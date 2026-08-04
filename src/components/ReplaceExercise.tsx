@@ -44,7 +44,7 @@ export function ReplaceExercise({
   return (
     <View>
       {target && hasKey && (
-        <View style={styles.buttonGroup}>
+        <View style={styles.triggerWrapper}>
           <Pressable
             accessibilityRole="button"
             disabled={busy}
@@ -123,9 +123,8 @@ export function ReplaceExercise({
 }
 
 const styles = StyleSheet.create({
-  buttonGroup: {
-    gap: Spacing.two,
-    marginBottom: Spacing.two,
+  triggerWrapper: {
+    marginTop: Spacing.two,
   },
   button: {
     paddingVertical: Spacing.two,
@@ -133,7 +132,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButton: {
-    backgroundColor: '#5AC8FA',
+    backgroundColor: '#208AEF',
   },
   buttonText: {
     color: 'white',
