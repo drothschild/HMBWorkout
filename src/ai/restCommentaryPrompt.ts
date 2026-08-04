@@ -59,11 +59,7 @@ export interface RestCommentaryPromptInput {
   history: RestCommentaryHistorySet[];
   /** `aiPersonality` from settings. */
   personality?: string;
-  /**
-   * Programmer behavioral directives for the coach. Not wired yet: a
-   * concurrent PR introduces `src/ai/coachDirectives.ts`, and a one-line
-   * follow-up will pass it here once both have landed.
-   */
+  /** `IMMUTABLE_DIRECTIVES` from `src/ai/coachDirectives.ts`. */
   directives?: string;
 }
 

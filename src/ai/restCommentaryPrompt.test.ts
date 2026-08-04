@@ -228,7 +228,7 @@ describe('buildRestCommentaryPrompt', () => {
     });
   });
 
-  describe('directives (wired by a follow-up PR)', () => {
+  describe('directives', () => {
     it('omits the directives section when none are given', () => {
       const { system } = buildRestCommentaryPrompt(promptInput());
 
