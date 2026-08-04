@@ -26,12 +26,15 @@ export const ActionButtonColor = {
 } as const;
 
 /**
- * Status/danger hues that don't belong in the action-button palette above
- * (currently just the session error banner) but carry the same white-text-
- * on-solid-fill contrast requirement.
+ * Status hues that don't belong in the action-button palette above
+ * but carry the same white-text-on-solid-fill contrast requirement (4.5:1).
+ *
+ * - danger: Session error banner and error text (replaces #FF6B6B and #ff4444)
+ * - success: Success text (replaces #4CAF50)
  */
 export const StatusColor = {
   danger: '#EA0C00',
+  success: '#23863C',
 } as const;
 
 /**

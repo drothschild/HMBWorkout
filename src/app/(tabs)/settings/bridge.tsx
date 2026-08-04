@@ -13,7 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';
@@ -326,9 +326,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
   },
   successText: {
-    color: '#4CAF50',
+    color: StatusColor.success,
   },
   errorText: {
-    color: '#FF6B6B',
+    color: StatusColor.danger,
   },
 });
