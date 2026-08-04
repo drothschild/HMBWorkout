@@ -263,4 +263,125 @@ describe('Settings Persistence', () => {
     expect(stored.aiEquipment).toBe('equipment');
     expect(stored.aiPersonality).toBe('Upbeat hype coach');
   });
+
+  // Multi-provider support: backward compatibility and migration
+  test('existing anthropic-only install keeps working untouched', async () => {
+    // Simulate legacy storage with only old fields (no openaiKey, aiProvider, aiModel)
+    fakeStorage.bridge_settings = JSON.stringify({
+      baseUrl: 'https://sync.example.com',
+      token: 'old-token',
+      anthropicKey: 'sk-ant-xxxxx',
+      aiGoals: 'Build strength',
+      aiEquipment: 'Dumbbell',
+      aiPersonality: 'Encouraging',
+    });
+
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+
+    const loaded = getSettings();
+
+    // Old fields intact
+    expect(loaded.anthropicKey).toBe('sk-ant-xxxxx');
+    expect(loaded.aiGoals).toBe('Build strength');
+    expect(loaded.aiEquipment).toBe('Dumbbell');
+    expect(loaded.aiPersonality).toBe('Encouraging');
+
+    // New fields default to undefined
+    expect(loaded.openaiKey).toBeUndefined();
+    expect(loaded.aiProvider).toBeUndefined();
+    expect(loaded.aiModel).toBeUndefined();
+  });
+
+  test('new OpenAI install can be set', () => {
+    setSettings({
+      openaiKey: 'sk-openai-xxxxx',
+      aiProvider: 'openai',
+      aiModel: {
+        chat: 'gpt-5.6-sol',
+        oneShot: 'gpt-5.6-terra',
+      },
+    });
+
+    const loaded = getSettings();
+
+    expect(loaded.openaiKey).toBe('sk-openai-xxxxx');
+    expect(loaded.aiProvider).toBe('openai');
+    expect(loaded.aiModel).toEqual({
+      chat: 'gpt-5.6-sol',
+      oneShot: 'gpt-5.6-terra',
+    });
+  });
+
+  test('install with both keys set can explicitly choose provider', () => {
+    setSettings({
+      anthropicKey: 'sk-ant-xxxxx',
+      openaiKey: 'sk-openai-xxxxx',
+      aiProvider: 'openai',
+    });
+
+    const loaded = getSettings();
+
+    // Both keys present
+    expect(loaded.anthropicKey).toBe('sk-ant-xxxxx');
+    expect(loaded.openaiKey).toBe('sk-openai-xxxxx');
+
+    // But explicit provider wins
+    expect(loaded.aiProvider).toBe('openai');
+  });
+
+  test('per-surface model selection allows different models for different surfaces', () => {
+    setSettings({
+      aiModel: {
+        chat: 'gpt-5.6-sol',
+        oneShot: 'gpt-5.6-terra',
+      },
+    });
+
+    const loaded = getSettings();
+
+    expect(loaded.aiModel?.chat).toBe('gpt-5.6-sol');
+    expect(loaded.aiModel?.oneShot).toBe('gpt-5.6-terra');
+  });
+
+  test('migration from anthropic to openai works seamlessly', async () => {
+    // Start with anthropic-only setup
+    const anthropicOnly = {
+      baseUrl: 'https://sync.example.com',
+      token: 'token',
+      anthropicKey: 'sk-ant-xxxxx',
+      aiGoals: 'Build strength',
+      aiEquipment: 'Dumbbell',
+      aiPersonality: 'Encouraging',
+    };
+
+    fakeStorage.bridge_settings = JSON.stringify(anthropicOnly);
+
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+
+    // Now user adds OpenAI key and explicitly selects it
+    setSettings({
+      openaiKey: 'sk-openai-xxxxx',
+      aiProvider: 'openai',
+      aiModel: {
+        chat: 'gpt-5.6-sol',
+        oneShot: 'gpt-5.6-terra',
+      },
+    });
+
+    const loaded = getSettings();
+
+    // Old anthropic setup still there
+    expect(loaded.anthropicKey).toBe('sk-ant-xxxxx');
+
+    // New OpenAI setup added
+    expect(loaded.openaiKey).toBe('sk-openai-xxxxx');
+    expect(loaded.aiProvider).toBe('openai');
+    expect(loaded.aiModel?.chat).toBe('gpt-5.6-sol');
+  });
 });

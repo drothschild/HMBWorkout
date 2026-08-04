@@ -1,7 +1,19 @@
 /**
  * Settings store for bridge configuration with persistent storage.
- * Holds bridge URL and API token in-memory, backed by secure storage.
+ * Holds bridge URL, API token, and multi-provider AI configuration in-memory,
+ * backed by secure storage.
  */
+
+/**
+ * Per-surface model selection for AI providers.
+ * Frontier tier for chat/debrief/drafting, cheaper tier for one-shot features.
+ */
+export interface AiModelConfig {
+  /** Model for chat, debrief, routine drafting (frontier tier) */
+  chat: string;
+  /** Model for rest commentary, exercise question (cheaper tier) */
+  oneShot: string;
+}
 
 interface BridgeSettings {
   baseUrl: string;
@@ -10,6 +22,21 @@ interface BridgeSettings {
   aiGoals: string;
   aiEquipment: string;
   aiPersonality: string;
+
+  /** OpenAI API key (set on openai-only installs) */
+  openaiKey?: string;
+
+  /**
+   * Explicit provider selection ('anthropic' or 'openai').
+   * When set, it wins over implicit key-based detection.
+   */
+  aiProvider?: string;
+
+  /**
+   * Per-surface model selection.
+   * Each provider has defaults if not specified.
+   */
+  aiModel?: AiModelConfig;
 }
 
 interface StorageBackend {
@@ -27,6 +54,9 @@ const DEFAULT_SETTINGS: BridgeSettings = {
   aiGoals: '',
   aiEquipment: '',
   aiPersonality: '',
+  openaiKey: undefined,
+  aiProvider: undefined,
+  aiModel: undefined,
 };
 
 // Module-level cache, hydrated from storage at app boot
