@@ -592,8 +592,10 @@ is now a misnomer — AI settings are in there too.
   bubble and kind tag) and `StatusColor` (danger; currently just the session
   error banner). New exports: `BackgroundColors` (light/dark element, error
   bubble) and `ThemedBackgroundText` (text colors for those non-white
-  backgrounds). All color pairs verified by the `contrastRatio` pure function
-  against their target background (text: 4.5:1, graphical objects: 3:1)
+  backgrounds). Every text color pair here is verified by the `contrastRatio`
+  pure function against its target background at the 4.5:1 text bar —
+  non-text graphical fills (progress bars, sliders) are a separate, lower
+  3:1 bar under WCAG 1.4.11 that this module's own tests do not check
 - `src/app/` — expo-router screens
 
 ## Boundaries
