@@ -9,7 +9,7 @@ module.exports = {
       roots: ['<rootDir>/src'],
       // Note: state tests run here (pure TS Zustand store, no RN dependencies).
       // RN-specific tests will move to jest-expo rn project if needed in future phases.
-      testMatch: ['<rootDir>/src/{engine,db,interop,state,sync,health,helpers,ai}/**/*.test.ts'],
+      testMatch: ['<rootDir>/src/{engine,db,interop,state,sync,health,helpers,ai,theme}/**/*.test.ts'],
       moduleFileExtensions: ['ts', 'js', 'json'],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',

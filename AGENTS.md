@@ -548,6 +548,9 @@ is now a misnomer — AI settings are in there too.
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
   system-prompt builder, coach directives, draft→repository accept path, plus the
   one-shot features (rest commentary, exercise question, replace alternates)
+- `src/theme/` — design tokens: `ActionButtonColor` (the solid-fill button colors,
+  each darkened just enough to clear WCAG AA 4.5:1 against white text) and the
+  pure `contrastRatio` check that verifies them
 - `src/app/` — expo-router screens
 
 ## Boundaries
