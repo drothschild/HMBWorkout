@@ -63,7 +63,7 @@ function ExerciseProgress({
       <ThemedText style={styles.progressLabel}>
         {`${completed} of ${total} exercises`}
       </ThemedText>
-      <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSelected }]}>
+      <View style={[styles.progressTrack, { backgroundColor: theme.progressTrack }]}>
         <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.progressFill }]} />
       </View>
     </View>

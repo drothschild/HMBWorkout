@@ -16,6 +16,7 @@ export const Colors = {
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
     progressFill: ProgressBarColors.light.fill,
+    progressTrack: ProgressBarColors.light.track,
   },
   dark: {
     text: '#ffffff',
@@ -24,6 +25,7 @@ export const Colors = {
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
     progressFill: ProgressBarColors.dark.fill,
+    progressTrack: ProgressBarColors.dark.track,
   },
 } as const;
 
