@@ -67,7 +67,7 @@ export interface AiClient {
    */
   chat(request: {
     system: string;
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    messages: { role: 'user' | 'assistant'; content: string }[];
     schema: unknown; // JSON schema as object
     model?: string; // Override default model for this call
   }): Promise<unknown>;

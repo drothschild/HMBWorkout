@@ -104,7 +104,7 @@ describe('request builders', () => {
         string,
         unknown
       >;
-      const messages = body.messages as Array<Record<string, unknown>>;
+      const messages = body.messages as Record<string, unknown>[];
 
       // OpenAI Messages API requires user to speak first
       // System goes into the first message content

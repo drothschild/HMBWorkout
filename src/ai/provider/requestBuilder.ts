@@ -5,7 +5,7 @@
 
 interface RequestInput {
   system: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: { role: 'user' | 'assistant'; content: string }[];
   schema: unknown;
   schemaName: string;
 }
