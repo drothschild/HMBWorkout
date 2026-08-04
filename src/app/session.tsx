@@ -27,7 +27,12 @@ import { useTheme } from '@/hooks/use-theme';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
-/** Icon size for pause/resume controls in header. */
+/**
+ * Icon size for pause/resume controls in header. Paired with
+ * hitSlop={Spacing.three} (16) for a 56pt tap target — over the 44pt
+ * minimum. Unlike ExerciseStopwatch there is no fixed control box, because
+ * widening headerControls (flexShrink: 0) would squeeze the routine name.
+ */
 const HEADER_CONTROL_ICON_SIZE = 24;
 
 // Defer import until needed to avoid loading database singleton at module load time
