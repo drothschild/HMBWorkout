@@ -89,7 +89,7 @@ function extractWorkoutBlock(markdown: string): string {
  * @param context - 'routine' for author-written targets, 'session' for logged measurements.
  *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
  */
-function parseWorkoutLine(line: string, context: 'routine' | 'session' = 'routine'): WorkoutLine | null {
+function parseWorkoutLine(line: string, context: 'routine' | 'session'): WorkoutLine | null {
   line = line.trim();
   if (!line.startsWith('- ')) return null;
 

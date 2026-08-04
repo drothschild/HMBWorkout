@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-31
+Last verified: 2026-08-04
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -297,10 +297,11 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
 `parse.ts` must stay symmetric. Roundtrip tests enforce this for the value ranges they
 exercise — e.g., the test in `roundtrip.test.ts` that serializes a `reps: 0` set
-verifies the exact hazard that caused the Critical bug in round 1 (a guard checking
-truthiness instead of `!= null`). Not every value is exercised by existing fixtures,
-so test coverage is incomplete by construction; add targeted roundtrip tests when you
-discover or fix a case the current suite misses.
+pins the PR #89 regression: an earlier version of the zero-reps guard below was
+unconditional, so `parseSession` rejected the `1x0` lines `serializeSession` correctly
+emits for a set logged with zero reps. Not every value is exercised by existing
+fixtures, so test coverage is incomplete by construction; add targeted roundtrip tests
+when you discover or fix a case the current suite misses.
 
 One overload to know: the `<sets>x<reps>` slot means **target** sets×reps in a routine,
 but in a logged session it is emitted as `1x<logged-reps>` (one logged set). Session
@@ -310,9 +311,12 @@ throw `ContractError`.
 
 ### Parse context and validation strictness
 
-`parseWorkoutLine`, `parseRoutine`, and `parseSession` accept a context parameter
-(`'routine' | 'session'`) that controls validation severity. This distinction exists
-because the `<sets>x<reps>` slot carries *different semantic meaning* in each context:
+`parseWorkoutLine` and the internal `parseDoc` take a context parameter
+(`'routine' | 'session'`) that controls validation severity. It is deliberately not
+exposed on the public API: `parseRoutine(markdown)` and `parseSession(markdown)` are
+single-argument wrappers that each hardcode their own context, so no caller can parse
+a routine with session strictness or vice versa. This distinction exists because the
+`<sets>x<reps>` slot carries *different semantic meaning* in each context:
 - In a **routine** (author-written targets): `3x0` means "3 sets of zero reps," which is
   semantically empty and therefore rejected.
 - In a **session** (logged measurements): `1x0` means "one logged set in which the user
@@ -320,9 +324,9 @@ because the `<sets>x<reps>` slot carries *different semantic meaning* in each co
 
 Zero sets (`0x10`) is rejected unconditionally in both contexts, since
 `serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
-Zero reps rejection is routine-only: `parseRoutine` and vault import use
-`context: 'routine'`, while `parseSession` uses `context: 'session'`, so `1x0` is
-valid in logged sessions but `3x0` is rejected in routine targets and vault import.
+Zero reps rejection is routine-only: `parseRoutine` passes `context: 'routine'` to
+`parseDoc`, while `parseSession` passes `context: 'session'`, so `1x0` is valid in
+logged sessions but `3x0` is rejected in routine targets and vault import.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by

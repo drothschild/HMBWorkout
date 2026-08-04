@@ -1084,12 +1084,17 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.rpe).toBe(7);
       expect(set0.setType).toBe('working');
     });
+  });
 
-    test('a logged set with reps 0 survives serialize → parse (I-A)', () => {
-      // Critical regression test: serializeSession's reps guard must use `!= null`,
-      // not a truthiness check. Zero is falsy, so `if (set.reps)` would silently
-      // drop the line, causing data loss on vault export. This test verifies the
-      // specific hazard that caused the Critical bug in round 1.
+  describe('AC3.1: bodyweight reps (reps 0) round-trip', () => {
+    test('a logged set with reps 0 survives serialize → parse', () => {
+      // PR #89 regression: an earlier version of the zero-reps guard in
+      // parseWorkoutLine was unconditional, so parseSession rejected the
+      // 1x0 lines serializeSession correctly emits for a set logged with
+      // zero reps. This pins the fix — serializeSession's `!= null` reps
+      // guard preserves the 0, and parseSession accepts it in session
+      // context even though parseRoutine would reject 3x0 as a routine
+      // target.
       const sessionRow = {
         id: 'sess-zero-reps-001',
         routineId: 'pull-06-01',
