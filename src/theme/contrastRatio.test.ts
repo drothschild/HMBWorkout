@@ -1,4 +1,5 @@
 import { contrastRatio } from './contrastRatio';
+import { colorDistance } from './colorDistance';
 import { ActionButtonColor, BackgroundColors, StatusColor, ThemedBackgroundText } from './actionButtonColors';
 import { ProgressBarColors } from './progressColors';
 
@@ -87,6 +88,24 @@ describe('ThemedBackgroundText', () => {
       expect(contrastRatio(ThemedBackgroundText.errorBubbleText, BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
         AA_NORMAL_TEXT_MINIMUM
       );
+    });
+
+    it('errorBubbleTextDark clears WCAG AA contrast (4.5:1) on dark mode errorBubbleDark background', () => {
+      expect(contrastRatio(ThemedBackgroundText.errorBubbleTextDark, BackgroundColors.errorBubbleDark)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
+  });
+
+  describe('errorBubbleDark background distinguishability', () => {
+    it('errorBubbleDark is perceptually distinct from darkElement background', () => {
+      // This guards against regression where errorBubbleDark and darkElement become
+      // too similar (e.g., #2C1A1D must remain clearly distinct from #212225).
+      // WCAG contrast ratio alone (~1.04) is insufficient to detect color-space
+      // confusion since identical backgrounds also measure ~1.00:1. Euclidean RGB
+      // distance is a simple, honest metric: ~15+ indicates clear visual separation.
+      const distance = colorDistance(BackgroundColors.errorBubbleDark, BackgroundColors.darkElement);
+      expect(distance).toBeGreaterThan(10);
     });
   });
 });

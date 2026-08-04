@@ -11,8 +11,9 @@ import type { SessionState } from '@/engine/types';
  * The Replace affordance: a button on the exercise in progress, and the picker
  * it opens.
  *
- * Self-contained on purpose — the session screen renders this one element and
- * holds none of the flow. Every decision lives in tested modules:
+ * Self-contained on purpose — the session screen renders this one element (into
+ * SetLogger's `belowButtonsSlot`, so it sits inside that column rather than
+ * beside it) and holds none of the flow. Every decision lives in tested modules:
  * `replaceExerciseTarget` says whether there is anything to replace, the store
  * runs the request and the swap, and the engine's ReplaceExercise rule is the
  * authority on whether the swap is legal.
