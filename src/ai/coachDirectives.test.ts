@@ -25,6 +25,24 @@ describe('coachDirectives: shipped constants', () => {
   });
 });
 
+describe('coachDirectives: TRX bodyweight-only rule', () => {
+  // TRX is a bodyweight-resistance tool, not a weight, and this is a safety/
+  // correctness rule the coach must never be argued out of — so it belongs in
+  // IMMUTABLE_DIRECTIVES, not OVERRIDABLE_DIRECTIVES. Pins the actual
+  // bodyweight-not-weight semantics (not just the substring "TRX"): a line
+  // that merely mentions TRX without both the "never prescribe/reference a
+  // weight/load value" rule and the "bodyweight, not a weight" rationale
+  // still fails this test.
+  it('forbids the coach from ever prescribing or referencing a weight/load value for TRX', () => {
+    const trxLine = IMMUTABLE_DIRECTIVES.split('\n').find((line) => line.includes('TRX'));
+
+    expect(trxLine).toBeDefined();
+    expect(trxLine!.trimStart().startsWith('- Never')).toBe(true);
+    expect(trxLine).toContain('weight/load value');
+    expect(trxLine).toContain('bodyweight');
+  });
+});
+
 describe('directivesSections: weaving helper', () => {
   it('contributes nothing when both directives are empty', () => {
     const sections = directivesSections('', '');
