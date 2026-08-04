@@ -351,17 +351,28 @@ on its own. This is necessary because the vault contract permits strength exerci
 duration alone signals a potential zero-total entry. The default does **not** gate on
 `targetDurationSeconds` being set — an entry with `targetSets` undefined and `warmupSets` 0 is
 zero-total whether it has duration or not (e.g., an AI-drafted strength exercise with only
-title and kind) — but it only fires when `targetSets` is *absent*: an explicit `targetSets: 0`
-(a malformed vault line like `0x10`) still passes through unmodified and can still reach the
-engine zero-total, a pre-existing authoring-error case this default doesn't address. An entry
-with explicit `warmup=2` and no target sets still totals 2 and is never defaulted. This mirrors
+title and kind) — but it only fires when `targetSets` is *absent*, not an explicit `0`. An AI
+draft with `targetSets: 0` is already rejected before reaching here (`validateRoutineDraft`,
+`src/ai/draftSchema.ts`, enforces `targetSets >= 1` when present), and a malformed vault line like
+`0x10` no longer reaches this layer either: `parseWorkoutLine` (`src/interop/parse.ts`) throws
+`ContractError` on a sets×reps token whose sets count is literally `0`, the same way it already
+rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so `importRoutines`
+skips and logs that routine rather than silently importing a plan the author never wrote. Both
+authoring paths now reject an explicit zero instead of reinterpreting it; this default's job is
+only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
+and is never defaulted. This mirrors
 the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
 below) so a routine's origin — hand-authored in the vault vs. drafted by the coach — never
 changes whether every exercise in it actually gets performed.
 
 **Note:** routines already imported before this fix were left with `target_sets = null`
 for their zero-total exercises. A manual re-import will heal them via the update branch
-of `upsertRoutine`, which recalculates the default on every routine edit.
+of `upsertRoutine`, which recalculates the default on every routine edit. A routine
+imported with an explicit `target_sets = 0` (from a `0x10`-style line, before
+`parseWorkoutLine`'s parse-time rejection existed) is not healed the same way: re-import
+re-parses the same malformed line and now throws, so that routine is skipped rather than
+updated. The row stays at `target_sets = 0` until its vault source is corrected to a valid
+sets count and re-imported successfully.
 
 ## HealthKit (`src/health`)
 
