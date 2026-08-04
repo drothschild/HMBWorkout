@@ -633,12 +633,19 @@ is now a misnomer — AI settings are in there too.
   each darkened to clear WCAG AA 4.5:1 text contrast against both white and
   black backgrounds; also used on non-button solid fills like the AI chat
   bubble and kind tag) and `StatusColor` (danger; currently just the session
-  error banner). New exports: `BackgroundColors` (light/dark element, error
-  bubble) and `ThemedBackgroundText` (text colors for those non-white
-  backgrounds). Every text color pair here is verified by the `contrastRatio`
-  pure function against its target background at the 4.5:1 text bar —
-  non-text graphical fills (progress bars, sliders) are a separate, lower
-  3:1 bar under WCAG 1.4.11 that this module's own tests do not check
+  error banner). `BackgroundColors` (light/dark element, error bubble) and
+  `ThemedBackgroundText` (text colors for those non-white backgrounds).
+  `ProgressBarColors` (`progressColors.ts`) — the session-screen progress
+  bar's fill/track colors, deliberately its own theme token
+  (`progressTrack`) rather than reusing the general-purpose
+  `backgroundSelected` (~16 unrelated consumers: input borders, list
+  separators, etc.) even though the values happen to coincide. Every text
+  color pair here is verified by the `contrastRatio` pure function against
+  its target background at the 4.5:1 text bar; `ProgressBarColors`'s
+  fill/track pairs are additionally checked at the lower 3:1 graphical bar
+  under WCAG 1.4.11 — that 3:1 check does not extend to every non-text
+  graphical fill in the app (e.g. slider `minimumTrackTintColor` values are
+  unchecked), only to this module's own fill/track pairs
 - `src/app/` — expo-router screens
 
 ## Boundaries
