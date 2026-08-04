@@ -16,6 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -619,7 +620,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   settingsButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -651,7 +652,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   userBubble: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
   },
   userBubbleText: {
     color: '#fff',
@@ -711,7 +712,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   kindTag: {
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
     paddingHorizontal: Spacing.two,
     paddingVertical: 2,
     borderRadius: 4,
@@ -727,7 +728,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   acceptButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -764,7 +765,7 @@ const styles = StyleSheet.create({
   },
   approveButton: {
     flex: 1,
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -801,7 +802,7 @@ const styles = StyleSheet.create({
     color: '#007AFF',
   },
   retryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 6,
@@ -830,7 +831,7 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 6,

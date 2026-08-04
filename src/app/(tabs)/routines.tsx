@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
@@ -259,7 +260,7 @@ const styles = StyleSheet.create({
   importButton: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',

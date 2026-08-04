@@ -6,6 +6,7 @@ import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
@@ -420,10 +421,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
   },
   warningButton: {
-    backgroundColor: '#FF9500',
+    backgroundColor: ActionButtonColor.warning,
   },
   buttonText: {
     color: 'white',

@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import { routineDetailPresenter, RoutineDetail } from '@/state/routineDetailPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
@@ -357,7 +358,7 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.two,
   },
   startButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -375,7 +376,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   aiEditButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
