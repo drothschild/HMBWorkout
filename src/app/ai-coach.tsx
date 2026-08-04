@@ -14,8 +14,9 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useIsDark } from '@/hooks/use-is-dark';
 import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
@@ -32,6 +33,7 @@ const HEADER_TITLES = {
 export default function AiCoachScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const isDark = useIsDark();
   const { routineId, debriefSessionId } = useLocalSearchParams<{
     routineId?: string;
     debriefSessionId?: string;
@@ -195,8 +197,28 @@ export default function AiCoachScreen() {
 
   if (acceptError) {
     footerItems.push(
-      <View key="acceptError" style={styles.errorBubble}>
-        <ThemedText type="default" style={styles.errorMessage}>
+      <View
+        key="acceptError"
+        style={[
+          styles.errorBubble,
+          {
+            backgroundColor: isDark
+              ? BackgroundColors.errorBubbleDark
+              : BackgroundColors.errorBubble,
+          },
+        ]}
+      >
+        <ThemedText
+          type="default"
+          style={[
+            styles.errorMessage,
+            {
+              color: isDark
+                ? ThemedBackgroundText.errorBubbleTextDark
+                : ThemedBackgroundText.errorBubbleText,
+            },
+          ]}
+        >
           {acceptError}
         </ThemedText>
       </View>
@@ -437,7 +459,7 @@ function SettingsProposalCard({
   onDecline,
 }: SettingsProposalCardProps) {
   const theme = useTheme();
-  const isDark = theme.background !== Colors.light.background;
+  const isDark = useIsDark();
 
   const rows: { label: string; current: string; proposed: string }[] = [];
 
@@ -525,6 +547,7 @@ interface ErrorBubbleProps {
 
 function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
   const router = useRouter();
+  const isDark = useIsDark();
 
   let errorMessage: string;
   let showRetry: boolean;
@@ -559,14 +582,35 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
       return _exhaustive;
   }
 
+  const errorTextColor = isDark
+    ? ThemedBackgroundText.errorBubbleTextDark
+    : ThemedBackgroundText.errorBubbleText;
+  const errorBubbleBackgroundColor = isDark
+    ? BackgroundColors.errorBubbleDark
+    : BackgroundColors.errorBubble;
+
   return (
-    <View style={styles.errorBubble}>
-      <ThemedText type="default" style={styles.errorMessage}>
+    <View
+      style={[
+        styles.errorBubble,
+        { backgroundColor: errorBubbleBackgroundColor },
+      ]}
+    >
+      <ThemedText type="default" style={[styles.errorMessage, { color: errorTextColor }]}>
         {errorMessage}
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
-        <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
-          <ThemedText type="link" style={styles.errorLinkText}>
+        <Pressable
+          onPress={() => router.push('/settings/ai')}
+          style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}
+        >
+          <ThemedText
+            type="link"
+            style={[
+              styles.errorLinkText,
+              { color: errorTextColor },
+            ]}
+          >
             Open Settings
           </ThemedText>
         </Pressable>
@@ -804,22 +848,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: BackgroundColors.errorBubble,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: ThemedBackgroundText.errorBubbleText,
     marginBottom: Spacing.two,
+    // color is theme-resolved inline
   },
   errorLink: {
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: ThemedBackgroundText.errorBubbleText,
     textDecorationLine: 'underline',
+    // color is theme-resolved inline
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,
