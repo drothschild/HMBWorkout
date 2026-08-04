@@ -81,7 +81,9 @@ src/app/routine/
   [id].tsx                 — add "Export" button to routine detail screen (modal or direct)
 ```
 
-**Packages:** All Expo SDK 57 built-ins; no new npm dependencies beyond `expo-sharing` and `expo-document-picker`, both in the Expo SDK at v57. No native modules required (already using `expo-document-picker` if not present; verify compatibility).
+**Packages — corrected 2026-08-04, the original claim here was wrong.** `expo-sharing`, `expo-file-system` and `expo-document-picker` are **not** currently installed: checked against `package.json` on `main`, which carries `expo-constants`, `expo-dev-client`, `expo-device`, `expo-font`, `expo-glass-effect`, `expo-image`, `expo-linking`, `expo-notifications`, `expo-router`, `expo-secure-store`, `expo-splash-screen`, `expo-status-bar`, `expo-symbols`, `expo-system-ui`, `expo-web-browser` — and none of the three above. Being *available in* SDK 57 is not the same as being *installed*.
+
+They are also **native modules**, so adding any of them requires `npx expo prebuild -p ios --clean` and a dev-client rebuild before the feature will even link. That is a real cost, not a formality: PR #103 sat blocked behind exactly this step, and a tester running an unrelinked build sees the feature as broken rather than unlinked. Budget it into Phase 2 rather than discovering it there.
 
 **Data flow.** Export button → select destination (Files vs. Share) → `exportService.serialize(routine/session)` → `filesAppExporter.save()` or `shareSheetExporter.share()` → OS UI (file picker or activity sheet) → user confirms → file written or sent.
 
@@ -119,6 +121,8 @@ Codebase investigation (2026-08-04) found the following patterns, all of which t
 **Covers:** export.AC3 (format/content), export.AC4.1 (fire-and-forget logic), export.AC4.3 (no concatenation)
 
 **Done when:** Tests pass with LokiJS test DB: routine export produces valid markdown, session history export produces multiple session files, file names are sensible and unique, round-trip parsing succeeds.
+
+**⚠️ Prerequisite the phase cannot skip (2026-08-04).** `jest.config.js`'s `testMatch` is `src/{engine,db,interop,state,sync,health,helpers,ai,theme,watch}/**/*.test.ts` — **`export` is not in it.** A new `src/export/` domain therefore gets **zero** coverage: the tests this phase's Done criterion depends on would be written, committed, and silently never run, and the suite would stay green regardless. AGENTS.md states this hazard directly ("A new `src/` domain gets no test coverage until it is added to that list"). **Add `export` to `testMatch` as the first commit of Phase 1**, and confirm the new tests actually execute (the count must rise) before trusting a green run.
 <!-- END_PHASE_1 -->
 
 <!-- START_PHASE_2 -->
@@ -128,7 +132,11 @@ Codebase investigation (2026-08-04) found the following patterns, all of which t
 **Components:**
 - `src/export/filesAppExporter.ts` — `createFilesAppExporter()` wrapping `expo-document-picker` for iOS file save dialog; returns `{ success: boolean, path?: string, error?: string }`
 
-**Dependencies:** Phase 1. New package: `expo-document-picker` (verify it's in Expo SDK 57; if missing, substitute with `expo-file-system` + local documents directory).
+**Dependencies:** Phase 1. New **native** packages — see the corrected Packages note above; requires `expo prebuild --clean` + dev-client rebuild.
+
+**⚠️ Mechanism correction (2026-08-04).** `expo-document-picker` is a *picker* — it opens the Files UI to **read** a document the user chooses. It is not a save API, so it cannot implement this phase as written. On iOS there is no direct "save to Files" call; the working shape is to write the file into the app's documents directory with `expo-file-system` and then hand it to `expo-sharing`, whose share sheet includes **"Save to Files"** as a destination.
+
+**Consequence for the phase plan:** Phases 2 and 3 are not two backends. On iOS they are one mechanism — write to disk, then present the share sheet — with "Files app" and "AirDrop/Mail" being two *choices the user makes inside the same OS sheet*, not two code paths the app selects between. Collapse them, and drop `exportOptions.ts`/`filesAppExporter.ts`/`shareSheetExporter.ts` down to a single exporter unless a genuine second path emerges.
 
 **Covers:** export.AC2.1, AC2.4 (Files app destination, sensible names), export.AC4.2 (error handling)
 
