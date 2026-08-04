@@ -1,169 +1,217 @@
-import { createTimerSoundExecutor, TimerSoundAPIs } from './timerSounds';
+import { createTimerSoundExecutor, TimerSoundAPIs, playBeepSequence } from './timerSounds';
 
 describe('timerSounds', () => {
   let mockApis: TimerSoundAPIs;
-  let mockSoundInstance: any;
 
   beforeEach(() => {
-    mockSoundInstance = {
-      loadAsync: jest.fn().mockResolvedValue(undefined),
-      playAsync: jest.fn().mockResolvedValue(undefined),
-    };
-
     mockApis = {
-      createSoundInstance: jest.fn().mockReturnValue(mockSoundInstance),
+      playOne: jest.fn().mockResolvedValue(undefined),
+      delay: jest.fn().mockResolvedValue(undefined),
       recordWarning: jest.fn(),
     };
   });
 
   describe('playMinuteMilestone', () => {
-    it('creates a sound, loads and plays it on first call', async () => {
+    it('plays 2 beeps on call', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playMinuteMilestone();
 
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.loadAsync).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(1);
+      // Minute milestone: 2 beeps
+      expect(mockApis.playOne).toHaveBeenCalledTimes(2);
     });
 
-    it('creates a fresh sound instance for each call (not cached across calls)', async () => {
-      // C3/C4 behavior: fresh wrapper per call, but underlying beepSound in timerSoundPlayer is cached
+    it('calls each pattern once per call', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playMinuteMilestone();
       await executor.playMinuteMilestone();
 
-      // Each call creates a fresh wrapper via createSoundInstance
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(2);
-      // Each wrapper calls playAsync once (not multiple beeps on the mock)
-      expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(2);
+      // Each call plays 2 beeps independently
+      expect(mockApis.playOne).toHaveBeenCalledTimes(4);
     });
 
-    it('logs and continues if loading fails', async () => {
-      mockSoundInstance.loadAsync.mockRejectedValueOnce(new Error('Load failed'));
+    it('logs and continues if a beep fails', async () => {
+      (mockApis.playOne as jest.Mock).mockRejectedValueOnce(new Error('Play failed'));
       const executor = createTimerSoundExecutor(mockApis);
 
       await executor.playMinuteMilestone();
 
+      // Should still attempt the second beep despite first one failing
+      expect(mockApis.playOne).toHaveBeenCalledTimes(2);
       expect(mockApis.recordWarning).toHaveBeenCalledWith(
-        'Failed to play minute milestone sound:',
-        expect.any(Error)
-      );
-    });
-
-    it('logs and continues if playback fails', async () => {
-      mockSoundInstance.playAsync.mockRejectedValueOnce(new Error('Play failed'));
-      const executor = createTimerSoundExecutor(mockApis);
-
-      await executor.playMinuteMilestone();
-
-      expect(mockApis.recordWarning).toHaveBeenCalledWith(
-        'Failed to play minute milestone sound:',
+        'Failed to play beep 1/2:',
         expect.any(Error)
       );
     });
   });
 
   describe('playStopwatchZero', () => {
-    it('plays the zero sound', async () => {
+    it('plays 3 beeps on call', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playStopwatchZero();
 
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.loadAsync).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(1);
+      // Stopwatch zero: 3 beeps
+      expect(mockApis.playOne).toHaveBeenCalledTimes(3);
     });
 
-    it('logs and continues if playback fails', async () => {
-      mockSoundInstance.playAsync.mockRejectedValueOnce(new Error('Play failed'));
+    it('logs and continues if a beep fails', async () => {
+      (mockApis.playOne as jest.Mock).mockRejectedValueOnce(new Error('Play failed'));
       const executor = createTimerSoundExecutor(mockApis);
 
       await executor.playStopwatchZero();
 
+      // Should attempt all 3 beeps despite first one failing
+      expect(mockApis.playOne).toHaveBeenCalledTimes(3);
       expect(mockApis.recordWarning).toHaveBeenCalledWith(
-        'Failed to play stopwatch zero sound:',
+        'Failed to play beep 1/3:',
         expect.any(Error)
       );
     });
   });
 
   describe('playRestComplete', () => {
-    it('plays the rest complete sound', async () => {
+    it('plays 4 beeps on call', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playRestComplete();
 
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.loadAsync).toHaveBeenCalledTimes(1);
-      expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(1);
+      // Rest complete: 4 beeps
+      expect(mockApis.playOne).toHaveBeenCalledTimes(4);
     });
 
-    it('logs and continues if playback fails', async () => {
-      mockSoundInstance.playAsync.mockRejectedValueOnce(new Error('Play failed'));
+    it('logs and continues if a beep fails', async () => {
+      (mockApis.playOne as jest.Mock).mockRejectedValueOnce(new Error('Play failed'));
       const executor = createTimerSoundExecutor(mockApis);
 
       await executor.playRestComplete();
 
+      // Should attempt all 4 beeps despite first one failing
+      expect(mockApis.playOne).toHaveBeenCalledTimes(4);
       expect(mockApis.recordWarning).toHaveBeenCalledWith(
-        'Failed to play rest complete sound:',
+        'Failed to play beep 1/4:',
         expect.any(Error)
       );
     });
   });
 
-  describe('sound generation', () => {
+  describe('pattern beep counts', () => {
     it('generates a minute milestone sound with two beeps', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playMinuteMilestone();
 
-      // Verify that a sound instance was created with correct beep count
-      expect(mockApis.createSoundInstance).toHaveBeenCalled();
-      const callArg = (mockApis.createSoundInstance as jest.Mock).mock.calls[0][0];
-      expect(callArg.tones.length).toBe(2);
+      expect(mockApis.playOne).toHaveBeenCalledTimes(2);
     });
 
     it('generates a stopwatch zero sound with three beeps', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playStopwatchZero();
 
-      const callArg = (mockApis.createSoundInstance as jest.Mock).mock.calls[0][0];
-      expect(callArg.tones.length).toBe(3);
+      expect(mockApis.playOne).toHaveBeenCalledTimes(3);
     });
 
     it('generates a rest complete sound with four beeps', async () => {
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playRestComplete();
 
-      const callArg = (mockApis.createSoundInstance as jest.Mock).mock.calls[0][0];
-      expect(callArg.tones.length).toBe(4);
+      expect(mockApis.playOne).toHaveBeenCalledTimes(4);
     });
   });
 
-  describe('C3 regression: different patterns on same executor', () => {
-    it('must pass correct pattern config to each sound instance', async () => {
-      // C3 Fix: This test catches the caching bug where patterns would reuse
-      // the first pattern's configuration. Each pattern must receive the correct
-      // config with the right number of tones.
-      // (Labelled I4 until round 4; that number now names the lazy audio-mode init,
-      // which lives in the untested component layer and has no test here.)
+  describe('pattern timing', () => {
+    it('plays delays between beeps for minute milestone', async () => {
       const executor = createTimerSoundExecutor(mockApis);
-
-      // Call three different patterns on the same executor
       await executor.playMinuteMilestone();
+
+      // 2 beeps = 1 delay between them
+      expect(mockApis.delay).toHaveBeenCalledTimes(1);
+      expect(mockApis.delay).toHaveBeenCalledWith(150);
+    });
+
+    it('plays delays between beeps for stopwatch zero', async () => {
+      const executor = createTimerSoundExecutor(mockApis);
       await executor.playStopwatchZero();
+
+      // 3 beeps = 2 delays between them
+      expect(mockApis.delay).toHaveBeenCalledTimes(2);
+      expect(mockApis.delay).toHaveBeenCalledWith(150);
+    });
+
+    it('plays delays between beeps for rest complete', async () => {
+      const executor = createTimerSoundExecutor(mockApis);
       await executor.playRestComplete();
 
-      // Each pattern should call createSoundInstance with correct tone count
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(3);
+      // 4 beeps = 3 delays between them
+      expect(mockApis.delay).toHaveBeenCalledTimes(3);
+      expect(mockApis.delay).toHaveBeenCalledWith(150);
+    });
+  });
 
-      const calls = (mockApis.createSoundInstance as jest.Mock).mock.calls;
+  describe('playBeepSequence', () => {
+    let playOneMock: jest.Mock;
+    let delayMock: jest.Mock;
 
-      // First call: minute milestone with 2 tones
-      expect(calls[0][0].tones.length).toBe(2);
+    beforeEach(() => {
+      playOneMock = jest.fn().mockResolvedValue(undefined);
+      delayMock = jest.fn().mockResolvedValue(undefined);
+    });
 
-      // Second call: stopwatch zero with 3 tones
-      expect(calls[1][0].tones.length).toBe(3);
+    it('plays the correct number of beeps for minute milestone (2 beeps)', async () => {
+      await playBeepSequence(2, playOneMock, delayMock);
 
-      // Third call: rest complete with 4 tones
-      expect(calls[2][0].tones.length).toBe(4);
+      // Must call playOne exactly 2 times, not 1
+      expect(playOneMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('plays the correct number of beeps for stopwatch zero (3 beeps)', async () => {
+      await playBeepSequence(3, playOneMock, delayMock);
+
+      expect(playOneMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('plays the correct number of beeps for rest complete (4 beeps)', async () => {
+      await playBeepSequence(4, playOneMock, delayMock);
+
+      expect(playOneMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('includes delays between beeps but not after the last beep', async () => {
+      await playBeepSequence(3, playOneMock, delayMock);
+
+      // 3 beeps = 2 gaps between them (gap after beep 1, gap after beep 2, no gap after beep 3)
+      expect(delayMock).toHaveBeenCalledTimes(2);
+      expect(delayMock).toHaveBeenCalledWith(150);
+    });
+
+    it('calls delay with 150ms between beeps', async () => {
+      await playBeepSequence(2, playOneMock, delayMock);
+
+      // For 2 beeps, there's 1 delay
+      expect(delayMock).toHaveBeenCalledTimes(1);
+      expect(delayMock).toHaveBeenCalledWith(150);
+    });
+
+    it('logs and continues if a beep fails', async () => {
+      const recordWarning = jest.fn();
+      playOneMock.mockRejectedValueOnce(new Error('Beep 1 failed'));
+
+      await playBeepSequence(3, playOneMock, delayMock, recordWarning);
+
+      // Should still attempt all 3 beeps despite first one failing
+      expect(playOneMock).toHaveBeenCalledTimes(3);
+      expect(recordWarning).toHaveBeenCalledWith(
+        'Failed to play beep 1/3:',
+        expect.any(Error)
+      );
+    });
+
+    it('mutation test: must fail if beep count collapses to 1', async () => {
+      // This test explicitly verifies that if playBeepSequence is broken
+      // to always play 1 beep instead of the requested count, this test fails.
+      // This catches the exact regression the card is designed to prevent.
+      const sequence4 = playBeepSequence(4, playOneMock, delayMock);
+      await sequence4;
+
+      // If beep count silently collapsed to 1 (the bug), this assertion catches it
+      expect(playOneMock).toHaveBeenCalledTimes(4);
+      expect(delayMock).toHaveBeenCalledTimes(3); // 3 gaps for 4 beeps
     });
   });
 });

@@ -3,8 +3,6 @@ import {
   createTimerSoundExecutor,
   TimerSoundAPIs,
   TimerSoundExecutor,
-  SoundConfig,
-  SoundInstance,
 } from '@/state/timerSounds';
 
 /**
@@ -29,9 +27,10 @@ import {
  */
 
 /**
- * Wrapper around expo-audio's AudioPlayer that implements SoundInstance.
+ * Wrapper around expo-audio's AudioPlayer.
+ * Used internally to cache and replay a single beep sound.
  */
-class ExpoAudioSoundInstance implements SoundInstance {
+class ExpoAudioSoundInstance {
   private player: AudioPlayer;
 
   constructor() {
@@ -106,61 +105,26 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
     return audioModePromise;
   }
 
-  /**
-   * Play a sequence of beeps with brief silence between them.
-   * Each beep is ~100ms, with ~150ms between beeps to allow audio to complete
-   * and create a distinct rhythm.
-   */
-  async function playBeepSequence(beepCount: number): Promise<void> {
-    // Initialize audio mode on first playback (I4 lazy initialization)
-    await initializeAudioMode();
-
-    // Load once and cache the sound instance
-    if (!beepSound) {
-      beepSound = new ExpoAudioSoundInstance();
-      await beepSound.loadAsync();
-    }
-
-    // Play the beep sequence with natural timing
-    for (let i = 0; i < beepCount; i++) {
-      try {
-        // Each call to playAsync() plays the beep
-        await beepSound.playAsync();
-      } catch (error) {
-        // Log but continue - a single beep failure shouldn't stop the sequence
-        console.warn(`Failed to play beep ${i + 1}/${beepCount}:`, error as Error);
-      }
-
-      // Brief delay before next beep (beep duration ~100ms + gap ~50ms)
-      if (i < beepCount - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-    }
-  }
-
   return {
-    createSoundInstance(config: SoundConfig): SoundInstance {
-      // C3 Fix: Capture config and read beepCount at play time, not creation time.
-      // This ensures different patterns (2/3/4 beeps) all share the same cached
-      // beepSound instance but each pattern produces the correct number of beeps.
-      // If we read config.tones.length at creation time, only the first pattern
-      // to call this method would be cached; subsequent patterns would reuse
-      // the first pattern's beep count. Reading at play time fixes this.
+    async playOne(): Promise<void> {
+      // Initialize audio mode on first playback (I4 lazy initialization)
+      await initializeAudioMode();
 
-      // Return a wrapper that plays the appropriate beep sequence
-      return {
-        async loadAsync() {
-          // Pre-loading is handled on first playAsync call
-        },
+      // Load once and cache the sound instance
+      if (!beepSound) {
+        beepSound = new ExpoAudioSoundInstance();
+        await beepSound.loadAsync();
+      }
 
-        async playAsync() {
-          // Read beep count at play time from the captured config.
-          // This allows different patterns to reuse the same cached beepSound
-          // while each producing the correct sequence.
-          const beepCount = config.tones.length;
-          await playBeepSequence(beepCount);
-        },
-      };
+      // Play a single beep
+      // C2 Fix: Seek to start before playing. The AudioPlayer's playhead stays at
+      // the end after the first play() call; subsequent play() calls on a finished
+      // player are silent no-ops. Seeking resets the playhead for the next beep.
+      await beepSound.playAsync();
+    },
+
+    async delay(durationMs: number): Promise<void> {
+      return new Promise((resolve) => setTimeout(resolve, durationMs));
     },
 
     recordWarning(message: string, error: Error): void {
