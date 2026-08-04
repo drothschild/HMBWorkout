@@ -313,13 +313,17 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
   },
   questionAnswerScroll: {
-    // The height bound lives on the scroller, NOT as flex/maxHeight on the
-    // wrapper: flex:1 inside an auto-height parent collapses to 0 in Yoga,
-    // and a wrapper maxHeight is only a ceiling, never a height source.
-    maxHeight: 220,
+    // questionSheet's maxHeight: '80%' is the real bound (see below) — once
+    // a long answer forces the sheet against that cap, Yoga resolves the
+    // sheet to a definite height and flexShrink lets this ScrollView give up
+    // exactly the space the title and Close button need, rather than the
+    // fixed 220 this used to carry over from the pre-Modal inline layout
+    // (where it existed to keep the block from crowding the screen's other
+    // fixed chrome — a constraint that doesn't apply inside a Modal sheet).
+    flexShrink: 1,
   },
   questionAnswerContent: {
-    padding: Spacing.two,
+    paddingVertical: Spacing.two,
   },
   questionPendingText: {
     opacity: 0.7,
