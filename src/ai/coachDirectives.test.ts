@@ -26,9 +26,10 @@ describe('coachDirectives: shipped constants', () => {
 });
 
 describe('coachDirectives: TRX bodyweight-only rule', () => {
-  // TRX is a bodyweight-resistance tool, not a weight, and this is a safety/
-  // correctness rule the coach must never be argued out of — so it belongs in
-  // IMMUTABLE_DIRECTIVES, not OVERRIDABLE_DIRECTIVES. Pins the actual
+  // TRX is a bodyweight-resistance tool, not a weight, and this is exactly the
+  // module docstring's third IMMUTABLE clause: "anything that must never be
+  // argued away by user input" — so it belongs in IMMUTABLE_DIRECTIVES, not
+  // OVERRIDABLE_DIRECTIVES. Pins the actual
   // bodyweight-not-weight semantics (not just the substring "TRX"): a line
   // that merely mentions TRX without both the "never prescribe/reference a
   // weight/load value" rule and the "bodyweight, not a weight" rationale
