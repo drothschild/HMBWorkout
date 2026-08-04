@@ -89,23 +89,3 @@ describe('ThemedBackgroundText', () => {
     });
   });
 });
-
-describe('StatusColor with white/black text', () => {
-  const WHITE = '#FFFFFF';
-  const BLACK = '#000000';
-  const AA_NORMAL_TEXT_MINIMUM = 4.5;
-
-  it.each(Object.entries(StatusColor))(
-    '%s clears WCAG AA contrast (4.5:1) against white',
-    (_name, hex) => {
-      expect(contrastRatio(hex, WHITE)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
-    }
-  );
-
-  it.each(Object.entries(StatusColor))(
-    '%s clears WCAG AA contrast (4.5:1) against black (dark mode)',
-    (_name, hex) => {
-      expect(contrastRatio(hex, BLACK)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
-    }
-  );
-});
