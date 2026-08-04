@@ -7,7 +7,7 @@
  */
 
 import { Database } from '@nozbe/watermelondb';
-import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
 import { getSession, getSessionSets, upsertExercise, upsertRoutine, discardInProgressSession } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
 import { createActiveSessionStore, DISCARD_FAILURE_PREFIX } from './activeSession';
@@ -125,7 +125,7 @@ describe('abandoning an in-progress workout', () => {
 
   it('never syncs and never exports to HealthKit', async () => {
     await store.getState().dispatch({ tag: 'AbandonSession' });
-    await new Promise((resolve) => setImmediate(resolve));
+    await flush();
 
     expect(syncSpy).not.toHaveBeenCalled();
     expect((healthKitDeps as any).saveWorkoutSample).not.toHaveBeenCalled();

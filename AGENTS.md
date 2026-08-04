@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-07-31
+Last verified: 2026-08-04
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
@@ -295,12 +295,38 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
-`parse.ts` must stay symmetric (roundtrip tests enforce it). One overload to know:
-the `<sets>x<reps>` slot means **target** sets×reps in a routine, but in a logged
-session it is emitted as `1x<logged-reps>` (one logged set). Session lines therefore
-expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read those, not the
-`target*` fields, when consuming a parsed session. Contract violations throw
-`ContractError`.
+`parse.ts` must stay symmetric. Roundtrip tests enforce this for the value ranges they
+exercise — e.g., the test in `roundtrip.test.ts` that serializes a `reps: 0` set
+pins the PR #89 regression: an earlier version of the zero-reps guard below was
+unconditional, so `parseSession` rejected the `1x0` lines `serializeSession` correctly
+emits for a set logged with zero reps. Not every value is exercised by existing
+fixtures, so test coverage is incomplete by construction; add targeted roundtrip tests
+when you discover or fix a case the current suite misses.
+
+One overload to know: the `<sets>x<reps>` slot means **target** sets×reps in a routine,
+but in a logged session it is emitted as `1x<logged-reps>` (one logged set). Session
+lines therefore expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read
+those, not the `target*` fields, when consuming a parsed session. Contract violations
+throw `ContractError`.
+
+### Parse context and validation strictness
+
+`parseWorkoutLine` and the internal `parseDoc` take a context parameter
+(`'routine' | 'session'`) that controls validation severity. It is deliberately not
+exposed on the public API: `parseRoutine(markdown)` and `parseSession(markdown)` are
+single-argument wrappers that each hardcode their own context, so no caller can parse
+a routine with session strictness or vice versa. This distinction exists because the
+`<sets>x<reps>` slot carries *different semantic meaning* in each context:
+- In a **routine** (author-written targets): `3x0` means "3 sets of zero reps," which is
+  semantically empty and therefore rejected.
+- In a **session** (logged measurements): `1x0` means "one logged set in which the user
+  performed zero repetitions," which is a real, valid action and therefore accepted.
+
+Zero sets (`0x10`) is rejected unconditionally in both contexts, since
+`serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
+Zero reps rejection is routine-only: `parseRoutine` passes `context: 'routine'` to
+`parseDoc`, while `parseSession` passes `context: 'session'`, so `1x0` is valid in
+logged sessions but `3x0` is rejected in routine targets and vault import.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by
@@ -355,10 +381,18 @@ title and kind) — but it only fires when `targetSets` is *absent*, not an expl
 draft with `targetSets: 0` is already rejected before reaching here (`validateRoutineDraft`,
 `src/ai/draftSchema.ts`, enforces `targetSets >= 1` when present), and a malformed vault line like
 `0x10` no longer reaches this layer either: `parseWorkoutLine` (`src/interop/parse.ts`) throws
-`ContractError` on a sets×reps token whose sets count is literally `0`, the same way it already
-rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so `importRoutines`
-skips and logs that routine rather than silently importing a plan the author never wrote. Both
-authoring paths now reject an explicit zero instead of reinterpreting it; this default's job is
+`ContractError` on a sets×reps token whose sets count is literally `0` — unconditionally, in both
+routine and session parsing, since a set count of zero is never valid either way — the same way it
+already rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so
+`importRoutines` skips and logs that routine rather than silently importing a plan the author never
+wrote. **Zero reps are rejected too, but only for routine targets:** a vault line like `3x0` is
+rejected during routine parsing because "3 sets of 0 reps" is semantically empty in a plan — but a
+*logged* `1x0` is valid: when parsing a session (via `context: 'session'`), the `1x<reps>` slot
+carries a measured value, and zero repetitions performed is a real, valid outcome. The distinction
+is threaded through `parseWorkoutLine`'s context parameter: only `context === 'routine'` rejects
+zero reps; zero sets has no such gate.
+Both *authoring* paths — the AI draft validator and vault import's `parseWorkoutLine` —
+now reject an explicit zero instead of reinterpreting it; this default's job is
 only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
 and is never defaulted. This mirrors
 the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
@@ -372,7 +406,11 @@ imported with an explicit `target_sets = 0` (from a `0x10`-style line, before
 `parseWorkoutLine`'s parse-time rejection existed) is not healed the same way: re-import
 re-parses the same malformed line and now throws, so that routine is skipped rather than
 updated. The row stays at `target_sets = 0` until its vault source is corrected to a valid
-sets count and re-imported successfully.
+sets count and re-imported successfully. The same applies to a legacy routine with
+`target_reps = 0` (from an old `3x0` line): re-import catches the `ContractError` during
+routine parsing and skips that routine on every future import, since the zero-reps guard now
+fires at parse time. A manual correction of the vault source to a valid reps count must
+precede any future successful re-import.
 
 ## HealthKit (`src/health`)
 
@@ -507,7 +545,7 @@ is now a misnomer — AI settings are in there too.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai` — all pure TS, no
+  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai/theme` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
@@ -534,6 +572,49 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
+- **Fire-and-forget DB writes need `flush()` before assertions, not a bare
+  `setImmediate` or a bare `setTimeout(fn, 0)` alone — both of `flush()`'s
+  two stages are load-bearing, and `flush()` itself only advances the queue
+  by one extra step, not a full drain.** Effect executors like
+  `onCompleteSession` dispatch side effects that return promises but do not
+  await them. WatermelonDB's WorkQueue routes a write queued behind another
+  via a real `setTimeout(fn, 0)` timer (not a microtask), scheduled from the
+  promise continuation after the preceding item resolves. Call `flush()`
+  (`src/db/test-helpers.ts`) the way every real call site does — synchronously,
+  right after the writes, no special setup — and it catches a queue depth of *two*
+  pending writes in the high-90s% of
+  individual calls (~90% per run, measured as 46/51 fresh-process full-passes
+  on a 10-trial measurement), where either a bare `setImmediate` or a bare
+  `setTimeout(fn, 0)` alone catch it in 0% of runs. An earlier version of
+  `test-helpers.test.ts` anchored its probe inside a nested `fs.readFile` I/O
+  callback, reasoning that pinning a deterministic starting event-loop phase
+  would make the test more reliable. That reasoning had it backwards for how
+  this codebase actually calls `flush()`: anchoring inside a check-phase
+  callback changes which of WorkQueue's timer and `flush()`'s own first-stage
+  timer is queued first, which made that specific test unable to tell a real
+  two-stage `flush()` apart from a one-stage `setTimeout(fn, 0)`-only
+  implementation — both passed. The current test uses the plain, unanchored
+  call shape instead, which matches every real usage and catches the round-5
+  blind-spot mutation (the anchored test passed against a one-stage
+  implementation, proving it was missing this detection). Since a single
+  10-trial run is only ~90% reliable (individual `flush()` calls are ~99%
+  reliable; one miss in ten trials is enough to fall short), the guard test
+  itself retries the 10-trial measurement up to 3 times and passes as soon
+  as any attempt reaches 10/10
+  caught, giving the guard ~99.9% reliability (1 − 0.1³). A genuinely broken
+  one-stage implementation stays 0% across all 3 attempts and still fails the
+  test. `test-helpers.test.ts` is the actual source of truth for this
+  contract — it repeats the probe and separately demonstrates (as documentation,
+  not as the guard) that the two weaker alternatives never catch the write.
+
+  `flush()` is not a guarantee for arbitrary queue depth — a sequence that
+  queues three or more writes (e.g. `onCompleteSession` draining several
+  pending set-persists and then doing its own `database.write`) needs the
+  bounded-retry/poll-until-true idiom already used at `activeSession.test.ts:512,601`
+  (the two `for (let attempt ...)` bounded-retry loops), not a single `flush()`
+  call. Always check for this hazard when asserting on DB state
+  after fire-and-forget writes, and reach for a bounded retry over a fixed
+  number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
 
 ## Structure
 
@@ -548,6 +629,23 @@ is now a misnomer — AI settings are in there too.
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
   system-prompt builder, coach directives, draft→repository accept path, plus the
   one-shot features (rest commentary, exercise question, replace alternates)
+- `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
+  each darkened to clear WCAG AA 4.5:1 text contrast against both white and
+  black backgrounds; also used on non-button solid fills like the AI chat
+  bubble and kind tag) and `StatusColor` (danger; currently just the session
+  error banner). `BackgroundColors` (light/dark element, error bubble) and
+  `ThemedBackgroundText` (text colors for those non-white backgrounds).
+  `ProgressBarColors` (`progressColors.ts`) — the session-screen progress
+  bar's fill/track colors, deliberately its own theme token
+  (`progressTrack`) rather than reusing the general-purpose
+  `backgroundSelected` (~16 unrelated consumers: input borders, list
+  separators, etc.) even though the values happen to coincide. Every text
+  color pair here is verified by the `contrastRatio` pure function against
+  its target background at the 4.5:1 text bar; `ProgressBarColors`'s
+  fill/track pairs are additionally checked at the lower 3:1 graphical bar
+  under WCAG 1.4.11 — that 3:1 check does not extend to every non-text
+  graphical fill in the app (e.g. slider `minimumTrackTintColor` values are
+  unchecked), only to this module's own fill/track pairs
 - `src/app/` — expo-router screens
 
 ## Boundaries
@@ -605,7 +703,13 @@ is now a misnomer — AI settings are in there too.
   through a `hydrate` call that no rule ever validates (convention 5), so a session
   persisted by a build predating that rule comes back sitting on exactly such an
   entry. `sessionDetailPresenter` is the
-  third label site and needs no guard — it renders `Set N` with no total
+  third label site and needs no guard — it renders `Set N` with no total.
+  `sessionPresenter.isLastSetOfExercise` is the fourth site that checks
+  `warmupSets + targetSets` — it's the first one whose correctness depends specifically
+  on convention 9's round-number semantics (not just "is this entry active"), so
+  integration tests through mismatched-set-count supersets guard against future
+  changes to `helpers.lv`'s `next_active_idx` predicate or `transition.lv`'s
+  `setIndex` carry-over that could silently break the popup's timing
 - Starting a session mirrors that same condition one layer up.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no

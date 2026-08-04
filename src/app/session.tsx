@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, StyleSheet, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SymbolView } from 'expo-symbols';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
@@ -16,15 +17,49 @@ import {
   historyPrefillStillApplies,
   SetInputValues,
 } from '@/state/sessionPresenter';
-import { formatSetInputValue } from '@/state/setInputs';
+import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
+import { isDurationBasedEntry } from '@/state/exerciseStopwatch';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasAnthropicKey } from '@/state/exerciseQuestionStore';
 import { getSettings } from '@/state/settings';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
+
+/**
+ * Icon size for pause/resume controls in header. Paired with
+ * hitSlop={Spacing.three} (16) for a 56pt tap target — over the 44pt
+ * minimum. Unlike ExerciseStopwatch there is no fixed control box, because
+ * widening headerControls (flexShrink: 0) would squeeze the routine name.
+ */
+const HEADER_CONTROL_ICON_SIZE = 24;
+
+/**
+ * This route is registered with `presentation: 'modal'` (_layout.tsx), so on
+ * iOS it renders inside a UIKit page-sheet card whose top edge sits some
+ * distance below the actual screen top. KeyboardAvoidingView's `padding`
+ * behavior compares its own layout frame (parent-relative, so it starts
+ * measuring from the card's origin, not the screen's) against the
+ * keyboard's frame (screen-relative) — on a non-modal route the two origins
+ * coincide and no offset is needed (see ai-coach.tsx's identical
+ * KeyboardAvoidingView, which has none), but here the card's screen offset
+ * has to be supplied explicitly via keyboardVerticalOffset or the view
+ * under-shifts by exactly that amount, leaving the footer buttons behind the
+ * keyboard. NOT a stand-in for keyboard height (RN measures that exactly)
+ * or safe-area insets (useSafeAreaInsets().top is ~0 inside the card itself
+ * and would silently reintroduce this bug). Measured requirement on iPhone
+ * 17 Pro / iOS 26.5: ~57pt, measured as the strip of content left behind
+ * the keyboard (which on this device happened to be exactly the footer —
+ * that's what was measured, not what this constant tracks); this constant
+ * carries a few points of margin. The card's screen offset tracks
+ * status-bar/Dynamic-Island geometry, which varies by device — recheck on a
+ * small-screen device (e.g. iPhone SE) if this ever needs retuning, since
+ * overshoot there eats into the logged-sets scroller instead.
+ */
+const MODAL_CARD_TOP_OFFSET = 60;
 
 // Defer import until needed to avoid loading database singleton at module load time
 let database: any = null;
@@ -53,8 +88,8 @@ function ExerciseProgress({
       <ThemedText style={styles.progressLabel}>
         {`${completed} of ${total} exercises`}
       </ThemedText>
-      <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSelected }]}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+      <View style={[styles.progressTrack, { backgroundColor: theme.progressTrack }]}>
+        <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.progressFill }]} />
       </View>
     </View>
   );
@@ -75,6 +110,7 @@ export default function SessionScreen() {
   const [weightText, setWeightText] = useState('');
   const [currentRpe, setCurrentRpe] = useState<number | undefined>();
   const [durationText, setDurationText] = useState('');
+  const [rpePopupOpen, setRpePopupOpen] = useState(false);
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
@@ -453,6 +489,7 @@ export default function SessionScreen() {
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={MODAL_CARD_TOP_OFFSET}
         >
           <View style={[styles.header, { borderBottomColor: theme.backgroundSelected }]}>
             <View style={styles.headerRow}>
@@ -462,13 +499,33 @@ export default function SessionScreen() {
               <View style={styles.headerControls}>
                 <WorkoutStopwatch startedAtMs={presenter.startedAtMs} isDone={presenter.phase === 'done'} />
                 {presenter.isPaused && (
-                  <Pressable onPress={() => presenter.onResume()}>
-                    <ThemedText style={styles.resumeText}>Resume</ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Resume workout"
+                    hitSlop={Spacing.three}
+                    onPress={() => presenter.onResume()}
+                  >
+                    <SymbolView
+                      name="play.circle.fill"
+                      size={HEADER_CONTROL_ICON_SIZE}
+                      tintColor={theme.text}
+                      fallback={<ThemedText style={styles.controlFallback}>▶</ThemedText>}
+                    />
                   </Pressable>
                 )}
                 {!presenter.isPaused && presenter.phase !== 'done' && (
-                  <Pressable onPress={() => presenter.onPause()}>
-                    <ThemedText style={styles.pauseText}>Pause</ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Pause workout"
+                    hitSlop={Spacing.three}
+                    onPress={() => presenter.onPause()}
+                  >
+                    <SymbolView
+                      name="pause.circle.fill"
+                      size={HEADER_CONTROL_ICON_SIZE}
+                      tintColor={theme.text}
+                      fallback={<ThemedText style={styles.controlFallback}>⏸</ThemedText>}
+                    />
                   </Pressable>
                 )}
               </View>
@@ -492,9 +549,6 @@ export default function SessionScreen() {
           )}
 
           <View style={styles.content}>
-            {/* Renders nothing on its own when there is no entry to replace —
-                'done' included, since replaceExerciseTarget rejects that phase. */}
-            <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
             {presenter.phase !== 'done' && (
               <SetLogger
                 presenter={presenter}
@@ -515,8 +569,25 @@ export default function SessionScreen() {
                     exerciseQuestionStore.getState().toggle(questionTarget).catch(() => {});
                   }
                 }}
+                rpePopupOpen={rpePopupOpen}
+                onRpePopupOpenChange={setRpePopupOpen}
+                onRpePopupConfirm={(rpe) => {
+                  // Dispatch the set with the RPE value passed from the popup
+                  presenter.onLogSet(
+                    buildLogSetValues({
+                      isDurationBased: isDurationBasedEntry(presenter.currentEntry),
+                      repsText,
+                      weightText,
+                      durationText,
+                      rpe,
+                    })
+                  );
+                }}
               />
             )}
+            {/* Renders nothing on its own when there is no entry to replace —
+                'done' included, since replaceExerciseTarget rejects that phase. */}
+            <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
           </View>
 
           <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
@@ -588,16 +659,13 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   errorBanner: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: StatusColor.danger,
     padding: Spacing.two,
     borderRadius: 4,
     marginVertical: Spacing.two,
   },
   errorText: {
     color: 'white',
-  },
-  pauseText: {
-    color: '#FF9500',
   },
   progressBlock: {
     marginTop: Spacing.two,
@@ -614,12 +682,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: {
+    // backgroundColor is theme-resolved inline
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34C759',
   },
-  resumeText: {
-    color: '#34C759',
+  controlFallback: {
+    fontSize: 16,
+    lineHeight: HEADER_CONTROL_ICON_SIZE,
   },
   content: {
     flex: 1,
@@ -643,13 +712,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   finishButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: ActionButtonColor.finish,
   },
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
   },
   abandonText: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
 });

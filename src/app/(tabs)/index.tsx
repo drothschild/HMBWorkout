@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
 import { todayStartPresenter, TodayRoutineChoice, TodayStartOptions } from '@/state/todayStartPresenter';
@@ -289,13 +290,13 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
-    backgroundColor: '#34C759',
+    backgroundColor: ActionButtonColor.finish,
   },
   linkButton: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 6,
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: 44,

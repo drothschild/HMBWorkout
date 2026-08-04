@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
 
 type AiSettingsPatch = Partial<{
@@ -91,7 +92,11 @@ export default function AiCoachSettingsScreen() {
             focused field into view. A KeyboardAvoidingView was tried first and
             verified broken here — nested under the tab navigator's header and
             tab bar it shrank the column by only ~12%, leaving the bottom-most
-            field stranded behind the keyboard. */}
+            field stranded behind the keyboard. (Contrast session.tsx's
+            KeyboardAvoidingView + MODAL_CARD_TOP_OFFSET fix for the same class
+            of bug: that screen has no outer ScrollView to fall back to, and
+            is a modal-presented route rather than nested under tab chrome, so
+            the two screens' constraints — and fixes — genuinely differ.) */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -212,7 +217,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   scroll: {

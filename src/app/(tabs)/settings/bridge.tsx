@@ -5,7 +5,7 @@ import {
   ActivityIndicator,
   ScrollView,
   View,
-  } from 'react-native';
+} from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';
@@ -271,7 +272,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   scroll: {
@@ -309,7 +310,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: 44,
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
   },
   buttonPressed: {
     opacity: 0.6,

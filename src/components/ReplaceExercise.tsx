@@ -2,6 +2,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { exerciseReplaceStore, replaceExerciseTarget } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
 import type { SessionState } from '@/engine/types';
@@ -44,16 +45,18 @@ export function ReplaceExercise({
   return (
     <View>
       {target && hasKey && (
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => exerciseReplaceStore.getState().open(target)}
-          style={[styles.trigger, { borderColor: theme.backgroundSelected }]}
-        >
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {busy ? 'Finding alternatives…' : 'Replace exercise'}
-          </ThemedText>
-        </Pressable>
+        <View style={styles.triggerWrapper}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => exerciseReplaceStore.getState().open(target)}
+            style={[styles.button, styles.secondaryButton]}
+          >
+            <ThemedText style={styles.buttonText}>
+              {busy ? 'Finding alternatives…' : 'Replace exercise'}
+            </ThemedText>
+          </Pressable>
+        </View>
       )}
 
       <Modal
@@ -121,13 +124,20 @@ export function ReplaceExercise({
 }
 
 const styles = StyleSheet.create({
-  trigger: {
-    alignSelf: 'flex-start',
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    borderWidth: 1,
+  triggerWrapper: {
+    marginTop: Spacing.two,
+  },
+  button: {
+    paddingVertical: Spacing.two,
     borderRadius: 4,
-    marginBottom: Spacing.two,
+    alignItems: 'center',
+  },
+  secondaryButton: {
+    backgroundColor: ActionButtonColor.secondary,
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
   backdrop: {
     flex: 1,
@@ -153,7 +163,7 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   error: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
   cancel: {
     alignItems: 'center',

@@ -14,8 +14,9 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -436,6 +437,7 @@ function SettingsProposalCard({
   onDecline,
 }: SettingsProposalCardProps) {
   const theme = useTheme();
+  const isDark = theme.background !== Colors.light.background;
 
   const rows: { label: string; current: string; proposed: string }[] = [];
 
@@ -478,10 +480,28 @@ function SettingsProposalCard({
 
       <View style={styles.proposalActions}>
         <Pressable
-          style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.declineButton,
+            {
+              borderColor: isDark
+                ? ThemedBackgroundText.backgroundElementTextDark
+                : ThemedBackgroundText.backgroundElementTextLight,
+            },
+            pressed && styles.pressed,
+          ]}
           onPress={onDecline}
         >
-          <ThemedText type="default" style={styles.declineButtonText}>
+          <ThemedText
+            type="default"
+            style={[
+              styles.declineButtonText,
+              {
+                color: isDark
+                  ? ThemedBackgroundText.backgroundElementTextDark
+                  : ThemedBackgroundText.backgroundElementTextLight,
+              },
+            ]}
+          >
             Decline
           </ThemedText>
         </Pressable>
@@ -590,7 +610,7 @@ const styles = StyleSheet.create({
     marginLeft: -Spacing.two,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   backButtonPlaceholder: {
@@ -619,7 +639,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   settingsButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -651,7 +671,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   userBubble: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
   },
   userBubbleText: {
     color: '#fff',
@@ -711,7 +731,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   kindTag: {
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
     paddingHorizontal: Spacing.two,
     paddingVertical: 2,
     borderRadius: 4,
@@ -727,7 +747,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   acceptButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -764,7 +784,7 @@ const styles = StyleSheet.create({
   },
   approveButton: {
     flex: 1,
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
@@ -773,35 +793,36 @@ const styles = StyleSheet.create({
   declineButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    // borderColor is theme-resolved inline
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
     alignItems: 'center',
   },
   declineButtonText: {
-    color: '#007AFF',
+    // color is theme-resolved inline
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: '#FFE5E5',
+    backgroundColor: BackgroundColors.errorBubble,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: '#C00',
+    color: ThemedBackgroundText.errorBubbleText,
     marginBottom: Spacing.two,
   },
   errorLink: {
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: '#007AFF',
+    color: ThemedBackgroundText.errorBubbleText,
+    textDecorationLine: 'underline',
   },
   retryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 6,
@@ -830,7 +851,7 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 6,

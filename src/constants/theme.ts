@@ -6,21 +6,27 @@
 import '@/global.css';
 
 import { Platform } from 'react-native';
+import { ProgressBarColors } from '@/theme/progressColors';
+import { BackgroundColors } from '@/theme/actionButtonColors';
 
 export const Colors = {
   light: {
     text: '#000000',
     background: '#ffffff',
-    backgroundElement: '#F0F0F3',
+    backgroundElement: BackgroundColors.lightElement,
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
+    progressFill: ProgressBarColors.light.fill,
+    progressTrack: ProgressBarColors.light.track,
   },
   dark: {
     text: '#ffffff',
     background: '#000000',
-    backgroundElement: '#212225',
+    backgroundElement: BackgroundColors.darkElement,
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
+    progressFill: ProgressBarColors.dark.fill,
+    progressTrack: ProgressBarColors.dark.track,
   },
 } as const;
 
