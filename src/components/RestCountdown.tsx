@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { playRestCompleteSound } from './timerSoundPlayer';
 
 interface RestCountdownProps {
   /** Active deadline while the timer is running (undefined when paused) */
@@ -69,13 +70,24 @@ export function RestCountdown({
     deadlineMs ? Math.max(0, deadlineMs - Date.now()) : 0
   );
 
-  // The presenter is recreated every render, so keep the elapsed callback in a
-  // ref: the interval must not be torn down and re-armed on each parent render.
-  // The ref is written in an effect, not during render (react-hooks/refs).
+  // I5 Fix: Keep the elapsed callback in a ref so the tick interval
+  // (which has deps [deadlineMs, isPaused]) doesn't re-arm when onRestElapsed changes.
+  // The ref is updated via an effect [onRestElapsed] so tick always calls the latest callback.
+  //
+  // Seeded with the prop rather than null, and called without `?.`, on purpose: the tick
+  // latches `elapsedDispatched` *before* calling, so a null ref would swallow the dispatch
+  // with the latch already set — the interval would never retry and the rest would strand
+  // at 0:00. That is round 3's stranding bug reached by a different route. It cannot happen
+  // today, because passive effects run in declaration order and this one is declared first,
+  // but that guarantee is invisible at the call site and one plausible edit inverts it:
+  // converting the tick below to useLayoutEffect — which ExerciseStopwatch already does, to
+  // avoid a one-frame layout jump — would run it before this passive write, with .current
+  // still null. Seeding removes the ordering dependency structurally instead of documenting
+  // it, and matches ExerciseStopwatch's onMinuteRef/onZeroRef pattern exactly.
   const onRestElapsedRef = useRef(onRestElapsed);
   useEffect(() => {
     onRestElapsedRef.current = onRestElapsed;
-  });
+  }, [onRestElapsed]);
 
   useEffect(() => {
     if (isPaused || !deadlineMs) return;
@@ -86,6 +98,12 @@ export function RestCountdown({
       setRemainingMs(remaining);
       if (remaining <= 0 && !elapsedDispatched) {
         elapsedDispatched = true;
+        // C1 Fix: fire-and-forget, never awaited. The engine dispatch must not wait on
+        // audio — if the sound promise hangs, onRestElapsed never fires and the workout
+        // is stranded at 0:00 with the latch already set. Match ExerciseStopwatch.
+        playRestCompleteSound().catch(() => {
+          // Sound failures are logged by the sound module; ignore here
+        });
         onRestElapsedRef.current();
       }
     };

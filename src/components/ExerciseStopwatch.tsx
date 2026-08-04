@@ -12,6 +12,10 @@ import {
   StopwatchView,
 } from '@/state/exerciseStopwatch';
 import { vibrateAtZero, vibrateForMinute } from './minuteVibration';
+import {
+  playMinuteMilestoneSound,
+  playStopwatchZeroSound,
+} from './timerSoundPlayer';
 
 /** Comfortably over the 44pt minimum touch target, icon included. */
 const CONTROL_SIZE = 48;
@@ -71,12 +75,32 @@ interface ExerciseStopwatchProps {
  * a backgrounded app resyncs to true elapsed time on the next tick instead of
  * drifting.
  */
+/**
+ * Combined default for minute milestone: buzz + sound.
+ */
+function defaultOnMinute() {
+  vibrateForMinute();
+  playMinuteMilestoneSound().catch(() => {
+    // Sound failures are logged by the sound module; ignore here
+  });
+}
+
+/**
+ * Combined default for countdown zero: buzz + sound.
+ */
+function defaultOnZero() {
+  vibrateAtZero();
+  playStopwatchZeroSound().catch(() => {
+    // Sound failures are logged by the sound module; ignore here
+  });
+}
+
 export function ExerciseStopwatch({
   stopwatchKey,
   running,
   targetDurationSeconds,
-  onMinute = vibrateForMinute,
-  onZero = vibrateAtZero,
+  onMinute = defaultOnMinute,
+  onZero = defaultOnZero,
   onStop,
 }: ExerciseStopwatchProps) {
   const theme = useTheme();
