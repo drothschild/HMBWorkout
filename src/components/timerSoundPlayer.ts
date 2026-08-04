@@ -94,7 +94,7 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
       audioModePromise = Promise.resolve()
         .then(() =>
           setAudioModeAsync({
-            playsInSilentMode: false,
+            playsInSilentMode: true,
             interruptionMode: 'mixWithOthers',
           })
         )
