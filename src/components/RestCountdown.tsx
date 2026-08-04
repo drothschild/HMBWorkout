@@ -73,11 +73,14 @@ export function RestCountdown({
   // I5 Fix: Keep the elapsed callback in a ref so the tick interval
   // (which has deps [deadlineMs, isPaused]) doesn't re-arm when onRestElapsed changes.
   // The ref is updated via an effect [onRestElapsed] so tick always calls the latest callback.
-  // M2 Fix: Initialize with null instead of a throwaway closure; set the ref in the effect.
-  const onRestElapsedRef = useRef<() => void>(null!);
+  // M2 Fix: Initialize with null and use optional chaining on call site.
+  // C1 Fix: playRestCompleteSound is fire-and-forget (no await). The engine dispatch
+  // must not wait on audio: if the sound promise hangs, onRestElapsed never fires
+  // and the workout is stranded at 0:00. Match ExerciseStopwatch's pattern.
+  const onRestElapsedRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    onRestElapsedRef.current = async () => {
-      await playRestCompleteSound().catch(() => {
+    onRestElapsedRef.current = () => {
+      playRestCompleteSound().catch(() => {
         // Sound failures are logged by the sound module; ignore here
       });
       onRestElapsed();
@@ -93,7 +96,7 @@ export function RestCountdown({
       setRemainingMs(remaining);
       if (remaining <= 0 && !elapsedDispatched) {
         elapsedDispatched = true;
-        onRestElapsedRef.current();
+        onRestElapsedRef.current?.();
       }
     };
 

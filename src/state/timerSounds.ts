@@ -3,8 +3,8 @@
  *
  * M3 Fix: This is an effect executor module (like src/health), not pure.
  * It orchestrates distinct sound patterns for different timer events:
- * - Minute milestone (count-up stopwatch): two short beeps
- * - Countdown completion (0:00 on countdown stopwatch): three longer beeps
+ * - Minute milestone (count-up stopwatch): two beeps
+ * - Countdown completion (0:00 on countdown stopwatch): three beeps
  * - Rest period complete: four beeps for emphasis
  *
  * The implementation is injected via TimerSoundAPIs so it's testable in jest
@@ -17,19 +17,9 @@
 
 /**
  * A tone description for sound generation.
- *
- * M4 Note: The current implementation uses the beep asset as-is (100ms fixed duration)
- * and ignores frequency/durationMs from the config. These fields are preserved for
- * future extensibility (e.g., if we generate tones instead of using an asset).
- * Callers should still populate them per pattern for consistency with the schema,
- * even though they're currently ignored.
+ * Currently a marker type for extensibility; see SoundConfig below.
  */
-export interface Tone {
-  /** Frequency in Hz (e.g., 800 for a standard notification beep) */
-  frequency: number;
-  /** Duration in milliseconds */
-  durationMs: number;
-}
+export type Tone = Record<string, never>;
 
 /**
  * Configuration for creating a sound instance with tone sequences.
@@ -44,7 +34,6 @@ export interface SoundConfig {
 export interface SoundInstance {
   loadAsync(): Promise<void>;
   playAsync(): Promise<void>;
-  unloadAsync(): Promise<void>;
 }
 
 /**
@@ -107,10 +96,7 @@ export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecut
     async playMinuteMilestone() {
       await playSound(
         {
-          tones: [
-            { frequency: 800, durationMs: 100 },
-            { frequency: 800, durationMs: 100 },
-          ],
+          tones: [{}, {}],
         },
         'minute milestone'
       );
@@ -119,11 +105,7 @@ export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecut
     async playStopwatchZero() {
       await playSound(
         {
-          tones: [
-            { frequency: 800, durationMs: 150 },
-            { frequency: 800, durationMs: 150 },
-            { frequency: 800, durationMs: 150 },
-          ],
+          tones: [{}, {}, {}],
         },
         'stopwatch zero'
       );
@@ -132,12 +114,7 @@ export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecut
     async playRestComplete() {
       await playSound(
         {
-          tones: [
-            { frequency: 800, durationMs: 100 },
-            { frequency: 800, durationMs: 100 },
-            { frequency: 800, durationMs: 100 },
-            { frequency: 800, durationMs: 100 },
-          ],
+          tones: [{}, {}, {}, {}],
         },
         'rest complete'
       );

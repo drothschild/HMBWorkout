@@ -1,5 +1,11 @@
 import { createAudioPlayer, type AudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { createTimerSoundExecutor, TimerSoundAPIs, SoundConfig, SoundInstance } from '@/state/timerSounds';
+import {
+  createTimerSoundExecutor,
+  TimerSoundAPIs,
+  TimerSoundExecutor,
+  SoundConfig,
+  SoundInstance,
+} from '@/state/timerSounds';
 
 /**
  * Default sound player implementation for timer completion sounds using expo-audio SDK 57.
@@ -47,11 +53,6 @@ class ExpoAudioSoundInstance implements SoundInstance {
     await this.player.seekTo(0);
     this.player.play();
   }
-
-  async unloadAsync(): Promise<void> {
-    // Release the player when done (not remove() which is for SharedObject escape)
-    this.player.release();
-  }
 }
 
 /**
@@ -63,20 +64,27 @@ class ExpoAudioSoundInstance implements SoundInstance {
  * to create distinct patterns for different timer events.
  */
 export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
-  // I1 Fix: Configure audio session to mix with other apps' audio.
-  // By default, iOS uses soloAmbient which interrupts other audio (e.g., Spotify).
-  // We respect the mute switch (playsInSilentMode: false) but allow mixing so
-  // beeps don't interrupt the user's music in the gym.
-  // This is a fire-and-forget initialization; failures are logged and swallowed.
-  setAudioModeAsync({
-    playsInSilentMode: false,
-    interruptionMode: 'mixWithOthers',
-  }).catch((error: unknown) => {
-    console.warn('Failed to set audio mode:', error);
-  });
-
   // Cache a single beep sound instance; reuse for all patterns (C4 optimization)
   let beepSound: ExpoAudioSoundInstance | null = null;
+
+  // I4 Fix: Lazy-initialize audio mode on first playback (not at module scope).
+  // This avoids setting a global iOS audio session before the user opens a workout.
+  let audioModeInitialized = false;
+  async function initializeAudioMode(): Promise<void> {
+    if (audioModeInitialized) return;
+    audioModeInitialized = true;
+    // Configure audio session to mix with other apps' audio.
+    // By default, iOS uses soloAmbient which interrupts other audio (e.g., Spotify).
+    // We respect the mute switch (playsInSilentMode: false) but allow mixing so
+    // beeps don't interrupt the user's music in the gym.
+    // This is a fire-and-forget initialization; failures are logged and swallowed.
+    setAudioModeAsync({
+      playsInSilentMode: false,
+      interruptionMode: 'mixWithOthers',
+    }).catch((error: unknown) => {
+      console.warn('Failed to set audio mode:', error);
+    });
+  }
 
   /**
    * Play a sequence of beeps with brief silence between them.
@@ -84,6 +92,9 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
    * and create a distinct rhythm.
    */
   async function playBeepSequence(beepCount: number): Promise<void> {
+    // Initialize audio mode on first playback (I4 lazy initialization)
+    await initializeAudioMode();
+
     // Load once and cache the sound instance
     if (!beepSound) {
       beepSound = new ExpoAudioSoundInstance();
@@ -129,10 +140,6 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
           const beepCount = config.tones.length;
           await playBeepSequence(beepCount);
         },
-
-        async unloadAsync() {
-          // Sound is cached for reuse; unloading is deferred until app close
-        },
       };
     },
 
@@ -150,21 +157,28 @@ export function createDefaultTimerSoundExecutor() {
   return createTimerSoundExecutor(createDefaultTimerSoundAPIs());
 }
 
-// C4 Fix: Hoist executor to module scope so all three sound functions share
+// C4 Fix: Lazy-initialize executor so all three sound functions share
 // the same cached beepSound instance. This eliminates the memory leak of
 // creating a new executor (and new player) for each sound pattern.
 // With C3 fixed (beepCount read at play time), one executor handles all patterns.
-const defaultExecutor = createDefaultTimerSoundExecutor();
+// I4: Initialization is deferred until first playback (via createDefaultTimerSoundAPIs).
+let defaultExecutor: TimerSoundExecutor | null = null;
+function getDefaultExecutor(): TimerSoundExecutor {
+  if (!defaultExecutor) {
+    defaultExecutor = createDefaultTimerSoundExecutor();
+  }
+  return defaultExecutor;
+}
 
 // Export the three main functions for component injection
 export async function playMinuteMilestoneSound(): Promise<void> {
-  return defaultExecutor.playMinuteMilestone();
+  return getDefaultExecutor().playMinuteMilestone();
 }
 
 export async function playStopwatchZeroSound(): Promise<void> {
-  return defaultExecutor.playStopwatchZero();
+  return getDefaultExecutor().playStopwatchZero();
 }
 
 export async function playRestCompleteSound(): Promise<void> {
-  return defaultExecutor.playRestComplete();
+  return getDefaultExecutor().playRestComplete();
 }
