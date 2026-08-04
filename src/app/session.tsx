@@ -41,8 +41,8 @@ const HEADER_CONTROL_ICON_SIZE = 24;
  * This route is registered with `presentation: 'modal'` (_layout.tsx), so on
  * iOS it renders inside a UIKit page-sheet card whose top edge sits some
  * distance below the actual screen top. KeyboardAvoidingView's `padding`
- * behavior compares its own child's layout frame (parent-relative, so it
- * starts measuring from the card's origin, not the screen's) against the
+ * behavior compares its own layout frame (parent-relative, so it starts
+ * measuring from the card's origin, not the screen's) against the
  * keyboard's frame (screen-relative) — on a non-modal route the two origins
  * coincide and no offset is needed (see ai-coach.tsx's identical
  * KeyboardAvoidingView, which has none), but here the card's screen offset
@@ -51,8 +51,10 @@ const HEADER_CONTROL_ICON_SIZE = 24;
  * keyboard. NOT a stand-in for keyboard height (RN measures that exactly)
  * or safe-area insets (useSafeAreaInsets().top is ~0 inside the card itself
  * and would silently reintroduce this bug). Measured requirement on iPhone
- * 17 Pro / iOS 26.5: ~57pt (the exact height of the hidden footer); this
- * constant carries a few points of margin. The card's screen offset tracks
+ * 17 Pro / iOS 26.5: ~57pt, measured as the strip of content left behind
+ * the keyboard (which on this device happened to be exactly the footer —
+ * that's what was measured, not what this constant tracks); this constant
+ * carries a few points of margin. The card's screen offset tracks
  * status-bar/Dynamic-Island geometry, which varies by device — recheck on a
  * small-screen device (e.g. iPhone SE) if this ever needs retuning, since
  * overshoot there eats into the logged-sets scroller instead.
