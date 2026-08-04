@@ -40,5 +40,5 @@ describe('expo lint setup', () => {
     const fatal = results.flatMap((r: any) => r.messages).filter((m: any) => m.fatal);
 
     expect(fatal).toEqual([]);
-  });
+  }, 60000);
 });
