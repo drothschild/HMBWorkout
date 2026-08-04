@@ -26,10 +26,12 @@ export interface SessionPresenterOutput {
   isPaused: boolean;
   /**
    * Wall-clock ms the session started (engine state, passed through
-   * unchanged). The header stopwatch computes `now - startedAtMs` itself on
-   * its own ticking interval — see `computeElapsedMs`
-   * (`@/state/workoutStopwatch`) and engine convention 5 in AGENTS.md for why
-   * this is never paused/frozen.
+   * unchanged). The header stopwatch computes elapsed time itself on its own
+   * ticking interval — see `computeElapsedSeconds`/`computeElapsedMs`
+   * (`@/state/workoutStopwatch`) for why it keeps running through
+   * pause/resume and only freezes once the session reaches `done`:
+   * `SessionState` has no accumulated-pause-duration field to freeze
+   * against.
    */
   startedAtMs: number;
   isResting: boolean;

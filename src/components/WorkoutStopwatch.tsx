@@ -21,8 +21,9 @@ interface WorkoutStopwatchProps {
  * Mirrors `RestCountdown`'s ticking pattern: tick synchronously on mount (and
  * again whenever `startedAtMs` changes, i.e. a new session) plus every 250ms
  * while mounted and not done, with the interval torn down on unmount so nothing
- * ticks off-screen. All the arithmetic lives in `@/state/workoutStopwatch`
- * (jest-covered); this component only owns the interval and the markup.
+ * ticks off-screen. All the elapsed-time computation lives in
+ * `@/state/workoutStopwatch` (jest-covered); this component only owns the
+ * interval, a trivial seconds→ms conversion for the formatter, and the markup.
  */
 export function WorkoutStopwatch({ startedAtMs, isDone }: WorkoutStopwatchProps) {
   // Store whole seconds to avoid re-renders on every 250ms tick (~4x/sec).

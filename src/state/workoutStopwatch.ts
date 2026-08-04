@@ -5,19 +5,23 @@
  *
  * Unlike `ExerciseStopwatch`/`exerciseStopwatch.ts` (a single duration-based
  * exercise's own timer, which freezes while the session is paused and resets
- * every set), this counts up for the whole workout and never freezes: it
- * always reports `now - startedAtMs`, matching how `ExerciseProgress` already
- * treats rest as part of the workout rather than excluding it. `SessionState`
- * (`@/engine/types`) has no accumulated-pause-duration field — only
- * `startedAtMs` and `prePausePhase` (a sentinel for which phase to resume
- * into, not a timestamp) — so there is nothing to freeze against without an
- * engine change, which is out of scope here (see AGENTS.md's FCIS boundary).
+ * every set), these functions count up for the whole workout and never freeze
+ * on their own — they always report `now - startedAtMs` for whatever `nowMs`
+ * they're given, matching how `ExerciseProgress` already treats rest as part
+ * of the workout rather than excluding it. (The header display *does* freeze,
+ * once the session reaches `done` — that's the component choosing to stop
+ * calling these functions, not a mode of the functions themselves.)
+ * `SessionState` (`@/engine/types`) has no accumulated-pause-duration field —
+ * only `startedAtMs` and `prePausePhase` (a sentinel for which phase to
+ * resume into, not a timestamp) — so there is nothing to freeze against
+ * without an engine change, which is out of scope here (see AGENTS.md's FCIS
+ * boundary).
  *
  * Like `RestCountdown` and `exerciseStopwatch.ts`, time is always derived from
  * a `nowMs` delta against a stored start timestamp, never accumulated ticks:
  * a backgrounded app resyncs to true elapsed time on the next tick instead of
- * drifting. Neither function reads the clock itself, so no mocking is needed
- * to test them.
+ * drifting. None of these functions read the clock themselves, so no mocking
+ * is needed to test them.
  */
 
 /**

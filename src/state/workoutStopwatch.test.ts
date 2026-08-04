@@ -3,7 +3,7 @@ import { computeElapsedMs, computeElapsedSeconds, formatElapsedTime } from './wo
 /**
  * Test: workout stopwatch pure logic (header total-elapsed-time display).
  *
- * Both functions are plain math over caller-supplied timestamps — no
+ * All three functions are plain math over caller-supplied timestamps — no
  * Date.now() inside the module — so tests drive them with fixed numbers
  * rather than mocking the clock.
  */
