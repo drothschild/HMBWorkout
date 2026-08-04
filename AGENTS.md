@@ -649,7 +649,13 @@ is now a misnomer — AI settings are in there too.
   through a `hydrate` call that no rule ever validates (convention 5), so a session
   persisted by a build predating that rule comes back sitting on exactly such an
   entry. `sessionDetailPresenter` is the
-  third label site and needs no guard — it renders `Set N` with no total
+  third label site and needs no guard — it renders `Set N` with no total.
+  `sessionPresenter.isLastSetOfExercise` is the fourth site that checks
+  `warmupSets + targetSets` — it's the first one whose correctness depends specifically
+  on convention 9's round-number semantics (not just "is this entry active"), so
+  integration tests through mismatched-set-count supersets guard against future
+  changes to `helpers.lv`'s `next_active_idx` predicate or `transition.lv`'s
+  `setIndex` carry-over that could silently break the popup's timing
 - Starting a session mirrors that same condition one layer up.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no

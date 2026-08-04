@@ -546,15 +546,15 @@ export default function SessionScreen() {
                 }}
                 rpePopupOpen={rpePopupOpen}
                 onRpePopupOpenChange={setRpePopupOpen}
-                onRpePopupConfirm={() => {
-                  // Dispatch the set with the current RPE value (adjusted in the popup)
+                onRpePopupConfirm={(rpe) => {
+                  // Dispatch the set with the RPE value passed from the popup
                   presenter.onLogSet(
                     buildLogSetValues({
                       isDurationBased: isDurationBasedEntry(presenter.currentEntry),
                       repsText,
                       weightText,
                       durationText,
-                      rpe: currentRpe,
+                      rpe,
                     })
                   );
                 }}

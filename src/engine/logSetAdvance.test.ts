@@ -455,6 +455,66 @@ describe('Superset groups with mismatched set counts', () => {
     expect(summaries).toHaveLength(1);
     expect(summaries[0].setsLogged).toBe(3);
   });
+
+  it('tracks isLastSetOfExercise correctly through mismatched superset rounds', async () => {
+    const { executors } = makeRecordingExecutors();
+    const engine = createEngine(executors);
+    // A has 2 warmups + 3 working = 5 total
+    // B has 0 warmups + 3 working = 3 total
+    engine.setState(
+      makeState({
+        phase: 'warmup',
+        entries: makeEntries(2, [
+          { warmupSets: 2, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+          { warmupSets: 0, targetSets: 3, supersetGroup: 'A', restSeconds: 0 },
+        ]),
+      })
+    );
+
+    const computeIsLastSetOfExercise = (state: SessionState): boolean => {
+      const currentEntry = state.entries?.[state.exerciseIndex];
+      if (!currentEntry) return false;
+      const totalSetsForEntry = currentEntry.warmupSets + currentEntry.targetSets;
+      return totalSetsForEntry > 0 && state.setIndex === totalSetsForEntry - 1;
+    };
+
+    // Round 1: A1(warmup), B1(working), A2(warmup), B2(working)
+    let state = await engine.dispatch(logSet(1000)); // A warmup 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // B has 3 total, at index 0
+
+    state = await engine.dispatch(logSet(2000)); // B working 1
+    expect(state.exerciseIndex).toBe(0);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // A has 5 total, at index 1
+
+    state = await engine.dispatch(logSet(3000)); // A warmup 2
+    expect(state.exerciseIndex).toBe(1);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // B has 3 total, at index 1
+
+    state = await engine.dispatch(logSet(4000)); // B working 2
+    expect(state.exerciseIndex).toBe(0);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // A has 5 total, at index 2
+
+    // Round 2: A3(working), B3(working) — B reaches its last set while A continues
+    state = await engine.dispatch(logSet(5000)); // A working 1
+    expect(state.exerciseIndex).toBe(1);
+    expect(computeIsLastSetOfExercise(state)).toBe(true); // B has 3 total, at index 2 (LAST)
+
+    state = await engine.dispatch(logSet(6000)); // B working 3 (last set for B)
+    expect(state.exerciseIndex).toBe(0);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // A has 5 total, at index 3
+
+    // Round 3: A still has sets left (5 total), B is exhausted (3 total)
+    state = await engine.dispatch(logSet(7000)); // A working 2
+    expect(state.exerciseIndex).toBe(0);
+    expect(computeIsLastSetOfExercise(state)).toBe(false); // A has 5 total, at index 4
+
+    // A working 3 (final set for A, final set overall)
+    state = await engine.dispatch(logSet(8000));
+    expect(state.exerciseIndex).toBe(0);
+    expect(computeIsLastSetOfExercise(state)).toBe(true); // A has 5 total, at index 4 (LAST) — but phase is done
+    expect(state.phase).toBe('done');
+  });
 });
 
 // A zero-set entry (warmupSets + targetSets === 0) is never active at any

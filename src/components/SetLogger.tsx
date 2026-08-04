@@ -39,8 +39,8 @@ interface SetLoggerProps {
   rpePopupOpen?: boolean;
   /** Handler to open/close the RPE popup. */
   onRpePopupOpenChange?: (open: boolean) => void;
-  /** Called when RPE popup is confirmed (Done or Skip) — dispatches the set. */
-  onRpePopupConfirm?: () => void;
+  /** Called when RPE popup is confirmed (Done or Skip) with the final RPE value. */
+  onRpePopupConfirm?: (rpe: number | undefined) => void;
 }
 
 export function SetLogger({
@@ -261,9 +261,8 @@ export function SetLogger({
               <Pressable
                 style={[styles.button, styles.secondaryButton]}
                 onPress={() => {
-                  onRpeChange(undefined);
                   onRpePopupOpenChange?.(false);
-                  onRpePopupConfirm?.();
+                  onRpePopupConfirm?.(undefined);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Skip RPE"
@@ -275,7 +274,7 @@ export function SetLogger({
                 style={[styles.button, styles.primaryButton]}
                 onPress={() => {
                   onRpePopupOpenChange?.(false);
-                  onRpePopupConfirm?.();
+                  onRpePopupConfirm?.(currentRpe);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Confirm RPE"
@@ -304,25 +303,23 @@ export function SetLogger({
         <Pressable
           style={[styles.button, styles.primaryButton, styles.rowButton]}
           onPress={() => {
-            // Raw text becomes numbers exactly here; invalid or empty
-            // fields are omitted (never NaN, never a coerced 0). The
-            // weight stays display lbs — the presenter converts to kg.
-            const logSetValues = buildLogSetValues({
-              isDurationBased,
-              repsText,
-              weightText,
-              durationText,
-              rpe: currentRpe,
-            });
-
             // If this is the last set of a non-duration exercise, open the RPE popup
             // instead of dispatching immediately. Otherwise dispatch right away.
             if (!isDurationBased && presenter.isLastSetOfExercise) {
-              // Store the set values for when the RPE popup is confirmed
-              // Note: currentRpe will be adjusted in the popup before confirming
               onRpePopupOpenChange?.(true);
             } else {
-              presenter.onLogSet(logSetValues);
+              // Raw text becomes numbers exactly here; invalid or empty
+              // fields are omitted (never NaN, never a coerced 0). The
+              // weight stays display lbs — the presenter converts to kg.
+              presenter.onLogSet(
+                buildLogSetValues({
+                  isDurationBased,
+                  repsText,
+                  weightText,
+                  durationText,
+                  rpe: currentRpe,
+                })
+              );
             }
           }}
         >
@@ -435,21 +432,8 @@ const styles = StyleSheet.create({
     padding: Spacing.two,
     marginTop: Spacing.one,
   },
-  rpeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  rpeClearText: {
-    color: '#FF3B30',
-  },
   rpeSlider: {
     marginTop: Spacing.one,
-  },
-  rpeHintText: {
-    marginTop: Spacing.one,
-    fontSize: 13,
-    opacity: 0.7,
   },
   loggedSets: {
     flex: 1,
