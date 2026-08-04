@@ -31,6 +31,7 @@ import {
   type RestCommentaryHistorySet,
 } from '@/ai/restCommentaryPrompt';
 import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import type { ExerciseKind, SessionState } from '@/engine/types';
@@ -184,6 +185,10 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         },
         history,
         personality: settings.aiPersonality,
+        // The non-negotiable tier only, matching exerciseReplaceStore's
+        // choice — rendered last by buildRestCommentaryPrompt so it outranks
+        // the user-controlled coaching-style text above it.
+        directives: IMMUTABLE_DIRECTIVES,
       });
 
       const rawComment = await deps.createClient({ apiKey: trimmedKey }).comment(prompt);

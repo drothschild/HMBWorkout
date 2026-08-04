@@ -59,11 +59,7 @@ export interface RestCommentaryPromptInput {
   history: RestCommentaryHistorySet[];
   /** `aiPersonality` from settings. */
   personality?: string;
-  /**
-   * Programmer behavioral directives for the coach. Not wired yet: a
-   * concurrent PR introduces `src/ai/coachDirectives.ts`, and a one-line
-   * follow-up will pass it here once both have landed.
-   */
+  /** `IMMUTABLE_DIRECTIVES` from `src/ai/coachDirectives.ts`. */
   directives?: string;
 }
 
@@ -78,9 +74,9 @@ export interface RestCommentaryPrompt {
  * heading and could masquerade as prompt structure. Same treatment `contextBuilder`
  * gives routine notes.
  *
- * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`.
- * A follow-up PR will hoist both into a shared helper once contextBuilder.ts
- * lands (currently owned by PR #49).
+ * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`
+ * and `src/ai/exerciseQuestionPrompt.ts:neutralizeForPrompt`. Hoisting all three
+ * into a shared helper is tracked as accepted debt in AGENTS.md.
  */
 function neutralizeForPrompt(text: string): string {
   return text

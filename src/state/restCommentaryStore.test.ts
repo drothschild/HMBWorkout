@@ -11,6 +11,7 @@
 
 import type { RestCommentaryHistorySet } from '@/ai/restCommentaryPrompt';
 import { createRestCommentaryClient } from '@/ai/anthropicClient';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import {
   injectSettingsStorage,
   resetForTesting,
@@ -405,6 +406,34 @@ describe('createRestCommentaryStore', () => {
       expect(mockFetch).not.toHaveBeenCalled();
       expect(store.getState().text).toBeNull();
       expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  describe('coach directives', () => {
+    it('carries the immutable coach directives — the safety rules bind here too', async () => {
+      const store = makeStore();
+
+      await store.getState().show(target());
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      for (const line of IMMUTABLE_DIRECTIVES.split('\n')) {
+        expect(body.system).toContain(line.replace(/^-\s*/, ''));
+      }
+    });
+
+    it('places the directives after the coaching style section', async () => {
+      // Precedence against injection: coaching style is user-controlled free
+      // text, and the directives must outrank it.
+      setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
+      const store = makeStore();
+
+      await store.getState().show(target());
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const firstDirective = IMMUTABLE_DIRECTIVES.split('\n')[0].replace(/^-\s*/, '');
+      expect(body.system.indexOf(firstDirective)).toBeGreaterThan(
+        body.system.indexOf('Blunt ex-powerlifter.')
+      );
     });
   });
 
