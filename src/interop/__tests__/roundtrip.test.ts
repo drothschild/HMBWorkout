@@ -1084,5 +1084,68 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.rpe).toBe(7);
       expect(set0.setType).toBe('working');
     });
+
+    test('a logged set with reps 0 survives serialize → parse (I-A)', () => {
+      // Critical regression test: serializeSession's reps guard must use `!= null`,
+      // not a truthiness check. Zero is falsy, so `if (set.reps)` would silently
+      // drop the line, causing data loss on vault export. This test verifies the
+      // specific hazard that caused the Critical bug in round 1.
+      const sessionRow = {
+        id: 'sess-zero-reps-001',
+        routineId: 'pull-06-01',
+        startedAt: new Date('2026-07-08T10:00:00Z'),
+        endedAt: new Date('2026-07-08T10:30:00Z'),
+        createdAt: new Date('2026-07-08T10:00:00Z'),
+        customSyncStatus: 'local',
+      };
+      const sets = [
+        {
+          routineExerciseId: 're-zero-reps-001',
+          setType: 'working' as const,
+          reps: 0, // User performed zero repetitions
+          weightKg: 50,
+          durationSeconds: undefined,
+          rpe: 6,
+          position: 0,
+        },
+      ];
+      const routineExercises = [
+        {
+          id: 're-zero-reps-001',
+          exerciseId: 'bench-press-bb',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 120,
+          notes: undefined,
+        },
+      ];
+      const exercises = [{ id: 'bench-press-bb', title: 'Barbell Bench Press', kind: 'strength' as const }];
+
+      // Serialize: reps guard must preserve 0
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+
+      // Verify serialization contains the 1x0 token
+      expect(markdown).toContain('1x0');
+
+      // Parse: session context allows zero reps
+      const parsed = parseSession(markdown);
+
+      expect(parsed.exercises).toHaveLength(1);
+      const set0 = parsed.exercises[0] as WorkoutLine;
+      expect(set0.exerciseId).toBe('bench-press-bb');
+      expect(set0.loggedReps).toBe(0); // Verified: zero reps round-trip
+      expect(set0.weight).toBe(50);
+      expect(set0.rpe).toBe(6);
+      expect(set0.setType).toBe('working');
+    });
   });
 });

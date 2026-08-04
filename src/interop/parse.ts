@@ -252,12 +252,12 @@ function groupSupersets(lines: WorkoutLine[]): (WorkoutLine | SupersetGroup)[] {
 }
 
 /**
- * Parse routine markdown.
+ * Internal implementation: parse markdown with context-dependent validation.
  *
  * @param context - 'routine' for author-written targets, 'session' for logged measurements.
- *   Forwarded to parseWorkoutLine to control validation strictness.
+ *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
  */
-export function parseRoutine(markdown: string, context: 'routine' | 'session' = 'routine'): ParsedDoc {
+function parseDoc(markdown: string, context: 'routine' | 'session'): ParsedDoc {
   try {
     const frontmatter = parseFrontmatter(markdown);
     const blockContent = extractWorkoutBlock(markdown);
@@ -286,6 +286,13 @@ export function parseRoutine(markdown: string, context: 'routine' | 'session' = 
 }
 
 /**
+ * Parse routine markdown.
+ */
+export function parseRoutine(markdown: string): ParsedDoc {
+  return parseDoc(markdown, 'routine');
+}
+
+/**
  * Parse session markdown.
  */
 export function parseSession(markdown: string): ParsedDoc {
@@ -293,8 +300,7 @@ export function parseSession(markdown: string): ParsedDoc {
   // LOGGED values ("1x<logged reps>"), not routine targets (see format.ts).
   // Surface them under honest names so consumers (e.g. the Phase 7 sync
   // client) never read a logged rep count out of `targetReps`.
-  // Pass 'session' context so validation reflects logged semantics.
-  const doc = parseRoutine(markdown, 'session');
+  const doc = parseDoc(markdown, 'session');
   const withLoggedFields = (line: WorkoutLine): WorkoutLine => ({
     ...line,
     loggedReps: line.targetReps,

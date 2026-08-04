@@ -295,12 +295,34 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
-`parse.ts` must stay symmetric (roundtrip tests enforce it). One overload to know:
-the `<sets>x<reps>` slot means **target** sets×reps in a routine, but in a logged
-session it is emitted as `1x<logged-reps>` (one logged set). Session lines therefore
-expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read those, not the
-`target*` fields, when consuming a parsed session. Contract violations throw
-`ContractError`.
+`parse.ts` must stay symmetric. Roundtrip tests enforce this for the value ranges they
+exercise — e.g., the test in `roundtrip.test.ts` that serializes a `reps: 0` set
+verifies the exact hazard that caused the Critical bug in round 1 (a guard checking
+truthiness instead of `!= null`). Not every value is exercised by existing fixtures,
+so test coverage is incomplete by construction; add targeted roundtrip tests when you
+discover or fix a case the current suite misses.
+
+One overload to know: the `<sets>x<reps>` slot means **target** sets×reps in a routine,
+but in a logged session it is emitted as `1x<logged-reps>` (one logged set). Session
+lines therefore expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read
+those, not the `target*` fields, when consuming a parsed session. Contract violations
+throw `ContractError`.
+
+### Parse context and validation strictness
+
+`parseWorkoutLine`, `parseRoutine`, and `parseSession` accept a context parameter
+(`'routine' | 'session'`) that controls validation severity. This distinction exists
+because the `<sets>x<reps>` slot carries *different semantic meaning* in each context:
+- In a **routine** (author-written targets): `3x0` means "3 sets of zero reps," which is
+  semantically empty and therefore rejected.
+- In a **session** (logged measurements): `1x0` means "one logged set in which the user
+  performed zero repetitions," which is a real, valid action and therefore accepted.
+
+Zero sets (`0x10`) is rejected unconditionally in both contexts, since
+`serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
+Zero reps rejection is routine-only: `parseRoutine` and vault import use
+`context: 'routine'`, while `parseSession` uses `context: 'session'`, so `1x0` is
+valid in logged sessions but `3x0` is rejected in routine targets and vault import.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by
@@ -364,7 +386,8 @@ plan — but this guard applies to routine targets only, not logged reps. When p
 (via `context: 'session'`), the `1x<reps>` slot carries measured values, and `1x0` is valid
 (the user performed zero repetitions). The distinction is threaded through `parseWorkoutLine`'s
 context parameter: only `context === 'routine'` rejects zero reps.
-Both authoring paths now reject an explicit zero instead of reinterpreting it; this default's job is
+Both *authoring* paths — the AI draft validator and vault import's `parseWorkoutLine` —
+now reject an explicit zero instead of reinterpreting it; this default's job is
 only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
 and is never defaulted. This mirrors
 the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
