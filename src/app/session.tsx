@@ -571,7 +571,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   // A long routine name must truncate rather than push headerControls
-  // (stopwatch, phase, Pause/Resume) off-screen — confirmed by simulator
+  // (stopwatch, Pause/Resume) off-screen — confirmed by simulator
   // check that it otherwise does exactly that (Pause becomes unreachable).
   routineNameText: {
     flexShrink: 1,

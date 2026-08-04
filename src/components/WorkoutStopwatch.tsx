@@ -67,7 +67,7 @@ export function WorkoutStopwatch({ startedAtMs, isDone }: WorkoutStopwatchProps)
 
 const styles = StyleSheet.create({
   text: {
-    // Matches session.tsx's styles.phaseText: secondary, at-a-glance chrome.
+    // Secondary, at-a-glance chrome — dimmed so the routine name leads.
     opacity: 0.7,
     // Fixed-width digits stop the header jittering as seconds tick over.
     fontVariant: ['tabular-nums'],
