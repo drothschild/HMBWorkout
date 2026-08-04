@@ -47,8 +47,9 @@ export async function closeTestDatabase(database: Database): Promise<void> {
  * Let queued WatermelonDB writes and un-awaited fire-and-forget effect
  * executors (e.g. onCompleteSession) settle before asserting on DB state.
  * WatermelonDB's WorkQueue continues a queued write via a real
- * `setTimeout(fn, 0)`, not a microtask, and its ordering against a bare
- * `setImmediate` is unreliable under CPU contention — wait through both.
+ * `setTimeout(fn, 0)`, not a microtask. Node's event loop orders timers before
+ * the check phase, so a write queued behind another via WorkQueue's setTimeout
+ * handoff will always be missed by a bare `setImmediate` — wait through both.
  */
 export function flush(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(

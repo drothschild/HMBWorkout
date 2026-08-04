@@ -40,5 +40,7 @@ describe('expo lint setup', () => {
     const fatal = results.flatMap((r: any) => r.messages).filter((m: any) => m.fatal);
 
     expect(fatal).toEqual([]);
+    // ESLint's cold-cache initialization can take 30-45s on slow/CI-like environments;
+    // 60s gives comfortable headroom without masking genuinely broken lint setups.
   }, 60000);
 });

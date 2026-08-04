@@ -534,6 +534,17 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
+- **Fire-and-forget DB writes require `flush()` before assertions, not bare
+  `setImmediate`.** Effect executors like `onCompleteSession` dispatch side
+  effects that return promises but do not await them. A bare `await
+  setImmediate()` allows microtasks to drain, but WatermelonDB's WorkQueue
+  routes queued writes via real `setTimeout(fn, 0)` timers (not microtasks),
+  so a write that queues behind another is missed by Node's check phase. Use
+  `flush()` from `src/db/test-helpers.ts` instead — it waits through both
+  timers and the check phase, guaranteeing queued writes have landed before
+  assertions read DB state. Three other files had the same pattern unfixed (see
+  PR #91); always check for this hazard when asserting on DB state after
+  fire-and-forget writes.
 
 ## Structure
 

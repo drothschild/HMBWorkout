@@ -1,5 +1,5 @@
 import { Database } from '@nozbe/watermelondb';
-import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { createSessionPresenter } from './sessionPresenter';
 import type { SessionState } from '@/engine/types';
@@ -510,7 +510,7 @@ describe('activeSession store', () => {
       // flight when dispatch resolves. Wait for the row to land.
       let sets: any[] = [];
       for (let attempt = 0; attempt < 50 && sets.length === 0; attempt++) {
-        await new Promise((resolve) => setImmediate(resolve));
+        await flush();
         try {
           sets = await getSessionSets(database, sessionId);
         } catch {
@@ -599,7 +599,7 @@ describe('activeSession store', () => {
 
       let sets: any[] = [];
       for (let attempt = 0; attempt < 50 && sets.length === 0; attempt++) {
-        await new Promise((resolve) => setImmediate(resolve));
+        await flush();
         try {
           sets = await getSessionSets(database, 'session-stamp');
         } catch {
@@ -1082,8 +1082,8 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
         expect(dispatchResult).toBeDefined();
         expect(dispatchResult?.phase).toBe('done');
 
-        // (c) Flush microtasks to allow any unhandled rejections to surface
-        await new Promise((resolve) => setImmediate(resolve));
+        // (c) Flush microtasks and timers to allow any unhandled rejections to surface
+        await flush();
 
         // Verify no unhandled rejection was caught
         expect(unhandledRejection).toBeNull();
@@ -1109,7 +1109,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
 
   describe('one-tap completion: final persist lands before the session closes', () => {
     function tick(): Promise<void> {
-      return new Promise((resolve) => setImmediate(resolve));
+      return flush();
     }
 
     it('onCompleteSession waits for the pending set persist before writing ended_at', async () => {
@@ -1197,7 +1197,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
 
   describe('abandon: pending set persist drains before the session is discarded', () => {
     function tick(): Promise<void> {
-      return new Promise((resolve) => setImmediate(resolve));
+      return flush();
     }
 
     it('onDiscardSession waits for the pending set persist before deleting the session', async () => {
@@ -1308,7 +1308,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
     }
 
     function tick(): Promise<void> {
-      return new Promise((resolve) => setImmediate(resolve));
+      return flush();
     }
 
     async function waitUntil(condition: () => boolean, description: string) {
