@@ -35,6 +35,12 @@ interface SetLoggerProps {
   /** True while the one-shot answer is being fetched. */
   questionPending?: boolean;
   onToggleQuestion?: () => void;
+  /** True when the RPE popup is open (shown after final set). */
+  rpePopupOpen?: boolean;
+  /** Handler to open/close the RPE popup. */
+  onRpePopupOpenChange?: (open: boolean) => void;
+  /** Called when RPE popup is confirmed (Done or Skip) — dispatches the set. */
+  onRpePopupConfirm?: () => void;
 }
 
 export function SetLogger({
@@ -52,6 +58,9 @@ export function SetLogger({
   questionText,
   questionPending,
   onToggleQuestion,
+  rpePopupOpen,
+  onRpePopupOpenChange,
+  onRpePopupConfirm,
 }: SetLoggerProps) {
   const theme = useTheme();
   // TextInput is not a Themed* component, so its text and border colors must
@@ -212,30 +221,71 @@ export function SetLogger({
         </View>
       )}
 
-      {!isDurationBased && (
-        <View style={styles.inputGroup}>
-          <View style={styles.rpeHeader}>
-            <ThemedText>{currentRpe !== undefined ? `RPE: ${currentRpe}` : 'RPE (optional)'}</ThemedText>
-            {currentRpe !== undefined && (
-              <Pressable onPress={() => onRpeChange(undefined)} hitSlop={8}>
-                <ThemedText style={styles.rpeClearText}>Clear</ThemedText>
+      {/* RPE popup modal - shown after final set of each exercise */}
+      <Modal
+        visible={Boolean(rpePopupOpen)}
+        animationType="slide"
+        transparent
+        onRequestClose={() => onRpePopupOpenChange?.(false)}
+      >
+        <View style={styles.rpeBackdrop}>
+          <View style={[styles.rpeSheet, { backgroundColor: theme.background }]}>
+            <ThemedText type="smallBold">Rate the last set&apos;s effort (RPE)</ThemedText>
+
+            <View style={styles.rpeModalContent}>
+              <View style={styles.rpeSliderContainer}>
+                <Slider
+                  style={styles.rpeSlider}
+                  minimumValue={RPE_MIN}
+                  maximumValue={RPE_MAX}
+                  step={RPE_STEP}
+                  value={currentRpe ?? RPE_MIN}
+                  onValueChange={(value) => onRpeChange(snapRpe(value))}
+                  minimumTrackTintColor="#007AFF"
+                />
+              </View>
+
+              <View style={styles.rpeDisplay}>
+                {currentRpe !== undefined ? (
+                  <>
+                    <ThemedText style={styles.rpeValue}>{currentRpe}</ThemedText>
+                    <ThemedText style={styles.rpeHint}>{rpeHint(currentRpe)}</ThemedText>
+                  </>
+                ) : (
+                  <ThemedText style={styles.rpeHint}>Optional</ThemedText>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.rpeButtonContainer}>
+              <Pressable
+                style={[styles.button, styles.secondaryButton]}
+                onPress={() => {
+                  onRpeChange(undefined);
+                  onRpePopupOpenChange?.(false);
+                  onRpePopupConfirm?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Skip RPE"
+              >
+                <ThemedText style={styles.buttonText}>Skip</ThemedText>
               </Pressable>
-            )}
+
+              <Pressable
+                style={[styles.button, styles.primaryButton]}
+                onPress={() => {
+                  onRpePopupOpenChange?.(false);
+                  onRpePopupConfirm?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm RPE"
+              >
+                <ThemedText style={styles.buttonText}>Done</ThemedText>
+              </Pressable>
+            </View>
           </View>
-          <Slider
-            style={styles.rpeSlider}
-            minimumValue={RPE_MIN}
-            maximumValue={RPE_MAX}
-            step={RPE_STEP}
-            value={currentRpe ?? RPE_MIN}
-            onValueChange={(value) => onRpeChange(snapRpe(value))}
-            minimumTrackTintColor="#007AFF"
-          />
-          {currentRpe !== undefined && (
-            <ThemedText style={styles.rpeHintText}>{rpeHint(currentRpe)}</ThemedText>
-          )}
         </View>
-      )}
+      </Modal>
 
       {/* The one scroller on the session screen: only the current exercise's
           sets, newest first, bounded by the fixed chrome around it. */}
@@ -257,15 +307,23 @@ export function SetLogger({
             // Raw text becomes numbers exactly here; invalid or empty
             // fields are omitted (never NaN, never a coerced 0). The
             // weight stays display lbs — the presenter converts to kg.
-            presenter.onLogSet(
-              buildLogSetValues({
-                isDurationBased,
-                repsText,
-                weightText,
-                durationText,
-                rpe: currentRpe,
-              })
-            );
+            const logSetValues = buildLogSetValues({
+              isDurationBased,
+              repsText,
+              weightText,
+              durationText,
+              rpe: currentRpe,
+            });
+
+            // If this is the last set of a non-duration exercise, open the RPE popup
+            // instead of dispatching immediately. Otherwise dispatch right away.
+            if (!isDurationBased && presenter.isLastSetOfExercise) {
+              // Store the set values for when the RPE popup is confirmed
+              // Note: currentRpe will be adjusted in the popup before confirming
+              onRpePopupOpenChange?.(true);
+            } else {
+              presenter.onLogSet(logSetValues);
+            }
           }}
         >
           <ThemedText style={styles.buttonText}>Log Set</ThemedText>
@@ -424,5 +482,43 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  rpeBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  rpeSheet: {
+    // backgroundColor is theme-resolved inline
+    padding: Spacing.three,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    gap: Spacing.three,
+  },
+  rpeModalContent: {
+    gap: Spacing.three,
+  },
+  rpeSliderContainer: {
+    paddingHorizontal: Spacing.one,
+  },
+  rpeDisplay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+  },
+  rpeValue: {
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  rpeHint: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  rpeButtonContainer: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  secondaryButton: {
+    backgroundColor: '#8E8E93',
   },
 });
