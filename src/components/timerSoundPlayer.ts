@@ -107,7 +107,9 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
 
   return {
     async prepare(): Promise<void> {
-      // I1 Fix: Initialize audio mode once per sequence (before the beep loop)
+      // Called once per sequence, before the beep loop. The audio-mode work itself
+      // happens once per *process* — initializeAudioMode memoises its promise, so
+      // every later call awaits the already-settled one.
       await initializeAudioMode();
 
       // Load once and cache the sound instance

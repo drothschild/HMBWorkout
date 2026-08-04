@@ -270,11 +270,21 @@ describe('timerSounds', () => {
       // thing playSound's contract forbids). Order and count both matter, so
       // assert both rather than presence alone.
       const order: string[] = [];
+      let prepared = false;
       const apis: TimerSoundAPIs = {
+        // Resolve on a later microtask so "invoked" and "completed" are
+        // distinguishable: prepare() suspends at its own await before assigning
+        // the player, so a caller that starts it without awaiting (`void
+        // apis.prepare()`, or Promise.all) would still push 'prepare' first
+        // while every beep dereferenced a null player.
         prepare: jest.fn(async () => {
           order.push('prepare');
+          await Promise.resolve();
+          await Promise.resolve();
+          prepared = true;
         }),
         playOne: jest.fn(async () => {
+          if (!prepared) order.push('play-before-prepare-finished');
           order.push('play');
         }),
         delay: jest.fn(async () => {
@@ -287,7 +297,8 @@ describe('timerSounds', () => {
 
       expect(apis.prepare).toHaveBeenCalledTimes(1);
       expect(order[0]).toBe('prepare');
-      expect(order.filter((step) => step === 'prepare')).toHaveLength(1);
+      // Completion, not just invocation — this is what `void apis.prepare()` breaks.
+      expect(order).not.toContain('play-before-prepare-finished');
     });
 
     it('mutation test: must fail if beep count collapses to 1', async () => {

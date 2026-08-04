@@ -75,8 +75,9 @@ export interface TimerSoundExecutor {
  * injected `playOne()` and `delay()` for timing and sound. Lives here (not in
  * components) so it can be tested with mocked dependencies in the jest node project.
  *
- * Each beep is ~100ms (defined by the beep.wav asset), with ~150ms gap between beeps
- * to allow audio to complete and create distinct rhythm.
+ * Each beep is ~100ms (defined by the beep.wav asset) and `play()` is non-blocking,
+ * so the 150ms delay is the whole beep-to-beep *interval* — the audible gap is the
+ * ~50ms remainder, not 150ms.
  *
  * Note: All sequences share a single cached player (beepSound in timerSoundPlayer),
  * so concurrent sequences would interfere (both calling seekTo/play on the same player).
