@@ -13,3 +13,12 @@ export const ActionButtonColor = {
   finish: '#23863C',
   secondary: '#0F75D7',
 } as const;
+
+/**
+ * Same idea as ActionButtonColor, for non-button status surfaces that also
+ * render white text on a solid fill (currently just the session error
+ * banner). Kept as a separate export because these aren't buttons.
+ */
+export const StatusColor = {
+  danger: '#EA0C00',
+} as const;
