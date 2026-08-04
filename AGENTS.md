@@ -630,11 +630,15 @@ is now a misnomer — AI settings are in there too.
   system-prompt builder, coach directives, draft→repository accept path, plus the
   one-shot features (rest commentary, exercise question, replace alternates)
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
-  also used on a couple of non-button solid fills — the AI chat bubble and
-  kind tag) and `StatusColor` (danger; currently just the session error
-  banner) — every one a solid fill carrying white text, each darkened just
-  enough to clear WCAG AA 4.5:1 against white — plus the pure `contrastRatio`
-  check that verifies them
+  each darkened to clear WCAG AA 4.5:1 text contrast against both white and
+  black backgrounds; also used on non-button solid fills like the AI chat
+  bubble and kind tag) and `StatusColor` (danger; currently just the session
+  error banner). New exports: `BackgroundColors` (light/dark element, error
+  bubble) and `ThemedBackgroundText` (text colors for those non-white
+  backgrounds). Every text color pair here is verified by the `contrastRatio`
+  pure function against its target background at the 4.5:1 text bar —
+  non-text graphical fills (progress bars, sliders) are a separate, lower
+  3:1 bar under WCAG 1.4.11 that this module's own tests do not check
 - `src/app/` — expo-router screens
 
 ## Boundaries

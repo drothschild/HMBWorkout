@@ -2,6 +2,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { exerciseReplaceStore, replaceExerciseTarget } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
 import type { SessionState } from '@/engine/types';
@@ -132,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButton: {
-    backgroundColor: '#208AEF',
+    backgroundColor: ActionButtonColor.secondary,
   },
   buttonText: {
     color: 'white',
@@ -162,7 +163,7 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   error: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
   cancel: {
     alignItems: 'center',
