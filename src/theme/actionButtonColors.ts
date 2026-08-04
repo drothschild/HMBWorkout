@@ -10,9 +10,9 @@
  *
  * Note: These constants are used as text color on both white (light mode)
  * and black (dark mode) backgrounds. Contrast must pass two independent checks:
- * (1) text-on-white at 4.5:1, and (2) white-text-on-color at 4.5:1. Margins
- * are thin on the black side (~1.0-1.4%), so do not retune these values
- * without verifying both directions pass 4.5:1.
+ * (1) color-vs-white at 4.5:1 (light mode), and (2) color-vs-black at 4.5:1
+ * (dark mode). Margins are thin on the black side (~1.0-1.4%), so do not retune
+ * these values without verifying both directions pass 4.5:1.
  */
 export const ActionButtonColor = {
   primary: '#0071EB',

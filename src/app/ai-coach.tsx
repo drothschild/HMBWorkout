@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor, ThemedBackgroundText } from '@/theme/actionButtonColors';
+import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -805,21 +805,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: '#FFE5E5',
+    backgroundColor: BackgroundColors.errorBubble,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: '#C00',
+    color: ThemedBackgroundText.errorBubbleText,
     marginBottom: Spacing.two,
   },
   errorLink: {
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    // color is theme-resolved inline
+    color: ThemedBackgroundText.errorBubbleText,
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,

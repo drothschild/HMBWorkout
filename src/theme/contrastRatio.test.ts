@@ -82,14 +82,8 @@ describe('ThemedBackgroundText', () => {
   });
 
   describe('text on errorBubble background', () => {
-    it('errorBubbleText clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
+    it('errorBubbleText (used for errorMessage) clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
       expect(contrastRatio(ThemedBackgroundText.errorBubbleText, BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
-        AA_NORMAL_TEXT_MINIMUM
-      );
-    });
-
-    it('errorMessage color (#C00) clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
-      expect(contrastRatio('#C00000', BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
         AA_NORMAL_TEXT_MINIMUM
       );
     });
