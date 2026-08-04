@@ -78,10 +78,10 @@ export async function exportRoutine(db: Database, routineId: string): Promise<st
  * @returns Markdown string (possibly empty if no completed sessions)
  */
 export async function exportSessionHistory(db: Database): Promise<string> {
-  // Get all completed sessions
+  // Get all completed sessions (those with ended_at set)
   const sessions = (await db
     .get('sessions')
-    .query(Q.where('phase', 'Done'), Q.sortBy('ended_at', 'desc'))
+    .query(Q.where('ended_at', Q.notEq(null)), Q.sortBy('ended_at', Q.desc))
     .fetch()) as any[];
 
   if (sessions.length === 0) {
