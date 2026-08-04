@@ -24,6 +24,7 @@ import { getSettings } from '@/state/settings';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
@@ -617,7 +618,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   errorBanner: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: StatusColor.danger,
     padding: Spacing.two,
     borderRadius: 4,
     marginVertical: Spacing.two,
@@ -670,7 +671,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   finishButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: ActionButtonColor.finish,
   },
   buttonText: {
     color: 'white',

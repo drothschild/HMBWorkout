@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 
 interface RestCountdownProps {
   /** Active deadline while the timer is running (undefined when paused) */
@@ -174,13 +175,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pauseButton: {
-    backgroundColor: '#FF9500',
+    backgroundColor: ActionButtonColor.warning,
   },
   resumeButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: ActionButtonColor.finish,
   },
   skipButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: ActionButtonColor.primary,
   },
   buttonText: {
     color: 'white',
