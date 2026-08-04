@@ -131,6 +131,8 @@ describe('projectSchedule', () => {
       'bench2',
       'row2',
     ]);
+    // Verify supersetGroup is propagated to stops (surviving mutant: supersetGroup: undefined)
+    expect(stops.every((s) => s.supersetGroup === 'A')).toBe(true);
   });
 
   it('marks warmup sets as warmup and the rest as working', async () => {
@@ -180,6 +182,9 @@ describe('projectSchedule', () => {
     expect(stop.targetReps).toBeUndefined();
     expect(stop.targetDurationSeconds).toBe(45);
     expect(stop.supersetGroup).toBeUndefined();
+    // Verify restSeconds: 0 is preserved (0 is not a sentinel for rest, it's a real value)
+    // Surviving mutant: optionalCount(entry.restSeconds) as number
+    expect(stop.restSeconds).toBe(0);
   });
 
   it('propagates the engine rejection for a routine with nothing to do', async () => {
@@ -188,7 +193,42 @@ describe('projectSchedule', () => {
       entries: [entry({ warmupSets: 0, targetSets: 0 })],
     };
 
+    await expect(projectSchedule(routine)).rejects.toThrow(/no entry with any sets to perform/);
+  });
+
+  it('rejects an empty routine with no entries', async () => {
+    const routine: RoutineInput = {
+      id: 'r-empty',
+      entries: [],
+    };
+
     await expect(projectSchedule(routine)).rejects.toThrow();
+  });
+
+  it('handles superset members with mismatched set counts (AC2.2)', async () => {
+    const routine: RoutineInput = {
+      id: 'r-mismatched',
+      entries: [
+        entry({ exerciseId: 'bench', targetSets: 4, supersetGroup: 'A' }),
+        entry({ exerciseId: 'row', targetSets: 2, supersetGroup: 'A' }),
+      ],
+    };
+
+    const stops = await projectSchedule(routine);
+
+    // Verify round-robin order with mismatched counts
+    expect(stops.map((s) => `${s.exerciseId}#${s.setNumber}`)).toEqual([
+      'bench#1',
+      'row#1',
+      'bench#2',
+      'row#2',
+      'bench#3',
+      'bench#4',
+    ]);
+    // Each member must know its own totalSets, not the max
+    expect(stops[0]).toMatchObject({ exerciseId: 'bench', totalSets: 4 });
+    expect(stops[1]).toMatchObject({ exerciseId: 'row', totalSets: 2 });
+    expect(stops[4]).toMatchObject({ exerciseId: 'bench', totalSets: 4 });
   });
 
   it('projects the same positions the engine visits when sets are really logged', async () => {
@@ -201,7 +241,7 @@ describe('projectSchedule', () => {
         expected = await walkByLogging(routine);
       } catch {
         // engine refuses this routine; the projection must refuse it too
-        await expect(projectSchedule(routine)).rejects.toThrow();
+        await expect(projectSchedule(routine)).rejects.toThrow(/no entry with any sets to perform/);
         continue;
       }
 
@@ -210,8 +250,9 @@ describe('projectSchedule', () => {
       compared++;
     }
     // Anti-vacuity guard: without this the loop passes trivially if every seed
-    // lands in the rejection branch. Measured 57/60 compared, 183 positions,
-    // 39 routines with supersets, 33 containing a zero-set entry.
+    // lands in the rejection branch. Measured across 60 seeds: 57 compared,
+    // 183 positions, 39 routines with any label, 9 with real adjacent groups,
+    // 5 with mismatched per-member set counts.
     expect(compared).toBeGreaterThan(30);
   }, 30000);
 });

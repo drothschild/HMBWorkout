@@ -14,7 +14,7 @@ module.exports = {
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
       },
-      collectCoverageFrom: ['src/{engine,db,interop}/**/*.ts', '!src/**/*.d.ts'],
+      collectCoverageFrom: ['src/{engine,db,interop,watch}/**/*.ts', '!src/**/*.d.ts'],
       setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
       transform: {
         '^.+\\.lv$': '<rootDir>/jest-lv-transform.js',
