@@ -51,13 +51,19 @@ describe('coachDirectives: RPE mention constraint', () => {
   // the user with off-topic questions. It belongs in IMMUTABLE_DIRECTIVES
   // because spontaneous RPE suggestion — even if data-driven in origin — is a
   // standing behavioral constraint that must hold across all surfaces (chat,
-  // debrief, rest commentary, exercise question, and replace alternates). The
-  // directive is evaluated everywhere, not just the history-rich surfaces, so
-  // it keys on user action ("raises it themselves") rather than data presence
-  // alone. Pins the actual "do not spontaneously bring up" guidance (not just
-  // the substring "RPE"): a line mentioning RPE without both the prohibition
-  // on spontaneous mention and the conditional about user initiation fails this test.
-  it('instructs the coach to avoid spontaneously mentioning RPE but answer direct questions', () => {
+  // debrief, rest commentary, exercise question, and replace alternates) —
+  // IMMUTABLE_DIRECTIVES is the only tier wired into all four (see
+  // restCommentaryStore.ts/exerciseQuestionStore.ts/exerciseReplaceStore.ts).
+  // The "raises it themselves" clause only has data to key on where a user
+  // turn exists (chat/debrief, rest commentary): on the exercise-question and
+  // replace-alternates surfaces there is neither logged history nor a user
+  // utterance to check, so the directive is unconditional there — which is
+  // the intended behavior, since those surfaces answer an app-generated
+  // question and there is no user request to suppress. Pins the actual
+  // "do not spontaneously bring up" guidance (not just the substring "RPE"):
+  // a line mentioning RPE without both the prohibition on spontaneous mention
+  // and the conditional about user initiation fails this test.
+  it('forbids spontaneous RPE mention unless the user has logged it or raises it themselves', () => {
     const rpeLine = IMMUTABLE_DIRECTIVES.split('\n').find((line) =>
       line.includes('spontaneously') && line.includes('RPE')
     );
