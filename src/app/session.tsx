@@ -678,6 +678,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   abandonText: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
 });

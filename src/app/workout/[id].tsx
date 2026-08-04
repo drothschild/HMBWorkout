@@ -6,6 +6,7 @@ import { useCallback, useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import { sessionDetailPresenter, SessionDetail } from '@/state/sessionDetailPresenter';
 import { formatSessionDate } from '@/state/sessionHistoryPresenter';
@@ -226,7 +227,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   scroll: {

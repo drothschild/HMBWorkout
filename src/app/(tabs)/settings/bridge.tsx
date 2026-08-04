@@ -6,6 +6,7 @@ import {
   ScrollView,
   View,
   } from 'react-native';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
@@ -272,7 +273,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   scroll: {

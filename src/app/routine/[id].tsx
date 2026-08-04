@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   title: {

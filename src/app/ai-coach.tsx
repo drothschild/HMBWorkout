@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     marginLeft: -Spacing.two,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   backButtonPlaceholder: {
@@ -774,14 +774,14 @@ const styles = StyleSheet.create({
   declineButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: ActionButtonColor.secondary,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
     alignItems: 'center',
   },
   declineButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '600',
   },
   errorBubble: {
@@ -799,7 +799,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,

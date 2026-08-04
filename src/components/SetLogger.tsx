@@ -6,7 +6,7 @@ import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   rpeClearText: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
   rpeSlider: {
     marginTop: Spacing.one,
