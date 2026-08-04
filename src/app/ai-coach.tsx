@@ -17,6 +17,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { AiCoachErrorColors } from '@/theme/aiCoachColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -785,14 +786,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: '#FFE5E5',
+    backgroundColor: AiCoachErrorColors.bubbleBackground,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: '#C00',
+    color: AiCoachErrorColors.bubbleText,
     marginBottom: Spacing.two,
   },
   errorLink: {
