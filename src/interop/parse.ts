@@ -85,8 +85,11 @@ function extractWorkoutBlock(markdown: string): string {
 /**
  * Parse a single workout line.
  * Format: `- <exercise-id>: [<sets>x<reps>] [flags…]`
+ *
+ * @param context - 'routine' for author-written targets, 'session' for logged measurements.
+ *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
  */
-function parseWorkoutLine(line: string): WorkoutLine | null {
+function parseWorkoutLine(line: string, context: 'routine' | 'session'): WorkoutLine | null {
   line = line.trim();
   if (!line.startsWith('- ')) return null;
 
@@ -159,6 +162,14 @@ function parseWorkoutLine(line: string): WorkoutLine | null {
     // silently would launder a likely typo into a plan the author never wrote.
     if (targetSets === 0) {
       throw new ContractError(`Sets×reps cannot have zero sets: ${line}`);
+    }
+
+    // Same reasoning as zero sets above: "3 sets of 0 reps" is semantically
+    // empty in a ROUTINE (author plan), so reject it. But in a SESSION, the slot
+    // carries LOGGED reps, and logging 0 reps is a real, valid action — a set
+    // where the user performed zero repetitions. Only reject for routine targets.
+    if (context === 'routine' && targetReps === 0) {
+      throw new ContractError(`Sets×reps cannot have zero reps: ${line}`);
     }
   }
 
@@ -241,9 +252,12 @@ function groupSupersets(lines: WorkoutLine[]): (WorkoutLine | SupersetGroup)[] {
 }
 
 /**
- * Parse routine markdown.
+ * Internal implementation: parse markdown with context-dependent validation.
+ *
+ * @param context - 'routine' for author-written targets, 'session' for logged measurements.
+ *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
  */
-export function parseRoutine(markdown: string): ParsedDoc {
+function parseDoc(markdown: string, context: 'routine' | 'session'): ParsedDoc {
   try {
     const frontmatter = parseFrontmatter(markdown);
     const blockContent = extractWorkoutBlock(markdown);
@@ -253,7 +267,7 @@ export function parseRoutine(markdown: string): ParsedDoc {
     // Parse each line
     const workoutLines: WorkoutLine[] = [];
     for (const line of lines) {
-      const parsed = parseWorkoutLine(line);
+      const parsed = parseWorkoutLine(line, context);
       if (parsed) {
         workoutLines.push(parsed);
       }
@@ -272,6 +286,13 @@ export function parseRoutine(markdown: string): ParsedDoc {
 }
 
 /**
+ * Parse routine markdown.
+ */
+export function parseRoutine(markdown: string): ParsedDoc {
+  return parseDoc(markdown, 'routine');
+}
+
+/**
  * Parse session markdown.
  */
 export function parseSession(markdown: string): ParsedDoc {
@@ -279,7 +300,7 @@ export function parseSession(markdown: string): ParsedDoc {
   // LOGGED values ("1x<logged reps>"), not routine targets (see format.ts).
   // Surface them under honest names so consumers (e.g. the Phase 7 sync
   // client) never read a logged rep count out of `targetReps`.
-  const doc = parseRoutine(markdown);
+  const doc = parseDoc(markdown, 'session');
   const withLoggedFields = (line: WorkoutLine): WorkoutLine => ({
     ...line,
     loggedReps: line.targetReps,
