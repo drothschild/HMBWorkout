@@ -1,4 +1,4 @@
-import { StyleSheet, View, TextInput, ScrollView, Pressable } from 'react-native';
+import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -88,25 +88,51 @@ export function SetLogger({
         )}
       </View>
 
-      {questionExpanded && (questionPending || questionText) && (
-        <View style={[styles.questionAnswer, { borderColor: theme.backgroundSelected }]}>
-          <ScrollView
-            scrollEnabled={true}
-            style={styles.questionAnswerScroll}
-            contentContainerStyle={styles.questionAnswerContent}
-          >
-            {questionPending ? (
-              <ThemedText type="small" style={styles.questionPendingText}>
-                Loading…
-              </ThemedText>
-            ) : (
-              <ThemedText type="small" style={styles.questionAnswerText}>
-                {questionText}
-              </ThemedText>
-            )}
-          </ScrollView>
+      {/* A real Modal, not an inline expand/collapse: RN blocks touches to
+          the screen behind a visible Modal by default, so Close (or the
+          Android back button, via onRequestClose) is the only way past it —
+          which is the point. Always rendered and gated by `visible`, the
+          same way ReplaceExercise.tsx — this screen's other Modal — does it,
+          rather than conditionally mounting/unmounting the Modal itself.
+          Structure (backdrop + rounded sheet) mirrors that component too. */}
+      <Modal
+        visible={Boolean(questionExpanded && (questionPending || questionText))}
+        animationType="slide"
+        transparent
+        onRequestClose={onToggleQuestion}
+      >
+        <View style={styles.questionBackdrop}>
+          <View style={[styles.questionSheet, { backgroundColor: theme.background }]}>
+            <ThemedText type="smallBold">
+              {presenter.currentExerciseTitle || 'Exercise'}
+            </ThemedText>
+
+            <ScrollView
+              style={styles.questionAnswerScroll}
+              contentContainerStyle={styles.questionAnswerContent}
+            >
+              {questionPending ? (
+                <ThemedText type="small" style={styles.questionPendingText}>
+                  Loading…
+                </ThemedText>
+              ) : (
+                <ThemedText type="small" style={styles.questionAnswerText}>
+                  {questionText}
+                </ThemedText>
+              )}
+            </ScrollView>
+
+            <Pressable
+              style={[styles.button, styles.primaryButton]}
+              onPress={onToggleQuestion}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <ThemedText style={styles.buttonText}>Close</ThemedText>
+            </Pressable>
+          </View>
         </View>
-      )}
+      </Modal>
 
       {presenter.setPositionLabel !== '' && (
         <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
@@ -273,11 +299,18 @@ const styles = StyleSheet.create({
   questionButtonText: {
     fontWeight: '600',
   },
-  questionAnswer: {
-    // borderColor is theme-resolved inline
-    marginTop: Spacing.two,
-    borderWidth: 1,
-    borderRadius: 4,
+  questionBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  questionSheet: {
+    // backgroundColor is theme-resolved inline
+    padding: Spacing.three,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    gap: Spacing.two,
+    maxHeight: '80%',
   },
   questionAnswerScroll: {
     // The height bound lives on the scroller, NOT as flex/maxHeight on the
