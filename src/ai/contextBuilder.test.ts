@@ -1810,5 +1810,13 @@ describe('buildSystem: AI Coach context builder', () => {
         expect(prompt.trimEnd().endsWith('- IMMUTABLE_MARKER')).toBe(true);
       }, 30000);
     });
+
+    it('includes the RPE mention constraint in immutable directives', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'Do not mention or ask about RPE (Rate of Perceived Exertion) unless the user has demonstrated logging RPE in their workout history'
+      );
+    }, 30000);
   });
 });

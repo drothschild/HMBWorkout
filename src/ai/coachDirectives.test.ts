@@ -44,6 +44,25 @@ describe('coachDirectives: TRX bodyweight-only rule', () => {
   });
 });
 
+describe('coachDirectives: RPE mention constraint', () => {
+  // RPE (Rate of Perceived Exertion) is optional per-set data the user may or
+  // may not log. The coach should not spontaneously mention or ask about RPE
+  // for a user who has never logged any RPE values. This prevents confusing
+  // the user with off-topic questions. It belongs in IMMUTABLE_DIRECTIVES
+  // because it's a data-driven constraint (based on what the user has actually
+  // logged), similar to the TRX rule. Pins the actual "avoid mentioning RPE"
+  // guidance (not just the substring "RPE"): a line that merely mentions RPE
+  // without the "avoid" or "don't mention" constraint still fails this test.
+  it('instructs the coach to avoid mentioning RPE when the user has not logged it', () => {
+    const rpeLine = IMMUTABLE_DIRECTIVES.split('\n').find((line) => line.includes('RPE'));
+
+    expect(rpeLine).toBeDefined();
+    expect(rpeLine!.trimStart().startsWith('- ')).toBe(true);
+    expect(rpeLine).toContain('RPE');
+    expect(rpeLine).toMatch(/avoid|don't mention|do not mention|never.*RPE/i);
+  });
+});
+
 describe('directivesSections: weaving helper', () => {
   it('contributes nothing when both directives are empty', () => {
     const sections = directivesSections('', '');
