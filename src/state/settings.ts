@@ -4,16 +4,7 @@
  * backed by secure storage.
  */
 
-/**
- * Per-surface model selection for AI providers.
- * Frontier tier for chat/debrief/drafting, cheaper tier for one-shot features.
- */
-export interface AiModelConfig {
-  /** Model for chat, debrief, routine drafting (frontier tier) */
-  chat: string;
-  /** Model for rest commentary, exercise question (cheaper tier) */
-  oneShot: string;
-}
+import type { AiModelConfig } from '@/ai/provider/types';
 
 interface BridgeSettings {
   baseUrl: string;

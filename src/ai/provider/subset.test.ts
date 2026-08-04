@@ -2,6 +2,8 @@ import {
   findUnsupportedKeywordsForOpenAI,
   expectStructuredOutputSafeForOpenAI,
 } from './subset';
+import { AI_TURN_SCHEMA } from '../draftSchema';
+import { ALTERNATES_SCHEMA } from '../alternatesSchema';
 
 describe('OpenAI structured output schema validation', () => {
   describe('findUnsupportedKeywordsForOpenAI', () => {
@@ -90,7 +92,7 @@ describe('OpenAI structured output schema validation', () => {
       expect(unsupported).toContain('$.properties.data.maxProperties');
     });
 
-    it('rejects dependentSchemas and dependentRequired', () => {
+    it('rejects dependentSchemas', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -100,13 +102,54 @@ describe('OpenAI structured output schema validation', () => {
         dependentSchemas: {
           a: { properties: { b: { type: 'string' } } },
         },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.dependentSchemas');
+    });
+
+    it('rejects dependentRequired', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          a: { type: 'string' },
+          b: { type: 'string' },
+        },
         dependentRequired: {
           a: ['b'],
         },
       };
 
       const unsupported = findUnsupportedKeywordsForOpenAI(schema);
-      expect(unsupported.some(k => k.includes('dependent'))).toBe(true);
+      expect(unsupported).toContain('$.dependentRequired');
+    });
+
+    it('rejects else keyword', () => {
+      const schema = {
+        type: 'object',
+        if: { properties: { x: { type: 'string' } } },
+        then: { properties: { y: { type: 'number' } } },
+        else: { properties: { z: { type: 'boolean' } } },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.else');
+    });
+
+    it('rejects uniqueItems keyword', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            uniqueItems: true,
+          },
+        },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.properties.tags.uniqueItems');
     });
 
     it('accepts enum keyword', () => {
@@ -226,52 +269,11 @@ describe('OpenAI structured output schema validation', () => {
 
   describe('all existing schemas are safe', () => {
     it('AI_TURN_SCHEMA is safe for OpenAI', () => {
-      const AI_TURN_SCHEMA = {
-        type: 'object',
-        properties: {
-          reply: { type: 'string', description: 'Conversational reply' },
-          draft: {
-            type: 'object',
-            description: 'New routine or revision',
-            properties: {
-              name: { type: 'string' },
-              notes: { type: 'string' },
-              exercises: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    title: { type: 'string' },
-                    kind: { type: 'string', enum: ['strength', 'cardio', 'stretch'] },
-                    warmupSets: { type: 'integer' },
-                    targetSets: { type: 'integer' },
-                    targetReps: { type: 'integer' },
-                    targetDurationSeconds: { type: 'integer' },
-                    restSeconds: { type: 'integer' },
-                  },
-                  required: ['title', 'kind'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['name', 'exercises'],
-            additionalProperties: false,
-          },
-          settingsProposal: {
-            type: 'object',
-            properties: {
-              goals: { type: 'string' },
-              equipment: { type: 'string' },
-              personality: { type: 'string' },
-            },
-            additionalProperties: false,
-          },
-        },
-        required: ['reply'],
-        additionalProperties: false,
-      };
-
       expect(() => expectStructuredOutputSafeForOpenAI(AI_TURN_SCHEMA)).not.toThrow();
+    });
+
+    it('ALTERNATES_SCHEMA is safe for OpenAI', () => {
+      expect(() => expectStructuredOutputSafeForOpenAI(ALTERNATES_SCHEMA)).not.toThrow();
     });
   });
 });

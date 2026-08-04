@@ -16,6 +16,7 @@ describe('request builders', () => {
     messages: [{ role: 'user' as const, content: 'Hello' }],
     schema: testSchema,
     schemaName: 'TestSchema',
+    surface: 'chat' as const,
   };
 
   describe('buildAnthropicBody', () => {
@@ -42,6 +43,23 @@ describe('request builders', () => {
       expect(body.model).toBe('claude-haiku-3.5');
     });
 
+    it('uses correct token budget for each surface', () => {
+      const surfaces: Array<[string, number]> = [
+        ['chat', 4096],
+        ['alternates', 1024],
+        ['exerciseQuestion', 512],
+        ['restCommentary', 256],
+      ];
+
+      for (const [surface, expectedTokens] of surfaces) {
+        const body = buildAnthropicBody(
+          { ...testRequest, surface: surface as any },
+          'claude-sonnet-5'
+        );
+        expect(body.max_tokens).toBe(expectedTokens);
+      }
+    });
+
     it('preserves system and messages as-is', () => {
       const multiTurnRequest = {
         ...testRequest,
@@ -60,25 +78,25 @@ describe('request builders', () => {
   });
 
   describe('buildOpenAiBody', () => {
-    it('builds correct Responses API request for OpenAI', () => {
+    it('builds correct OpenAI request with separate system prompt', () => {
       const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
 
       expect(body).toEqual({
         model: 'gpt-5.6-sol',
         max_tokens: 4096,
+        system: 'You are a helpful assistant',
         messages: [
           {
             role: 'user' as const,
-            content: 'You are a helpful assistant\n\nHello',
+            content: 'Hello',
           },
         ],
-        text: {
-          type: 'text',
-          format: {
-            type: 'json_schema',
-            strict: true,
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
             name: 'TestSchema',
             schema: testSchema,
+            strict: true,
           },
         },
       });
@@ -89,7 +107,42 @@ describe('request builders', () => {
       expect(body.model).toBe('gpt-5.6-terra');
     });
 
-    it('combines system and messages into single user message', () => {
+    it('uses correct token budget for each surface', () => {
+      const surfaces: Array<[string, number]> = [
+        ['chat', 4096],
+        ['alternates', 1024],
+        ['exerciseQuestion', 512],
+        ['restCommentary', 256],
+      ];
+
+      for (const [surface, expectedTokens] of surfaces) {
+        const body = buildOpenAiBody(
+          { ...testRequest, surface: surface as any },
+          'gpt-5.6-sol'
+        );
+        expect(body.max_tokens).toBe(expectedTokens);
+      }
+    });
+
+    it('applies low reasoning effort for rest commentary', () => {
+      const body = buildOpenAiBody(
+        { ...testRequest, surface: 'restCommentary' as const },
+        'gpt-5.6-sol'
+      );
+      expect(body.reasoning_effort).toBe('low');
+    });
+
+    it('does not set reasoning effort for other surfaces', () => {
+      for (const surface of ['chat', 'alternates', 'exerciseQuestion']) {
+        const body = buildOpenAiBody(
+          { ...testRequest, surface: surface as any },
+          'gpt-5.6-sol'
+        );
+        expect(body.reasoning_effort).toBeUndefined();
+      }
+    });
+
+    it('keeps system and messages separate', () => {
       const multiTurnRequest = {
         ...testRequest,
         messages: [
@@ -104,13 +157,15 @@ describe('request builders', () => {
         string,
         unknown
       >;
-      const messages = body.messages as Record<string, unknown>[];
 
-      // OpenAI Messages API requires user to speak first
-      // System goes into the first message content
+      // System is kept separate in its own field
+      expect(body.system).toBe('You are an AI coach');
+
+      // Messages are unchanged
+      const messages = body.messages as Record<string, unknown>[];
       expect(messages[0]).toEqual({
         role: 'user',
-        content: 'You are an AI coach\n\nFirst',
+        content: 'First',
       });
       expect(messages[1]).toEqual({
         role: 'assistant',
@@ -135,18 +190,47 @@ describe('request builders', () => {
       );
     });
 
-    it('text output format must be object with format field', () => {
+    it('response_format must be json_schema with strict mode', () => {
       const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
 
-      expect(body.text).toEqual({
-        type: 'text',
-        format: {
-          type: 'json_schema',
-          strict: true,
+      expect(body.response_format).toEqual({
+        type: 'json_schema',
+        json_schema: {
           name: expect.any(String),
           schema: expect.any(Object),
+          strict: true,
         },
       });
+    });
+  });
+
+  describe('schema immutability', () => {
+    it('Anthropic request does not mutate schema', () => {
+      const originalSchema = { ...testSchema };
+      const body = buildAnthropicBody(testRequest, 'claude-sonnet-5');
+
+      // Schema in request should be unchanged
+      expect(testRequest.schema).toEqual(originalSchema);
+
+      // Schema in body should be the same reference (not copied)
+      const anthropicFormat = (body.output_config as Record<string, unknown>)
+        .format as Record<string, unknown>;
+      expect(anthropicFormat.schema).toBe(testSchema);
+    });
+
+    it('OpenAI request does not mutate schema', () => {
+      const originalSchema = { ...testSchema };
+      const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
+
+      // Schema in request should be unchanged
+      expect(testRequest.schema).toEqual(originalSchema);
+
+      // Schema in body should be the same reference (not copied)
+      const openaiFormat = (body.response_format as Record<string, unknown>).json_schema as Record<
+        string,
+        unknown
+      >;
+      expect(openaiFormat.schema).toBe(testSchema);
     });
   });
 
@@ -175,7 +259,7 @@ describe('request builders', () => {
       // Both should include the schema
       const anthropicFormat = (anthropic.output_config as Record<string, unknown>)
         .format as Record<string, unknown>;
-      const openaiFormat = ((openai.text as Record<string, unknown>).format as Record<
+      const openaiFormat = ((openai.response_format as Record<string, unknown>).json_schema as Record<
         string,
         unknown
       >);
