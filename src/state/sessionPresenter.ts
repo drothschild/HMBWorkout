@@ -79,6 +79,10 @@ export interface SessionPresenterOutput {
   totalSetsForEntry: number;
   setPositionLabel: string;
 
+  // True when the current set is the exercise's last set (warmup or working).
+  // Used to gate the RPE popup trigger: show RPE input only after final set.
+  isLastSetOfExercise: boolean;
+
   // User action handlers
   onLogSet(values: SetInputValues): void;
   onSkipSet(): void;
@@ -349,6 +353,11 @@ export function createSessionPresenter(
         : `Set ${setNumber} of ${currentEntry.targetSets}`
       : '';
 
+  // True when this is the exercise's final set. The comparison setIndex ===
+  // totalSetsForEntry - 1 correctly identifies a superset member's own last
+  // visit (engine convention 9) without needing extra group logic.
+  const isLastSetOfExercise = Boolean(currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1);
+
   // Exercise progress: min defensively clamps exerciseIndex to the total (it
   // should never exceed entries.length, but progress math must stay safe if
   // it ever does), and the done override corrects for natural completion
@@ -423,6 +432,7 @@ export function createSessionPresenter(
     setNumber,
     totalSetsForEntry,
     setPositionLabel,
+    isLastSetOfExercise,
 
     // Handlers dispatch events to the engine
     onLogSet: (values: SetInputValues) => {

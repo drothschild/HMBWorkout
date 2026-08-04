@@ -1,7 +1,6 @@
 import { contrastRatio } from './contrastRatio';
-import { ActionButtonColor, StatusColor } from './actionButtonColors';
+import { ActionButtonColor, BackgroundColors, StatusColor, ThemedBackgroundText } from './actionButtonColors';
 import { ProgressBarColors } from './progressColors';
-import { AiCoachErrorColors } from './aiCoachColors';
 
 describe('contrastRatio', () => {
   it('returns 21 for black against white', () => {
@@ -26,26 +25,70 @@ describe('contrastRatio', () => {
 
 describe('ActionButtonColor', () => {
   const WHITE = '#FFFFFF';
+  const BLACK = '#000000';
   const AA_NORMAL_TEXT_MINIMUM = 4.5;
 
   it.each(Object.entries(ActionButtonColor))(
-    '%s clears WCAG AA contrast (4.5:1) against white text',
+    '%s clears WCAG AA contrast (4.5:1) against white',
     (_name, hex) => {
       expect(contrastRatio(hex, WHITE)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
+    }
+  );
+
+  it.each(Object.entries(ActionButtonColor))(
+    '%s clears WCAG AA contrast (4.5:1) against black (dark mode)',
+    (_name, hex) => {
+      expect(contrastRatio(hex, BLACK)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
     }
   );
 });
 
 describe('StatusColor', () => {
   const WHITE = '#FFFFFF';
+  const BLACK = '#000000';
   const AA_NORMAL_TEXT_MINIMUM = 4.5;
 
   it.each(Object.entries(StatusColor))(
-    '%s clears WCAG AA contrast (4.5:1) against white text',
+    '%s clears WCAG AA contrast (4.5:1) against white',
     (_name, hex) => {
       expect(contrastRatio(hex, WHITE)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
     }
   );
+
+  it.each(Object.entries(StatusColor))(
+    '%s clears WCAG AA contrast (4.5:1) against black (dark mode)',
+    (_name, hex) => {
+      expect(contrastRatio(hex, BLACK)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
+    }
+  );
+});
+
+describe('ThemedBackgroundText', () => {
+  const AA_NORMAL_TEXT_MINIMUM = 4.5;
+
+  describe('text on light mode backgroundElement', () => {
+    it('backgroundElementTextLight clears WCAG AA contrast (4.5:1) on light backgroundElement', () => {
+      expect(contrastRatio(ThemedBackgroundText.backgroundElementTextLight, BackgroundColors.lightElement)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
+  });
+
+  describe('text on dark mode backgroundElement', () => {
+    it('backgroundElementTextDark clears WCAG AA contrast (4.5:1) on dark backgroundElement', () => {
+      expect(contrastRatio(ThemedBackgroundText.backgroundElementTextDark, BackgroundColors.darkElement)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
+  });
+
+  describe('text on errorBubble background', () => {
+    it('errorBubbleText (used for errorMessage) clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
+      expect(contrastRatio(ThemedBackgroundText.errorBubbleText, BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
+  });
 });
 
 describe('Progress fill graphical component colors', () => {
@@ -61,17 +104,5 @@ describe('Progress fill graphical component colors', () => {
     expect(
       contrastRatio(ProgressBarColors.dark.fill, ProgressBarColors.dark.track)
     ).toBeGreaterThanOrEqual(WCAG_GRAPHICAL_MINIMUM);
-  });
-});
-
-describe('AI Coach error bubble colors', () => {
-  const AA_NORMAL_TEXT_MINIMUM = 4.5;
-
-  it('error bubble text clears WCAG AA contrast (4.5:1) against error bubble background', () => {
-    // Note: contrastRatio() parser requires 6-digit hex format (/^#([0-9a-fA-F]{6})$/),
-    // so we use #CC0000 rather than 3-digit shorthand #C00.
-    expect(
-      contrastRatio(AiCoachErrorColors.bubbleText, AiCoachErrorColors.bubbleBackground)
-    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
   });
 });

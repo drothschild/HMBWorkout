@@ -17,7 +17,8 @@ import {
   historyPrefillStillApplies,
   SetInputValues,
 } from '@/state/sessionPresenter';
-import { formatSetInputValue } from '@/state/setInputs';
+import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
+import { isDurationBasedEntry } from '@/state/exerciseStopwatch';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasAnthropicKey } from '@/state/exerciseQuestionStore';
 import { getSettings } from '@/state/settings';
@@ -85,6 +86,7 @@ export default function SessionScreen() {
   const [weightText, setWeightText] = useState('');
   const [currentRpe, setCurrentRpe] = useState<number | undefined>();
   const [durationText, setDurationText] = useState('');
+  const [rpePopupOpen, setRpePopupOpen] = useState(false);
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
@@ -542,6 +544,20 @@ export default function SessionScreen() {
                     exerciseQuestionStore.getState().toggle(questionTarget).catch(() => {});
                   }
                 }}
+                rpePopupOpen={rpePopupOpen}
+                onRpePopupOpenChange={setRpePopupOpen}
+                onRpePopupConfirm={(rpe) => {
+                  // Dispatch the set with the RPE value passed from the popup
+                  presenter.onLogSet(
+                    buildLogSetValues({
+                      isDurationBased: isDurationBasedEntry(presenter.currentEntry),
+                      repsText,
+                      weightText,
+                      durationText,
+                      rpe,
+                    })
+                  );
+                }}
               />
             )}
             {/* Renders nothing on its own when there is no entry to replace —
@@ -678,6 +694,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   abandonText: {
-    color: '#FF3B30',
+    color: StatusColor.danger,
   },
 });

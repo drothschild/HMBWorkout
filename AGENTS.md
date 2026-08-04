@@ -545,7 +545,7 @@ is now a misnomer — AI settings are in there too.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai` — all pure TS, no
+  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai/theme` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
@@ -572,6 +572,49 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
+- **Fire-and-forget DB writes need `flush()` before assertions, not a bare
+  `setImmediate` or a bare `setTimeout(fn, 0)` alone — both of `flush()`'s
+  two stages are load-bearing, and `flush()` itself only advances the queue
+  by one extra step, not a full drain.** Effect executors like
+  `onCompleteSession` dispatch side effects that return promises but do not
+  await them. WatermelonDB's WorkQueue routes a write queued behind another
+  via a real `setTimeout(fn, 0)` timer (not a microtask), scheduled from the
+  promise continuation after the preceding item resolves. Call `flush()`
+  (`src/db/test-helpers.ts`) the way every real call site does — synchronously,
+  right after the writes, no special setup — and it catches a queue depth of *two*
+  pending writes in the high-90s% of
+  individual calls (~90% per run, measured as 46/51 fresh-process full-passes
+  on a 10-trial measurement), where either a bare `setImmediate` or a bare
+  `setTimeout(fn, 0)` alone catch it in 0% of runs. An earlier version of
+  `test-helpers.test.ts` anchored its probe inside a nested `fs.readFile` I/O
+  callback, reasoning that pinning a deterministic starting event-loop phase
+  would make the test more reliable. That reasoning had it backwards for how
+  this codebase actually calls `flush()`: anchoring inside a check-phase
+  callback changes which of WorkQueue's timer and `flush()`'s own first-stage
+  timer is queued first, which made that specific test unable to tell a real
+  two-stage `flush()` apart from a one-stage `setTimeout(fn, 0)`-only
+  implementation — both passed. The current test uses the plain, unanchored
+  call shape instead, which matches every real usage and catches the round-5
+  blind-spot mutation (the anchored test passed against a one-stage
+  implementation, proving it was missing this detection). Since a single
+  10-trial run is only ~90% reliable (individual `flush()` calls are ~99%
+  reliable; one miss in ten trials is enough to fall short), the guard test
+  itself retries the 10-trial measurement up to 3 times and passes as soon
+  as any attempt reaches 10/10
+  caught, giving the guard ~99.9% reliability (1 − 0.1³). A genuinely broken
+  one-stage implementation stays 0% across all 3 attempts and still fails the
+  test. `test-helpers.test.ts` is the actual source of truth for this
+  contract — it repeats the probe and separately demonstrates (as documentation,
+  not as the guard) that the two weaker alternatives never catch the write.
+
+  `flush()` is not a guarantee for arbitrary queue depth — a sequence that
+  queues three or more writes (e.g. `onCompleteSession` draining several
+  pending set-persists and then doing its own `database.write`) needs the
+  bounded-retry/poll-until-true idiom already used at `activeSession.test.ts:512,601`
+  (the two `for (let attempt ...)` bounded-retry loops), not a single `flush()`
+  call. Always check for this hazard when asserting on DB state
+  after fire-and-forget writes, and reach for a bounded retry over a fixed
+  number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
 
 ## Structure
 
@@ -587,12 +630,15 @@ is now a misnomer — AI settings are in there too.
   system-prompt builder, coach directives, draft→repository accept path, plus the
   one-shot features (rest commentary, exercise question, replace alternates)
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
-  also used on a couple of non-button solid fills — the AI chat bubble and
-  kind tag), `StatusColor` (danger; currently just the session error banner),
-  `ProgressBarColors` (progress fill and track graphical components constrained
-  by WCAG 1.4.11), and `AiCoachErrorColors` (error bubble text and background)
-  — every colored element constrained by applicable WCAG contrast minimums —
-  plus the pure `contrastRatio` check that verifies them
+  each darkened to clear WCAG AA 4.5:1 text contrast against both white and
+  black backgrounds; also used on non-button solid fills like the AI chat
+  bubble and kind tag) and `StatusColor` (danger; currently just the session
+  error banner). New exports: `BackgroundColors` (light/dark element, error
+  bubble) and `ThemedBackgroundText` (text colors for those non-white
+  backgrounds). Every text color pair here is verified by the `contrastRatio`
+  pure function against its target background at the 4.5:1 text bar —
+  non-text graphical fills (progress bars, sliders) are a separate, lower
+  3:1 bar under WCAG 1.4.11 that this module's own tests do not check
 - `src/app/` — expo-router screens
 
 ## Boundaries
@@ -650,7 +696,13 @@ is now a misnomer — AI settings are in there too.
   through a `hydrate` call that no rule ever validates (convention 5), so a session
   persisted by a build predating that rule comes back sitting on exactly such an
   entry. `sessionDetailPresenter` is the
-  third label site and needs no guard — it renders `Set N` with no total
+  third label site and needs no guard — it renders `Set N` with no total.
+  `sessionPresenter.isLastSetOfExercise` is the fourth site that checks
+  `warmupSets + targetSets` — it's the first one whose correctness depends specifically
+  on convention 9's round-number semantics (not just "is this entry active"), so
+  integration tests through mismatched-set-count supersets guard against future
+  changes to `helpers.lv`'s `next_active_idx` predicate or `transition.lv`'s
+  `setIndex` carry-over that could silently break the popup's timing
 - Starting a session mirrors that same condition one layer up.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no

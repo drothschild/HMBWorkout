@@ -1,7 +1,7 @@
 import { createActiveSessionStore } from './activeSession';
 import type { HealthKitDeps } from './activeSession';
 import type { SessionState } from '@/engine/types';
-import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
 import { createSession } from '@/db/repository';
 import { Database } from '@nozbe/watermelondb';
 
@@ -89,8 +89,8 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     // Verify state transitioned to done
     expect(result?.phase).toBe('done');
 
-    // Flush microtasks to allow async HealthKit write to complete
-    await new Promise((resolve) => setImmediate(resolve));
+    // Flush microtasks and timers to allow async HealthKit write to complete
+    await flush();
 
     // Verify saveWorkoutSample was called (checked in spy callback above)
     expect(saveWorkoutSampleSpy).toHaveBeenCalled();
@@ -166,8 +166,8 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       // State should still transition to done
       expect(result?.phase).toBe('done');
 
-      // Flush microtasks to allow async HealthKit write to complete
-      await new Promise((resolve) => setImmediate(resolve));
+      // Flush microtasks and timers to allow async HealthKit write to complete
+      await flush();
 
       // Verify HealthKit was attempted (threw, but isolated)
       expect(saveWorkoutSampleSpy).toHaveBeenCalled();
@@ -180,8 +180,8 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       // Verify sync was called (fire-and-forget)
       expect(syncSpy).toHaveBeenCalled();
 
-      // Flush microtasks again to catch any late-arriving promise rejections
-      await new Promise((resolve) => setImmediate(resolve));
+      // Flush microtasks and timers again to catch any late-arriving promise rejections
+      await flush();
 
       // Verify no unhandledRejection fired
       expect(unhandledRejections).toHaveLength(0);

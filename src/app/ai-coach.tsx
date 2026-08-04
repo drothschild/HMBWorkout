@@ -14,10 +14,9 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
-import { AiCoachErrorColors } from '@/theme/aiCoachColors';
+import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -438,6 +437,7 @@ function SettingsProposalCard({
   onDecline,
 }: SettingsProposalCardProps) {
   const theme = useTheme();
+  const isDark = theme.background !== Colors.light.background;
 
   const rows: { label: string; current: string; proposed: string }[] = [];
 
@@ -480,10 +480,28 @@ function SettingsProposalCard({
 
       <View style={styles.proposalActions}>
         <Pressable
-          style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.declineButton,
+            {
+              borderColor: isDark
+                ? ThemedBackgroundText.backgroundElementTextDark
+                : ThemedBackgroundText.backgroundElementTextLight,
+            },
+            pressed && styles.pressed,
+          ]}
           onPress={onDecline}
         >
-          <ThemedText type="default" style={styles.declineButtonText}>
+          <ThemedText
+            type="default"
+            style={[
+              styles.declineButtonText,
+              {
+                color: isDark
+                  ? ThemedBackgroundText.backgroundElementTextDark
+                  : ThemedBackgroundText.backgroundElementTextLight,
+              },
+            ]}
+          >
             Decline
           </ThemedText>
         </Pressable>
@@ -592,7 +610,7 @@ const styles = StyleSheet.create({
     marginLeft: -Spacing.two,
   },
   backButtonText: {
-    color: '#007AFF',
+    color: ActionButtonColor.secondary,
     fontWeight: '500',
   },
   backButtonPlaceholder: {
@@ -775,32 +793,33 @@ const styles = StyleSheet.create({
   declineButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    // borderColor is theme-resolved inline
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
     alignItems: 'center',
   },
   declineButtonText: {
-    color: '#007AFF',
+    // color is theme-resolved inline
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: AiCoachErrorColors.bubbleBackground,
+    backgroundColor: BackgroundColors.errorBubble,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: AiCoachErrorColors.bubbleText,
+    color: ThemedBackgroundText.errorBubbleText,
     marginBottom: Spacing.two,
   },
   errorLink: {
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: '#007AFF',
+    color: ThemedBackgroundText.errorBubbleText,
+    textDecorationLine: 'underline',
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,

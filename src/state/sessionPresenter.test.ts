@@ -188,6 +188,71 @@ describe('createSessionPresenter', () => {
     });
   });
 
+  describe('isLastSetOfExercise', () => {
+    test('is true when setIndex equals totalSetsForEntry - 1 (last set overall)', () => {
+      const state = createMockState();
+      // Entry has 1 warmup + 3 working = 4 total sets
+      // setIndex 3 is the last one (warmup 1, working 1, working 2, working 3)
+      state.setIndex = 3;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(true);
+    });
+
+    test('is false when setIndex is earlier in the sequence', () => {
+      const state = createMockState();
+      // Entry has 1 warmup + 3 working = 4 total sets
+      state.setIndex = 1; // Second position (first working set)
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(false);
+    });
+
+    test('is false when on the warmup set (not the last set)', () => {
+      const state = createMockState();
+      // Entry has 1 warmup + 3 working = 4 total sets
+      state.setIndex = 0; // Warmup
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(false);
+    });
+
+    test('is true for last working set when there is no warmup', () => {
+      const state = createMockState();
+      state.entries[0].warmupSets = 0;
+      state.entries[0].targetSets = 3;
+      // setIndex 2 is the last one (working 1, working 2, working 3)
+      state.setIndex = 2;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(true);
+    });
+
+    test('is false when there is no current entry', () => {
+      const state = createMockState();
+      state.exerciseIndex = 5; // Out of range
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(false);
+    });
+
+    test('is false for zero-set entries', () => {
+      const state = createMockState();
+      state.entries[0].warmupSets = 0;
+      state.entries[0].targetSets = 0;
+      state.setIndex = 0;
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      expect(presenter.isLastSetOfExercise).toBe(false);
+    });
+  });
+
   test('dispatches LogSet with reps, weight, RPE, and the current time on logSet', () => {
     const state = createMockState();
     const mockDispatch = jest.fn(async () => null);

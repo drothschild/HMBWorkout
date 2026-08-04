@@ -42,3 +42,37 @@ export async function closeTestDatabase(database: Database): Promise<void> {
   }
   await new Promise<void>((resolve) => loki.close(() => resolve()));
 }
+
+/**
+ * Let queued WatermelonDB writes and un-awaited fire-and-forget effect
+ * executors (e.g. onCompleteSession) settle before asserting on DB state.
+ *
+ * WatermelonDB's WorkQueue continues a queued write via a real `setTimeout(fn, 0)`,
+ * not a microtask, scheduled from the promise continuation after the preceding item
+ * resolves. BOTH of this function's two stages are load-bearing when called the way
+ * every real call site does (synchronously, right after the writes) -- a bare
+ * `setImmediate` alone or a bare `setTimeout(fn, 0)` alone each reliably miss a write
+ * queued behind another. Measured directly in the unanchored call shape every real
+ * site uses: real flush() catches the queued write in the high-90s% of individual
+ * calls (~90% per run), while bare setImmediate or setTimeout(0) alone catch it 0%.
+ *
+ * See test-helpers.test.ts for the actual measurement (it runs repeated trials in the
+ * same unanchored call shape every real site uses) and the guard test there for why
+ * a single 10-trial run is ~90% reliable (individual flush() calls are ~99% reliable;
+ * a 10-trial run only needs one miss to fall short) but the test itself is
+ * reliable: the test retries the 10-trial measurement up to 3 times and passes as
+ * soon as any attempt reaches 10/10 caught, giving the guard ~99.9% reliability
+ * (1 − 0.1³). A genuinely broken one-stage implementation stays 0% across all 3
+ * retries and still fails the test. See AGENTS.md's Testing gotchas for the fuller
+ * explanation.
+ *
+ * This is NOT an unconditional guarantee for queue depth >= 3 (e.g. onCompleteSession
+ * draining several pending set-persists then its own write): use a bounded retry /
+ * poll-until-true there instead (see activeSession.test.ts:512,601, the two
+ * bounded-retry loops).
+ */
+export function flush(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(
+    () => new Promise<void>((resolve) => setImmediate(resolve))
+  );
+}
