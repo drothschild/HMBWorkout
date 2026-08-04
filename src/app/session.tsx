@@ -469,7 +469,7 @@ export default function SessionScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Resume workout"
-                    hitSlop={Spacing.two}
+                    hitSlop={Spacing.three}
                     onPress={() => presenter.onResume()}
                   >
                     <SymbolView
@@ -484,7 +484,7 @@ export default function SessionScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Pause workout"
-                    hitSlop={Spacing.two}
+                    hitSlop={Spacing.three}
                     onPress={() => presenter.onPause()}
                   >
                     <SymbolView
