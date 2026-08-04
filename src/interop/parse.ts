@@ -160,6 +160,13 @@ function parseWorkoutLine(line: string): WorkoutLine | null {
     if (targetSets === 0) {
       throw new ContractError(`Sets×reps cannot have zero sets: ${line}`);
     }
+
+    // Same reasoning as zero sets above: "3 sets of 0 reps" is just as
+    // semantically empty — a set with zero reps performs nothing — so it is
+    // rejected rather than silently accepted as a harmless-looking value.
+    if (targetReps === 0) {
+      throw new ContractError(`Sets×reps cannot have zero reps: ${line}`);
+    }
   }
 
   // Validate: cardio/stretch cannot have sets×reps

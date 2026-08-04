@@ -80,6 +80,27 @@ tags: []
       expect(() => parseRoutine(markdown)).toThrow(ContractError);
     });
 
+    test('throws ContractError on zero reps in sets×reps (3x0)', () => {
+      // 3x0 matches the \d+x\d+ regex (syntactically fine) but "3 sets of 0
+      // reps" is just as semantically empty as zero sets above — a set with
+      // zero reps performs nothing, so it is rejected the same way rather
+      // than silently laundering it into a routine the author never wrote.
+      const markdown = `---
+type: workout-routine
+id: test-routine
+created: 2026-07-08
+updated: 2026-07-08
+tags: []
+---
+
+\`\`\`workout
+- bench-press-db: 3x0
+\`\`\`
+`;
+
+      expect(() => parseRoutine(markdown)).toThrow(ContractError);
+    });
+
     test('throws ContractError on invalid rpe (out of range)', () => {
       const markdown = `---
 type: workout-routine
