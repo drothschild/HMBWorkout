@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal, Keyboard, LayoutChangeEvent } from 'react-native';
+import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal, Keyboard, LayoutChangeEvent, InputAccessoryView } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -74,12 +74,26 @@ export function SetLogger({
   const inputStyle = [styles.input, { color: theme.text, borderColor: theme.backgroundSelected }];
   const setRowStyle = [styles.setRow, { borderBottomColor: theme.backgroundSelected }];
 
-  // Track container height to enforce minimum space for buttonRow. When the
-  // keyboard opens and squeezes the layout, we constrain loggedSets to ensure
-  // buttonRow stays visible. Without this, buttonRow overflows the viewport.
+  // Track container height and measured chrome heights to enforce minimum space
+  // for buttonRow. When the keyboard opens and squeezes the layout, we constrain
+  // loggedSets to ensure buttonRow stays visible. Without this, buttonRow overflows
+  // the viewport. Instead of a hardcoded reserve, we measure the actual chrome
+  // heights so the constraint is correct for all exercise configurations (duration
+  // with ~130-150pt stopwatch vs reps/weight with ~120pt inputs).
   const [containerHeight, setContainerHeight] = useState(0);
+  const [chromeHeightAboveScroller, setChromeHeightAboveScroller] = useState(0);
+  const [buttonRowHeight, setButtonRowHeight] = useState(0);
+
   const handleContainerLayout = (event: LayoutChangeEvent) => {
     setContainerHeight(event.nativeEvent.layout.height);
+  };
+
+  const handleChromeLayout = (event: LayoutChangeEvent) => {
+    setChromeHeightAboveScroller(event.nativeEvent.layout.height);
+  };
+
+  const handleButtonRowLayout = (event: LayoutChangeEvent) => {
+    setButtonRowHeight(event.nativeEvent.layout.height);
   };
 
   // iOS's scroll indicator only appears during an actual scroll gesture, so a
@@ -106,11 +120,11 @@ export function SetLogger({
 
   return (
     <ThemedView style={styles.container} onLayout={handleContainerLayout}>
-      <Pressable
-        onPress={() => Keyboard.dismiss()}
-        hitSlop={0}
-        accessible={false}
-      >
+      {/* Chrome above the scrolled sets (title, inputs, etc.). Measured to compute
+          the scroller's maxHeight constraint: as the keyboard squeezes the layout,
+          loggedSets.maxHeight must shrink to reserve space for all the fixed chrome
+          and the button row, so Log Set / Skip Set stay reachable. */}
+      <View onLayout={handleChromeLayout}>
         <View style={styles.exerciseTitleRow}>
           <ThemedText style={styles.exerciseTitle}>
             {presenter.currentExerciseTitle || 'Exercise'}
@@ -127,7 +141,6 @@ export function SetLogger({
             </Pressable>
           )}
         </View>
-      </Pressable>
 
       {/* A real Modal, not an inline expand/collapse: RN blocks touches to
           the screen behind a visible Modal by default, so Close (or the
@@ -176,69 +189,73 @@ export function SetLogger({
         </View>
       </Modal>
 
-      {presenter.setPositionLabel !== '' && (
-        <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
-      )}
+        {presenter.setPositionLabel !== '' && (
+          <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
+        )}
 
-      {!isDurationBased && presenter.progressionHint && (
-        <View style={styles.hintContainer}>
-          <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
-        </View>
-      )}
+        {!isDurationBased && presenter.progressionHint && (
+          <View style={styles.hintContainer}>
+            <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
+          </View>
+        )}
 
-      {isDurationBased ? (
-        <View style={styles.inputGroup}>
-          {/* Counts down from the entry's target duration once one is set, so
-              the user can see time remaining; entries with no target keep
-              counting up. Either way its stop button (manual, or the
-              countdown reaching 0:00 on its own) writes the elapsed seconds
-              into the Duration field below; the field stays theirs to edit
-              either way, and Log Set records it through the same path as a
-              typed value. */}
-          <ExerciseStopwatch
-            stopwatchKey={stopwatchKey}
-            running={!presenter.isPaused}
-            targetDurationSeconds={presenter.currentEntry?.targetDurationSeconds}
-            onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
-          />
-          <ThemedText>Duration (sec)</ThemedText>
-          <TextInput
-            style={inputStyle}
-            placeholder="Duration"
-            placeholderTextColor={theme.textSecondary}
-            keyboardType="decimal-pad"
-            value={durationText}
-            onChangeText={onDurationTextChange}
-          />
-        </View>
-      ) : (
-        // Side-by-side to keep the fixed chrome inside one phone screen
-        <View style={styles.inputRow}>
-          <View style={[styles.inputGroup, styles.inputRowItem]}>
-            <ThemedText>Reps</ThemedText>
+        {isDurationBased ? (
+          <View style={styles.inputGroup}>
+            {/* Counts down from the entry's target duration once one is set, so
+                the user can see time remaining; entries with no target keep
+                counting up. Either way its stop button (manual, or the
+                countdown reaching 0:00 on its own) writes the elapsed seconds
+                into the Duration field below; the field stays theirs to edit
+                either way, and Log Set records it through the same path as a
+                typed value. */}
+            <ExerciseStopwatch
+              stopwatchKey={stopwatchKey}
+              running={!presenter.isPaused}
+              targetDurationSeconds={presenter.currentEntry?.targetDurationSeconds}
+              onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
+            />
+            <ThemedText>Duration (sec)</ThemedText>
             <TextInput
               style={inputStyle}
-              placeholder="Reps"
+              placeholder="Duration"
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
-              value={repsText}
-              onChangeText={onRepsTextChange}
+              value={durationText}
+              onChangeText={onDurationTextChange}
+              inputAccessoryViewID="keyboardAccessory"
             />
           </View>
+        ) : (
+          // Side-by-side to keep the fixed chrome inside one phone screen
+          <View style={styles.inputRow}>
+            <View style={[styles.inputGroup, styles.inputRowItem]}>
+              <ThemedText>Reps</ThemedText>
+              <TextInput
+                style={inputStyle}
+                placeholder="Reps"
+                placeholderTextColor={theme.textSecondary}
+                keyboardType="decimal-pad"
+                value={repsText}
+                onChangeText={onRepsTextChange}
+                inputAccessoryViewID="keyboardAccessory"
+              />
+            </View>
 
-          <View style={[styles.inputGroup, styles.inputRowItem]}>
-            <ThemedText>Weight (lbs)</ThemedText>
-            <TextInput
-              style={inputStyle}
-              placeholder="Weight"
-              placeholderTextColor={theme.textSecondary}
-              keyboardType="decimal-pad"
-              value={weightText}
-              onChangeText={onWeightTextChange}
-            />
+            <View style={[styles.inputGroup, styles.inputRowItem]}>
+              <ThemedText>Weight (lbs)</ThemedText>
+              <TextInput
+                style={inputStyle}
+                placeholder="Weight"
+                placeholderTextColor={theme.textSecondary}
+                keyboardType="decimal-pad"
+                value={weightText}
+                onChangeText={onWeightTextChange}
+                inputAccessoryViewID="keyboardAccessory"
+              />
+            </View>
           </View>
-        </View>
-      )}
+        )}
+      </View>
 
       {/* RPE popup modal - shown after final set of each exercise */}
       <Modal
@@ -312,11 +329,19 @@ export function SetLogger({
           scrollview's height to ensure buttonRow stays visible. Without the
           maxHeight, loggedSets.flex: 1 takes all available space, pushing
           buttonRow below the viewport (no scroll recovery, since overflow
-          paints outside the visible container). The maxHeight reserves space
-          for the exercise title, input groups, logged-sets header, and
-          button row — empirically measured in yoga-layout as the constraint
-          that keeps buttonRow visible across all 341 test viewport heights. */}
-      <ScrollView style={[styles.loggedSets, containerHeight > 0 ? { maxHeight: Math.max(100, containerHeight - 198) } : {}]}>
+          paints outside the visible container). The maxHeight is computed from
+          actual measured heights of the chrome above the scroller (title, inputs,
+          etc.) and the button row, so it stays correct as exercise types change
+          (e.g., duration ~130-150pt stopwatch vs reps/weight ~120pt inputs) and
+          the component evolves. */}
+      <ScrollView
+        style={[
+          styles.loggedSets,
+          containerHeight > 0 && buttonRowHeight > 0
+            ? { maxHeight: Math.max(100, containerHeight - chromeHeightAboveScroller - buttonRowHeight) }
+            : {},
+        ]}
+      >
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
@@ -327,7 +352,7 @@ export function SetLogger({
         ))}
       </ScrollView>
 
-      <View style={styles.buttonRow}>
+      <View style={styles.buttonRow} onLayout={handleButtonRowLayout}>
         <Pressable
           style={[styles.button, styles.primaryButton, styles.rowButton]}
           onPress={() => {
@@ -363,6 +388,23 @@ export function SetLogger({
       </View>
 
       {belowButtonsSlot}
+
+      {/* Keyboard accessory view: provides a standard iOS "Done" button above the
+          numeric keypad, making keyboard dismissal discoverable. When the user taps
+          a numeric input, this bar appears above the keyboard with a tap-to-dismiss
+          affordance, following iOS conventions. */}
+      <InputAccessoryView nativeID="keyboardAccessory" backgroundColor={theme.background}>
+        <View style={styles.keyboardAccessoryView}>
+          <Pressable
+            onPress={() => Keyboard.dismiss()}
+            style={styles.doneButton}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss keyboard"
+          >
+            <ThemedText style={styles.doneButtonText}>Done</ThemedText>
+          </Pressable>
+        </View>
+      </InputAccessoryView>
     </ThemedView>
   );
 }
@@ -539,5 +581,22 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#8E8E93',
+  },
+  keyboardAccessoryView: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderTopWidth: 1,
+    borderTopColor: '#D0D0D0',
+  },
+  doneButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  doneButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
   },
 });
