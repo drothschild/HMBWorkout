@@ -64,7 +64,7 @@ function ExerciseProgress({
         {`${completed} of ${total} exercises`}
       </ThemedText>
       <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSelected }]}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+        <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.progressFill }]} />
       </View>
     </View>
   );
@@ -643,7 +643,6 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34C759',
   },
   controlFallback: {
     fontSize: 16,

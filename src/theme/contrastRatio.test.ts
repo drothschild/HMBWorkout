@@ -45,3 +45,23 @@ describe('StatusColor', () => {
     }
   );
 });
+
+describe('Progress fill graphical component colors', () => {
+  const WCAG_GRAPHICAL_MINIMUM = 3.0;
+  const LIGHT_TRACK_BACKGROUND = '#E0E1E6';
+  const DARK_TRACK_BACKGROUND = '#2E3135';
+  const LIGHT_PROGRESS_FILL = '#0D6E13';
+  const DARK_PROGRESS_FILL = '#34C759';
+
+  it('light mode progress fill clears WCAG 1.4.11 contrast (3:1) against light track', () => {
+    expect(contrastRatio(LIGHT_PROGRESS_FILL, LIGHT_TRACK_BACKGROUND)).toBeGreaterThanOrEqual(
+      WCAG_GRAPHICAL_MINIMUM
+    );
+  });
+
+  it('dark mode progress fill clears WCAG 1.4.11 contrast (3:1) against dark track', () => {
+    expect(contrastRatio(DARK_PROGRESS_FILL, DARK_TRACK_BACKGROUND)).toBeGreaterThanOrEqual(
+      WCAG_GRAPHICAL_MINIMUM
+    );
+  });
+});
