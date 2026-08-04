@@ -465,6 +465,7 @@ export default function SessionScreen() {
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={60}
         >
           <View style={[styles.header, { borderBottomColor: theme.backgroundSelected }]}>
             <View style={styles.headerRow}>
