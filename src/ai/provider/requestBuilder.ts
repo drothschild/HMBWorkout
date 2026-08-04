@@ -58,11 +58,34 @@ export function buildAnthropicBody(
 }
 
 /**
- * Build OpenAI API request body with system prompt in separate channel.
+ * Build an OpenAI **Responses API** request body.
  *
- * System prompt is sent separately from user content to preserve
- * the precedence of IMMUTABLE_DIRECTIVES as the last section.
- * Per-surface reasoning effort is applied for rest commentary.
+ * Targeting Responses (`text.format`) rather than Chat Completions
+ * (`response_format`) is a settled decision, not a preference — see
+ * docs/design-plans/2026-08-04-multi-provider-ai.md. A previous revision
+ * reverted this to Chat Completions and labelled the Responses shape
+ * "incorrect"; it is not, and the reversal has been undone.
+ *
+ * Verified against OpenAI's live documentation 2026-08-04:
+ *   - `input` replaces `messages`
+ *   - there is **no** top-level `system` parameter; system content is an
+ *     entry in `input` with role `system`/`developer`. That is what keeps
+ *     IMMUTABLE_DIRECTIVES in their own channel rather than sharing a
+ *     buffer with user-controlled free text (routine notes, exercise
+ *     titles, goals) — the precedence guarantee AGENTS.md requires is a
+ *     *channel* property, so a role-tagged entry preserves it and folding
+ *     the prompt into the user turn does not.
+ *   - structured output is `text: { format: { type, name, strict, schema } }`
+ *
+ * NOT yet verified — the reference page was truncated on fetch, so these two
+ * are carried over from the Chat Completions shape and are very likely wrong:
+ *   - the token-budget parameter (Responses is believed to use
+ *     `max_output_tokens`, not `max_tokens`)
+ *   - reasoning effort (believed `reasoning: { effort }`, not
+ *     `reasoning_effort`)
+ * Both are marked below. **Confirm them before Phase 2 wires a live call** —
+ * nothing calls this builder yet, so a wrong name here is currently inert,
+ * and guessing would have made it silently wrong instead of visibly open.
  */
 export function buildOpenAiBody(
   request: RequestInput,
@@ -74,12 +97,19 @@ export function buildOpenAiBody(
 
   const body: Record<string, unknown> = {
     model,
+    // UNVERIFIED (see docstring): Responses is believed to use
+    // `max_output_tokens`. Confirm before Phase 2.
     max_tokens: getTokenBudget(request.surface),
-    system: request.system,
-    messages: request.messages,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
+    // System content is a role-tagged entry in `input`, not a top-level
+    // field — Responses has no `system` parameter. Keeping it as its own
+    // entry is what preserves IMMUTABLE_DIRECTIVES' channel precedence.
+    input: [
+      { role: 'system', content: request.system },
+      ...request.messages,
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
         name: request.schemaName,
         schema: request.schema,
         strict: true,
@@ -87,7 +117,8 @@ export function buildOpenAiBody(
     },
   };
 
-  // Rest commentary uses lower reasoning effort for latency
+  // UNVERIFIED (see docstring): believed to be `reasoning: { effort }`.
+  // Confirm before Phase 2.
   if (request.surface === 'restCommentary') {
     body.reasoning_effort = 'low';
   }

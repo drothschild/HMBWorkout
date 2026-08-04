@@ -44,7 +44,7 @@ describe('request builders', () => {
     });
 
     it('uses correct token budget for each surface', () => {
-      const surfaces: Array<[string, number]> = [
+      const surfaces: [string, number][] = [
         ['chat', 4096],
         ['alternates', 1024],
         ['exerciseQuestion', 512],
@@ -72,6 +72,9 @@ describe('request builders', () => {
       };
 
       const body = buildAnthropicBody(multiTurnRequest, 'claude-sonnet-5');
+      // Anthropic keeps a top-level `system` and `messages` — unchanged, and
+      // deliberately so: this body must stay byte-identical to what
+      // anthropicClient.ts already sends.
       expect(body.system).toBe('You are an AI coach');
       expect(body.messages).toEqual(multiTurnRequest.messages);
     });
@@ -84,16 +87,20 @@ describe('request builders', () => {
       expect(body).toEqual({
         model: 'gpt-5.6-sol',
         max_tokens: 4096,
-        system: 'You are a helpful assistant',
-        messages: [
+        // Responses API: no top-level `system`. System content is a
+        // role-tagged entry in `input`, which is what keeps
+        // IMMUTABLE_DIRECTIVES in their own channel rather than sharing a
+        // buffer with user-controlled text.
+        input: [
+          { role: 'system', content: 'You are a helpful assistant' },
           {
             role: 'user' as const,
             content: 'Hello',
           },
         ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
+        text: {
+          format: {
+            type: 'json_schema',
             name: 'TestSchema',
             schema: testSchema,
             strict: true,
@@ -108,7 +115,7 @@ describe('request builders', () => {
     });
 
     it('uses correct token budget for each surface', () => {
-      const surfaces: Array<[string, number]> = [
+      const surfaces: [string, number][] = [
         ['chat', 4096],
         ['alternates', 1024],
         ['exerciseQuestion', 512],
@@ -159,10 +166,11 @@ describe('request builders', () => {
       >;
 
       // System is kept separate in its own field
-      expect(body.system).toBe('You are an AI coach');
+      const sysEntry = (body.input as Record<string, unknown>[])[0];
+      expect(sysEntry).toEqual({ role: 'system', content: 'You are an AI coach' });
 
       // Messages are unchanged
-      const messages = body.messages as Record<string, unknown>[];
+      const messages = (body.input as Record<string, unknown>[]).slice(1);
       expect(messages[0]).toEqual({
         role: 'user',
         content: 'First',
@@ -190,12 +198,12 @@ describe('request builders', () => {
       );
     });
 
-    it('response_format must be json_schema with strict mode', () => {
+    it('text.format must be json_schema with strict mode', () => {
       const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
 
-      expect(body.response_format).toEqual({
-        type: 'json_schema',
-        json_schema: {
+      expect(body.text).toEqual({
+        format: {
+          type: 'json_schema',
           name: expect.any(String),
           schema: expect.any(Object),
           strict: true,
@@ -226,7 +234,7 @@ describe('request builders', () => {
       expect(testRequest.schema).toEqual(originalSchema);
 
       // Schema in body should be the same reference (not copied)
-      const openaiFormat = (body.response_format as Record<string, unknown>).json_schema as Record<
+      const openaiFormat = (body.text as Record<string, unknown>).format as Record<
         string,
         unknown
       >;
@@ -259,7 +267,7 @@ describe('request builders', () => {
       // Both should include the schema
       const anthropicFormat = (anthropic.output_config as Record<string, unknown>)
         .format as Record<string, unknown>;
-      const openaiFormat = ((openai.response_format as Record<string, unknown>).json_schema as Record<
+      const openaiFormat = ((openai.text as Record<string, unknown>).format as Record<
         string,
         unknown
       >);
