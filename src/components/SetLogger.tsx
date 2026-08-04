@@ -76,13 +76,14 @@ export function SetLogger({
 
   // Track container height and measured chrome heights to enforce minimum space
   // for buttonRow. When the keyboard opens and squeezes the layout, we constrain
-  // loggedSets to ensure buttonRow stays visible. Without this, buttonRow overflows
-  // the viewport. Instead of a hardcoded reserve, we measure the actual chrome
-  // heights so the constraint is correct for all exercise configurations (duration
-  // with ~130-150pt stopwatch vs reps/weight with ~120pt inputs).
+  // the chrome so the buttonRow stays visible. We measure the heights of the
+  // fixed chrome sections (title, inputs, etc.), buttonRow, and belowButtonsSlot
+  // so we can compute an upper bound that leaves room for the scroller while
+  // keeping the action zone on-screen.
   const [containerHeight, setContainerHeight] = useState(0);
   const [chromeHeightAboveScroller, setChromeHeightAboveScroller] = useState(0);
   const [buttonRowHeight, setButtonRowHeight] = useState(0);
+  const [slotHeight, setSlotHeight] = useState(0);
 
   const handleContainerLayout = (event: LayoutChangeEvent) => {
     setContainerHeight(event.nativeEvent.layout.height);
@@ -94,6 +95,10 @@ export function SetLogger({
 
   const handleButtonRowLayout = (event: LayoutChangeEvent) => {
     setButtonRowHeight(event.nativeEvent.layout.height);
+  };
+
+  const handleSlotLayout = (event: LayoutChangeEvent) => {
+    setSlotHeight(event.nativeEvent.layout.height);
   };
 
   // iOS's scroll indicator only appears during an actual scroll gesture, so a
@@ -120,11 +125,18 @@ export function SetLogger({
 
   return (
     <ThemedView style={styles.container} onLayout={handleContainerLayout}>
-      {/* Chrome above the scrolled sets (title, inputs, etc.). Measured to compute
-          the scroller's maxHeight constraint: as the keyboard squeezes the layout,
-          loggedSets.maxHeight must shrink to reserve space for all the fixed chrome
-          and the button row, so Log Set / Skip Set stay reachable. */}
-      <View onLayout={handleChromeLayout}>
+      {/* Chrome above the scrolled sets (title, inputs, etc.). When the keyboard opens
+          and squeezes the layout, we constrain the chrome's maxHeight so that the scroller
+          has room to render and the button row stays visible. The maxHeight accounts for
+          the container height, button row height, slot height, and margins/gap. */}
+      <View
+        onLayout={handleChromeLayout}
+        style={
+          containerHeight > 0 && buttonRowHeight > 0 && slotHeight >= 0
+            ? { maxHeight: Math.max(100, containerHeight - buttonRowHeight - slotHeight - Spacing.two - Spacing.two - 24) }
+            : {}
+        }
+      >
         <View style={styles.exerciseTitleRow}>
           <ThemedText style={styles.exerciseTitle}>
             {presenter.currentExerciseTitle || 'Exercise'}
@@ -323,25 +335,11 @@ export function SetLogger({
       </Modal>
 
       {/* The one scroller on the session screen: only the current exercise's
-          sets, newest first, bounded by the fixed chrome around it.
-
-          When the keyboard opens and squeezes the layout, we constrain this
-          scrollview's height to ensure buttonRow stays visible. Without the
-          maxHeight, loggedSets.flex: 1 takes all available space, pushing
-          buttonRow below the viewport (no scroll recovery, since overflow
-          paints outside the visible container). The maxHeight is computed from
-          actual measured heights of the chrome above the scroller (title, inputs,
-          etc.) and the button row, so it stays correct as exercise types change
-          (e.g., duration ~130-150pt stopwatch vs reps/weight ~120pt inputs) and
-          the component evolves. */}
-      <ScrollView
-        style={[
-          styles.loggedSets,
-          containerHeight > 0 && buttonRowHeight > 0
-            ? { maxHeight: Math.max(100, containerHeight - chromeHeightAboveScroller - buttonRowHeight) }
-            : {},
-        ]}
-      >
+          sets, newest first. The flex: 1 layout expands to fill available space
+          after the chrome and button row are laid out. The chrome's maxHeight
+          constraint (above) ensures buttonRow stays visible when the keyboard squeezes
+          the layout. */}
+      <ScrollView style={styles.loggedSets}>
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
@@ -387,17 +385,20 @@ export function SetLogger({
         </Pressable>
       </View>
 
-      {belowButtonsSlot}
+      <View onLayout={handleSlotLayout}>
+        {belowButtonsSlot}
+      </View>
 
       {/* Keyboard accessory view: provides a standard iOS "Done" button above the
           numeric keypad, making keyboard dismissal discoverable. When the user taps
           a numeric input, this bar appears above the keyboard with a tap-to-dismiss
           affordance, following iOS conventions. */}
       <InputAccessoryView nativeID="keyboardAccessory" backgroundColor={theme.background}>
-        <View style={styles.keyboardAccessoryView}>
+        <View style={[styles.keyboardAccessoryView, { borderTopColor: theme.backgroundSelected }]}>
           <Pressable
             onPress={() => Keyboard.dismiss()}
             style={styles.doneButton}
+            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Dismiss keyboard"
           >
@@ -520,9 +521,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
     marginTop: Spacing.two,
-    // Ensure the action zone stays visible even when layout is constrained.
-    // This combined with loggedSets.maxHeight keeps buttonRow reachable at
-    // all viewport heights, fixing 113/341 cases where it was off-screen.
+    // Increase the minimum height above the iOS HIG 44pt floor, providing a larger
+    // touch target for the Log Set and Skip Set buttons and ensuring the action zone
+    // has adequate visual weight.
     minHeight: 48,
   },
   rowButton: {
@@ -583,12 +584,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#8E8E93',
   },
   keyboardAccessoryView: {
+    // borderTopColor is theme-resolved inline
     flexDirection: 'row',
     justifyContent: 'flex-end',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,
     borderTopWidth: 1,
-    borderTopColor: '#D0D0D0',
   },
   doneButton: {
     paddingHorizontal: Spacing.three,
@@ -597,6 +598,6 @@ const styles = StyleSheet.create({
   doneButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#007AFF',
+    color: ActionButtonColor.primary,
   },
 });
