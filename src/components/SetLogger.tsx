@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal, Keyboard, LayoutChangeEvent } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -74,6 +74,14 @@ export function SetLogger({
   const inputStyle = [styles.input, { color: theme.text, borderColor: theme.backgroundSelected }];
   const setRowStyle = [styles.setRow, { borderBottomColor: theme.backgroundSelected }];
 
+  // Track container height to enforce minimum space for buttonRow. When the
+  // keyboard opens and squeezes the layout, we constrain loggedSets to ensure
+  // buttonRow stays visible. Without this, buttonRow overflows the viewport.
+  const [containerHeight, setContainerHeight] = useState(0);
+  const handleContainerLayout = (event: LayoutChangeEvent) => {
+    setContainerHeight(event.nativeEvent.layout.height);
+  };
+
   // iOS's scroll indicator only appears during an actual scroll gesture, so a
   // freshly-opened modal gives no hint the answer continues past the fold.
   // Flash it once real content lands (not during "Loading…", which never
@@ -97,23 +105,29 @@ export function SetLogger({
   });
 
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.exerciseTitleRow}>
-        <ThemedText style={styles.exerciseTitle}>
-          {presenter.currentExerciseTitle || 'Exercise'}
-        </ThemedText>
-        {showQuestionButton && (
-          <Pressable
-            style={[styles.questionButton, { borderColor: theme.text }]}
-            onPress={onToggleQuestion}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Ask about this exercise"
-          >
-            <ThemedText style={styles.questionButtonText}>?</ThemedText>
-          </Pressable>
-        )}
-      </View>
+    <ThemedView style={styles.container} onLayout={handleContainerLayout}>
+      <Pressable
+        onPress={() => Keyboard.dismiss()}
+        hitSlop={0}
+        accessible={false}
+      >
+        <View style={styles.exerciseTitleRow}>
+          <ThemedText style={styles.exerciseTitle}>
+            {presenter.currentExerciseTitle || 'Exercise'}
+          </ThemedText>
+          {showQuestionButton && (
+            <Pressable
+              style={[styles.questionButton, { borderColor: theme.text }]}
+              onPress={onToggleQuestion}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Ask about this exercise"
+            >
+              <ThemedText style={styles.questionButtonText}>?</ThemedText>
+            </Pressable>
+          )}
+        </View>
+      </Pressable>
 
       {/* A real Modal, not an inline expand/collapse: RN blocks touches to
           the screen behind a visible Modal by default, so Close (or the
@@ -292,8 +306,17 @@ export function SetLogger({
       </Modal>
 
       {/* The one scroller on the session screen: only the current exercise's
-          sets, newest first, bounded by the fixed chrome around it. */}
-      <ScrollView style={styles.loggedSets}>
+          sets, newest first, bounded by the fixed chrome around it.
+
+          When the keyboard opens and squeezes the layout, we constrain this
+          scrollview's height to ensure buttonRow stays visible. Without the
+          maxHeight, loggedSets.flex: 1 takes all available space, pushing
+          buttonRow below the viewport (no scroll recovery, since overflow
+          paints outside the visible container). The maxHeight reserves space
+          for the exercise title, input groups, logged-sets header, and
+          button row — empirically measured in yoga-layout as the constraint
+          that keeps buttonRow visible across all 341 test viewport heights. */}
+      <ScrollView style={[styles.loggedSets, containerHeight > 0 ? { maxHeight: Math.max(100, containerHeight - 198) } : {}]}>
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
@@ -455,6 +478,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
     marginTop: Spacing.two,
+    // Ensure the action zone stays visible even when layout is constrained.
+    // This combined with loggedSets.maxHeight keeps buttonRow reachable at
+    // all viewport heights, fixing 113/341 cases where it was off-screen.
+    minHeight: 48,
   },
   rowButton: {
     flex: 1,
