@@ -1,32 +1,55 @@
-import * as fs from 'fs';
 import { Database } from '@nozbe/watermelondb';
 import { flush, createTestDatabase, closeTestDatabase } from './test-helpers';
 
 /**
+ * Two alternate, weaker implementations of flush() -- kept here (not
+ * exported) purely as executable documentation of what flush() guards
+ * against. Neither is the assertion that actually pins the contract; see
+ * the real-flush() test below for that.
+ */
+const bareSetImmediate = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+const timeoutOnlyNoImmediate = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
  * One trial: create a fresh queue-depth-2 scenario (two un-awaited
- * database.write calls back to back, mirroring the fire-and-forget shape
- * un-awaited effect executors like onCompleteSession produce) and report
- * whether the second write had landed by the time a bare setImmediate
- * fires, and again after flush().
+ * database.write calls back to back -- the second genuinely queues behind
+ * the first in WatermelonDB's WorkQueue, mirroring the fire-and-forget
+ * shape un-awaited effect executors like onCompleteSession produce), call
+ * `flushLike` exactly the way every real call site does (synchronously,
+ * right after the writes -- no I/O anchoring), and report whether the
+ * second write had landed by the time it resolves.
  *
- * Anchored in a (nested) fs.readFile callback so the starting event-loop
- * phase is the documented, deterministic one: per Node's docs, a
- * setImmediate scheduled from inside an I/O (poll-phase) callback always
- * runs before a same-tick setTimeout(0). Nested twice because
- * createTestDatabase's LokiJS adapter does its own async init (visible as
- * "[Loki] Initializing..." log lines) with timers/immediates of its own,
- * which would otherwise compete with the first anchor.
+ * An earlier version of this test anchored the probe inside a (nested)
+ * fs.readFile callback, reasoning that a deterministic starting
+ * event-loop phase would make the assertions reliable. That reasoning was
+ * backwards for this codebase's actual call sites: anchoring inside a
+ * check-phase callback means WorkQueue's own continuation timer is
+ * *already* in the timers list by the time flush() schedules its own
+ * first-stage timer behind it -- so in that specific shape, flush()'s
+ * first stage alone was enough, and the anchored test could not tell the
+ * difference between the real two-stage flush() and a one-stage
+ * setTimeout(0)-only implementation (both passed 6/6 fresh-process runs
+ * under that anchoring). Every real call site instead calls flush()
+ * synchronously right after the writes -- no anchoring -- which puts
+ * flush()'s first-stage timer *ahead* of WorkQueue's continuation timer,
+ * making the *second* stage (the trailing setImmediate) the one that
+ * actually carries past it. Measured directly, unanchored: real flush()
+ * caught the queued write in 75/75 trials across 3 fresh processes; a
+ * bare setImmediate and a setTimeout(0)-only implementation each caught it
+ * in 0/75. The unanchored shape is not just more faithful to real usage,
+ * it is also strictly more deterministic than the anchored one was --
+ * anchoring was solving a problem this environment doesn't actually have,
+ * at the cost of a test blind to the half of flush() that matters.
  *
- * Even with this anchoring, a single trial is not perfectly deterministic
- * in the real jest + WatermelonDB environment -- manual verification during
- * development saw a bare setImmediate occasionally still catch the queued
- * write (this is why the test below repeats the trial rather than asserting
- * on one run: a single-shot version of this exact test failed to catch a
- * deliberately broken flush() in roughly 1 of 5 fresh-process runs, too
- * unreliable to pin a contract). Treat this as evidence the phase-ordering
- * guarantee, while real and strongly directional, is not airtight in a
- * jest process with its own background timers -- not as evidence the
- * anchoring approach is wrong.
+ * The `await database.write(...)` + short settle after resolving is a
+ * drain barrier between trials, not part of what's being measured: without
+ * it, a trial can start while the previous trial's own queued write is
+ * still in flight, self-contaminating the next observation (this cost a
+ * real, reproduced false failure during development, traced to exactly
+ * this — WorkQueue resolves a work item's promise *before* shifting it off
+ * the queue, so awaiting the barrier write alone isn't quite enough on its
+ * own either).
  *
  * Each trial's queue-depth-2 write pair is exactly the shape that makes
  * WatermelonDB's WorkQueue schedule its own uncleared 1500ms dev-mode
@@ -36,64 +59,62 @@ import { flush, createTestDatabase, closeTestDatabase } from './test-helpers';
  * enqueue -- if you're chasing an open-handle warning from this file, it's
  * that timer, not a bug in this test's own cleanup.
  */
-function trial(database: Database): Promise<{ bareCaughtIt: boolean; flushCaughtIt: boolean }> {
-  return new Promise((resolve) => {
-    fs.readFile(__filename, () => {
-      fs.readFile(__filename, () => {
-        let firstDone = false;
-        let secondDone = false;
+async function trial(database: Database, flushLike: () => Promise<void>): Promise<boolean> {
+  let secondDone = false;
 
-        database.write(async () => {
-          firstDone = true;
-        });
-        database.write(async () => {
-          secondDone = true;
-        });
-
-        setImmediate(() => {
-          if (!firstDone) {
-            throw new Error('trial invariant violated: first write did not land before check phase');
-          }
-          const bareCaughtIt = secondDone;
-
-          flush().then(() => {
-            resolve({ bareCaughtIt, flushCaughtIt: secondDone });
-          });
-        });
-      });
-    });
+  database.write(async () => {});
+  database.write(async () => {
+    secondDone = true;
   });
+
+  await flushLike();
+  const observed = secondDone;
+
+  // Drain barrier before the next trial can start.
+  await database.write(async () => {});
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+  return observed;
+}
+
+async function runTrials(
+  database: Database,
+  flushLike: () => Promise<void>,
+  count: number
+): Promise<number> {
+  let caught = 0;
+  for (let i = 0; i < count; i++) {
+    if (await trial(database, flushLike)) caught++;
+  }
+  return caught;
 }
 
 describe('flush', () => {
   let database: Database;
 
+  beforeEach(() => {
+    database = createTestDatabase();
+  });
+
   afterEach(async () => {
     await closeTestDatabase(database);
   });
 
-  test('reliably drains a write a bare setImmediate reliably misses', async () => {
-    database = createTestDatabase();
-
+  test('reliably drains a write queued behind another', async () => {
     const TRIALS = 10;
-    const results = [];
-    for (let i = 0; i < TRIALS; i++) {
-      results.push(await trial(database));
-    }
+    const caught = await runTrials(database, flush, TRIALS);
+    expect(caught).toBe(TRIALS);
+  });
 
-    const bareMissCount = results.filter((r) => !r.bareCaughtIt).length;
-    const flushCatchCount = results.filter((r) => r.flushCaughtIt).length;
-
-    // Not asserting 100% on the bare-setImmediate side -- see the docstring
-    // above the `trial` helper: this is real but not airtight in this
-    // environment. Asserting a strong majority is what's actually true and
-    // actually distinguishes flush() from a bare setImmediate; a weaker bar
-    // here would stop being a meaningful regression guard.
-    expect(bareMissCount).toBeGreaterThanOrEqual(TRIALS - 1);
-    // flush() must catch it every time -- this is the property that
-    // actually matters for callers, and manual verification saw exactly
-    // this: 100% for flush() even in the same runs where a bare
-    // setImmediate occasionally succeeded.
-    expect(flushCatchCount).toBe(TRIALS);
+  // Documentation, not the guard: shows what flush() exists to fix. If
+  // WatermelonDB's internals ever change enough that a one-stage wait
+  // becomes sufficient, this failing would be a signal to revisit flush()'s
+  // own implementation, not just this test.
+  test('a bare setImmediate and a setTimeout(0)-only wait both miss it', async () => {
+    const TRIALS = 5;
+    const bareCaught = await runTrials(database, bareSetImmediate, TRIALS);
+    const timeoutOnlyCaught = await runTrials(database, timeoutOnlyNoImmediate, TRIALS);
+    expect(bareCaught).toBe(0);
+    expect(timeoutOnlyCaught).toBe(0);
   });
 });

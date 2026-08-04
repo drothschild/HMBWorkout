@@ -48,19 +48,19 @@ export async function closeTestDatabase(database: Database): Promise<void> {
  * executors (e.g. onCompleteSession) settle before asserting on DB state.
  * WatermelonDB's WorkQueue continues a queued write via a real
  * `setTimeout(fn, 0)`, not a microtask, scheduled from the promise
- * continuation after the preceding item resolves — so it isn't due until the
- * *next* event-loop iteration's timers phase. A bare `await setImmediate()`
- * only reaches the *current* iteration's check phase and resolves before
- * that timer ever fires, which is what makes it miss a write queued behind
- * another — deterministically given a clean starting phase, though not
- * airtight as a single observation inside a real jest process (see the
- * repeated-trial test in test-helpers.test.ts, which is the source of truth
- * for how reliable this actually is in practice, and AGENTS.md's Testing
- * gotchas for the full explanation). This waits through one more
- * timers-then-check cycle, draining a queue depth of two where a bare
- * `setImmediate` drains only one — NOT an unconditional guarantee for depth
- * >= 3 (e.g. onCompleteSession draining several pending set-persists then
- * its own write): use a bounded retry / poll-until-true there instead (see
+ * continuation after the preceding item resolves. BOTH of this function's
+ * two stages are load-bearing when called the way every real call site
+ * does (synchronously, right after the writes) -- a bare `setImmediate`
+ * alone or a bare `setTimeout(fn, 0)` alone each reliably miss a write
+ * queued behind another; only the two together reliably catch it. See
+ * test-helpers.test.ts for the actual source of truth on this (it measures
+ * it directly, repeatedly, in the same unanchored call shape every real
+ * site uses) and AGENTS.md's Testing gotchas for the fuller explanation,
+ * including why an earlier, differently-anchored version of that test was
+ * blind to removing this function's second stage. This is NOT an
+ * unconditional guarantee for queue depth >= 3 (e.g. onCompleteSession
+ * draining several pending set-persists then its own write): use a bounded
+ * retry / poll-until-true there instead (see
  * activeSession.test.ts:512,601, the two bounded-retry loops).
  */
 export function flush(): Promise<void> {

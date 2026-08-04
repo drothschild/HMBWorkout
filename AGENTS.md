@@ -534,34 +534,38 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
-- **Fire-and-forget DB writes need at least `flush()` before assertions, not
-  bare `setImmediate` — and `flush()` itself only advances the queue by one
-  extra step, not a full drain.** Effect executors like `onCompleteSession`
-  dispatch side effects that return promises but do not await them.
-  WatermelonDB's WorkQueue routes a write queued behind another via a real
-  `setTimeout(fn, 0)` timer (not a microtask), scheduled from the promise
-  continuation after the preceding item resolves — so it isn't due until the
-  *next* event-loop iteration's timers phase, while a bare `await
-  setImmediate()` only reaches the *current* iteration's check phase and
-  returns before that timer ever fires. That ordering is what makes a bare
-  `setImmediate` miss a write queued behind another, and it's fully
-  deterministic given a clean starting phase (verified with a standalone
-  Node script, 20/20). It is *not* fully reliable as a single observation
-  inside an actual jest test process, though — jest's own background timers
-  can occasionally perturb which phase a callback lands in, so a single
-  bare-`setImmediate` trial inside a real test caught the "queued" write
-  anyway in roughly 1 of 5 fresh-process runs during verification, even with
-  careful I/O-anchoring. `flush()` (`src/db/test-helpers.ts`) waits through
-  one more timers-then-check cycle and was 100% reliable across the same
-  runs. `test-helpers.test.ts`'s own test reflects this: it repeats the
-  probe several times and asserts on the aggregate (`flush()` must catch it
-  every time; a bare `setImmediate` must miss it all but at most once) rather
-  than trusting a single sample — that test is the actual source of truth
-  for this contract, more so than this paragraph's summary of it. Separately,
-  and unconditionally regardless of jest noise: `flush()` is not a guarantee
-  for arbitrary queue depth — a sequence that queues three or more writes
-  (e.g. `onCompleteSession` draining several pending set-persists and then
-  doing its own `database.write`) needs the bounded-retry/poll-until-true
+- **Fire-and-forget DB writes need `flush()` before assertions, not a bare
+  `setImmediate` or a bare `setTimeout(fn, 0)` alone — both of `flush()`'s
+  two stages are load-bearing, and `flush()` itself only advances the queue
+  by one extra step, not a full drain.** Effect executors like
+  `onCompleteSession` dispatch side effects that return promises but do not
+  await them. WatermelonDB's WorkQueue routes a write queued behind another
+  via a real `setTimeout(fn, 0)` timer (not a microtask), scheduled from the
+  promise continuation after the preceding item resolves. Call `flush()`
+  (`src/db/test-helpers.ts`) the way every real call site does — synchronously,
+  right after the writes, no special setup — and it reliably drains a queue
+  depth of *two* pending writes where either a bare `setImmediate` or a bare
+  `setTimeout(fn, 0)` alone reliably does not (measured unanchored: 75/75 vs.
+  0/75 for each weaker alternative, across repeated fresh processes). An
+  earlier version of `test-helpers.test.ts` anchored its probe inside a
+  nested `fs.readFile` I/O callback, reasoning that pinning a deterministic
+  starting event-loop phase would make the test more reliable. That reasoning
+  had it backwards for how this codebase actually calls `flush()`: anchoring
+  inside a check-phase callback changes which of WorkQueue's timer and
+  `flush()`'s own first-stage timer is queued first, which made that specific
+  test unable to tell a real two-stage `flush()` apart from a one-stage
+  `setTimeout(fn, 0)`-only implementation — both passed. The current test
+  uses the plain, unanchored call shape instead, which is both more faithful
+  to real usage and was measured to be *more* deterministic than the anchored
+  version, not less. `test-helpers.test.ts` is the actual source of truth for
+  this contract, more so than this paragraph's summary of it — it repeats the
+  probe and asserts `flush()` catches the write every time, and separately
+  demonstrates (as documentation, not as the guard) that the two weaker
+  alternatives never do. Separately, and regardless of any of the above:
+  `flush()` is not a guarantee for arbitrary queue depth — a sequence that
+  queues three or more writes (e.g. `onCompleteSession` draining several
+  pending set-persists and then doing its own `database.write`) needs the
+  bounded-retry/poll-until-true
   idiom already used at `activeSession.test.ts:512,601` (the two
   `for (let attempt ...)` bounded-retry loops), not a single
   `flush()` call. Always check for this hazard when asserting on DB state
