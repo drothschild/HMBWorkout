@@ -1,7 +1,5 @@
-import { Colors } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function useIsDark() {
-  const theme = useTheme();
-  return theme.background !== Colors.light.background;
+  return useColorScheme() === 'dark';
 }

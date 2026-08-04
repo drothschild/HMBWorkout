@@ -60,7 +60,7 @@ export const BackgroundColors = {
  * Contrast: 4.93:1 (meets WCAG AA 4.5:1 minimum)
  *
  * `errorBubbleTextDark`: Text on errorBubbleDark background (dark mode)
- * Contrast: 5.7712:1 (meets WCAG AA 4.5:1 minimum, used on #2C1A1D)
+ * Contrast: 5.77:1 (meets WCAG AA 4.5:1 minimum, used on #2C1A1D)
  */
 export const ThemedBackgroundText = {
   backgroundElementTextLight: '#003D85',
