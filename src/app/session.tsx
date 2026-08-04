@@ -461,9 +461,6 @@ export default function SessionScreen() {
               </ThemedText>
               <View style={styles.headerControls}>
                 <WorkoutStopwatch startedAtMs={presenter.startedAtMs} isDone={presenter.phase === 'done'} />
-                <ThemedText type="small" style={styles.phaseText}>
-                  {presenter.phase}
-                </ThemedText>
                 {presenter.isPaused && (
                   <Pressable onPress={() => presenter.onResume()}>
                     <ThemedText style={styles.resumeText}>Resume</ThemedText>
@@ -574,7 +571,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   // A long routine name must truncate rather than push headerControls
-  // (stopwatch, phase, Pause/Resume) off-screen — confirmed by simulator
+  // (stopwatch, Pause/Resume) off-screen — confirmed by simulator
   // check that it otherwise does exactly that (Pause becomes unreachable).
   routineNameText: {
     flexShrink: 1,
@@ -585,9 +582,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
     flexShrink: 0,
-  },
-  phaseText: {
-    opacity: 0.7,
   },
   routineNotes: {
     opacity: 0.7,
