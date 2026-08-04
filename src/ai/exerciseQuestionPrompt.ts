@@ -5,8 +5,8 @@
  * One-shot, like the rest-screen commentary this mirrors, but answering a
  * different question: not "what's coming up," but "how do I do this
  * exercise." The prompt carries exactly one exercise (title, kind, its own
- * existing description if any) plus the coach personality — no working-set
- * history, no other routine entries.
+ * existing description if any) plus the coach personality and the immutable
+ * coach directives — no working-set history, no other routine entries.
  *
  * Like `contextBuilder` and `restCommentaryPrompt`, this prompt carries data
  * and never secrets: it is handed a personality string and an exercise
@@ -39,6 +39,8 @@ export interface ExerciseQuestionPromptInput {
   exercise: ExerciseQuestionExercise;
   /** `aiPersonality` from settings. */
   personality?: string;
+  /** `IMMUTABLE_DIRECTIVES` from `src/ai/coachDirectives.ts`. */
+  directives?: string;
 }
 
 export interface ExerciseQuestionPrompt {
@@ -47,15 +49,15 @@ export interface ExerciseQuestionPrompt {
 }
 
 /**
- * User free text (personality, exercise titles, exercise descriptions) is
+ * User free text (personality, directives, exercise titles, exercise descriptions) is
  * dropped into a markdown-shaped prompt, so a line starting with '#' would
  * read as a section heading and could masquerade as prompt structure. Same
  * treatment `contextBuilder` gives routine notes and `restCommentaryPrompt`
  * gives personality/directives/titles.
  *
  * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`
- * and `src/ai/restCommentaryPrompt.ts:neutralizeForPrompt`. A follow-up PR
- * should hoist all three into a shared helper.
+ * and `src/ai/restCommentaryPrompt.ts:neutralizeForPrompt`. Hoisting all three
+ * into a shared helper is tracked as accepted debt in AGENTS.md.
  */
 function neutralizeForPrompt(text: string): string {
   return text
@@ -75,12 +77,13 @@ export function buildExerciseQuestionPrompt(
   input: ExerciseQuestionPromptInput
 ): ExerciseQuestionPrompt {
   const personality = input.personality?.trim();
+  const directives = input.directives?.trim();
   const exercise = input.exercise;
   // Neutralize the title like personality/description: a model-authored or
   // user-authored title could contain newlines that fabricate prompt sections.
   const title = neutralizeForPrompt(exercise.title);
 
-  const system = [
+  const sections = [
     `You are a strength-training coach in a workout-logging app. The athlete is mid-workout and tapped a question mark next to the exercise described in the next message because they want a detailed how-to.
 
 Reply with a clear, detailed explanation of the exercise: setup, proper form and technique, breathing, and common mistakes to avoid. Write a few short paragraphs.
@@ -92,7 +95,15 @@ Rules:
     `## Coaching Style
 
 ${personality ? neutralizeForPrompt(personality) : 'Not specified.'}`,
-  ].join('\n\n');
+  ];
+
+  if (directives) {
+    sections.push(`## Coaching Directives
+
+${neutralizeForPrompt(directives)}`);
+  }
+
+  const system = sections.join('\n\n');
 
   const descriptionText = exercise.description?.trim();
   const message = `## Exercise

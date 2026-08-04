@@ -31,6 +31,7 @@ import { create } from 'zustand';
 import { createExerciseQuestionClient } from '@/ai/exerciseQuestionClient';
 import { buildExerciseQuestionPrompt, normalizeExerciseAnswerText } from '@/ai/exerciseQuestionPrompt';
 import { loadExerciseDescription } from '@/ai/exerciseQuestionContext';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase } from '@/state/sessionPresenter';
 import type { ExerciseKind, SessionState } from '@/engine/types';
@@ -148,6 +149,11 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: target.exerciseTitle, kind: target.kind, description },
         personality: settings.aiPersonality,
+        // The non-negotiable tier only, matching exerciseReplaceStore's and
+        // restCommentaryStore's choice — rendered last by
+        // buildExerciseQuestionPrompt so it outranks the user-controlled
+        // coaching-style text above it.
+        directives: IMMUTABLE_DIRECTIVES,
       });
 
       const rawAnswer = await deps.createClient({ apiKey: trimmedKey }).ask(prompt);
