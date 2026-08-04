@@ -87,7 +87,20 @@ Opposite of Anthropic: OpenAI **does** support `minItems`, `maxItems`, `minimum`
 
 OpenAI **does not** support: `minLength`, `maxLength`, `minProperties`, `maxProperties` (inferred).
 
-**⚠️ Unverified — confirm before Phase 1 (2026-08-04).** The agent that wrote this plan was correctly barred from calling either API, so everything in this subsection is documentation-derived at best and, where marked "(inferred)", not sourced at all. **The per-provider keyword subsets are the single load-bearing technical claim in this design** — the dual-check mechanism is built entirely on them — so treat them as a hypothesis to verify, not a finding. The same caution applies to the model id `gpt-5.6` used throughout: a wrong model id is a 404 on all four AI surfaces at once. Verify both against current OpenAI documentation and pin the results before any code is written.
+**✅ VERIFIED 2026-08-04 against OpenAI's live documentation — results below supersede the inferences in this section.**
+
+- **The request field is `text.format`, not `response_format`.** The shape above is the older Chat Completions form; current docs specify `text: { format: { type: "json_schema", strict: true, name: ..., schema: ... } }`. **This design must state which API it targets** — Responses (`text.format`) or Chat Completions (`response_format`) — because the translation layer in Design Decision 5 is written against the wrong one as drafted.
+- **`strict: true` and `name` are required** — as the plan says. ✓
+- **All fields must be `required`, and `additionalProperties: false` must always be set** — as the plan says. ✓ Optionality is expressed as a union with `null`, not by omitting from `required`.
+- **Supported:** `enum`, `anyOf`, `pattern`, `format`, `multipleOf`, `minimum`/`maximum`, `exclusiveMinimum`/`exclusiveMaximum`, `minItems`/`maxItems`.
+- **NOT supported, and the plan missed this entirely:** the composition keywords **`allOf`, `not`, `if`/`then`/`else`, `dependentRequired`, `dependentSchemas`**, plus `patternProperties`. The plan's "opposite of Anthropic" framing never considered composition keywords at all.
+- **`minLength`/`maxLength`/`minProperties`/`maxProperties`:** not supported. The plan's inference was right, though for a different reason than stated.
+
+**The practical result is much better than the plan assumed: our existing schemas are already OpenAI-compatible.** Grepped every live schema — `AI_TURN_SCHEMA`, `ALTERNATES_SCHEMA`, the draft schemas — and they use only `enum`, `required` and `additionalProperties`, all of which OpenAI supports and two of which it *requires*. No `allOf`, no `not`, no `oneOf`, no bounds. The only `minItems`/`maxItems` in `src/ai` is a **comment in `alternatesSchema.ts:57`** recording why they are deliberately absent — the PR #71 lesson. So the dual-check mechanism should pass on day one rather than force schema rewrites, and Phase 1's risk is correspondingly lower.
+
+**Model id confirmed, with a nuance worth acting on:** `gpt-5.6` is real but is an **alias for `gpt-5.6-sol`**, the frontier tier. Two cheaper siblings exist — `gpt-5.6-terra` (balanced) and `gpt-5.6-luna` (cost-sensitive, high-volume). That bears directly on open question 2: this app's four surfaces are not equal — rest commentary already runs at `effort: low` and is a short prose call fired on every rest, so pinning all four to the frontier tier is a real cost decision rather than a default.
+
+**Original caution, retained for the record.** The agent that wrote this plan was correctly barred from calling either API, so everything in this subsection is documentation-derived at best and, where marked "(inferred)", not sourced at all. **The per-provider keyword subsets are the single load-bearing technical claim in this design** — the dual-check mechanism is built entirely on them — so treat them as a hypothesis to verify, not a finding. The same caution applies to the model id `gpt-5.6` used throughout: a wrong model id is a 404 on all four AI surfaces at once. Verify both against current OpenAI documentation and pin the results before any code is written.
 
 **Behavior:**  
 OpenAI's structured output uses Context-Free Grammar (CFG) to guarantee schema adherence at the token level. The request includes `"strict": true` and a required `name` field on the schema root.
