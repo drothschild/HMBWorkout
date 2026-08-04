@@ -1815,7 +1815,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Do not mention or ask about RPE (Rate of Perceived Exertion) unless the user has demonstrated logging RPE in their workout history'
+        'Do not spontaneously bring up or ask about RPE (Rate of Perceived Exertion) unless the user has logged RPE in their workout history or raises it themselves'
       );
     }, 30000);
   });

@@ -33,6 +33,7 @@ import { buildExerciseQuestionPrompt, normalizeExerciseAnswerText } from '@/ai/e
 import { loadExerciseDescription } from '@/ai/exerciseQuestionContext';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase } from '@/state/sessionPresenter';
+import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import type { ExerciseKind, SessionState } from '@/engine/types';
 
 /** The exercise the athlete tapped the question button on, plus the ids that scope the cache. */
@@ -148,6 +149,7 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: target.exerciseTitle, kind: target.kind, description },
         personality: settings.aiPersonality,
+        directives: IMMUTABLE_DIRECTIVES,
       });
 
       const rawAnswer = await deps.createClient({ apiKey: trimmedKey }).ask(prompt);

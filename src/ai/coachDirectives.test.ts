@@ -49,17 +49,24 @@ describe('coachDirectives: RPE mention constraint', () => {
   // may not log. The coach should not spontaneously mention or ask about RPE
   // for a user who has never logged any RPE values. This prevents confusing
   // the user with off-topic questions. It belongs in IMMUTABLE_DIRECTIVES
-  // because it's a data-driven constraint (based on what the user has actually
-  // logged), similar to the TRX rule. Pins the actual "avoid mentioning RPE"
-  // guidance (not just the substring "RPE"): a line that merely mentions RPE
-  // without the "avoid" or "don't mention" constraint still fails this test.
-  it('instructs the coach to avoid mentioning RPE when the user has not logged it', () => {
-    const rpeLine = IMMUTABLE_DIRECTIVES.split('\n').find((line) => line.includes('RPE'));
+  // because spontaneous RPE suggestion — even if data-driven in origin — is a
+  // standing behavioral constraint that must hold across all surfaces (chat,
+  // debrief, rest commentary, exercise question, and replace alternates). The
+  // directive is evaluated everywhere, not just the history-rich surfaces, so
+  // it keys on user action ("raises it themselves") rather than data presence
+  // alone. Pins the actual "do not spontaneously bring up" guidance (not just
+  // the substring "RPE"): a line mentioning RPE without both the prohibition
+  // on spontaneous mention and the conditional about user initiation fails this test.
+  it('instructs the coach to avoid spontaneously mentioning RPE but answer direct questions', () => {
+    const rpeLine = IMMUTABLE_DIRECTIVES.split('\n').find((line) =>
+      line.includes('spontaneously') && line.includes('RPE')
+    );
 
     expect(rpeLine).toBeDefined();
-    expect(rpeLine!.trimStart().startsWith('- ')).toBe(true);
-    expect(rpeLine).toContain('RPE');
-    expect(rpeLine).toMatch(/avoid|don't mention|do not mention|never.*RPE/i);
+    expect(rpeLine!.trimStart().startsWith('- Do not spontaneously')).toBe(true);
+    expect(rpeLine).toContain('bring up or ask about RPE');
+    expect(rpeLine).toContain('unless');
+    expect(rpeLine).toContain('raises it themselves');
   });
 });
 

@@ -61,4 +61,4 @@ export const IMMUTABLE_DIRECTIVES = `- Never suggest a week-over-week load incre
 - Never give medical advice or diagnose injuries; always recommend consulting a qualified healthcare professional for any pain or injury concerns
 - Never provide nutrition or supplement advice; always recommend consulting a registered dietitian or qualified healthcare professional for nutrition guidance
 - Never prescribe or reference a weight/load value for a TRX or other suspension-trainer exercise; TRX and suspension trainers are bodyweight-resistance tools, not weights
-- Do not mention or ask about RPE (Rate of Perceived Exertion) unless the user has demonstrated logging RPE in their workout history`;
+- Do not spontaneously bring up or ask about RPE (Rate of Perceived Exertion) unless the user has logged RPE in their workout history or raises it themselves`;

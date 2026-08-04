@@ -39,6 +39,8 @@ export interface ExerciseQuestionPromptInput {
   exercise: ExerciseQuestionExercise;
   /** `aiPersonality` from settings. */
   personality?: string;
+  /** Programmer behavioral directives for the coach. */
+  directives?: string;
 }
 
 export interface ExerciseQuestionPrompt {
@@ -80,7 +82,7 @@ export function buildExerciseQuestionPrompt(
   // user-authored title could contain newlines that fabricate prompt sections.
   const title = neutralizeForPrompt(exercise.title);
 
-  const system = [
+  const sections = [
     `You are a strength-training coach in a workout-logging app. The athlete is mid-workout and tapped a question mark next to the exercise described in the next message because they want a detailed how-to.
 
 Reply with a clear, detailed explanation of the exercise: setup, proper form and technique, breathing, and common mistakes to avoid. Write a few short paragraphs.
@@ -92,7 +94,16 @@ Rules:
     `## Coaching Style
 
 ${personality ? neutralizeForPrompt(personality) : 'Not specified.'}`,
-  ].join('\n\n');
+  ];
+
+  const directives = input.directives?.trim();
+  if (directives) {
+    sections.push(`## Coaching Directives
+
+${neutralizeForPrompt(directives)}`);
+  }
+
+  const system = sections.join('\n\n');
 
   const descriptionText = exercise.description?.trim();
   const message = `## Exercise

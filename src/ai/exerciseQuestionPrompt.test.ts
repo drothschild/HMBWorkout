@@ -93,6 +93,38 @@ describe('buildExerciseQuestionPrompt', () => {
 
     expect(prompt.system.toLowerCase()).toContain('exercise named in the next message');
   });
+
+  it('omits the directives section when none are given', () => {
+    const prompt = buildExerciseQuestionPrompt({
+      exercise: { title: 'Bench Press', kind: 'strength', description: null },
+    });
+
+    expect(prompt.system).not.toContain('## Coaching Directives');
+  });
+
+  it('renders directives when they are given', () => {
+    const prompt = buildExerciseQuestionPrompt({
+      exercise: { title: 'Bench Press', kind: 'strength', description: null },
+      directives: 'Never suggest adding load two sessions running.',
+    });
+
+    expect(prompt.system).toContain('## Coaching Directives');
+    expect(prompt.system).toContain('Never suggest adding load two sessions running.');
+  });
+
+  it('places directives after personality for precedence', () => {
+    const prompt = buildExerciseQuestionPrompt({
+      exercise: { title: 'Bench Press', kind: 'strength', description: null },
+      personality: 'Be encouraging.',
+      directives: 'Never suggest adding load two sessions running.',
+    });
+
+    const personalityIndex = prompt.system.indexOf('Be encouraging.');
+    const directivesIndex = prompt.system.indexOf('Never suggest adding load two sessions running.');
+
+    expect(personalityIndex).toBeGreaterThan(-1);
+    expect(directivesIndex).toBeGreaterThan(personalityIndex);
+  });
 });
 
 describe('normalizeExerciseAnswerText', () => {
