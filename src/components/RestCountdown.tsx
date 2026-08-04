@@ -4,6 +4,7 @@ import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { playRestCompleteSound } from './timerSoundPlayer';
+import { vibrateAtRestComplete } from './minuteVibration';
 
 interface RestCountdownProps {
   /** Active deadline while the timer is running (undefined when paused) */
@@ -101,6 +102,11 @@ export function RestCountdown({
         // C1 Fix: fire-and-forget, never awaited. The engine dispatch must not wait on
         // audio — if the sound promise hangs, onRestElapsed never fires and the workout
         // is stranded at 0:00 with the latch already set. Match ExerciseStopwatch.
+        // Buzz first, synchronously: it is the signal that survives a
+        // silenced phone, a failed audio session, or audio routed to a
+        // disconnected device. Same order as ExerciseStopwatch's
+        // defaultOnMinute/defaultOnZero.
+        vibrateAtRestComplete();
         playRestCompleteSound().catch(() => {
           // Sound failures are logged by the sound module; ignore here
         });
