@@ -583,11 +583,13 @@ export default function SessionScreen() {
                     })
                   );
                 }}
+                replaceExerciseNode={
+                  /* Renders nothing on its own when there is no entry to replace —
+                     'done' included, since replaceExerciseTarget rejects that phase. */
+                  <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+                }
               />
             )}
-            {/* Renders nothing on its own when there is no entry to replace —
-                'done' included, since replaceExerciseTarget rejects that phase. */}
-            <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
           </View>
 
           <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>

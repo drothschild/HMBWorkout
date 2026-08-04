@@ -41,6 +41,8 @@ interface SetLoggerProps {
   onRpePopupOpenChange?: (open: boolean) => void;
   /** Called when RPE popup is confirmed (Done or Skip) with the final RPE value. */
   onRpePopupConfirm?: (rpe: number | undefined) => void;
+  /** Optional replace exercise node to render after the button row. */
+  replaceExerciseNode?: React.ReactNode;
 }
 
 export function SetLogger({
@@ -61,6 +63,7 @@ export function SetLogger({
   rpePopupOpen,
   onRpePopupOpenChange,
   onRpePopupConfirm,
+  replaceExerciseNode,
 }: SetLoggerProps) {
   const theme = useTheme();
   // TextInput is not a Themed* component, so its text and border colors must
@@ -333,6 +336,8 @@ export function SetLogger({
           <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
         </Pressable>
       </View>
+
+      {replaceExerciseNode}
     </ThemedView>
   );
 }
@@ -438,7 +443,6 @@ const styles = StyleSheet.create({
   loggedSets: {
     flex: 1,
     marginVertical: Spacing.two,
-    minHeight: 0,
   },
   setRow: {
     // borderBottomColor is theme-resolved inline (setRowStyle)
