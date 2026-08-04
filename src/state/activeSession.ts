@@ -430,20 +430,42 @@ export const activeSessionStore = new Proxy(getActiveSessionStore as any, {
 }) as any as ReturnType<typeof createActiveSessionStore>;
 
 /**
- * Inject real executors into the global store.
- * Called from app bootstrap (_layout.tsx) to wire production notification APIs.
+ * Wire the global store to real effect executors (rest timer, notifications).
+ * Called from the app bootstrap effect in `_layout.tsx`.
  *
- * M1: Avoid double-creation by rebuilding the store once with all executors.
- * This replaces the no-op store created on first access with one that has
- * real effect executors (rest timer, notifications).
+ * **It replaces the store; it does not merge into it.** Every call discards the
+ * previous store — its executors *and* its `sessionState` — for a fresh one.
+ * So a second call passing a partial map silently reverts every executor it
+ * omits to the no-op defaults above: rests would just stop notifying, with no
+ * error anywhere. The name says "inject", the behaviour is "replace".
  *
- * Note: Called once at bootstrap before any store access (getActiveSessionStore is not called until needed).
- * If called after first access, rebuilds with real executors. Guard: only call once from _layout.tsx.
+ * **The invariant is one call *site*, not one call.** The boot effect is free
+ * to re-run — React Fast Refresh sets `ignorePreviousDependencies` whenever a
+ * component's type identity changes, which makes every hook dep comparison
+ * report "changed", so `useEffect(..., [])` re-runs on every refresh of that
+ * component. A repeat call from *there* is survivable only because the same
+ * effect re-reads `engine_state` and calls `rehydrateActiveSession` a few lines
+ * later, putting the live session back into the new store. Nothing else in the
+ * app does that, so a call from anywhere else strands the workout: the store
+ * goes to `sessionState: null` while the row sits on disk, with no path back
+ * until the next cold boot.
+ *
+ * That rule is enforced statically, by `activeSession.callSites.test.ts`, and
+ * deliberately not at runtime — a runtime guard cannot express it. A
+ * module-level "already injected" latch could not tell the two cases apart
+ * (both are ordinary calls), and it would break the legitimate one: Metro
+ * re-evaluates only the edited module and its ancestors up to the nearest React
+ * Refresh boundary, and `_layout.tsx` *is* that boundary. Editing `_layout.tsx`
+ * or `executors/restTimer.ts` therefore re-runs the boot effect while leaving
+ * this module untouched, so the latch would survive and the store would keep
+ * executing the pre-edit executor closures — the same mixed-old/new hazard
+ * AGENTS.md engine convention 4 documents for inlined `.lv` rules.
  *
  * @param executors The real executors to inject (e.g., rest timer, notifications)
  */
 export function injectRealExecutors(executors: Partial<EffectExecutors>): void {
-  // Always rebuild the store with real executors, whether this is first access or not
-  // This ensures all executors (no-ops + real) are wired before any dispatch calls
+  // Rebuild unconditionally — first access or not — so the no-op defaults and
+  // the real executors are wired together before any dispatch. Rebuilding is
+  // also what lets a Fast Refresh pick up edited executor closures.
   globalStore = createActiveSessionStore(getDatabase(), executors);
 }
