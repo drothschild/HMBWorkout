@@ -463,6 +463,35 @@ tags: []
 
       expect(() => parseSession(markdown)).toThrow(ContractError);
     });
+
+    test('parseSession accepts 1x0 (zero logged reps), even though parseRoutine rejects 3x0', () => {
+      // The "sets×reps cannot have zero reps" guard applies to routine TARGETS
+      // ("3x0" is an invalid plan), but in sessions the slot carries LOGGED reps
+      // ("1x0" means the user performed 0 reps), which is a real, valid action.
+      // This test ensures parseSession does NOT throw on 1x0 lines.
+      const markdown = `---
+type: workout-session
+id: sess-004
+date: 2026-07-08
+created: 2026-07-08
+tags: []
+---
+
+✅ 2026-07-08
+
+\`\`\`workout
+- bench-press-db: 1x0 set_type=working weight=30 rest=1:30
+\`\`\`
+`;
+
+      // Should NOT throw; should parse successfully
+      const result = parseSession(markdown);
+      expect(result).toBeTruthy();
+      expect(result.exercises).toHaveLength(1);
+      const exercise = result.exercises[0] as any;
+      expect(exercise.exerciseId).toBe('bench-press-db');
+      expect(exercise.loggedReps).toBe(0);
+    });
   });
 
   describe('I1: unknown flags fail loud', () => {

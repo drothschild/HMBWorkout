@@ -355,10 +355,16 @@ title and kind) — but it only fires when `targetSets` is *absent*, not an expl
 draft with `targetSets: 0` is already rejected before reaching here (`validateRoutineDraft`,
 `src/ai/draftSchema.ts`, enforces `targetSets >= 1` when present), and a malformed vault line like
 `0x10` no longer reaches this layer either: `parseWorkoutLine` (`src/interop/parse.ts`) throws
-`ContractError` on a sets×reps token whose sets count is literally `0`, the same way it already
-rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so `importRoutines`
-skips and logs that routine rather than silently importing a plan the author never wrote. Both
-authoring paths now reject an explicit zero instead of reinterpreting it; this default's job is
+`ContractError` on a sets×reps token whose sets count is literally `0` when parsing a routine
+target (via `context: 'routine'`), the same way it already rejects cardio/stretch with sets×reps
+or a strength line missing sets×reps — so `importRoutines` skips and logs that routine rather than
+silently importing a plan the author never wrote. **Zero reps work similarly: a vault line like
+`3x0` is rejected during routine parsing** because "3 sets of 0 reps" is semantically empty in a
+plan — but this guard applies to routine targets only, not logged reps. When parsing a session
+(via `context: 'session'`), the `1x<reps>` slot carries measured values, and `1x0` is valid
+(the user performed zero repetitions). The distinction is threaded through `parseWorkoutLine`'s
+context parameter: only `context === 'routine'` rejects zero reps.
+Both authoring paths now reject an explicit zero instead of reinterpreting it; this default's job is
 only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
 and is never defaulted. This mirrors
 the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
@@ -372,7 +378,11 @@ imported with an explicit `target_sets = 0` (from a `0x10`-style line, before
 `parseWorkoutLine`'s parse-time rejection existed) is not healed the same way: re-import
 re-parses the same malformed line and now throws, so that routine is skipped rather than
 updated. The row stays at `target_sets = 0` until its vault source is corrected to a valid
-sets count and re-imported successfully.
+sets count and re-imported successfully. The same applies to a legacy routine with
+`target_reps = 0` (from an old `3x0` line): re-import catches the `ContractError` during
+routine parsing and skips that routine on every future import, since the zero-reps guard now
+fires at parse time. A manual correction of the vault source to a valid reps count must
+precede any future successful re-import.
 
 ## HealthKit (`src/health`)
 
