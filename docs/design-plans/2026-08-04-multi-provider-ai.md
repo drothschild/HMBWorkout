@@ -44,8 +44,12 @@ AGENTS.md is explicit: "Adding `@anthropic-ai/sdk` is not an upgrade." The same 
 }
 ```
 
-**Unsupported Keywords (enforced at request time):**  
+**Unsupported Keywords, as this app enforces them:**  
 `minItems`, `maxItems`, `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minProperties`, `maxProperties`
+
+**⚠️ Correction (2026-08-04): this is *our* list, not Anthropic's.** `structuredOutputSubset.ts` says so in its own docstring — it is "deliberately a little wider than the documented list", because `pattern`, `uniqueItems`, `minProperties` and `maxProperties` are named by Anthropic as neither supported *nor* rejected, and the guard treats silence as rejection on purpose ("a schema that needs one should prove it works against the live endpoint and then be removed from this list, rather than shipping on the assumption that silence means support").
+
+That matters here more than it looks, because the section below frames OpenAI's subset as "the opposite of Anthropic". Inverting a **deliberately conservative superset** does not yield the other provider's real subset — at minimum `pattern`, `uniqueItems`, `minProperties` and `maxProperties` sit in a three-way state (rejected by our guard, unknown at Anthropic, claimed-or-inferred at OpenAI) and cannot be reasoned about by inversion at all. Derive each provider's list from that provider's own documentation, and keep our conservative-by-default posture in both.
 
 **Behavior:**  
 If an unsupported keyword is present, the endpoint rejects the entire request with HTTP 400 before the model runs. The official SDKs strip these keywords; this app does not, so `expectStructuredOutputSafe` (in `src/ai/structuredOutputSubset.ts`) walks every schema before sending.
@@ -82,6 +86,8 @@ If an unsupported keyword is present, the endpoint rejects the entire request wi
 Opposite of Anthropic: OpenAI **does** support `minItems`, `maxItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `pattern`.
 
 OpenAI **does not** support: `minLength`, `maxLength`, `minProperties`, `maxProperties` (inferred).
+
+**⚠️ Unverified — confirm before Phase 1 (2026-08-04).** The agent that wrote this plan was correctly barred from calling either API, so everything in this subsection is documentation-derived at best and, where marked "(inferred)", not sourced at all. **The per-provider keyword subsets are the single load-bearing technical claim in this design** — the dual-check mechanism is built entirely on them — so treat them as a hypothesis to verify, not a finding. The same caution applies to the model id `gpt-5.6` used throughout: a wrong model id is a 404 on all four AI surfaces at once. Verify both against current OpenAI documentation and pin the results before any code is written.
 
 **Behavior:**  
 OpenAI's structured output uses Context-Free Grammar (CFG) to guarantee schema adherence at the token level. The request includes `"strict": true` and a required `name` field on the schema root.
