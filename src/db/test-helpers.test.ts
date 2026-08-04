@@ -101,15 +101,16 @@ async function reliablyCatches(
   trials: number,
   maxAttempts: number
 ): Promise<number> {
+  let caught = 0;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const caught = await runTrials(database, flushLike, trials);
+    caught = await runTrials(database, flushLike, trials);
     if (caught === trials) {
       return caught;
     }
   }
-  // All attempts exhausted; return the result of the last attempt
+  // All attempts exhausted; return the last attempt's result
   // (the test will fail, which is the correct behavior for a broken flush())
-  return await runTrials(database, flushLike, trials);
+  return caught;
 }
 
 describe('flush', () => {

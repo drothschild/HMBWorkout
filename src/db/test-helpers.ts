@@ -58,7 +58,8 @@ export async function closeTestDatabase(database: Database): Promise<void> {
  *
  * See test-helpers.test.ts for the actual measurement (it runs repeated trials in the
  * same unanchored call shape every real site uses) and the guard test there for why
- * a single flush() call is ~90% reliable per invocation but the test itself is
+ * a single 10-trial run is ~90% reliable (individual flush() calls are ~99% reliable;
+ * a 10-trial run only needs one miss to fall short) but the test itself is
  * reliable: the test retries the 10-trial measurement up to 3 times and passes as
  * soon as any attempt reaches 10/10 caught, giving the guard ~99.9% reliability
  * (1 − 0.1³). A genuinely broken one-stage implementation stays 0% across all 3

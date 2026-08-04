@@ -558,9 +558,11 @@ is now a misnomer — AI settings are in there too.
   implementation — both passed. The current test uses the plain, unanchored
   call shape instead, which matches every real usage and catches the round-5
   blind-spot mutation (the anchored test passed against a one-stage
-  implementation, proving it was missing this detection). Since individual
-  `flush()` calls are ~90% reliable, the guard test itself retries the 10-trial
-  measurement up to 3 times and passes as soon as any attempt reaches 10/10
+  implementation, proving it was missing this detection). Since a single
+  10-trial run is only ~90% reliable (individual `flush()` calls are ~99%
+  reliable; one miss in ten trials is enough to fall short), the guard test
+  itself retries the 10-trial measurement up to 3 times and passes as soon
+  as any attempt reaches 10/10
   caught, giving the guard ~99.9% reliability (1 − 0.1³). A genuinely broken
   one-stage implementation stays 0% across all 3 attempts and still fails the
   test. `test-helpers.test.ts` is the actual source of truth for this
