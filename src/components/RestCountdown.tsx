@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { playRestCompleteSound } from './timerSoundPlayer';
 
 interface RestCountdownProps {
   /** Active deadline while the timer is running (undefined when paused) */
@@ -72,10 +73,21 @@ export function RestCountdown({
   // The presenter is recreated every render, so keep the elapsed callback in a
   // ref: the interval must not be torn down and re-armed on each parent render.
   // The ref is written in an effect, not during render (react-hooks/refs).
-  const onRestElapsedRef = useRef(onRestElapsed);
-  useEffect(() => {
-    onRestElapsedRef.current = onRestElapsed;
+  // Wrap the callback with sound playback.
+  const onRestElapsedRef = useRef(() => {
+    playRestCompleteSound().catch(() => {
+      // Sound failures are logged by the sound module; ignore here
+    });
+    onRestElapsed();
   });
+  useEffect(() => {
+    onRestElapsedRef.current = () => {
+      playRestCompleteSound().catch(() => {
+        // Sound failures are logged by the sound module; ignore here
+      });
+      onRestElapsed();
+    };
+  }, [onRestElapsed]);
 
   useEffect(() => {
     if (isPaused || !deadlineMs) return;
