@@ -400,6 +400,18 @@ When `loadSettings` runs for the first time on an app that has `anthropicKey` bu
 
 This preserves the "implicit selection" behavior and makes the upgrade transparent.
 
+## Decisions Made (2026-08-04, with the user)
+
+Three of the five open questions below are now **settled**; they are kept in place for the reasoning, but these answers govern.
+
+1. **Model tier: per-surface, not one tier for everything.** `gpt-5.6` is an alias for `gpt-5.6-sol` (frontier); `gpt-5.6-terra` (balanced) and `gpt-5.6-luna` (cost-sensitive) sit below it. The app's four surfaces are not equal work: the coach chat/debrief and routine drafting are judgment-heavy and structurally demanding, while rest commentary is a short prose call that already runs at `effort: low` **and fires on every rest**, and the "?" button is similar. So route by surface — the frontier tier where drafting quality matters, a cheaper tier for the one-liners. This makes `aiModel` a per-surface concern rather than a single global default, which Phase 1's settings work should account for from the start rather than retrofit.
+
+2. **Provider selection stays implicit.** Provider follows whichever key is set, with an explicit `aiProvider` setting winning when present. No picker in Phases 1–3. This preserves existing installs untouched — the user's own setup has `anthropicKey` set today and must keep working with no migration step visible to them.
+
+3. **Target the Responses API (`text.format`), not Chat Completions (`response_format`).** This design was drafted against the older shape. Since the translation layer in Design Decision 5 has to be rewritten against the verified format either way, targeting the current API costs nothing extra.
+
+Questions 3 and 4 from the original list (simulator testing on both providers; naming the provider in error messages) remain open and are **not blocking** — both are Phase 4-or-later concerns.
+
 ## Open Questions for User Input
 
 1. **Should the provider toggle be visible in Settings, or stay implicit?**  
