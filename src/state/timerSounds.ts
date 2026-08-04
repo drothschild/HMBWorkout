@@ -24,18 +24,17 @@ export interface SoundConfig {
 }
 
 /**
- * A playable sound instance — typically wraps expo-audio's Sound class.
- */
-export interface SoundInstance {
-  loadAsync(): Promise<void>;
-  playAsync(): Promise<void>;
-}
-
-/**
  * Injected dependencies for sound playback.
  * In tests, this is mocked. In the component, it's created from expo-audio.
  */
 export interface TimerSoundAPIs {
+  /**
+   * Prepare for playback once per sequence. In the component, this initializes the audio mode.
+   * In tests, this is mocked. Must be awaited before playOne() is called in a sequence
+   * to ensure fail-fast behavior and avoid moving setup into the per-beep path.
+   */
+  prepare(): Promise<void>;
+
   /**
    * Play a single beep. In the component, this wraps the cached ExpoAudioSoundInstance.
    * In tests, this is mocked to track beep invocations.
@@ -72,8 +71,8 @@ export interface TimerSoundExecutor {
 /**
  * Play a sequence of beeps with brief silence between them.
  *
- * This is the core beep-loop logic, pure relative to audio playback but depending
- * on injected `playOne()` and `delay()` for timing and sound. Lives here (not in
+ * This is the core beep-loop logic, decoupled from audio playback by using
+ * injected `playOne()` and `delay()` for timing and sound. Lives here (not in
  * components) so it can be tested with mocked dependencies in the jest node project.
  *
  * Each beep is ~100ms (defined by the beep.wav asset), with ~150ms gap between beeps
@@ -121,12 +120,20 @@ export async function playBeepSequence(
 export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecutor {
   /**
    * Internal helper to safely play a sound with a given configuration.
-   * Uses the injected playBeepSequence to emit the beep loop.
+   * Calls playBeepSequence to emit the beep loop with injected apis.
    */
   async function playSound(config: SoundConfig, context: string): Promise<void> {
     try {
+      // I1 Fix: Prepare once per sequence, before the beep loop
+      await apis.prepare();
+      // M9 Fix: Wrap methods to preserve their `this` context (safe for future implementations that use `this`)
       // Play the beep sequence with the configured beep count
-      await playBeepSequence(config.beepCount, apis.playOne, apis.delay, apis.recordWarning);
+      await playBeepSequence(
+        config.beepCount,
+        () => apis.playOne(),
+        (ms) => apis.delay(ms),
+        (msg, err) => apis.recordWarning(msg, err)
+      );
     } catch (error) {
       apis.recordWarning(`Failed to play ${context} sound:`, error as Error);
     }

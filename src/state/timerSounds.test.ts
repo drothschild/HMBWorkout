@@ -5,6 +5,7 @@ describe('timerSounds', () => {
 
   beforeEach(() => {
     mockApis = {
+      prepare: jest.fn().mockResolvedValue(undefined),
       playOne: jest.fn().mockResolvedValue(undefined),
       delay: jest.fn().mockResolvedValue(undefined),
       recordWarning: jest.fn(),
@@ -151,6 +152,66 @@ describe('timerSounds', () => {
     beforeEach(() => {
       playOneMock = jest.fn().mockResolvedValue(undefined);
       delayMock = jest.fn().mockResolvedValue(undefined);
+    });
+
+    it('M1: must await delay before playing next beep (catches dropped await)', async () => {
+      // M1: Mutation testing found that dropping the await on delay(150) survives all tests.
+      // This test verifies the exact interleaving of play and delay calls.
+      // With the await, execution blocks at each delay before the next play.
+      // Without the await, all plays would happen in rapid succession (within 100ms),
+      // causing seekTo(0)/play() calls to interfere on the same cached player.
+      // Result: user hears ~1 blip instead of 4 beeps.
+
+      const executionLog: string[] = [];
+
+      const playWithTracking = jest.fn(async () => {
+        executionLog.push('play_start');
+        executionLog.push('play_end');
+      });
+
+      const delayWithTracking = jest.fn(async () => {
+        executionLog.push('delay_start');
+        // Delay resolution is async to detect if caller awaits
+        await new Promise<void>((resolve) => {
+          // Simulate async delay resolution after a microtask (to prove await is required)
+          Promise.resolve().then(() => {
+            executionLog.push('delay_resolve');
+            resolve();
+          });
+        });
+        executionLog.push('delay_end');
+      });
+
+      // Play a 4-beep sequence (rest complete sound)
+      const sequencePromise = playBeepSequence(4, playWithTracking, delayWithTracking);
+      await sequencePromise;
+
+      // With await correctly placed, the sequence alternates:
+      // play -> delay (blocks until resolve) -> play -> delay -> play -> delay -> play
+      // So we get: play_start, play_end, delay_start, delay_resolve, delay_end, play_start, ...
+      expect(executionLog).toEqual([
+        'play_start',
+        'play_end',
+        'delay_start',
+        'delay_resolve',
+        'delay_end',
+        'play_start',
+        'play_end',
+        'delay_start',
+        'delay_resolve',
+        'delay_end',
+        'play_start',
+        'play_end',
+        'delay_start',
+        'delay_resolve',
+        'delay_end',
+        'play_start',
+        'play_end',
+      ]);
+
+      // Verify the exact call counts
+      expect(playWithTracking).toHaveBeenCalledTimes(4);
+      expect(delayWithTracking).toHaveBeenCalledTimes(3);
     });
 
     it('plays the correct number of beeps for minute milestone (2 beeps)', async () => {

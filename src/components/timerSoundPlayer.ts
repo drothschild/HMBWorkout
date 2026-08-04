@@ -39,11 +39,6 @@ class ExpoAudioSoundInstance {
     this.player = createAudioPlayer(require('@/assets/sounds/beep.wav'));
   }
 
-  async loadAsync(): Promise<void> {
-    // AudioPlayer loads the source automatically on construction
-    // This is a no-op in the new API
-  }
-
   async playAsync(): Promise<void> {
     // C2 Fix: Seek to start before playing. The AudioPlayer's playhead stays at
     // the end after the first play() call; subsequent play() calls on a finished
@@ -68,7 +63,7 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
   // Cache a single beep sound instance; reuse for all patterns (C4 optimization)
   let beepSound: ExpoAudioSoundInstance | null = null;
 
-  // I4 Fix: Lazy-initialize audio mode on first playback (not at module scope).
+  // I1 Fix: Lazy-initialize audio mode on first playback (not at module scope).
   // This avoids setting a global iOS audio session before the user opens a workout.
   //
   // The promise is memoized rather than guarded by a boolean: the mode must actually be
@@ -93,34 +88,37 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
   let audioModePromise: Promise<void> | null = null;
   function initializeAudioMode(): Promise<void> {
     if (!audioModePromise) {
-      // Respect the mute switch (playsInSilentMode: false) but allow mixing, so beeps
-      // don't interrupt the user's music in the gym.
-      audioModePromise = setAudioModeAsync({
-        playsInSilentMode: false,
-        interruptionMode: 'mixWithOthers',
-      }).catch((error: unknown) => {
-        console.warn('Failed to set audio mode:', error);
-      });
+      // I1 Fix: Make the deferral structural to ensure the native call doesn't happen
+      // synchronously. This ensures the invariant that suspends at the first await
+      // before any native call.
+      audioModePromise = Promise.resolve()
+        .then(() =>
+          setAudioModeAsync({
+            playsInSilentMode: false,
+            interruptionMode: 'mixWithOthers',
+          })
+        )
+        .catch((error: unknown) => {
+          console.warn('Failed to set audio mode:', error);
+        });
     }
     return audioModePromise;
   }
 
   return {
-    async playOne(): Promise<void> {
-      // Initialize audio mode on first playback (I4 lazy initialization)
+    async prepare(): Promise<void> {
+      // I1 Fix: Initialize audio mode once per sequence (before the beep loop)
       await initializeAudioMode();
 
       // Load once and cache the sound instance
       if (!beepSound) {
         beepSound = new ExpoAudioSoundInstance();
-        await beepSound.loadAsync();
       }
+    },
 
+    async playOne(): Promise<void> {
       // Play a single beep
-      // C2 Fix: Seek to start before playing. The AudioPlayer's playhead stays at
-      // the end after the first play() call; subsequent play() calls on a finished
-      // player are silent no-ops. Seeking resets the playhead for the next beep.
-      await beepSound.playAsync();
+      await beepSound!.playAsync();
     },
 
     async delay(durationMs: number): Promise<void> {
@@ -150,8 +148,7 @@ function createDefaultTimerSoundExecutor() {
 // C4 Fix: Lazy-initialize executor so all three sound functions share
 // the same cached beepSound instance. This eliminates the memory leak of
 // creating a new executor (and new player) for each sound pattern.
-// With C3 fixed (beepCount read at play time), one executor handles all patterns.
-// I4: Initialization is deferred until first playback (via createDefaultTimerSoundAPIs).
+// Initialization is deferred until first playback (via createDefaultTimerSoundAPIs).
 let defaultExecutor: TimerSoundExecutor | null = null;
 function getDefaultExecutor(): TimerSoundExecutor {
   if (!defaultExecutor) {
