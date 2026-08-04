@@ -51,12 +51,17 @@ export async function closeTestDatabase(database: Database): Promise<void> {
  * continuation after the preceding item resolves — so it isn't due until the
  * *next* event-loop iteration's timers phase. A bare `await setImmediate()`
  * only reaches the *current* iteration's check phase and resolves before
- * that timer ever fires, so it reliably misses a write queued behind
- * another. This waits through one more timers-then-check cycle, draining a
- * queue depth of two where a bare `setImmediate` drains only one — NOT an
- * unconditional guarantee for depth >= 3 (e.g. onCompleteSession draining
- * several pending set-persists then its own write): use a bounded retry /
- * poll-until-true there instead (see activeSession.test.ts:509-516,598-605).
+ * that timer ever fires, which is what makes it miss a write queued behind
+ * another — deterministically given a clean starting phase, though not
+ * airtight as a single observation inside a real jest process (see the
+ * repeated-trial test in test-helpers.test.ts, which is the source of truth
+ * for how reliable this actually is in practice, and AGENTS.md's Testing
+ * gotchas for the full explanation). This waits through one more
+ * timers-then-check cycle, draining a queue depth of two where a bare
+ * `setImmediate` drains only one — NOT an unconditional guarantee for depth
+ * >= 3 (e.g. onCompleteSession draining several pending set-persists then
+ * its own write): use a bounded retry / poll-until-true there instead (see
+ * activeSession.test.ts:512,601, the two bounded-retry loops).
  */
 export function flush(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(

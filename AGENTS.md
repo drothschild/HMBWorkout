@@ -543,15 +543,27 @@ is now a misnomer — AI settings are in there too.
   continuation after the preceding item resolves — so it isn't due until the
   *next* event-loop iteration's timers phase, while a bare `await
   setImmediate()` only reaches the *current* iteration's check phase and
-  returns before that timer ever fires. That's why a bare `setImmediate`
-  reliably misses a write queued behind another. `flush()` (`src/db/
-  test-helpers.ts`) waits through one more timers-then-check cycle, so it
-  reliably drains a queue depth of *two* pending writes where a bare
-  `setImmediate` drains only one — but it is not an unconditional guarantee
-  for arbitrary depth: a sequence that queues three or more writes (e.g.
-  `onCompleteSession` draining several pending set-persists and then doing
-  its own `database.write`) needs the bounded-retry/poll-until-true idiom
-  already used at `activeSession.test.ts:509-516,598-605`, not a single
+  returns before that timer ever fires. That ordering is what makes a bare
+  `setImmediate` miss a write queued behind another, and it's fully
+  deterministic given a clean starting phase (verified with a standalone
+  Node script, 20/20). It is *not* fully reliable as a single observation
+  inside an actual jest test process, though — jest's own background timers
+  can occasionally perturb which phase a callback lands in, so a single
+  bare-`setImmediate` trial inside a real test caught the "queued" write
+  anyway in roughly 1 of 5 fresh-process runs during verification, even with
+  careful I/O-anchoring. `flush()` (`src/db/test-helpers.ts`) waits through
+  one more timers-then-check cycle and was 100% reliable across the same
+  runs. `test-helpers.test.ts`'s own test reflects this: it repeats the
+  probe several times and asserts on the aggregate (`flush()` must catch it
+  every time; a bare `setImmediate` must miss it all but at most once) rather
+  than trusting a single sample — that test is the actual source of truth
+  for this contract, more so than this paragraph's summary of it. Separately,
+  and unconditionally regardless of jest noise: `flush()` is not a guarantee
+  for arbitrary queue depth — a sequence that queues three or more writes
+  (e.g. `onCompleteSession` draining several pending set-persists and then
+  doing its own `database.write`) needs the bounded-retry/poll-until-true
+  idiom already used at `activeSession.test.ts:512,601` (the two
+  `for (let attempt ...)` bounded-retry loops), not a single
   `flush()` call. Always check for this hazard when asserting on DB state
   after fire-and-forget writes, and reach for a bounded retry over a fixed
   number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
