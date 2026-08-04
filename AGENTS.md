@@ -572,6 +572,49 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
+- **Fire-and-forget DB writes need `flush()` before assertions, not a bare
+  `setImmediate` or a bare `setTimeout(fn, 0)` alone — both of `flush()`'s
+  two stages are load-bearing, and `flush()` itself only advances the queue
+  by one extra step, not a full drain.** Effect executors like
+  `onCompleteSession` dispatch side effects that return promises but do not
+  await them. WatermelonDB's WorkQueue routes a write queued behind another
+  via a real `setTimeout(fn, 0)` timer (not a microtask), scheduled from the
+  promise continuation after the preceding item resolves. Call `flush()`
+  (`src/db/test-helpers.ts`) the way every real call site does — synchronously,
+  right after the writes, no special setup — and it catches a queue depth of *two*
+  pending writes in the high-90s% of
+  individual calls (~90% per run, measured as 46/51 fresh-process full-passes
+  on a 10-trial measurement), where either a bare `setImmediate` or a bare
+  `setTimeout(fn, 0)` alone catch it in 0% of runs. An earlier version of
+  `test-helpers.test.ts` anchored its probe inside a nested `fs.readFile` I/O
+  callback, reasoning that pinning a deterministic starting event-loop phase
+  would make the test more reliable. That reasoning had it backwards for how
+  this codebase actually calls `flush()`: anchoring inside a check-phase
+  callback changes which of WorkQueue's timer and `flush()`'s own first-stage
+  timer is queued first, which made that specific test unable to tell a real
+  two-stage `flush()` apart from a one-stage `setTimeout(fn, 0)`-only
+  implementation — both passed. The current test uses the plain, unanchored
+  call shape instead, which matches every real usage and catches the round-5
+  blind-spot mutation (the anchored test passed against a one-stage
+  implementation, proving it was missing this detection). Since a single
+  10-trial run is only ~90% reliable (individual `flush()` calls are ~99%
+  reliable; one miss in ten trials is enough to fall short), the guard test
+  itself retries the 10-trial measurement up to 3 times and passes as soon
+  as any attempt reaches 10/10
+  caught, giving the guard ~99.9% reliability (1 − 0.1³). A genuinely broken
+  one-stage implementation stays 0% across all 3 attempts and still fails the
+  test. `test-helpers.test.ts` is the actual source of truth for this
+  contract — it repeats the probe and separately demonstrates (as documentation,
+  not as the guard) that the two weaker alternatives never catch the write.
+
+  `flush()` is not a guarantee for arbitrary queue depth — a sequence that
+  queues three or more writes (e.g. `onCompleteSession` draining several
+  pending set-persists and then doing its own `database.write`) needs the
+  bounded-retry/poll-until-true idiom already used at `activeSession.test.ts:512,601`
+  (the two `for (let attempt ...)` bounded-retry loops), not a single `flush()`
+  call. Always check for this hazard when asserting on DB state
+  after fire-and-forget writes, and reach for a bounded retry over a fixed
+  number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
 
 ## Structure
 

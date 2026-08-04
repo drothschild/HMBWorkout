@@ -9,7 +9,7 @@
  */
 
 import { Database } from '@nozbe/watermelondb';
-import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
 import { upsertExercise, upsertRoutine } from '@/db/repository';
 import { createActiveSessionStore } from '@/state/activeSession';
 import type { HealthKitDeps } from '@/state/activeSession';
@@ -37,9 +37,6 @@ const routine = {
     },
   ],
 };
-
-/** Let rill's un-awaited effect executors settle. */
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('abandoned sessions and the sync queue', () => {
   let database: Database;
