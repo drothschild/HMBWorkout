@@ -58,6 +58,28 @@ tags: []
       expect(() => parseRoutine(markdown)).toThrow(ContractError);
     });
 
+    test('throws ContractError on zero sets in sets×reps (0x10)', () => {
+      // 0x10 matches the \d+x\d+ regex (syntactically fine) but "zero sets of
+      // 10 reps" is semantically nonsensical — reject it the same way cardio
+      // with sets×reps or a missing sets×reps for strength is rejected below,
+      // rather than silently laundering it into a routine the author never
+      // actually specified.
+      const markdown = `---
+type: workout-routine
+id: test-routine
+created: 2026-07-08
+updated: 2026-07-08
+tags: []
+---
+
+\`\`\`workout
+- bench-press-db: 0x10
+\`\`\`
+`;
+
+      expect(() => parseRoutine(markdown)).toThrow(ContractError);
+    });
+
     test('throws ContractError on invalid rpe (out of range)', () => {
       const markdown = `---
 type: workout-routine
@@ -397,6 +419,28 @@ tags: []
       const result = parseSession(markdown);
       expect(result.exercises).toHaveLength(1);
       expect((result.exercises[0] as any).supersetLabel).toBe('A');
+    });
+
+    test('parseSession rejects zero sets in sets×reps (0x6), same guard as parseRoutine', () => {
+      // Session lines share parseWorkoutLine with routine lines (M2 overload:
+      // "1x<logged-reps>" for a logged set), so the zero-sets guard must fire
+      // through this entry point too, not just parseRoutine's.
+      const markdown = `---
+type: workout-session
+id: sess-003
+date: 2026-07-08
+created: 2026-07-08
+tags: []
+---
+
+✅ 2026-07-08
+
+\`\`\`workout
+- bench-press-db: 0x6 set_type=working
+\`\`\`
+`;
+
+      expect(() => parseSession(markdown)).toThrow(ContractError);
     });
   });
 
