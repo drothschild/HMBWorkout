@@ -51,7 +51,7 @@ export interface Stop {
  * walk non-terminating (e.g., stuck in resting with SkipRest looping forever).
  * A real routine produces vastly fewer iterations than this.
  */
-const MAX_STOPS = 1000;
+const MAX_ITERATIONS = 1000;
 
 /** Absent-not-sentinel: the engine uses 0 for "no target", the wire contract omits it. */
 function optionalCount(value: number): number | undefined {
@@ -86,10 +86,10 @@ function stopFrom(state: SessionState, ordinal: number): Stop {
 /**
  * Walk `routine` through the engine and record every stop.
  *
- * Throws if the engine refuses to start the routine (empty entries, or every
- * entry planning zero sets). The engine's raw error message is surfaced,
- * which differs from shell-side rejection ("Cannot start session: routine X
- * has no exercises"). Callers should handle these engine-level errors.
+ * Throws if the engine refuses to start the routine. Two cases:
+ * - Empty entries: engine throws "TransitionError: index 0 out of bounds"
+ * - Every entry planning zero sets: engine throws "routine has no entry with any sets to perform"
+ * These differ from shell-side rejection messages. Callers should handle these engine-level errors.
  */
 export async function projectSchedule(routine: RoutineInput): Promise<Stop[]> {
   const engine = createEngine({});
@@ -102,7 +102,7 @@ export async function projectSchedule(routine: RoutineInput): Promise<Stop[]> {
 
   const stops: Stop[] = [];
   let iterations = 0;
-  while (state.phase !== 'done' && iterations < MAX_STOPS) {
+  while (state.phase !== 'done' && iterations < MAX_ITERATIONS) {
     iterations++;
     if (state.phase === 'resting') {
       state = await engine.dispatch({ tag: 'SkipRest' });
@@ -114,7 +114,7 @@ export async function projectSchedule(routine: RoutineInput): Promise<Stop[]> {
 
   if (state.phase !== 'done') {
     throw new Error(
-      `projectSchedule: walk did not terminate within ${MAX_STOPS} iterations (routine ${routine.id})`
+      `projectSchedule: walk did not terminate within ${MAX_ITERATIONS} iterations (routine ${routine.id})`
     );
   }
 

@@ -202,7 +202,7 @@ describe('projectSchedule', () => {
       entries: [],
     };
 
-    await expect(projectSchedule(routine)).rejects.toThrow();
+    await expect(projectSchedule(routine)).rejects.toThrow(/out of bounds/);
   });
 
   it('handles superset members with mismatched set counts (AC2.2)', async () => {
@@ -252,7 +252,7 @@ describe('projectSchedule', () => {
     // Anti-vacuity guard: without this the loop passes trivially if every seed
     // lands in the rejection branch. Measured across 60 seeds: 57 compared,
     // 183 positions, 39 routines with any label, 9 with real adjacent groups,
-    // 5 with mismatched per-member set counts.
+    // 5 with mismatched per-member set counts (2 with two active members).
     expect(compared).toBeGreaterThan(30);
   }, 30000);
 });
