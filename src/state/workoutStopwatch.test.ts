@@ -1,4 +1,4 @@
-import { computeElapsedMs, formatElapsedTime } from './workoutStopwatch';
+import { computeElapsedMs, computeElapsedSeconds, formatElapsedTime } from './workoutStopwatch';
 
 /**
  * Test: workout stopwatch pure logic (header total-elapsed-time display).
@@ -20,6 +20,30 @@ describe('computeElapsedMs', () => {
   test('clamps to zero if now is somehow before the start time', () => {
     // Defensive: device clock changes should never render a negative stopwatch.
     expect(computeElapsedMs(5_000, 1_000)).toBe(0);
+  });
+});
+
+describe('computeElapsedSeconds', () => {
+  test('is zero when now equals the start time', () => {
+    expect(computeElapsedSeconds(1_000, 1_000)).toBe(0);
+  });
+
+  test('is the floored seconds once time has passed', () => {
+    expect(computeElapsedSeconds(1_000, 5_500)).toBe(4);
+  });
+
+  test('clamps to zero if now is somehow before the start time', () => {
+    // Defensive: device clock changes should never render a negative elapsed time.
+    expect(computeElapsedSeconds(5_000, 1_000)).toBe(0);
+  });
+
+  test('truncates partial seconds rather than rounding', () => {
+    // 1999ms = 1s (floor), not 2s (round)
+    expect(computeElapsedSeconds(1_000, 2_999)).toBe(1);
+  });
+
+  test('handles sub-second elapsed time as zero seconds', () => {
+    expect(computeElapsedSeconds(1_000, 1_500)).toBe(0);
   });
 });
 

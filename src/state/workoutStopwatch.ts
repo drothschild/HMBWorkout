@@ -30,6 +30,18 @@ export function computeElapsedMs(startedAtMs: number, nowMs: number): number {
 }
 
 /**
+ * Whole seconds elapsed since the workout started. Floors the millisecond
+ * result so only complete seconds are counted, matching the component's
+ * tick-to-second-precision rounding (not rounded up). Clamped to zero.
+ */
+export function computeElapsedSeconds(
+  startedAtMs: number,
+  nowMs: number
+): number {
+  return Math.floor(computeElapsedMs(startedAtMs, nowMs) / 1000);
+}
+
+/**
  * Render elapsed milliseconds as `m:ss` (minutes unpadded, seconds
  * zero-padded), matching `RestCountdown` and `exerciseStopwatch.ts` so every
  * timer on the session screen reads alike — with one difference: total
