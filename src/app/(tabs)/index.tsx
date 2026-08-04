@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
 import { todayStartPresenter, TodayRoutineChoice, TodayStartOptions } from '@/state/todayStartPresenter';
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     textAlign: 'center',
-    color: '#FF6B6B',
+    color: StatusColor.danger,
   },
   resumeButton: {
     paddingVertical: Spacing.three,

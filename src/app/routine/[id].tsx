@@ -6,7 +6,7 @@ import { useState, useCallback } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import { routineDetailPresenter, RoutineDetail } from '@/state/routineDetailPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     textAlign: 'center',
-    color: '#FF6B6B',
+    color: StatusColor.danger,
     marginBottom: Spacing.two,
   },
 });

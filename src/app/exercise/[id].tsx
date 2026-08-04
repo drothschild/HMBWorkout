@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   errorMessage: {
-    color: '#ff4444',
+    color: StatusColor.danger,
   },
   formGroup: {
     gap: Spacing.one,
