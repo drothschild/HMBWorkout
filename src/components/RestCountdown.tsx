@@ -70,19 +70,14 @@ export function RestCountdown({
     deadlineMs ? Math.max(0, deadlineMs - Date.now()) : 0
   );
 
-  // The presenter is recreated every render, so keep the elapsed callback in a
-  // ref: the interval must not be torn down and re-armed on each parent render.
-  // The ref is written in an effect, not during render (react-hooks/refs).
-  // Wrap the callback with sound playback.
-  const onRestElapsedRef = useRef(() => {
-    playRestCompleteSound().catch(() => {
-      // Sound failures are logged by the sound module; ignore here
-    });
-    onRestElapsed();
-  });
+  // I5 Fix: Keep the elapsed callback in a ref so the tick interval
+  // (which has deps [deadlineMs, isPaused]) doesn't re-arm when onRestElapsed changes.
+  // The ref is updated via an effect [onRestElapsed] so tick always calls the latest callback.
+  // M2 Fix: Initialize with null instead of a throwaway closure; set the ref in the effect.
+  const onRestElapsedRef = useRef<() => void>(null!);
   useEffect(() => {
-    onRestElapsedRef.current = () => {
-      playRestCompleteSound().catch(() => {
+    onRestElapsedRef.current = async () => {
+      await playRestCompleteSound().catch(() => {
         // Sound failures are logged by the sound module; ignore here
       });
       onRestElapsed();

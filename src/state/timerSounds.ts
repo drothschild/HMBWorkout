@@ -1,7 +1,8 @@
 /**
  * Timer sound effects for exercise stopwatch and rest countdown.
  *
- * This pure module generates distinct sound patterns for different timer events:
+ * M3 Fix: This is an effect executor module (like src/health), not pure.
+ * It orchestrates distinct sound patterns for different timer events:
  * - Minute milestone (count-up stopwatch): two short beeps
  * - Countdown completion (0:00 on countdown stopwatch): three longer beeps
  * - Rest period complete: four beeps for emphasis
@@ -16,6 +17,12 @@
 
 /**
  * A tone description for sound generation.
+ *
+ * M4 Note: The current implementation uses the beep asset as-is (100ms fixed duration)
+ * and ignores frequency/durationMs from the config. These fields are preserved for
+ * future extensibility (e.g., if we generate tones instead of using an asset).
+ * Callers should still populate them per pattern for consistency with the schema,
+ * even though they're currently ignored.
  */
 export interface Tone {
   /** Frequency in Hz (e.g., 800 for a standard notification beep) */
@@ -74,24 +81,22 @@ export interface TimerSoundExecutor {
 
 /**
  * Create a timer sound executor with injected audio APIs.
- * The executor caches a single sound instance and reuses it for all playback.
+ * C3/C4 Note: Creates fresh sound instances for each pattern (not cached across patterns).
+ * The underlying audio player (beepSound in timerSoundPlayer) is cached for efficiency.
  */
 export function createTimerSoundExecutor(apis: TimerSoundAPIs): TimerSoundExecutor {
-  let soundInstance: SoundInstance | null = null;
-
   /**
    * Internal helper to safely play a sound with a given configuration.
-   * Loads the sound once and caches it; subsequent calls reuse the instance.
+   * Creates a fresh wrapper for each pattern so each pattern's config is captured correctly.
    */
   async function playSound(config: SoundConfig, context: string): Promise<void> {
     try {
-      // Create and cache the sound instance on first use
-      if (!soundInstance) {
-        soundInstance = apis.createSoundInstance(config);
-        await soundInstance.loadAsync();
-      }
+      // C3 Fix: Create fresh sound instance per pattern (not cached at this level)
+      // The config is captured at wrapper creation time and used to determine beepCount
+      const soundInstance = apis.createSoundInstance(config);
+      await soundInstance.loadAsync();
 
-      // Play the cached sound
+      // Play the sound with this pattern's configuration
       await soundInstance.playAsync();
     } catch (error) {
       apis.recordWarning(`Failed to play ${context} sound:`, error as Error);

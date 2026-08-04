@@ -27,12 +27,15 @@ describe('timerSounds', () => {
       expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(1);
     });
 
-    it('reuses the same sound instance on subsequent calls', async () => {
+    it('creates a fresh sound instance for each call (not cached across calls)', async () => {
+      // C3/C4 behavior: fresh wrapper per call, but underlying beepSound in timerSoundPlayer is cached
       const executor = createTimerSoundExecutor(mockApis);
       await executor.playMinuteMilestone();
       await executor.playMinuteMilestone();
 
-      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(1);
+      // Each call creates a fresh wrapper via createSoundInstance
+      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(2);
+      // Each wrapper calls playAsync once (not multiple beeps on the mock)
       expect(mockSoundInstance.playAsync).toHaveBeenCalledTimes(2);
     });
 
@@ -150,6 +153,34 @@ describe('timerSounds', () => {
           { frequency: 800, durationMs: 100 },
         ],
       });
+    });
+  });
+
+  describe('I4 regression: different patterns on same executor', () => {
+    it('must pass correct pattern config to each sound instance', async () => {
+      // I4 Fix: This test catches the C3 caching bug where patterns would reuse
+      // the first pattern's configuration. Each pattern must receive the correct
+      // config with the right number of tones.
+      const executor = createTimerSoundExecutor(mockApis);
+
+      // Call three different patterns on the same executor
+      await executor.playMinuteMilestone();
+      await executor.playStopwatchZero();
+      await executor.playRestComplete();
+
+      // Each pattern should call createSoundInstance with correct tone count
+      expect(mockApis.createSoundInstance).toHaveBeenCalledTimes(3);
+
+      const calls = (mockApis.createSoundInstance as jest.Mock).mock.calls;
+
+      // First call: minute milestone with 2 tones
+      expect(calls[0][0].tones.length).toBe(2);
+
+      // Second call: stopwatch zero with 3 tones
+      expect(calls[1][0].tones.length).toBe(3);
+
+      // Third call: rest complete with 4 tones
+      expect(calls[2][0].tones.length).toBe(4);
     });
   });
 });
