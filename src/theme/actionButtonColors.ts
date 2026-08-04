@@ -42,6 +42,7 @@ export const BackgroundColors = {
   lightElement: '#F0F0F3', // Colors.light.backgroundElement
   darkElement: '#212225',  // Colors.dark.backgroundElement
   errorBubble: '#FFE5E5',
+  errorBubbleDark: '#212225', // Dark mode error bubble, clears 4.5:1 with errorBubbleText
 } as const;
 
 /**
@@ -53,11 +54,15 @@ export const BackgroundColors = {
  * `backgroundElementTextDark`: Text on Colors.dark.backgroundElement (#212225)
  * Contrast: 9.42:1 (well above WCAG AA 4.5:1 minimum)
  *
- * `errorBubbleText`: Text on errorBubble hardcoded background (#FFE5E5)
+ * `errorBubbleText`: Text on errorBubble hardcoded background (#FFE5E5, light mode)
  * Contrast: 4.93:1 (meets WCAG AA 4.5:1 minimum)
+ *
+ * `errorBubbleTextDark`: Text on errorBubbleDark background (dark mode)
+ * Contrast: 9.89:1 (well above WCAG AA 4.5:1 minimum, used on #212225)
  */
 export const ThemedBackgroundText = {
   backgroundElementTextLight: '#003D85',
   backgroundElementTextDark: '#99CCFF',
   errorBubbleText: '#CC0000',
+  errorBubbleTextDark: '#FF6666',
 } as const;

@@ -194,9 +194,30 @@ export default function AiCoachScreen() {
   }
 
   if (acceptError) {
+    const isDark = theme.background !== Colors.light.background;
     footerItems.push(
-      <View key="acceptError" style={styles.errorBubble}>
-        <ThemedText type="default" style={styles.errorMessage}>
+      <View
+        key="acceptError"
+        style={[
+          styles.errorBubble,
+          {
+            backgroundColor: isDark
+              ? BackgroundColors.errorBubbleDark
+              : BackgroundColors.errorBubble,
+          },
+        ]}
+      >
+        <ThemedText
+          type="default"
+          style={[
+            styles.errorMessage,
+            {
+              color: isDark
+                ? ThemedBackgroundText.errorBubbleTextDark
+                : ThemedBackgroundText.errorBubbleText,
+            },
+          ]}
+        >
           {acceptError}
         </ThemedText>
       </View>
@@ -525,6 +546,8 @@ interface ErrorBubbleProps {
 
 function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
   const router = useRouter();
+  const theme = useTheme();
+  const isDark = theme.background !== Colors.light.background;
 
   let errorMessage: string;
   let showRetry: boolean;
@@ -559,14 +582,26 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
       return _exhaustive;
   }
 
+  const errorTextColor = isDark
+    ? ThemedBackgroundText.errorBubbleTextDark
+    : ThemedBackgroundText.errorBubbleText;
+  const errorBubbleBackgroundColor = isDark
+    ? BackgroundColors.errorBubbleDark
+    : BackgroundColors.errorBubble;
+
   return (
-    <View style={styles.errorBubble}>
-      <ThemedText type="default" style={styles.errorMessage}>
+    <View
+      style={[
+        styles.errorBubble,
+        { backgroundColor: errorBubbleBackgroundColor },
+      ]}
+    >
+      <ThemedText type="default" style={[styles.errorMessage, { color: errorTextColor }]}>
         {errorMessage}
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
         <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
-          <ThemedText type="link" style={styles.errorLinkText}>
+          <ThemedText type="link" style={[styles.errorLinkText, { color: errorTextColor }]}>
             Open Settings
           </ThemedText>
         </Pressable>
@@ -804,14 +839,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   errorBubble: {
-    backgroundColor: BackgroundColors.errorBubble,
     borderRadius: 8,
     padding: Spacing.three,
     marginVertical: Spacing.two,
     marginHorizontal: Spacing.two,
   },
   errorMessage: {
-    color: ThemedBackgroundText.errorBubbleText,
     marginBottom: Spacing.two,
   },
   errorLink: {

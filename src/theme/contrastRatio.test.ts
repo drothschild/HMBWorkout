@@ -87,5 +87,11 @@ describe('ThemedBackgroundText', () => {
         AA_NORMAL_TEXT_MINIMUM
       );
     });
+
+    it('errorBubbleTextDark clears WCAG AA contrast (4.5:1) on dark mode errorBubbleDark background', () => {
+      expect(contrastRatio(ThemedBackgroundText.errorBubbleTextDark, BackgroundColors.errorBubbleDark)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
   });
 });
