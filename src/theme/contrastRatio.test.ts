@@ -1,5 +1,7 @@
 import { contrastRatio } from './contrastRatio';
 import { ActionButtonColor, StatusColor } from './actionButtonColors';
+import { ProgressBarColors } from './progressColors';
+import { AiCoachErrorColors } from './aiCoachColors';
 
 describe('contrastRatio', () => {
   it('returns 21 for black against white', () => {
@@ -48,32 +50,28 @@ describe('StatusColor', () => {
 
 describe('Progress fill graphical component colors', () => {
   const WCAG_GRAPHICAL_MINIMUM = 3.0;
-  const LIGHT_TRACK_BACKGROUND = '#E0E1E6';
-  const DARK_TRACK_BACKGROUND = '#2E3135';
-  const LIGHT_PROGRESS_FILL = '#0D6E13';
-  const DARK_PROGRESS_FILL = '#34C759';
 
   it('light mode progress fill clears WCAG 1.4.11 contrast (3:1) against light track', () => {
-    expect(contrastRatio(LIGHT_PROGRESS_FILL, LIGHT_TRACK_BACKGROUND)).toBeGreaterThanOrEqual(
-      WCAG_GRAPHICAL_MINIMUM
-    );
+    expect(
+      contrastRatio(ProgressBarColors.light.fill, ProgressBarColors.light.track)
+    ).toBeGreaterThanOrEqual(WCAG_GRAPHICAL_MINIMUM);
   });
 
   it('dark mode progress fill clears WCAG 1.4.11 contrast (3:1) against dark track', () => {
-    expect(contrastRatio(DARK_PROGRESS_FILL, DARK_TRACK_BACKGROUND)).toBeGreaterThanOrEqual(
-      WCAG_GRAPHICAL_MINIMUM
-    );
+    expect(
+      contrastRatio(ProgressBarColors.dark.fill, ProgressBarColors.dark.track)
+    ).toBeGreaterThanOrEqual(WCAG_GRAPHICAL_MINIMUM);
   });
 });
 
 describe('AI Coach error bubble colors', () => {
   const AA_NORMAL_TEXT_MINIMUM = 4.5;
-  const ERROR_BUBBLE_BACKGROUND = '#FFE5E5';
-  const ERROR_BUBBLE_TEXT = '#CC0000';
 
   it('error bubble text clears WCAG AA contrast (4.5:1) against error bubble background', () => {
-    expect(contrastRatio(ERROR_BUBBLE_TEXT, ERROR_BUBBLE_BACKGROUND)).toBeGreaterThanOrEqual(
-      AA_NORMAL_TEXT_MINIMUM
-    );
+    // Note: AiCoachErrorColors.bubbleText is #C00 (3-digit CSS shorthand in src/app/ai-coach.tsx),
+    // expanded here to 6-digit form #CC0000 for the contrastRatio parser.
+    expect(
+      contrastRatio(AiCoachErrorColors.bubbleText, AiCoachErrorColors.bubbleBackground)
+    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
   });
 });

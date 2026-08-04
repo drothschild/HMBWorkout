@@ -641,6 +641,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: {
+    // backgroundColor is theme-resolved inline
     height: 6,
     borderRadius: 3,
   },
