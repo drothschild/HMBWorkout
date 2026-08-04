@@ -104,6 +104,20 @@ describe('createSessionPresenter', () => {
 
       expect(presenter.startedAtMs).toBe(state.startedAtMs);
     });
+
+    test('exposes done phase to freeze the stopwatch once workout is complete', () => {
+      const state = createMockState();
+      state.phase = 'done';
+
+      const presenter = createSessionPresenter(state, jest.fn(async () => null));
+
+      // The header uses presenter.phase === 'done' to gate the stopwatch interval:
+      // isDone={presenter.phase === 'done'} on WorkoutStopwatch.
+      // This test verifies that the presenter correctly reports the done phase
+      // so the component can freeze the stopwatch display.
+      expect(presenter.phase).toBe('done');
+      expect(presenter.startedAtMs).toBe(state.startedAtMs);
+    });
   });
 
   describe('set position within the current entry', () => {

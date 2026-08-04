@@ -7,6 +7,8 @@ import { computeElapsedMs, formatElapsedTime } from '@/state/workoutStopwatch';
 interface WorkoutStopwatchProps {
   /** Wall-clock ms the session started (SessionState.startedAtMs, via the presenter). */
   startedAtMs: number;
+  /** True when the session phase is 'done' — freezes the display. */
+  isDone?: boolean;
 }
 
 /**
@@ -21,20 +23,34 @@ interface WorkoutStopwatchProps {
  * off-screen. All the arithmetic lives in `@/state/workoutStopwatch`
  * (jest-covered); this component only owns the interval and the markup.
  */
-export function WorkoutStopwatch({ startedAtMs }: WorkoutStopwatchProps) {
-  const [elapsedMs, setElapsedMs] = useState<number>(() =>
-    computeElapsedMs(startedAtMs, Date.now())
+export function WorkoutStopwatch({ startedAtMs, isDone }: WorkoutStopwatchProps) {
+  // M1: Store whole seconds to avoid re-renders on every 250ms tick (~4x/sec).
+  // Only 1 of every 4 ticks produces a visible change, so 3 bail out per interval.
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(() =>
+    Math.floor(computeElapsedMs(startedAtMs, Date.now()) / 1000)
   );
 
   useEffect(() => {
-    const tick = () => setElapsedMs(computeElapsedMs(startedAtMs, Date.now()));
+    // I1: Don't tick if the session is done. The phase is never persisted, so
+    // freezing here is safe — a rehydrate will never land on 'done' and leave
+    // an obsolete stopwatch value behind.
+    if (isDone) return;
+
+    const tick = () => {
+      setElapsedSeconds(Math.floor(computeElapsedMs(startedAtMs, Date.now()) / 1000));
+    };
     tick();
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [startedAtMs]);
+  }, [startedAtMs, isDone]);
 
+  const elapsedMs = elapsedSeconds * 1000;
   return (
-    <ThemedText type="small" style={styles.text}>
+    <ThemedText
+      type="small"
+      style={styles.text}
+      accessibilityLabel={`Elapsed workout time ${formatElapsedTime(elapsedMs)}`}
+    >
       {formatElapsedTime(elapsedMs)}
     </ThemedText>
   );

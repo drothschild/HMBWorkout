@@ -458,7 +458,7 @@ export default function SessionScreen() {
             <View style={styles.headerRow}>
               <ThemedText type="smallBold">{presenter.routineName ?? 'Active Session'}</ThemedText>
               <View style={styles.headerControls}>
-                <WorkoutStopwatch startedAtMs={presenter.startedAtMs} />
+                <WorkoutStopwatch startedAtMs={presenter.startedAtMs} isDone={presenter.phase === 'done'} />
                 <ThemedText type="small" style={styles.phaseText}>
                   {presenter.phase}
                 </ThemedText>
