@@ -44,16 +44,18 @@ export function ReplaceExercise({
   return (
     <View>
       {target && hasKey && (
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => exerciseReplaceStore.getState().open(target)}
-          style={[styles.trigger, { borderColor: theme.backgroundSelected }]}
-        >
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {busy ? 'Finding alternatives…' : 'Replace exercise'}
-          </ThemedText>
-        </Pressable>
+        <View style={styles.triggerWrapper}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => exerciseReplaceStore.getState().open(target)}
+            style={[styles.button, styles.secondaryButton]}
+          >
+            <ThemedText style={styles.buttonText}>
+              {busy ? 'Finding alternatives…' : 'Replace exercise'}
+            </ThemedText>
+          </Pressable>
+        </View>
       )}
 
       <Modal
@@ -121,13 +123,20 @@ export function ReplaceExercise({
 }
 
 const styles = StyleSheet.create({
-  trigger: {
-    alignSelf: 'flex-start',
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    borderWidth: 1,
+  triggerWrapper: {
+    marginTop: Spacing.two,
+  },
+  button: {
+    paddingVertical: Spacing.two,
     borderRadius: 4,
-    marginBottom: Spacing.two,
+    alignItems: 'center',
+  },
+  secondaryButton: {
+    backgroundColor: '#208AEF',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
   backdrop: {
     flex: 1,
