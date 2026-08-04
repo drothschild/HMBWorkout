@@ -1,5 +1,5 @@
 import { contrastRatio } from './contrastRatio';
-import { ActionButtonColor, StatusColor, ThemedBackgroundText } from './actionButtonColors';
+import { ActionButtonColor, BackgroundColors, StatusColor, ThemedBackgroundText } from './actionButtonColors';
 
 describe('contrastRatio', () => {
   it('returns 21 for black against white', () => {
@@ -66,47 +66,32 @@ describe('ThemedBackgroundText', () => {
   const AA_NORMAL_TEXT_MINIMUM = 4.5;
 
   describe('text on light mode backgroundElement', () => {
-    const BG_LIGHT = '#F0F0F3';
-
-    it.each(Object.entries(ThemedBackgroundText))(
-      '%s on light backgroundElement (#F0F0F3)',
-      (_name, hex) => {
-        // All colors should be tested; only backgroundElementTextLight is designed for this background
-        const result = contrastRatio(hex, BG_LIGHT);
-        if (_name === 'backgroundElementTextLight') {
-          expect(result).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
-        }
-      }
-    );
+    it('backgroundElementTextLight clears WCAG AA contrast (4.5:1) on light backgroundElement', () => {
+      expect(contrastRatio(ThemedBackgroundText.backgroundElementTextLight, BackgroundColors.lightElement)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
   });
 
   describe('text on dark mode backgroundElement', () => {
-    const BG_DARK = '#212225';
-
-    it.each(Object.entries(ThemedBackgroundText))(
-      '%s on dark backgroundElement (#212225)',
-      (_name, hex) => {
-        // All colors should be tested; only backgroundElementTextDark is designed for this background
-        const result = contrastRatio(hex, BG_DARK);
-        if (_name === 'backgroundElementTextDark') {
-          expect(result).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
-        }
-      }
-    );
+    it('backgroundElementTextDark clears WCAG AA contrast (4.5:1) on dark backgroundElement', () => {
+      expect(contrastRatio(ThemedBackgroundText.backgroundElementTextDark, BackgroundColors.darkElement)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
   });
 
   describe('text on errorBubble background', () => {
-    const BG_PINK = '#FFE5E5';
+    it('errorBubbleText clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
+      expect(contrastRatio(ThemedBackgroundText.errorBubbleText, BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
 
-    it.each(Object.entries(ThemedBackgroundText))(
-      '%s on errorBubble background (#FFE5E5)',
-      (_name, hex) => {
-        // All colors should be tested; only errorBubbleText is designed for this background
-        const result = contrastRatio(hex, BG_PINK);
-        if (_name === 'errorBubbleText') {
-          expect(result).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
-        }
-      }
-    );
+    it('errorMessage color (#C00) clears WCAG AA contrast (4.5:1) on errorBubble background', () => {
+      expect(contrastRatio('#C00000', BackgroundColors.errorBubble)).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT_MINIMUM
+      );
+    });
   });
 });

@@ -794,14 +794,14 @@ const styles = StyleSheet.create({
   declineButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: ActionButtonColor.secondary,
+    // borderColor is theme-resolved inline
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     borderRadius: 8,
     alignItems: 'center',
   },
   declineButtonText: {
-    color: ActionButtonColor.secondary,
+    // color is theme-resolved inline
     fontWeight: '600',
   },
   errorBubble: {
@@ -819,7 +819,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: ActionButtonColor.secondary,
+    // color is theme-resolved inline
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,

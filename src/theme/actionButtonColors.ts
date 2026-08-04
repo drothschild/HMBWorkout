@@ -8,10 +8,11 @@
  * lighter pre-fix values (#007AFF, #FF9500, #34C759, #208AEF): none of them
  * pass.
  *
- * Note: These constants are also used as text color on white (light mode)
- * and black (dark mode) backgrounds. Contrast is bidirectional, so a color
- * that clears 4.5:1 text-on-white also clears 4.5:1 white-text-on-color.
- * Do not retune these values without verifying both directions pass 4.5:1.
+ * Note: These constants are used as text color on both white (light mode)
+ * and black (dark mode) backgrounds. Contrast must pass two independent checks:
+ * (1) text-on-white at 4.5:1, and (2) white-text-on-color at 4.5:1. Margins
+ * are thin on the black side (~1.0-1.4%), so do not retune these values
+ * without verifying both directions pass 4.5:1.
  */
 export const ActionButtonColor = {
   primary: '#0071EB',
@@ -27,6 +28,16 @@ export const ActionButtonColor = {
  */
 export const StatusColor = {
   danger: '#EA0C00',
+} as const;
+
+/**
+ * Background colors for themed elements. These are imported by test files that
+ * cannot import the theme.ts Colors object (which pulls in RN/CSS dependencies).
+ */
+export const BackgroundColors = {
+  lightElement: '#F0F0F3', // Colors.light.backgroundElement
+  darkElement: '#212225',  // Colors.dark.backgroundElement
+  errorBubble: '#FFE5E5',
 } as const;
 
 /**
