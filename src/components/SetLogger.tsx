@@ -81,16 +81,11 @@ export function SetLogger({
   // so we can compute an upper bound that leaves room for the scroller while
   // keeping the action zone on-screen.
   const [containerHeight, setContainerHeight] = useState(0);
-  const [chromeHeightAboveScroller, setChromeHeightAboveScroller] = useState(0);
   const [buttonRowHeight, setButtonRowHeight] = useState(0);
   const [slotHeight, setSlotHeight] = useState(0);
 
   const handleContainerLayout = (event: LayoutChangeEvent) => {
     setContainerHeight(event.nativeEvent.layout.height);
-  };
-
-  const handleChromeLayout = (event: LayoutChangeEvent) => {
-    setChromeHeightAboveScroller(event.nativeEvent.layout.height);
   };
 
   const handleButtonRowLayout = (event: LayoutChangeEvent) => {
@@ -130,7 +125,6 @@ export function SetLogger({
           has room to render and the button row stays visible. The maxHeight accounts for
           the container height, button row height, slot height, and margins/gap. */}
       <View
-        onLayout={handleChromeLayout}
         style={
           containerHeight > 0 && buttonRowHeight > 0 && slotHeight >= 0
             ? { maxHeight: Math.max(100, containerHeight - buttonRowHeight - slotHeight - Spacing.two - Spacing.two - 24) }
