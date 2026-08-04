@@ -47,9 +47,16 @@ export async function closeTestDatabase(database: Database): Promise<void> {
  * Let queued WatermelonDB writes and un-awaited fire-and-forget effect
  * executors (e.g. onCompleteSession) settle before asserting on DB state.
  * WatermelonDB's WorkQueue continues a queued write via a real
- * `setTimeout(fn, 0)`, not a microtask. Node's event loop orders timers before
- * the check phase, so a write queued behind another via WorkQueue's setTimeout
- * handoff will always be missed by a bare `setImmediate` — wait through both.
+ * `setTimeout(fn, 0)`, not a microtask, scheduled from the promise
+ * continuation after the preceding item resolves — so it isn't due until the
+ * *next* event-loop iteration's timers phase. A bare `await setImmediate()`
+ * only reaches the *current* iteration's check phase and resolves before
+ * that timer ever fires, so it reliably misses a write queued behind
+ * another. This waits through one more timers-then-check cycle, draining a
+ * queue depth of two where a bare `setImmediate` drains only one — NOT an
+ * unconditional guarantee for depth >= 3 (e.g. onCompleteSession draining
+ * several pending set-persists then its own write): use a bounded retry /
+ * poll-until-true there instead (see activeSession.test.ts:509-516,598-605).
  */
 export function flush(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(

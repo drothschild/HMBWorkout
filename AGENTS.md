@@ -534,17 +534,27 @@ is now a misnomer — AI settings are in there too.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
-- **Fire-and-forget DB writes require `flush()` before assertions, not bare
-  `setImmediate`.** Effect executors like `onCompleteSession` dispatch side
-  effects that return promises but do not await them. A bare `await
-  setImmediate()` allows microtasks to drain, but WatermelonDB's WorkQueue
-  routes queued writes via real `setTimeout(fn, 0)` timers (not microtasks),
-  so a write that queues behind another is missed by Node's check phase. Use
-  `flush()` from `src/db/test-helpers.ts` instead — it waits through both
-  timers and the check phase, guaranteeing queued writes have landed before
-  assertions read DB state. Three other files had the same pattern unfixed (see
-  PR #91); always check for this hazard when asserting on DB state after
-  fire-and-forget writes.
+- **Fire-and-forget DB writes need at least `flush()` before assertions, not
+  bare `setImmediate` — and `flush()` itself only advances the queue by one
+  extra step, not a full drain.** Effect executors like `onCompleteSession`
+  dispatch side effects that return promises but do not await them.
+  WatermelonDB's WorkQueue routes a write queued behind another via a real
+  `setTimeout(fn, 0)` timer (not a microtask), scheduled from the promise
+  continuation after the preceding item resolves — so it isn't due until the
+  *next* event-loop iteration's timers phase, while a bare `await
+  setImmediate()` only reaches the *current* iteration's check phase and
+  returns before that timer ever fires. That's why a bare `setImmediate`
+  reliably misses a write queued behind another. `flush()` (`src/db/
+  test-helpers.ts`) waits through one more timers-then-check cycle, so it
+  reliably drains a queue depth of *two* pending writes where a bare
+  `setImmediate` drains only one — but it is not an unconditional guarantee
+  for arbitrary depth: a sequence that queues three or more writes (e.g.
+  `onCompleteSession` draining several pending set-persists and then doing
+  its own `database.write`) needs the bounded-retry/poll-until-true idiom
+  already used at `activeSession.test.ts:509-516,598-605`, not a single
+  `flush()` call. Always check for this hazard when asserting on DB state
+  after fire-and-forget writes, and reach for a bounded retry over a fixed
+  number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
 
 ## Structure
 
