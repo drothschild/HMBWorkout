@@ -5,8 +5,7 @@ import {
   ActivityIndicator,
   ScrollView,
   View,
-  } from 'react-native';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+} from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
@@ -14,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
 import { createBridgeClient } from '@/sync/bridgeClient';
 import { createSyncService } from '@/sync/syncService';

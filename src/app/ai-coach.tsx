@@ -14,9 +14,9 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { ActionButtonColor, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
@@ -479,10 +479,30 @@ function SettingsProposalCard({
 
       <View style={styles.proposalActions}>
         <Pressable
-          style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.declineButton,
+            {
+              borderColor:
+                theme.background === Colors.light.background
+                  ? ThemedBackgroundText.backgroundElementTextLight
+                  : ThemedBackgroundText.backgroundElementTextDark,
+            },
+            pressed && styles.pressed,
+          ]}
           onPress={onDecline}
         >
-          <ThemedText type="default" style={styles.declineButtonText}>
+          <ThemedText
+            type="default"
+            style={[
+              styles.declineButtonText,
+              {
+                color:
+                  theme.background === Colors.light.background
+                    ? ThemedBackgroundText.backgroundElementTextLight
+                    : ThemedBackgroundText.backgroundElementTextDark,
+              },
+            ]}
+          >
             Decline
           </ThemedText>
         </Pressable>
@@ -547,7 +567,7 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
         <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
-          <ThemedText type="link" style={styles.errorLinkText}>
+          <ThemedText type="link" style={[styles.errorLinkText, { color: ThemedBackgroundText.errorBubbleText }]}>
             Open Settings
           </ThemedText>
         </Pressable>
