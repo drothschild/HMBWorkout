@@ -14,8 +14,9 @@ import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } fr
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing, Colors } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useIsDark } from '@/hooks/use-is-dark';
 import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
@@ -32,6 +33,7 @@ const HEADER_TITLES = {
 export default function AiCoachScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const isDark = useIsDark();
   const { routineId, debriefSessionId } = useLocalSearchParams<{
     routineId?: string;
     debriefSessionId?: string;
@@ -194,7 +196,6 @@ export default function AiCoachScreen() {
   }
 
   if (acceptError) {
-    const isDark = theme.background !== Colors.light.background;
     footerItems.push(
       <View
         key="acceptError"
@@ -458,7 +459,7 @@ function SettingsProposalCard({
   onDecline,
 }: SettingsProposalCardProps) {
   const theme = useTheme();
-  const isDark = theme.background !== Colors.light.background;
+  const isDark = useIsDark();
 
   const rows: { label: string; current: string; proposed: string }[] = [];
 
@@ -546,8 +547,7 @@ interface ErrorBubbleProps {
 
 function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
   const router = useRouter();
-  const theme = useTheme();
-  const isDark = theme.background !== Colors.light.background;
+  const isDark = useIsDark();
 
   let errorMessage: string;
   let showRetry: boolean;
@@ -600,8 +600,17 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
         {errorMessage}
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
-        <Pressable onPress={() => router.push('/settings/ai')} style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}>
-          <ThemedText type="link" style={[styles.errorLinkText, { color: errorTextColor }]}>
+        <Pressable
+          onPress={() => router.push('/settings/ai')}
+          style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}
+        >
+          <ThemedText
+            type="link"
+            style={[
+              styles.errorLinkText,
+              { color: errorTextColor },
+            ]}
+          >
             Open Settings
           </ThemedText>
         </Pressable>
@@ -846,13 +855,14 @@ const styles = StyleSheet.create({
   },
   errorMessage: {
     marginBottom: Spacing.two,
+    // color is theme-resolved inline
   },
   errorLink: {
     marginBottom: Spacing.one,
   },
   errorLinkText: {
-    color: ThemedBackgroundText.errorBubbleText,
     textDecorationLine: 'underline',
+    // color is theme-resolved inline
   },
   retryButton: {
     backgroundColor: ActionButtonColor.primary,
