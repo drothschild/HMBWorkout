@@ -41,8 +41,10 @@ interface SetLoggerProps {
   onRpePopupOpenChange?: (open: boolean) => void;
   /** Called when RPE popup is confirmed (Done or Skip) with the final RPE value. */
   onRpePopupConfirm?: (rpe: number | undefined) => void;
-  /** Optional replace exercise node to render after the button row. */
-  replaceExerciseNode?: React.ReactNode;
+  /** Optional content rendered inside this column, directly below the button row.
+   *  Deliberately un-named: SetLogger renders it opaquely and knows nothing about
+   *  what it is, so no decision moves out of session.tsx (FCIS). */
+  belowButtonsSlot?: React.ReactNode;
 }
 
 export function SetLogger({
@@ -63,7 +65,7 @@ export function SetLogger({
   rpePopupOpen,
   onRpePopupOpenChange,
   onRpePopupConfirm,
-  replaceExerciseNode,
+  belowButtonsSlot,
 }: SetLoggerProps) {
   const theme = useTheme();
   // TextInput is not a Themed* component, so its text and border colors must
@@ -337,7 +339,7 @@ export function SetLogger({
         </Pressable>
       </View>
 
-      {replaceExerciseNode}
+      {belowButtonsSlot}
     </ThemedView>
   );
 }

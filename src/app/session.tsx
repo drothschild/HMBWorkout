@@ -21,6 +21,7 @@ import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry } from '@/state/exerciseStopwatch';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
 import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasAnthropicKey } from '@/state/exerciseQuestionStore';
+import { exerciseReplaceStore } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
@@ -362,6 +363,18 @@ export default function SessionScreen() {
     // Primitive dep on purpose (see the effects above).
   }, [questionKey]);
 
+  // Same reset-on-unmount contract the two stores above already follow.
+  // exerciseReplaceStore is a module singleton whose status returns to 'idle'
+  // only on a user tap or a completed swap, and ReplaceExercise renders
+  // whenever status is non-idle — independently of phase or target. Without
+  // this, a screen left mid-flow would remount with `open = status !== 'idle'`
+  // and pop the picker unprompted against a stale module-scoped target.
+  useEffect(() => {
+    return () => {
+      exerciseReplaceStore.getState().cancel();
+    };
+  }, []);
+
   if (!sessionState) {
     return (
       <ThemedView style={styles.container}>
@@ -583,9 +596,14 @@ export default function SessionScreen() {
                     })
                   );
                 }}
-                replaceExerciseNode={
-                  /* Renders nothing on its own when there is no entry to replace —
-                     'done' included, since replaceExerciseTarget rejects that phase. */
+                belowButtonsSlot={
+                  /* Rendered inside SetLogger's column so it can't be painted over by
+                     chrome overflowing that column (see SetLogger's loggedSets note).
+                     It renders nothing when there is nothing to replace AND the picker
+                     is closed — note the conjunction: a non-idle store renders even
+                     without a target, so "no target" alone is not why it stays out of
+                     the way here. The unmount cleanup below keeps the store idle across
+                     mounts, which is what actually makes that safe. */
                   <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
                 }
               />
