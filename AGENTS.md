@@ -588,10 +588,11 @@ is now a misnomer — AI settings are in there too.
   one-shot features (rest commentary, exercise question, replace alternates)
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
   also used on a couple of non-button solid fills — the AI chat bubble and
-  kind tag) and `StatusColor` (danger; currently just the session error
-  banner) — every one a solid fill carrying white text, each darkened just
-  enough to clear WCAG AA 4.5:1 against white — plus the pure `contrastRatio`
-  check that verifies them
+  kind tag), `StatusColor` (danger; currently just the session error banner),
+  `ProgressBarColors` (progress fill and track graphical components constrained
+  by WCAG 1.4.11), and `AiCoachErrorColors` (error bubble text and background)
+  — every colored element constrained by applicable WCAG contrast minimums —
+  plus the pure `contrastRatio` check that verifies them
 - `src/app/` — expo-router screens
 
 ## Boundaries

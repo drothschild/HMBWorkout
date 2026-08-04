@@ -4,7 +4,7 @@
  * AI Coach error bubble colors, constrained by WCAG AA contrast (4.5:1
  * minimum for normal text).
  *
- * Text: #CC0000 (dark red, 3-digit shorthand #C00 in src/app/ai-coach.tsx)
+ * Text: #CC0000 (dark red) — 6-digit hex form required for contrastRatio() parser
  * achieves 4.5:1 against background #FFE5E5
  */
 export const AiCoachErrorColors = {

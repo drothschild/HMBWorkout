@@ -68,8 +68,8 @@ describe('AI Coach error bubble colors', () => {
   const AA_NORMAL_TEXT_MINIMUM = 4.5;
 
   it('error bubble text clears WCAG AA contrast (4.5:1) against error bubble background', () => {
-    // Note: AiCoachErrorColors.bubbleText is #C00 (3-digit CSS shorthand in src/app/ai-coach.tsx),
-    // expanded here to 6-digit form #CC0000 for the contrastRatio parser.
+    // Note: contrastRatio() parser requires 6-digit hex format (/^#([0-9a-fA-F]{6})$/),
+    // so we use #CC0000 rather than 3-digit shorthand #C00.
     expect(
       contrastRatio(AiCoachErrorColors.bubbleText, AiCoachErrorColors.bubbleBackground)
     ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT_MINIMUM);
