@@ -1,5 +1,6 @@
 import { contrastRatio } from './contrastRatio';
 import { ActionButtonColor, BackgroundColors, StatusColor, ThemedBackgroundText } from './actionButtonColors';
+import { ProgressBarColors } from './progressColors';
 
 describe('contrastRatio', () => {
   it('returns 21 for black against white', () => {
@@ -87,5 +88,21 @@ describe('ThemedBackgroundText', () => {
         AA_NORMAL_TEXT_MINIMUM
       );
     });
+  });
+});
+
+describe('Progress fill graphical component colors', () => {
+  const WCAG_GRAPHICAL_MINIMUM = 3.0;
+
+  it('light mode progress fill clears WCAG 1.4.11 contrast (3:1) against light track', () => {
+    expect(
+      contrastRatio(ProgressBarColors.light.fill, ProgressBarColors.light.track)
+    ).toBeGreaterThanOrEqual(WCAG_GRAPHICAL_MINIMUM);
+  });
+
+  it('dark mode progress fill clears WCAG 1.4.11 contrast (3:1) against dark track', () => {
+    expect(
+      contrastRatio(ProgressBarColors.dark.fill, ProgressBarColors.dark.track)
+    ).toBeGreaterThanOrEqual(WCAG_GRAPHICAL_MINIMUM);
   });
 });
