@@ -49,7 +49,9 @@ class ExpoAudioSoundInstance implements SoundInstance {
     // C2 Fix: Seek to start before playing. The AudioPlayer's playhead stays at
     // the end after the first play() call; subsequent play() calls on a finished
     // player are silent no-ops. Seeking resets the playhead for the next beep.
-    // Reference: Expo SDK 57 AudioPlayer.seekTo(ms) documented behavior.
+    // Reference: Expo SDK 57 AudioPlayer.seekTo(seconds: number) — note the unit is
+    // SECONDS, not milliseconds (expo-audio/build/AudioModule.types.d.ts). Immaterial at
+    // 0, but any future nonzero value read as ms would seek 1000x too far.
     await this.player.seekTo(0);
     this.player.play();
   }
@@ -69,21 +71,31 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
 
   // I4 Fix: Lazy-initialize audio mode on first playback (not at module scope).
   // This avoids setting a global iOS audio session before the user opens a workout.
-  let audioModeInitialized = false;
-  async function initializeAudioMode(): Promise<void> {
-    if (audioModeInitialized) return;
-    audioModeInitialized = true;
-    // Configure audio session to mix with other apps' audio.
-    // By default, iOS uses soloAmbient which interrupts other audio (e.g., Spotify).
-    // We respect the mute switch (playsInSilentMode: false) but allow mixing so
-    // beeps don't interrupt the user's music in the gym.
-    // This is a fire-and-forget initialization; failures are logged and swallowed.
-    setAudioModeAsync({
-      playsInSilentMode: false,
-      interruptionMode: 'mixWithOthers',
-    }).catch((error: unknown) => {
-      console.warn('Failed to set audio mode:', error);
-    });
+  //
+  // The promise is memoized rather than guarded by a boolean: the mode must actually be
+  // in effect *before* the first beep plays, and a bare `if (done) return` lets a second
+  // caller past while the first setAudioModeAsync is still in flight. Every caller awaits
+  // the same promise, so the very first sound of the process can't play under iOS's default
+  // soloAmbient session and interrupt the user's music — which is the whole point of
+  // interruptionMode: 'mixWithOthers'. Rejection is absorbed here, so the memoized promise
+  // always resolves and a failed init degrades to "mode not set", never to a thrown beep.
+  //
+  // Awaiting here is safe only because the sound path is fire-and-forget from the engine's
+  // side (see RestCountdown's C1 fix): a hang costs at most this beep sequence and can never
+  // delay onRestElapsed.
+  let audioModePromise: Promise<void> | null = null;
+  function initializeAudioMode(): Promise<void> {
+    if (!audioModePromise) {
+      // Respect the mute switch (playsInSilentMode: false) but allow mixing, so beeps
+      // don't interrupt the user's music in the gym.
+      audioModePromise = setAudioModeAsync({
+        playsInSilentMode: false,
+        interruptionMode: 'mixWithOthers',
+      }).catch((error: unknown) => {
+        console.warn('Failed to set audio mode:', error);
+      });
+    }
+    return audioModePromise;
   }
 
   /**

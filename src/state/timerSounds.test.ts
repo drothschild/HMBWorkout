@@ -137,11 +137,13 @@ describe('timerSounds', () => {
     });
   });
 
-  describe('I4 regression: different patterns on same executor', () => {
+  describe('C3 regression: different patterns on same executor', () => {
     it('must pass correct pattern config to each sound instance', async () => {
-      // I4 Fix: This test catches the C3 caching bug where patterns would reuse
+      // C3 Fix: This test catches the caching bug where patterns would reuse
       // the first pattern's configuration. Each pattern must receive the correct
       // config with the right number of tones.
+      // (Labelled I4 until round 4; that number now names the lazy audio-mode init,
+      // which lives in the untested component layer and has no test here.)
       const executor = createTimerSoundExecutor(mockApis);
 
       // Call three different patterns on the same executor
