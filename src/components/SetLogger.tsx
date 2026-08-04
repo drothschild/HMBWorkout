@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
@@ -58,6 +59,17 @@ export function SetLogger({
   const inputStyle = [styles.input, { color: theme.text, borderColor: theme.backgroundSelected }];
   const setRowStyle = [styles.setRow, { borderBottomColor: theme.backgroundSelected }];
 
+  // iOS's scroll indicator only appears during an actual scroll gesture, so a
+  // freshly-opened modal gives no hint the answer continues past the fold.
+  // Flash it once real content lands (not during "Loading…", which never
+  // needs to scroll) so the user has a reason to try.
+  const answerScrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (questionExpanded && questionText) {
+      answerScrollRef.current?.flashScrollIndicators();
+    }
+  }, [questionExpanded, questionText]);
+
   const isDurationBased = isDurationBasedEntry(presenter.currentEntry);
 
   // Identity of the stopwatch run: the current entry plus its set position, so
@@ -108,6 +120,7 @@ export function SetLogger({
             </ThemedText>
 
             <ScrollView
+              ref={answerScrollRef}
               style={styles.questionAnswerScroll}
               contentContainerStyle={styles.questionAnswerContent}
             >
