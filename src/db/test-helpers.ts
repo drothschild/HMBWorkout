@@ -42,3 +42,16 @@ export async function closeTestDatabase(database: Database): Promise<void> {
   }
   await new Promise<void>((resolve) => loki.close(() => resolve()));
 }
+
+/**
+ * Let queued WatermelonDB writes and un-awaited fire-and-forget effect
+ * executors (e.g. onCompleteSession) settle before asserting on DB state.
+ * WatermelonDB's WorkQueue continues a queued write via a real
+ * `setTimeout(fn, 0)`, not a microtask, and its ordering against a bare
+ * `setImmediate` is unreliable under CPU contention — wait through both.
+ */
+export function flush(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(
+    () => new Promise<void>((resolve) => setImmediate(resolve))
+  );
+}
