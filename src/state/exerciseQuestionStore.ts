@@ -34,7 +34,6 @@ import { loadExerciseDescription } from '@/ai/exerciseQuestionContext';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase } from '@/state/sessionPresenter';
-import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import type { ExerciseKind, SessionState } from '@/engine/types';
 
 /** The exercise the athlete tapped the question button on, plus the ids that scope the cache. */
