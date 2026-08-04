@@ -492,6 +492,7 @@ const styles = StyleSheet.create({
   },
   rpeValue: {
     fontSize: 28,
+    lineHeight: 42,
     fontWeight: 'bold',
   },
   rpeHint: {
