@@ -249,35 +249,33 @@ export function SetLogger({
         ))}
       </ScrollView>
 
-      <View style={styles.buttonGroup}>
-        <View style={styles.buttonRow}>
-          <Pressable
-            style={[styles.button, styles.primaryButton, styles.rowButton]}
-            onPress={() => {
-              // Raw text becomes numbers exactly here; invalid or empty
-              // fields are omitted (never NaN, never a coerced 0). The
-              // weight stays display lbs — the presenter converts to kg.
-              presenter.onLogSet(
-                buildLogSetValues({
-                  isDurationBased,
-                  repsText,
-                  weightText,
-                  durationText,
-                  rpe: currentRpe,
-                })
-              );
-            }}
-          >
-            <ThemedText style={styles.buttonText}>Log Set</ThemedText>
-          </Pressable>
+      <View style={styles.buttonRow}>
+        <Pressable
+          style={[styles.button, styles.primaryButton, styles.rowButton]}
+          onPress={() => {
+            // Raw text becomes numbers exactly here; invalid or empty
+            // fields are omitted (never NaN, never a coerced 0). The
+            // weight stays display lbs — the presenter converts to kg.
+            presenter.onLogSet(
+              buildLogSetValues({
+                isDurationBased,
+                repsText,
+                weightText,
+                durationText,
+                rpe: currentRpe,
+              })
+            );
+          }}
+        >
+          <ThemedText style={styles.buttonText}>Log Set</ThemedText>
+        </Pressable>
 
-          <Pressable
-            style={[styles.button, styles.warningButton, styles.rowButton]}
-            onPress={() => presenter.onSkipSet()}
-          >
-            <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
-          </Pressable>
-        </View>
+        <Pressable
+          style={[styles.button, styles.warningButton, styles.rowButton]}
+          onPress={() => presenter.onSkipSet()}
+        >
+          <ThemedText style={styles.buttonText}>Skip Set</ThemedText>
+        </Pressable>
       </View>
     </ThemedView>
   );
@@ -403,13 +401,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     borderBottomWidth: 1,
   },
-  buttonGroup: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
   buttonRow: {
     flexDirection: 'row',
     gap: Spacing.two,
+    marginTop: Spacing.two,
   },
   rowButton: {
     flex: 1,
