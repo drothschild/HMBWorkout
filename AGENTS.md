@@ -545,7 +545,7 @@ is now a misnomer — AI settings are in there too.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai` — all pure TS, no
+  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai/theme` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
