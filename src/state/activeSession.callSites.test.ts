@@ -42,8 +42,8 @@ type SourceFile = {
  *
  * A bare mention in prose counts. That is the intended strictness — a comment
  * elsewhere naming this function is itself a sign the invariant is drifting,
- * and the fix (add the file to the allowlist, or reword) is a conscious edit
- * rather than a silent one.
+ * and the fix (add the file to `ALLOWED_CALL_SITE`, or reword) is a conscious
+ * edit rather than a silent one.
  */
 function filesReferencing(
   files: readonly SourceFile[],
