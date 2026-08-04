@@ -496,11 +496,13 @@ is now a misnomer — AI settings are in there too.
   three copies and the POST/parse boilerplate in four (both `anthropicClient.ts`
   factories, plus the question and alternates clients) — hoisting them is a
   tracked follow-up; don't add another of either.
-- **Immutable directives must remain the last section in `buildSystem`.** They are placed
+- **Immutable directives must remain the last section of every system prompt.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
-  The placement is enforced in `buildSystem` (`src/ai/contextBuilder.ts`); the directive
-  text itself lives in `src/ai/coachDirectives.ts`.
+  The placement is enforced in four builders: `buildSystem` (`src/ai/contextBuilder.ts`),
+  `buildRestCommentaryPrompt` (`src/ai/restCommentaryPrompt.ts`), `buildAlternatesPrompt`
+  (`src/ai/alternatesPrompt.ts`), and `buildExerciseQuestionPrompt` (`src/ai/exerciseQuestionPrompt.ts`);
+  the directive text itself lives in `src/ai/coachDirectives.ts`.
 
 ## Testing gotchas
 

@@ -74,9 +74,9 @@ export interface RestCommentaryPrompt {
  * heading and could masquerade as prompt structure. Same treatment `contextBuilder`
  * gives routine notes.
  *
- * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`.
- * A follow-up PR will hoist both into a shared helper once contextBuilder.ts
- * lands (currently owned by PR #49).
+ * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`
+ * and `src/ai/exerciseQuestionPrompt.ts:neutralizeForPrompt`. Hoisting all three
+ * into a shared helper is tracked as accepted debt in AGENTS.md.
  */
 function neutralizeForPrompt(text: string): string {
   return text
