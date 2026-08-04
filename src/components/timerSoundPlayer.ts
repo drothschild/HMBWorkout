@@ -81,8 +81,16 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
   // always resolves and a failed init degrades to "mode not set", never to a thrown beep.
   //
   // Awaiting here is safe only because the sound path is fire-and-forget from the engine's
-  // side (see RestCountdown's C1 fix): a hang costs at most this beep sequence and can never
-  // delay onRestElapsed.
+  // side (see RestCountdown's C1 fix): it can never delay onRestElapsed, which is traceable
+  // rather than conventional — playRestCompleteSound suspends at its first await before any
+  // native call, so the dispatch has already run by then.
+  //
+  // Be precise about the cost, because memoizing changed it: a setAudioModeAsync that never
+  // settles leaves this promise pending forever, so *every* beep for the rest of the process
+  // is lost — not just the first sequence, which is what the boolean guard this replaced
+  // would have cost. That trade is deliberate. An unsettling native promise is speculative;
+  // the concurrent-caller race the boolean allowed was real and reachable. Both failure
+  // modes are silent and confined to a non-essential channel, so the likelier one wins.
   let audioModePromise: Promise<void> | null = null;
   function initializeAudioMode(): Promise<void> {
     if (!audioModePromise) {
@@ -162,10 +170,16 @@ export function createDefaultTimerSoundAPIs(): TimerSoundAPIs {
 }
 
 /**
- * Create the timer sound executor with default implementation.
- * Used as the default for component props.
+ * Create the timer sound executor with the default (expo-audio) implementation.
+ *
+ * File-internal: the only caller is getDefaultExecutor below. It used to claim it was
+ * "used as the default for component props", which was never true — ExerciseStopwatch
+ * defaults to defaultOnMinute/defaultOnZero, and RestCountdown imports
+ * playRestCompleteSound directly. Kept as a named factory rather than inlined only
+ * because it names the APIs-to-executor seam that createDefaultTimerSoundAPIs exists
+ * to serve.
  */
-export function createDefaultTimerSoundExecutor() {
+function createDefaultTimerSoundExecutor() {
   return createTimerSoundExecutor(createDefaultTimerSoundAPIs());
 }
 
