@@ -1086,7 +1086,7 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
     });
   });
 
-  describe('AC3.1: bodyweight reps (reps 0) round-trip', () => {
+  describe('AC3.1: zero logged reps (reps 0) round-trip', () => {
     test('a logged set with reps 0 survives serialize → parse', () => {
       // PR #89 regression: an earlier version of the zero-reps guard in
       // parseWorkoutLine was unconditional, so parseSession rejected the
