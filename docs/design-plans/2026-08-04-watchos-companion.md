@@ -642,8 +642,48 @@ timers and metrics must be designed for glance-on-raise, not continuous visibili
 session's mirrored channel never resumes. The durable queue is what makes this survivable,
 which is why it is the backbone rather than the fallback.
 
-**Effort estimate:** 31–48 focused engineering days across the eight phases. Against this
-repo's demonstrated cadence — TDD, one PR per task, one to four adversarial review cycles
-each — roughly 8–12 weeks part-time. Two risks dominate: a negative Phase 1 mirroring
-result costs live phone state (a scope loss, not a schedule loss), and an
+**Effort estimate — solo:** 31–48 focused engineering days across the eight phases. Against
+this repo's demonstrated cadence — TDD, one PR per task, one to four adversarial review
+cycles each — roughly 8–12 weeks part-time. Two risks dominate: a negative Phase 1
+mirroring result costs live phone state (a scope loss, not a schedule loss), and an
 `@bacons/apple-targets` incompatibility adds 5–8 days for a hand-rolled config plugin.
+
+**Effort estimate — agent-assisted:** roughly **18–29 days of engaged time, 4–7 weeks
+calendar**. Agent assistance compresses this project unevenly, because the phases differ in
+whether they have a fast feedback loop:
+
+| Phase | Solo | Agent-assisted | Constraint |
+| --- | --- | --- | --- |
+| 1 Spikes | 2–4 | 1–2 | Answer-gated, not code-gated |
+| 2 Scaffolding | 3–5 | 2–4 | `xcodebuild` errors iterate well; Developer portal and Xcode GUI do not |
+| 3 TS core | 3–4 | 0.5–1 | Pure, jest-covered, property-based — largest speedup |
+| 4 Link module | 4–6 | 2–3 | Half TS, half device-gated |
+| 5 Watch core + UI | 8–12 | 5–8 | Capped by build/install/wear cycles |
+| 6 Replay + HK + migration | 5–8 | 2–3 | Mostly testable TS |
+| 7 History | 2–3 | 1–1.5 | Small |
+| 8 Field testing | 4–6 | 4–6 | No speedup available |
+| | 31–48 | **18–29** | |
+
+Two effects hold the gain to roughly 2x rather than an order of magnitude. Swift written
+without test coverage pushes more defects into manual verification than careful hand-written
+code would, returning some of the writing-time saving as extra device cycles. And **Phase 8
+is calendar-bound by workout frequency** — six to ten real gym sessions at four lifts a week
+is two-plus weeks that no amount of parallelism touches. That floor, not the code, sets the
+finish date.
+
+Parallel agents help Phases 3, 6, and 7 and barely help 2, 5, and 8: there is one Apple
+Watch and one tester, and concurrent `xcodebuild` runs contend for DerivedData regardless.
+Worktree isolation is also expensive here — `ios/` is gitignored and regenerated per
+checkout, and Metro needs a local `node_modules` where jest does not — so native work should
+be serialized in the main checkout and worktree parallelism reserved for the pure-TS phases.
+
+**Highest-leverage mitigation: a watch-side state-injection harness, built early in Phase 5.**
+A debug screen that loads a synthetic `SessionPlan` and synthetic heart rate, letting every
+UI state be exercised without running a workout. This is an established pattern in this repo
+— PRs #74 and #77 were both verified by injecting engine state to reach the session screen
+in zero taps — and it converts most of Phase 5's verification cycles from
+workout-shaped to seconds-long.
+
+**Unmeasured multiplier:** watch build-and-install time on the development machine. It is the
+per-cycle cost on every Phase 5 iteration and varies widely by hardware and pairing. Measure
+it during Phase 2 and record it; it retroactively sharpens this entire estimate.
