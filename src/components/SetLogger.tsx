@@ -438,6 +438,7 @@ const styles = StyleSheet.create({
   loggedSets: {
     flex: 1,
     marginVertical: Spacing.two,
+    minHeight: 0,
   },
   setRow: {
     // borderBottomColor is theme-resolved inline (setRowStyle)
