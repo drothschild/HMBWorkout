@@ -254,10 +254,10 @@ export function SetLogger({
                 {currentRpe !== undefined ? (
                   <>
                     <ThemedText style={styles.rpeValue}>{currentRpe}</ThemedText>
-                    <ThemedText style={styles.rpeHint}>{rpeHint(currentRpe)}</ThemedText>
+                    <ThemedText type="small" style={styles.rpeHint}>{rpeHint(currentRpe)}</ThemedText>
                   </>
                 ) : (
-                  <ThemedText style={styles.rpeHint}>Optional</ThemedText>
+                  <ThemedText type="small" style={styles.rpeHint}>Optional</ThemedText>
                 )}
               </View>
             </View>
@@ -503,8 +503,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   rpeHint: {
-    fontSize: 14,
-    lineHeight: 20,
+    // Metrics come from type="small" (14/20). Only the dimming is local —
+    // overriding fontSize on a default-type ThemedText is the clipping
+    // anti-pattern this pass exists to remove.
     opacity: 0.7,
   },
   rpeButtonContainer: {
