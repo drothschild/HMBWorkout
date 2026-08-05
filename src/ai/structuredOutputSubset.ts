@@ -1,5 +1,5 @@
 /**
- * The JSON-schema subset the structured-output endpoint accepts.
+ * The JSON-schema subset the Anthropic structured-output endpoint accepts.
  *
  * `output_config.format.json_schema` compiles the schema it is handed and
  * rejects the **entire request** with a 400 when it carries a keyword outside
@@ -12,8 +12,7 @@
  * That is not a hypothetical: `minItems`/`maxItems` on `ALTERNATES_SCHEMA` made
  * the Replace button fail on every tap until PR #71.
  *
- * This module exists only so the schema tests can assert the property. It is
- * imported by tests alone and never reaches the app bundle.
+ * This module is imported by both tests and production code (requestBuilder.ts).
  */
 
 /**

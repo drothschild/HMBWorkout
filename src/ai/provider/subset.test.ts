@@ -210,7 +210,8 @@ describe('OpenAI structured output schema validation', () => {
       };
 
       const unsupported = findUnsupportedKeywordsForOpenAI(schema);
-      // OpenAI's documentation explicitly lists these as unsupported
+      // These are documented as supported by OpenAI for non-fine-tuned models,
+      // but banned here as a house rule (bounds belong in validators)
       expect(unsupported).toContain('$.properties.email.pattern');
       expect(unsupported).toContain('$.properties.price.minimum');
       expect(unsupported).toContain('$.properties.price.maximum');
@@ -476,19 +477,17 @@ describe('OpenAI structured output schema validation', () => {
       expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
-    it('handles type:object with no properties field', () => {
+    it('throws on type:object with no properties field', () => {
       const schema = {
         type: 'object',
         // No properties field at all
       };
 
-      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
-
-      // The transform must add properties: {} and additionalProperties: false
-      expect(transformed.properties).toEqual({});
-      expect(transformed.additionalProperties).toBe(false);
-      expect(transformed.required).toEqual([]);
-      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
+      // A free-form object cannot be expressed in strict mode, so this is a
+      // build-time error, not silently emitted as an unsatisfiable schema.
+      expect(() => transformSchemaForOpenAI(schema)).toThrow(
+        /Cannot transform schema.*type "object" requires a properties object/
+      );
     });
 
     it('widening is applied only to optional properties, not required', () => {
@@ -511,6 +510,25 @@ describe('OpenAI structured output schema validation', () => {
 
       // Optional property SHOULD be widened to include null
       expect(props.optional_string.type).toEqual(['string', 'null']);
+    });
+
+    it('required array includes all properties in strict mode', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          always_required: { type: 'string' },
+          initially_optional: { type: 'number' },
+        },
+        required: ['always_required'],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+
+      // Strict mode requires EVERY property, so optional properties must be
+      // added to required (along with null widening to express absence)
+      expect(transformed.required as string[]).toContain('always_required');
+      expect(transformed.required as string[]).toContain('initially_optional');
     });
   });
 
@@ -579,6 +597,15 @@ describe('OpenAI structured output schema validation', () => {
 
       const unsupported = findUnsupportedKeywordsForOpenAI(schema);
       expect(unsupported).toContain('$.prefixItems');
+    });
+
+    it('rejects oneOf composition keyword', () => {
+      const schema = {
+        oneOf: [{ type: 'string' }, { type: 'number' }],
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.oneOf');
     });
 
     it('rejects pattern keyword', () => {

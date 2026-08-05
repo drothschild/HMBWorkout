@@ -6,18 +6,25 @@
  */
 
 /**
- * Keywords that OpenAI's structured output does NOT support.
+ * Keywords that OpenAI's structured output does NOT support for this project.
  *
- * Documented as unsupported in OpenAI's official structured output guide.
- * Keywords with no explicit documentation are conservatively treated as unsupported
+ * The first two groups — composition/conditional and string/numeric/array bounds —
+ * **are documented as supported by OpenAI** for non-fine-tuned models. They are
+ * banned here as a house rule, matching the Anthropic module's `structuredOutputSubset`:
+ * bounds belong in the validators rather than in a schema handed to `output_config.format`.
+ *
+ * The remaining keywords — array/object introspection and others — are genuinely
+ * undocumented in OpenAI's guide, so they are conservatively treated as unsupported
  * until proven against the live endpoint. This guard catches them before sending a
  * request (which would fail with 400 and never run the model).
  *
- * Notably includes composition keywords (allOf, not, if/then/else, oneOf) and
- * several keywords that OpenAI's guide explicitly lists as unsupported.
+ * Keywords not listed here but also not documented are still present in OpenAI's
+ * structured output — most composition keywords (allOf, not, if/then/else, oneOf)
+ * are explicitly documented as unsupported and are correctly banned.
  */
 const UNSUPPORTED_FOR_OPENAI = [
   // Composition/conditional keywords (schema combinators)
+  // OpenAI explicitly documents these as unsupported
   'allOf',
   'not',
   'if',
@@ -27,25 +34,26 @@ const UNSUPPORTED_FOR_OPENAI = [
   'dependentRequired',
   'oneOf',
 
-  // String bounds (explicitly unsupported)
+  // String/numeric/array bounds — HOUSE RULE
+  // These are documented as supported by OpenAI for non-fine-tuned models.
+  // Banning them here is a deliberate house rule matching structuredOutputSubset.ts:
+  // bounds belong in the validators, not in schemas sent to the endpoint.
   'minLength',
   'maxLength',
   'pattern',
-
-  // Numeric bounds (explicitly unsupported)
   'minimum',
   'maximum',
   'exclusiveMinimum',
   'exclusiveMaximum',
   'multipleOf',
-
-  // Array/object counts (explicitly unsupported)
   'minItems',
   'maxItems',
   'minProperties',
   'maxProperties',
 
-  // Array/object introspection keywords (explicitly unsupported)
+  // Array/object introspection keywords — genuinely undocumented
+  // No explicit support or rejection in OpenAI's guide; conservatively banned
+  // until proven against the live endpoint.
   'contains',
   'minContains',
   'maxContains',
@@ -54,7 +62,7 @@ const UNSUPPORTED_FOR_OPENAI = [
   'unevaluatedItems',
   'prefixItems',
 
-  // Other unsupported keywords
+  // Other undocumented keywords
   'patternProperties',
   'uniqueItems',
 ] as const;
@@ -212,9 +220,15 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
 
     // If this is an object schema, ensure it has properties and additionalProperties: false
     if (transformed.type === 'object' || transformed.properties !== undefined) {
-      // Handle edge case: type: 'object' with no properties
+      // Reject edge case: type: 'object' with no properties
+      // A free-form object cannot be expressed in strict mode (every property must be
+      // named and required), so this is a schema error. Fail loudly at build time
+      // rather than silently emitting an unsatisfiable schema.
       if (!isSchemaNode(transformed.properties)) {
-        transformed.properties = {};
+        throw new Error(
+          'Cannot transform schema: type "object" requires a properties object. ' +
+          'Strict mode cannot express free-form objects; every property must be explicitly named.'
+        );
       }
 
       const properties = transformed.properties as Record<string, unknown>;
@@ -286,6 +300,14 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
           }
 
           newProperties[propName] = transform(widened);
+        } else if (isSchemaNode(propSchema) && 'const' in propSchema) {
+          // Originally required AND const-defined: convert const to enum.
+          // A required property cannot express absence, so no null branch.
+          const transformed_const = { ...propSchema };
+          const literal = transformed_const.const;
+          delete transformed_const.const;
+          transformed_const.enum = [literal];
+          newProperties[propName] = transform(transformed_const);
         } else {
           // Originally required — transform without widening.
           newProperties[propName] = transform(propSchema);

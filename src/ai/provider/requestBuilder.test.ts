@@ -5,7 +5,12 @@ describe('request builders', () => {
     type: 'object' as const,
     properties: Object.freeze({
       reply: { type: 'string' },
-      data: { type: 'object' },
+      data: {
+        type: 'object',
+        properties: { content: { type: 'string' } },
+        required: ['content'],
+        additionalProperties: false,
+      },
     }),
     required: ['reply'],
     additionalProperties: false,
@@ -86,6 +91,15 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
       }
     });
 
+    it('uses correct token budget when surface is undefined', () => {
+      const body = buildAnthropicBody(
+        { ...testRequest, surface: undefined },
+        'claude-sonnet-5'
+      );
+      // Undefined surface should default to chat's 4096 token budget
+      expect(body.max_tokens).toBe(4096);
+    });
+
     it('preserves system and messages as-is', () => {
       const multiTurnRequest = {
         ...testRequest,
@@ -159,6 +173,15 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
         );
         expect(body.max_output_tokens).toBe(expectedTokens);
       }
+    });
+
+    it('uses correct token budget when surface is undefined', () => {
+      const body = buildOpenAiBody(
+        { ...testRequest, surface: undefined },
+        'gpt-5.6-sol'
+      );
+      // Undefined surface should default to chat's 4096 token budget
+      expect(body.max_output_tokens).toBe(4096);
     });
 
     it('applies low reasoning effort for rest commentary', () => {
