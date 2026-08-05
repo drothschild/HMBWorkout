@@ -240,14 +240,12 @@ function isEmptyProposal(value: unknown): boolean {
     return false;
   }
   const obj = value as Record<string, unknown>;
-  return (
-    obj.goals === undefined &&
-    obj.equipment === undefined &&
-    obj.personality === undefined &&
-    obj.age === undefined &&
-    obj.gender === undefined &&
-    obj.experience === undefined
-  );
+  // Derived from the same constant the validator loops over, deliberately.
+  // Enumerating the fields by hand here is a silent-data-loss hazard: a field
+  // added to SETTINGS_PROPOSAL_FIELDS but missed in this function makes a
+  // proposal carrying ONLY that field read as empty, so parseAiTurn drops it
+  // and the model's answer is discarded with no error raised anywhere.
+  return SETTINGS_PROPOSAL_FIELDS.every((field) => obj[field] === undefined);
 }
 
 /**
