@@ -664,6 +664,7 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontSize: 18,
+    lineHeight: 21,
     fontWeight: '700',
   },
   missingKeyContainer: {
@@ -676,6 +677,11 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
     textAlign: 'center',
     fontSize: 20,
+    // 24, not 23: SF's natural line height is ~1.165-1.19x the point size, so
+    // 20pt needs >=23.3 and 23 is 0.3pt short — the same defect this pass
+    // exists to remove, just smaller. 24 also matches the whole-number scale
+    // themed-text.tsx uses throughout.
+    lineHeight: 24,
   },
   missingKeyMessage: {
     textAlign: 'center',

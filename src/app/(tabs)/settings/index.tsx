@@ -92,6 +92,7 @@ const styles = StyleSheet.create({
   },
   chevron: {
     fontSize: 24,
+    lineHeight: 28,
     opacity: 0.4,
     paddingLeft: Spacing.two,
   },
