@@ -2,10 +2,10 @@ import { StyleSheet, Text, type TextProps } from 'react-native';
 
 import { ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { TypeRamp } from '@/theme/typography';
+import { TypeRamp, type TextRole } from '@/theme/typography';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link';
+  type?: TextRole;
   themeColor?: ThemeColor;
 };
 
