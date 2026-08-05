@@ -571,8 +571,12 @@ is now a misnomer — AI settings are in there too.
   `aiGoals`/`aiEquipment`/`aiPersonality` when the user asks, but
   `approveSettingsProposal` is the only path to `setSettings`, and it validates the
   proposal a second time first. Fields are full replacements, so the patch is built
-  from *present* keys only — spreading an explicit `undefined` would blank the other
-  field. `declineSettingsProposal` writes nothing. The screen holds no approve/decline logic; it is not jest-covered.
+  by checking each field's *value*, not its presence — only fields that are not
+  `undefined` go into the patch. After normalization, OpenAI-style responses have
+  all keys present but some as `undefined`, and spreading an explicit `undefined`
+  would blank the other fields, so value checks guard the write (`if (goals !==
+  undefined)`). Anthropic-style responses omit the keys entirely, which also works
+  correctly. `declineSettingsProposal` writes nothing. The screen holds no approve/decline logic; it is not jest-covered.
 - **`aiChatStore` is ephemeral, with two counters that are not interchangeable.**
   `generation` scopes the *conversation*: `reset(mode)` bumps it so a request resolving
   afterwards is discarded rather than appended. `systemEpoch` scopes the *prompt cache*

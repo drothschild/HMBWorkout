@@ -98,13 +98,18 @@ describe('draftSchema', () => {
       expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
     });
 
-    test('throws DraftValidationError when settingsProposal is invalid', () => {
+    test('treats an empty settingsProposal as absent and keeps the reply', () => {
+      // An empty settingsProposal object is semantically equivalent to no proposal:
+      // all fields are undefined. It's kept as an error in validateSettingsProposal
+      // when called directly, but parseAiTurn treats it as absent to preserve the reply.
       const json = JSON.stringify({
         reply: 'reply',
-        settingsProposal: {}, // neither goals nor equipment
+        settingsProposal: {}, // all fields undefined
       });
 
-      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+      const result = parseAiTurn(json);
+      expect(result.reply).toBe('reply');
+      expect(result.settingsProposal).toBeUndefined();
     });
 
     test('parses OpenAI-style response with null draft and settingsProposal', () => {
@@ -180,6 +185,52 @@ describe('draftSchema', () => {
       expect(result.draft?.name).toBe('My Routine');
       expect(result.draft?.notes).toBeUndefined();
     });
+
+    test('rejects __proto__ injection in draft (prevents prototype pollution bypass of validation)', () => {
+      // Craft a JSON string with __proto__ as a key in the draft object.
+      // When parsed, __proto__ is a regular property (JSON doesn't treat it specially).
+      // The normalizer must place __proto__ as an own data property, not on the prototype.
+      const json = '{"reply":"x","draft":{"__proto__":{"name":"Injected","exercises":[{"title":"E","kind":"strength"}]},"name":"","exercises":[]}}';
+
+      // The normalizer must use Object.defineProperty to place __proto__ as an own
+      // property, not allow it to hit the prototype setter. If it did, validation
+      // would see draft.name === "Injected" and pass, which is wrong.
+      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+      expect(() => parseAiTurn(json)).toThrow('routine name is required');
+    });
+
+    test('treats an all-null settingsProposal as absent (drop empty proposal, keep reply)', () => {
+      const json = JSON.stringify({
+        reply: 'Check your goals?',
+        settingsProposal: {
+          goals: null,
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Check your goals?');
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('preserves a settingsProposal with at least one real field through normalization', () => {
+      const json = JSON.stringify({
+        reply: 'Check your goals?',
+        settingsProposal: {
+          goals: 'Build strength',
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
+      expect(result.settingsProposal?.equipment).toBeUndefined();
+      expect(result.settingsProposal?.personality).toBeUndefined();
+    });
   });
 
   describe('validateSettingsProposal', () => {
@@ -223,16 +274,21 @@ describe('draftSchema', () => {
       expect(() => validateSettingsProposal(42)).toThrow(DraftValidationError);
     });
 
-    test('rejects a proposal carrying no fields', () => {
-      expect(() => validateSettingsProposal({})).toThrow(
-        'a settings proposal must include at least one of goals, equipment, or personality'
-      );
+    test('returns undefined for an empty proposal object', () => {
+      // An empty proposal (no fields at all) is semantically equivalent to no
+      // proposal. This can arise post-normalization when OpenAI returns all fields
+      // as null.
+      const result = validateSettingsProposal({});
+      expect(result).toBeUndefined();
     });
 
-    test('rejects a proposal whose only fields are undefined', () => {
-      expect(() =>
-        validateSettingsProposal({ goals: undefined, equipment: undefined, personality: undefined })
-      ).toThrow(DraftValidationError);
+    test('returns undefined when all fields are undefined', () => {
+      const result = validateSettingsProposal({
+        goals: undefined,
+        equipment: undefined,
+        personality: undefined,
+      });
+      expect(result).toBeUndefined();
     });
 
     test('rejects non-string goals', () => {

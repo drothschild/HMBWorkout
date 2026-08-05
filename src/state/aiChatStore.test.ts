@@ -1208,6 +1208,22 @@ describe('aiChatStore', () => {
       });
     });
 
+    it('normalizes OpenAI-style proposal with goals and nulls, writes only the real field', async () => {
+      // OpenAI's strict mode returns all fields with some as null.
+      // After normalization, only the present (non-undefined) field should be in the patch.
+      const { store, fakeSetSettings } = await storeWithProposal({
+        goals: 'Build strength',
+        equipment: undefined,
+        personality: undefined,
+      });
+
+      store.getState().approveSettingsProposal();
+
+      // toStrictEqual ensures no explicit undefined values sneak through,
+      // which would blank the user's saved equipment and personality.
+      expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({ aiGoals: 'Build strength' });
+    });
+
     it('rebuilds the system prompt after approving a personality-only proposal', async () => {
       const { store, fakeChat, fakeBuildSystem } = await storeWithProposal({
         personality: 'Drill sergeant, but kind',

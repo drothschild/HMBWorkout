@@ -286,6 +286,15 @@ describe('OpenAI structured output schema validation', () => {
       expect(() => expectStructuredOutputSafeForOpenAI(transformed)).not.toThrow();
     });
 
+    it('ALTERNATES_SCHEMA has no optional fields, so transform leaves it unchanged', () => {
+      // Every field in ALTERNATES_SCHEMA is required, so transformSchemaForOpenAI
+      // should not widen any types to nullable. Assert the transformed output
+      // deep-equals the input to guard against future changes that might add
+      // optional fields without updating the transform logic.
+      const transformed = transformSchemaForOpenAI(ALTERNATES_SCHEMA);
+      expect(transformed).toEqual(ALTERNATES_SCHEMA);
+    });
+
     it('transform does not mutate input schemas', () => {
       // Compare against PRISTINE_AI_TURN, captured at module load. Snapshotting
       // inside this test is not enough: earlier tests in this file already run

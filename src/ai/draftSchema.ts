@@ -214,10 +214,13 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
   validateField('equipment', obj.equipment);
   validateField('personality', obj.personality);
 
+  // An all-undefined proposal is semantically equivalent to no proposal at all
+  // (the top-level "no proposal" case is already settingsProposal: undefined).
+  // Treat it as absent rather than an error: the reply is the user-visible value,
+  // and losing an entire coaching turn to a clumsier "no proposal" form defeats
+  // the point of this normaliser.
   if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
-    throw new DraftValidationError(
-      'a settings proposal must include at least one of goals, equipment, or personality'
-    );
+    return undefined as unknown as SettingsProposal;
   }
 
   return obj as unknown as SettingsProposal;
@@ -233,6 +236,10 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
  *
  * Pattern borrowed from syncService.ts, which does the same for WatermelonDB columns.
  *
+ * INVARIANT: No field in `AI_TURN_SCHEMA` carries `null` as a distinct value
+ * separate from absence. A field that ever does must not go through this
+ * normaliser — it would lose the distinction.
+ *
  * @returns a deep copy with all null values replaced by undefined
  */
 function normalizeNullsToUndefined(value: unknown): unknown {
@@ -243,12 +250,20 @@ function normalizeNullsToUndefined(value: unknown): unknown {
     return value;
   }
   if (Array.isArray(value)) {
+    // Arrays preserve holes (null becomes undefined but length is unchanged)
     return value.map(normalizeNullsToUndefined);
   }
-  // Plain object: recursively normalize each property
+  // Plain object: recursively normalize each property.
+  // Use Object.defineProperty to reproduce JSON.parse's own-data-property semantics,
+  // preventing `__proto__` from hitting the prototype setter and bypassing validation.
   const normalized: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(value)) {
-    normalized[key] = normalizeNullsToUndefined(val);
+    Object.defineProperty(normalized, key, {
+      value: normalizeNullsToUndefined(val),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
   return normalized;
 }
@@ -275,8 +290,14 @@ export function parseAiTurn(text: string): AiTurn {
   }
 
   const draft = obj.draft === undefined ? undefined : validateRoutineDraft(obj.draft);
-  const settingsProposal =
-    obj.settingsProposal === undefined ? undefined : validateSettingsProposal(obj.settingsProposal);
+  const settingsProposal = (() => {
+    if (obj.settingsProposal === undefined) {
+      return undefined;
+    }
+    // validateSettingsProposal may return undefined for an all-undefined proposal
+    const validated = validateSettingsProposal(obj.settingsProposal);
+    return validated;
+  })();
 
   return {
     reply: obj.reply,
