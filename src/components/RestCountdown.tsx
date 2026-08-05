@@ -173,6 +173,13 @@ const styles = StyleSheet.create({
   },
   countdown: {
     fontSize: 96,
+    // 108 is ~4pt under SF's natural ~1.165x (96 wants ~112), and that is
+    // deliberate rather than an oversight. This renders `tabular-nums` digits
+    // and a colon only — no descenders — so the shortfall lands in the unused
+    // descent band, and there is ~24pt of headroom between cap height and
+    // ascent at this size. Same reasoning that exempts a no-descender glyph
+    // elsewhere; recorded here because a ratio sweep will otherwise flag it
+    // every time. If this ever renders arbitrary text, raise it to 112.
     lineHeight: 108,
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],

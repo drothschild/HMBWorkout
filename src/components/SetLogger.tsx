@@ -254,10 +254,10 @@ export function SetLogger({
                 {currentRpe !== undefined ? (
                   <>
                     <ThemedText style={styles.rpeValue}>{currentRpe}</ThemedText>
-                    <ThemedText style={styles.rpeHint}>{rpeHint(currentRpe)}</ThemedText>
+                    <ThemedText type="small" style={styles.rpeHint}>{rpeHint(currentRpe)}</ThemedText>
                   </>
                 ) : (
-                  <ThemedText style={styles.rpeHint}>Optional</ThemedText>
+                  <ThemedText type="small" style={styles.rpeHint}>Optional</ThemedText>
                 )}
               </View>
             </View>
@@ -503,7 +503,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   rpeHint: {
-    fontSize: 14,
+    // Metrics come from type="small" (14/20). Only the dimming is local —
+    // overriding fontSize on a default-type ThemedText is the clipping
+    // anti-pattern this pass exists to remove.
+    //
+    // Visual impact: switching from default (14/24 effective) to type="small"
+    // (14/20) reduces the lineHeight by 4pt. rpeBackdrop is `justifyContent:
+    // 'flex-end'` over an auto-height sheet, so the sheet contracts 4pt and
+    // bottom-anchors: the 28pt number and hint both drop ~4pt, the gap
+    // between them tightens. This is intentional — type="small" is the semantic
+    // match for the hint and the visual shift is acceptable.
     opacity: 0.7,
   },
   rpeButtonContainer: {
