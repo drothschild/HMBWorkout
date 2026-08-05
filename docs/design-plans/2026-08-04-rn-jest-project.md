@@ -258,6 +258,6 @@ The recommendation follows from the diagnosis: **Yoga is the problem, Yoga runs 
 - [x] Spike proves yoga-layout reproduces #66 (ScrollView collapse to 0pt in auto-height parent)
 - [x] Addresses whether #66 and #109 would be caught (yes for #66; yes for #109 if structure is Yoga-computable)
 - [x] Proposes concrete config (jest.config.js comment, yogaLayoutTest helper, example tests)
-- [x] Names new dependencies and cost (yoga-layout, 18 MB)
+- [x] Names new dependencies and cost (yoga-layout, 296 KB, no postinstall native build)
 - [x] Phased adoption path specified (Phase 1: Yoga tests; Phase 2: simulator checklist; Phase 3: jest-expo if needed)
 - [x] Open questions listed; recommendation does not hinge on them
