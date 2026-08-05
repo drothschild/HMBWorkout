@@ -46,6 +46,19 @@ export class OpenaiIncompleteError extends Error {
   }
 }
 
+/**
+ * The model declined to answer. A `refusal` part is a normal, documented
+ * Responses outcome, not a transport or parsing failure — without this the
+ * refusal falls through to "no text content block", which points a reader at
+ * the wire format instead of at the model's actual decision.
+ */
+export class OpenaiRefusalError extends Error {
+  constructor(public refusal: string) {
+    super(`model refused to answer: ${refusal}`);
+    this.name = 'OpenaiRefusalError';
+  }
+}
+
 export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
 
@@ -148,6 +161,15 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
       const textBlocks = messageItem.content.filter((block): block is { type: string; text: string } =>
         block?.type === 'output_text' && typeof block.text === 'string'
       );
+
+      const refusal = messageItem.content.find(
+        (block): block is { type: string; refusal: string } =>
+          (block as { type?: string }).type === 'refusal' &&
+          typeof (block as { refusal?: unknown }).refusal === 'string'
+      );
+      if (refusal) {
+        throw new OpenaiRefusalError(refusal.refusal);
+      }
 
       const textBlock = textBlocks.find((block) => block.text.length > 0);
 
@@ -266,6 +288,15 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
         (block): block is { type: string; text: string } =>
           block?.type === 'output_text' && typeof block.text === 'string' && block.text.trim().length > 0
       );
+
+      const refusal = messageItem.content.find(
+        (block): block is { type: string; refusal: string } =>
+          (block as { type?: string }).type === 'refusal' &&
+          typeof (block as { refusal?: unknown }).refusal === 'string'
+      );
+      if (refusal) {
+        throw new OpenaiRefusalError(refusal.refusal);
+      }
 
       if (!textBlock) {
         throw new DraftValidationError('response contains no usable commentary text');

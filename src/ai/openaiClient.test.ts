@@ -1,4 +1,12 @@
-import { createOpenaiClient, OpenaiUnreachable, OpenaiHttpError, OpenaiSchemaError, createRestCommentaryClient } from './openaiClient';
+import {
+  createOpenaiClient,
+  OpenaiUnreachable,
+  OpenaiHttpError,
+  OpenaiSchemaError,
+  OpenaiIncompleteError,
+  OpenaiRefusalError,
+  createRestCommentaryClient,
+} from './openaiClient';
 
 describe('openaiClient', () => {
   describe('createOpenaiClient', () => {
@@ -162,6 +170,28 @@ describe('openaiClient', () => {
     // It stays as defence-in-depth and becomes reachable — and testable — when
     // Phase 3 lets callers supply a schema. buildOpenAiBody's own error cases are
     // covered where they are reachable, in provider/requestBuilder.test.ts.
+    it('surfaces a refusal part as OpenaiRefusalError, not "no text content block"', async () => {
+      // A `refusal` part is a documented, normal Responses outcome. Round 3's
+      // review found it was claimed as handled but never implemented, so it fell
+      // through to the no-text-block error — which points a reader at the wire
+      // format instead of at the model's actual decision.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'I cannot help with that.' }] }],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+      const error = await client
+        .chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(OpenaiRefusalError);
+      expect((error as OpenaiRefusalError).refusal).toBe('I cannot help with that.');
+      expect((error as Error).message).not.toMatch(/no text content block/);
+    });
+
     it('requires the output_text part type — an Anthropic-shaped text part is rejected', async () => {
       // This pins the discriminator itself, because the code and the mocks were
       // wrong TOGETHER twice on this PR. First the parser read a top-level
@@ -297,10 +327,18 @@ describe('openaiClient', () => {
         await client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] });
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
+        // Assert the TYPE, not just the message. Round 3's review found that
+        // swapping OpenaiIncompleteError for DraftValidationError survived
+        // mutation, because both tests only checked `instanceof Error` plus a
+        // substring — so the new class's entire reason for existing (letting a
+        // caller distinguish "the model ran out of budget" from "the model sent
+        // us garbage") was unpinned.
+        expect(error).toBeInstanceOf(OpenaiIncompleteError);
+        expect((error as OpenaiIncompleteError).reason).toBe('max_tokens');
         expect((error as Error).message).toContain('incomplete');
         expect((error as Error).message).toContain('max_tokens');
       }
-      expect.assertions(3);
+      expect.assertions(5);
     });
   });
 
@@ -321,10 +359,12 @@ describe('openaiClient', () => {
 
       expect(result).toBe('Keep pushing!');
 
-      // Verify no reasoning is used for commentary (256 token budget is tight)
+      // Explicitly disabled, not absent: an omitted `reasoning` field means effort
+      // 'medium' on GPT-5.6, which would exhaust this surface's 256-token ceiling
+      // before any prose is produced.
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.reasoning).toBeUndefined();
-      expect(callBody.max_output_tokens).toBe(256); // COMMENTARY_MAX_TOKENS
+      expect(callBody.reasoning).toEqual({ effort: 'none' });
+      expect(callBody.max_output_tokens).toBe(256); // getTokenBudget('restCommentary')
 
       // Verify developer role is preserved for system instructions
       const developerInput = callBody.input?.find((entry: any) => entry.role === 'developer');
@@ -454,10 +494,18 @@ describe('openaiClient', () => {
         await client.comment({ system: 'test', message: 'hi' });
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
+        // Assert the TYPE, not just the message. Round 3's review found that
+        // swapping OpenaiIncompleteError for DraftValidationError survived
+        // mutation, because both tests only checked `instanceof Error` plus a
+        // substring — so the new class's entire reason for existing (letting a
+        // caller distinguish "the model ran out of budget" from "the model sent
+        // us garbage") was unpinned.
+        expect(error).toBeInstanceOf(OpenaiIncompleteError);
+        expect((error as OpenaiIncompleteError).reason).toBe('max_tokens');
         expect((error as Error).message).toContain('incomplete');
         expect((error as Error).message).toContain('max_tokens');
       }
-      expect.assertions(3);
+      expect.assertions(5);
     });
   });
 

@@ -138,11 +138,23 @@ export function buildOpenAiBody(
     },
   };
 
-  // NOTE: rest commentary does NOT use reasoning. The 256-token budget is tight;
-  // reasoning tokens count against max_output_tokens, leaving almost no headroom
-  // for actual text. Rest commentary is 1-2 sentences against a ticking countdown,
-  // so latency matters and reasoning adds unnecessary delay. Frontier models handle
-  // it fine without reasoning.
+  // Reasoning is disabled EXPLICITLY, not by omission. Omitting `reasoning` does
+  // not turn it off: GPT-5.6 defaults to `effort: 'medium'` when the field is
+  // absent. An earlier revision of this file deleted the field believing that
+  // disabled it, which moved rest commentary from 'low' to an effective 'medium' —
+  // the opposite of the intent, and worse than the bug it was fixing.
+  //
+  // That matters most on rest commentary, whose ceiling is 256 tokens: reasoning
+  // tokens are billed as output tokens and count against `max_output_tokens`, so
+  // medium effort exhausts the budget and returns `status: 'incomplete'` with no
+  // text at all. Every AI failure is swallowed in this app, so the feature would
+  // have shipped silently dead. It is 1-2 sentences against a ticking countdown;
+  // there is nothing here to reason about, and the latency is the point.
+  //
+  // Applied to every surface, mirroring `buildAnthropicBody`'s unconditional
+  // `thinking: { type: 'disabled' }` above — the two providers should not differ
+  // on whether the app pays for reasoning it never asked for.
+  body.reasoning = { effort: 'none' };
 
   return body;
 }
