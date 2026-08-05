@@ -4,14 +4,14 @@
 
 Add a fourth AI Coach conversation mode — onboarding — that runs as a short interview the first
 time a user has an Anthropic key configured. The coach speaks first (reusing the same
-hidden-opening-turn trick as the existing post-workout debrief), asks through seven profile fields
-(goals, equipment, personality, name, age, gender, experience) in natural dialogue, and writes each
+hidden-opening-turn trick as the existing post-workout debrief), asks through six profile fields
+(goals, equipment, personality, age, gender, experience) in natural dialogue, and writes each
 answer to settings immediately, with no approval card — the one place in the app where the coach is
 allowed to change settings without the user confirming a proposed diff first.
 
 The implementation deliberately avoids new machinery wherever an existing pattern already fits.
 Rather than add a second payload type for profile data, the existing `SettingsProposal` contract
-widens from three fields to seven, and the existing `approveSettingsProposal` function stays the
+widens from three fields to six, and the existing `approveSettingsProposal` function stays the
 only code path that writes model-supplied settings — onboarding just calls it automatically instead
 of leaving the proposal pending for a card, gated strictly by a mode check. Because `buildSystem`
 already renders current settings values into every system prompt, the coach naturally sees which
@@ -28,9 +28,9 @@ routine through the same accept path as any other coach-authored draft.
 
 Implements GitHub issue [#170 — New feature: Opening Conversation](https://github.com/drothschild/HMBWorkout/issues/170).
 
-1. **Profile settings.** `BridgeSettings` gains four free-text fields — name, age, gender, expertise — persisted in the existing `bridge_settings` blob (old blobs load unchanged; the spread merge in `loadSettings` already tolerates new keys). A declined answer is stored as the refusal itself (e.g. `"prefer not to say"`), so the prompt and the settings screen both show exactly what the coach was told, and nothing needs to distinguish "never asked" from "declined". A persisted flag records that onboarding is done-or-dismissed. All four fields appear on the manual AI settings screen alongside the existing three.
+1. **Profile settings.** `BridgeSettings` gains three free-text fields — age, gender, expertise — persisted in the existing `bridge_settings` blob (old blobs load unchanged; the spread merge in `loadSettings` already tolerates new keys). A declined answer is stored as the refusal itself (e.g. `"prefer not to say"`), so the prompt and the settings screen both show exactly what the coach was told, and nothing needs to distinguish "never asked" from "declined". A persisted flag records that onboarding is done-or-dismissed. All three fields appear on the manual AI settings screen alongside the existing three. The coach never asks for the user's name.
 
-2. **An onboarding conversation mode.** A fourth `AiCoachMode`. The coach speaks first (reusing the debrief hidden-opening-turn pattern), interviews the user across all seven profile fields in natural dialogue, and writes back for clarification when an answer isn't understood. Settings are applied after every turn with no approval card. **Auto-apply is gated strictly to this mode** and still routes through `approveSettingsProposal`, so the validate-twice defense survives; every other mode keeps the approval card.
+2. **An onboarding conversation mode.** A fourth `AiCoachMode`. The coach speaks first (reusing the debrief hidden-opening-turn pattern), interviews the user across all six profile fields in natural dialogue, and writes back for clarification when an answer isn't understood. Settings are applied after every turn with no approval card. **Auto-apply is gated strictly to this mode** and still routes through `approveSettingsProposal`, so the validate-twice defense survives; every other mode keeps the approval card.
 
 3. **Entry and exit.** A dismissible card on the Today tab, shown only when an API key exists and the flag is unset; dismissing *or* completing the conversation sets the flag permanently. A button on the AI settings screen reopens the conversation at any time. The user may opt out mid-conversation into manual entry, keeping whatever was already written.
 
@@ -45,16 +45,16 @@ Implements GitHub issue [#170 — New feature: Opening Conversation](https://git
 ## Acceptance Criteria
 
 ### coach-onboarding.AC1: Profile settings persist
-- **coach-onboarding.AC1.1 Success:** The four `profile*` fields and `onboardingState` save and survive an app restart
+- **coach-onboarding.AC1.1 Success:** The three `profile*` fields and `onboardingState` save and survive an app restart
 - **coach-onboarding.AC1.2 Success:** A stored blob written before this feature loads without error; the new fields default to `''` and `onboardingState` to `'unseen'`
 - **coach-onboarding.AC1.3 Success:** A refusal is stored as its own text, so `''` still means "never asked" and the two are distinguishable by reading the value alone
-- **coach-onboarding.AC1.4 Edge:** All four profile fields may be empty; every AI surface behaves normally with none of them set
+- **coach-onboarding.AC1.4 Edge:** All three profile fields may be empty; every AI surface behaves normally with none of them set
 
 ### coach-onboarding.AC2: Widened settings-proposal contract
-- **coach-onboarding.AC2.1 Success:** A proposal carrying only `name`, `age`, `gender`, or `experience` validates and round-trips
-- **coach-onboarding.AC2.2 Success:** `expectStructuredOutputSafe(AI_TURN_SCHEMA)` passes with the four new properties present
+- **coach-onboarding.AC2.1 Success:** A proposal carrying only `age`, `gender`, or `experience` validates and round-trips
+- **coach-onboarding.AC2.2 Success:** `expectStructuredOutputSafe(AI_TURN_SCHEMA)` passes with the three new properties present
 - **coach-onboarding.AC2.3 Failure:** A proposal whose new field is an empty string, whitespace, a non-string, or longer than `SETTINGS_FIELD_MAX_LENGTH` is rejected with `DraftValidationError`
-- **coach-onboarding.AC2.4 Edge:** A proposal with all seven fields undefined is still rejected as empty, and `parseAiTurn` still drops it before validation
+- **coach-onboarding.AC2.4 Edge:** A proposal with all six fields undefined is still rejected as empty, and `parseAiTurn` still drops it before validation
 
 ### coach-onboarding.AC3: The interview prompt
 - **coach-onboarding.AC3.1 Success:** Onboarding mode's system prompt instructs the coach to ask in batches, to place age and gender after the other fields, to record a refusal verbatim and never re-ask it, and to ground every recorded value in something the user actually said
@@ -63,6 +63,7 @@ Implements GitHub issue [#170 — New feature: Opening Conversation](https://git
 - **coach-onboarding.AC3.4 Success:** Already-recorded profile values appear in the prompt, so a subsequent turn can see which fields are filled
 - **coach-onboarding.AC3.5 Success:** `/ai-coach?onboarding=1` maps to the onboarding mode, and adding the param alongside a `routineId` still yields onboarding rather than edit
 - **coach-onboarding.AC3.6 Failure:** No route-param combination yields onboarding unless the param is present — the existing create/edit/debrief mappings are unchanged
+- **coach-onboarding.AC3.7 Failure:** The onboarding prompt does not ask for the user's name, and no schema field or settings field exists to record one. The coach may use a name the user volunteers within the conversation, but must never solicit it and has nowhere to persist it
 
 ### coach-onboarding.AC4: Auto-apply, gated to onboarding
 - **coach-onboarding.AC4.1 Success:** An onboarding turn carrying a proposal writes it to settings and leaves `pendingSettingsProposal` null, so no approval card renders
@@ -77,7 +78,7 @@ Implements GitHub issue [#170 — New feature: Opening Conversation](https://git
 - **coach-onboarding.AC5.2 Success:** Dismissing writes `'dismissed'` and the card does not return on a later launch
 - **coach-onboarding.AC5.3 Success:** The first successful onboarding write sets `'completed'`; opening the conversation and leaving without answering anything does not
 - **coach-onboarding.AC5.4 Success:** The card renders alongside the resume button, error banner, and loading state rather than replacing any of them
-- **coach-onboarding.AC5.5 Success:** The settings screen persists all seven fields through its existing autosave, and its Start/Redo control re-enters the conversation regardless of `onboardingState`
+- **coach-onboarding.AC5.5 Success:** The settings screen persists all six fields through its existing autosave, and its Start/Redo control re-enters the conversation regardless of `onboardingState`
 - **coach-onboarding.AC5.6 Success:** Opting out mid-conversation lands on the settings screen with everything already written still present
 
 ### coach-onboarding.AC6: Profile reaches all four AI surfaces
@@ -95,10 +96,10 @@ Implements GitHub issue [#170 — New feature: Opening Conversation](https://git
 
 ## Glossary
 
-- **`BridgeSettings`**: The app's single persisted settings object — despite the name, it holds both bridge (sync) config and all AI Coach settings, including the four new profile fields this design adds.
+- **`BridgeSettings`**: The app's single persisted settings object — despite the name, it holds both bridge (sync) config and all AI Coach settings, including the three new profile fields this design adds.
 - **`bridge_settings` blob**: The on-device storage key `BridgeSettings` is serialized into; loading it merges onto defaults so old blobs missing new fields don't error.
 - **`AiCoachMode`**: A discriminated union identifying which kind of AI Coach conversation is active (`create`, `edit`, debrief, and now `onboarding`); it drives what the system prompt says and how the turn is handled.
-- **`SettingsProposal`**: The shape of a settings change the model can return inside a turn. Normally it sits pending until the user approves it via a UI card; this design widens it from three fields to seven.
+- **`SettingsProposal`**: The shape of a settings change the model can return inside a turn. Normally it sits pending until the user approves it via a UI card; this design widens it from three fields to six.
 - **`approveSettingsProposal`**: The single function that re-validates and actually writes a `SettingsProposal` to settings. Onboarding doesn't bypass it — it just calls it automatically instead of waiting for user approval.
 - **`invalidateCachedSystem` / prompt caching**: The Anthropic API can cache a repeated system-prompt prefix to save cost/latency. `buildSystem`'s output is cached across turns; writing settings invalidates that cache so the next prompt reflects the change. The design notes this happens on every onboarding turn, which is acceptable only because a new user has little else in the prompt to rebuild.
 - **Structured output / `output_config.format` (grammar budget)**: An Anthropic Messages API feature that constrains a response to a JSON schema. It has an empirical ~24-optional-parameter complexity ceiling before requests start failing, which is why this design widens one schema rather than adding a second.
@@ -122,7 +123,7 @@ routine) and never touches the Rill session engine, the sync bridge, or the vaul
 contract.
 
 **The wire contract stays singular.** Rather than introduce a second payload for profile data,
-the existing `SettingsProposal` widens from three fields to seven. This was chosen over a
+the existing `SettingsProposal` widens from three fields to six. This was chosen over a
 distinct `profileUpdate` field for two reasons. First, Anthropic's structured-output grammar has
 an empirical complexity ceiling (~24 optional parameters across a schema before "compiled grammar
 is too large"); a second parallel object spends roughly twice the budget of widening the one that
@@ -170,8 +171,6 @@ Settings gains five fields (`src/state/settings.ts`):
 interface BridgeSettings {
   // ...existing fields unchanged...
 
-  /** User's preferred name. '' = never asked. */
-  profileName: string;
   /** Free text: "41", "early 40s", "prefer not to say". '' = never asked. */
   profileAge: string;
   /** Free text, including self-described. '' = never asked. */
@@ -191,7 +190,6 @@ interface SettingsProposal {
   goals?: string;
   equipment?: string;
   personality?: string;
-  name?: string;
   age?: string;
   gender?: string;
   experience?: string;
@@ -240,7 +238,7 @@ which already maps `routineId`/`debriefSessionId` onto three modes.
 
 **Injected dependencies** — all three one-shot stores already take `getSettings` as an injected
 dep (`restCommentaryStore.ts:61`, `exerciseQuestionStore.ts:50`, `exerciseReplaceStore.ts:62`)
-and hand values into a typed prompt-builder input object. Threading four more fields follows the
+and hand values into a typed prompt-builder input object. Threading three more fields follows the
 existing shape; no store starts reading settings a new way.
 
 **Free-text neutralization** — every prompt builder already owns a private `neutralizeForPrompt`
@@ -264,10 +262,10 @@ pins this for the previous round of added fields.
 
 <!-- START_PHASE_1 -->
 ### Phase 1: Profile settings and onboarding state
-**Goal:** Persist the four profile fields and the onboarding lifecycle flag.
+**Goal:** Persist the three profile fields and the onboarding lifecycle flag.
 
 **Components:**
-- `src/state/settings.ts` — four `profile*` fields plus `onboardingState` on `BridgeSettings`
+- `src/state/settings.ts` — three `profile*` fields plus `onboardingState` on `BridgeSettings`
   and `DEFAULT_SETTINGS`
 
 **Dependencies:** None.
@@ -280,7 +278,7 @@ defaults and no error; `onboardingState` defaults to `'unseen'`.
 
 <!-- START_PHASE_2 -->
 ### Phase 2: Widened settings-proposal contract
-**Goal:** Let a turn carry all seven profile values, validated on receipt and again before write.
+**Goal:** Let a turn carry all six profile values, validated on receipt and again before write.
 
 **Components:**
 - `src/ai/draftSchema.ts` — `SettingsProposal` type, `AI_TURN_SCHEMA.settingsProposal`
@@ -290,7 +288,7 @@ defaults and no error; `onboardingState` defaults to `'unseen'`.
 
 **Covers:** `coach-onboarding.AC2.1`, `.AC2.2`, `.AC2.3`, `.AC2.4`
 
-**Done when:** All seven fields validate under the existing non-empty and
+**Done when:** All six fields validate under the existing non-empty and
 `SETTINGS_FIELD_MAX_LENGTH` rules; a proposal carrying only a new field is accepted; an
 all-undefined proposal is still rejected; `expectStructuredOutputSafe(AI_TURN_SCHEMA)` passes.
 <!-- END_PHASE_2 -->
@@ -309,7 +307,7 @@ what it has already recorded.
 
 **Dependencies:** Phase 2 (persona prose restates the widened bounds).
 
-**Covers:** `coach-onboarding.AC3.1`, `.AC3.2`, `.AC3.3`, `.AC3.4`, `.AC3.5`, `.AC6.1`
+**Covers:** `coach-onboarding.AC3.1`, `.AC3.2`, `.AC3.3`, `.AC3.4`, `.AC3.5`, `.AC3.6`, `.AC3.7`, `.AC6.1`
 
 **Done when:** The onboarding prompt instructs batching, sensitive-fields-late ordering,
 verbatim recording of refusals, grounding every value in user text, and closing with an offer to
@@ -349,7 +347,7 @@ conversation; the generation guard still discards a turn from a reset conversati
 - `src/state/coachOnboarding.ts` — `shouldShowOnboardingCard`
 - `src/components/` — the dismissible card
 - `src/app/(tabs)/index.tsx` — render the card above `renderContent()`
-- `src/app/(tabs)/settings/ai.tsx` — four new inputs plus a Start/Redo control
+- `src/app/(tabs)/settings/ai.tsx` — three new inputs plus a Start/Redo control
 - `src/app/ai-coach.tsx` — `HEADER_TITLES` entry and the "I'll fill this in myself" control
 
 **Dependencies:** Phase 4.
@@ -358,7 +356,7 @@ conversation; the generation guard still discards a turn from a reset conversati
 
 **Done when:** The predicate returns true only for `'unseen'` with a key present; dismissing
 writes `'dismissed'`; the card coexists with resume/error/loading rather than replacing them; the
-settings screen persists all seven fields through its existing autosave.
+settings screen persists all six fields through its existing autosave.
 <!-- END_PHASE_5 -->
 
 <!-- START_PHASE_6 -->
@@ -404,7 +402,7 @@ turn rebuilds the system prompt — including `buildSystem`'s routine and histor
 acceptable *because* the audience is a new user with no routines and no history; it would not be
 acceptable for a re-run against a mature install, which is a known cost of the Start/Redo control.
 
-**Grammar budget.** Widening `settingsProposal` spends four more optional parameters against an
+**Grammar budget.** Widening `settingsProposal` spends three more optional parameters against an
 undocumented, empirically-observed ceiling around 24. `AI_TURN_SCHEMA` is not close to it today,
 but the number is worth recording because nothing in the codebase measures it and the failure mode
 is a hard 400.
