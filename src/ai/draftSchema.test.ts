@@ -100,8 +100,8 @@ describe('draftSchema', () => {
 
     test('treats an empty settingsProposal as absent and keeps the reply', () => {
       // An empty settingsProposal object is semantically equivalent to no proposal:
-      // all fields are undefined. It's kept as an error in validateSettingsProposal
-      // when called directly, but parseAiTurn treats it as absent to preserve the reply.
+      // all fields are undefined. parseAiTurn drops it to preserve the reply, and
+      // validateSettingsProposal throws if called directly on an empty proposal.
       const json = JSON.stringify({
         reply: 'reply',
         settingsProposal: {}, // all fields undefined
@@ -190,11 +190,14 @@ describe('draftSchema', () => {
       // Craft a JSON string with __proto__ as a key in the draft object.
       // When parsed, __proto__ is a regular property (JSON doesn't treat it specially).
       // The normalizer must place __proto__ as an own data property, not on the prototype.
-      const json = '{"reply":"x","draft":{"__proto__":{"name":"Injected","exercises":[{"title":"E","kind":"strength"}]},"name":"","exercises":[]}}';
+      // Omit own name/exercises keys so the fixture actually tests the __proto__ injection.
+      const json = '{"reply":"x","draft":{"__proto__":{"name":"Injected","exercises":[{"title":"E","kind":"strength"}]}}}';
 
       // The normalizer must use Object.defineProperty to place __proto__ as an own
       // property, not allow it to hit the prototype setter. If it did, validation
       // would see draft.name === "Injected" and pass, which is wrong.
+      // Without the own-property guard, the __proto__ would inject into the prototype
+      // and validation would find a name through the inheritance chain.
       expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
       expect(() => parseAiTurn(json)).toThrow('routine name is required');
     });
@@ -274,21 +277,30 @@ describe('draftSchema', () => {
       expect(() => validateSettingsProposal(42)).toThrow(DraftValidationError);
     });
 
-    test('returns undefined for an empty proposal object', () => {
-      // An empty proposal (no fields at all) is semantically equivalent to no
-      // proposal. This can arise post-normalization when OpenAI returns all fields
-      // as null.
-      const result = validateSettingsProposal({});
-      expect(result).toBeUndefined();
+    test('throws when called directly with an empty proposal object', () => {
+      // Empty proposals are dropped by parseAiTurn before validateSettingsProposal is called.
+      // If validateSettingsProposal is called directly on an empty proposal (as a layer-2
+      // defense), it must reject it cleanly, not crash or silently accept it.
+      expect(() => validateSettingsProposal({})).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal({})).toThrow('at least one field');
     });
 
-    test('returns undefined when all fields are undefined', () => {
-      const result = validateSettingsProposal({
-        goals: undefined,
-        equipment: undefined,
-        personality: undefined,
-      });
-      expect(result).toBeUndefined();
+    test('throws when called directly with all fields undefined', () => {
+      // Same layer-2 defense: the validator must reject empty proposals.
+      expect(() =>
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+        })
+      ).toThrow(DraftValidationError);
+      expect(() =>
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+        })
+      ).toThrow('at least one field');
     });
 
     test('rejects non-string goals', () => {

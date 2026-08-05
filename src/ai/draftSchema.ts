@@ -214,16 +214,25 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
   validateField('equipment', obj.equipment);
   validateField('personality', obj.personality);
 
-  // An all-undefined proposal is semantically equivalent to no proposal at all
-  // (the top-level "no proposal" case is already settingsProposal: undefined).
-  // Treat it as absent rather than an error: the reply is the user-visible value,
-  // and losing an entire coaching turn to a clumsier "no proposal" form defeats
-  // the point of this normaliser.
+  // An all-undefined proposal is an error: every proposal must have at least one field.
+  // The shell's job is to drop empty proposals before calling this validator (in parseAiTurn).
   if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
-    return undefined as unknown as SettingsProposal;
+    throw new DraftValidationError('settings proposal must have at least one field');
   }
 
   return obj as unknown as SettingsProposal;
+}
+
+/**
+ * Check whether a settings proposal has no defined fields.
+ * An empty proposal is semantically equivalent to no proposal.
+ */
+function isEmptyProposal(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined;
 }
 
 /**
@@ -240,7 +249,8 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
  * separate from absence. A field that ever does must not go through this
  * normaliser — it would lose the distinction.
  *
- * @returns a deep copy with all null values replaced by undefined
+ * @returns a deep copy with all null values replaced by undefined. Arrays preserve
+ * their length (nulls become undefined, not sparse slots).
  */
 function normalizeNullsToUndefined(value: unknown): unknown {
   if (value === null) {
@@ -290,14 +300,16 @@ export function parseAiTurn(text: string): AiTurn {
   }
 
   const draft = obj.draft === undefined ? undefined : validateRoutineDraft(obj.draft);
-  const settingsProposal = (() => {
-    if (obj.settingsProposal === undefined) {
-      return undefined;
-    }
-    // validateSettingsProposal may return undefined for an all-undefined proposal
-    const validated = validateSettingsProposal(obj.settingsProposal);
-    return validated;
-  })();
+
+  // Drop empty proposals (all fields undefined) before validation.
+  // An empty proposal is semantically equivalent to no proposal: the reply is preserved,
+  // and we avoid losing a coaching turn to a null-filled structure from the model.
+  const settingsProposal =
+    obj.settingsProposal === undefined
+      ? undefined
+      : isEmptyProposal(obj.settingsProposal)
+        ? undefined
+        : validateSettingsProposal(obj.settingsProposal);
 
   return {
     reply: obj.reply,
