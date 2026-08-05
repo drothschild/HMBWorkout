@@ -352,6 +352,155 @@ describe('OpenAI structured output schema validation', () => {
       transformSchemaForOpenAI(ALTERNATES_SCHEMA);
       expect(JSON.stringify(ALTERNATES_SCHEMA)).toBe(PRISTINE_ALTERNATES);
     });
+
+    it('pins the exact shape of AI_TURN_SCHEMA against a copy checked into git', () => {
+      // PRISTINE_AI_TURN (above) is `JSON.stringify(AI_TURN_SCHEMA)` captured at
+      // module load — i.e. re-derived from the very module under test. It can
+      // catch a transform mutating the schema object in place, but it CANNOT
+      // catch drift: a field added to (or removed from, or renamed in)
+      // `AI_TURN_SCHEMA` itself is captured into PRISTINE_AI_TURN along with the
+      // change, so the two are always equal by construction and this class of
+      // regression sails through green (PR #117 review).
+      //
+      // toMatchInlineSnapshot writes its expectation into THIS file, checked
+      // into git independent of draftSchema.ts, so a schema edit that isn't
+      // deliberately re-approved here (`jest -u`) shows as a diff in review and
+      // fails CI. This is a second, independent detection mechanism, additive
+      // to the module-load capture above rather than a replacement for it.
+      expect(AI_TURN_SCHEMA).toMatchInlineSnapshot(`
+{
+  "additionalProperties": false,
+  "properties": {
+    "draft": {
+      "additionalProperties": false,
+      "description": "Include only when proposing a new routine or a revision of an existing one",
+      "properties": {
+        "exercises": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "strength",
+                  "cardio",
+                  "stretch",
+                ],
+                "type": "string",
+              },
+              "notes": {
+                "type": "string",
+              },
+              "restSeconds": {
+                "type": "integer",
+              },
+              "supersetGroup": {
+                "type": "string",
+              },
+              "targetDurationSeconds": {
+                "type": "integer",
+              },
+              "targetReps": {
+                "type": "integer",
+              },
+              "targetSets": {
+                "type": "integer",
+              },
+              "title": {
+                "type": "string",
+              },
+              "warmupSets": {
+                "type": "integer",
+              },
+            },
+            "required": [
+              "title",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "name": {
+          "type": "string",
+        },
+        "notes": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+        "exercises",
+      ],
+      "type": "object",
+    },
+    "reply": {
+      "description": "Conversational reply shown to the user",
+      "type": "string",
+    },
+    "settingsProposal": {
+      "additionalProperties": false,
+      "description": "Include only when the user asked to change their training goals, available equipment, or coaching style. At least one field is required",
+      "properties": {
+        "equipment": {
+          "type": "string",
+        },
+        "goals": {
+          "type": "string",
+        },
+        "personality": {
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  "required": [
+    "reply",
+  ],
+  "type": "object",
+}
+`);
+    });
+
+    it('pins the exact shape of ALTERNATES_SCHEMA against a copy checked into git', () => {
+      // Same rationale as the AI_TURN_SCHEMA pin above.
+      expect(ALTERNATES_SCHEMA).toMatchInlineSnapshot(`
+{
+  "additionalProperties": false,
+  "properties": {
+    "alternates": {
+      "description": "Substitute exercises, best first",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "How to perform it, and why it substitutes for the original",
+            "type": "string",
+          },
+          "title": {
+            "description": "The exercise name on its own, with no set or rep counts",
+            "type": "string",
+          },
+        },
+        "required": [
+          "title",
+          "description",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+  },
+  "required": [
+    "alternates",
+  ],
+  "type": "object",
+}
+`);
+    });
   });
 
   describe('widening edge cases', () => {
