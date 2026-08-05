@@ -226,6 +226,82 @@ describe('openaiClient', () => {
       expect(captured.maxTokens).toBe(4096);
       expect.assertions(1);
     });
+
+    it('finds message item when reasoning items precede it', async () => {
+      // Reasoning items may appear in output and carry their own content array.
+      // The message item guard must skip non-message types to find the actual output.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [
+            { type: 'reasoning', content: [{ type: 'text', text: 'thinking...' }] },
+            { type: 'message', content: [{ type: 'output_text', text: '{"reply": "answer"}' }] },
+          ],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+      const result = await client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(result).toEqual({ reply: 'answer' });
+      expect.assertions(1);
+    });
+
+    it('throws when no message item is found (all items are reasoning)', async () => {
+      // If output contains only non-message items (e.g., only reasoning), there is no
+      // message item to extract. This is a model-side incomplete response.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'reasoning', content: [{ type: 'text', text: 'thinking...' }] }],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      await expect(
+        client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] })
+      ).rejects.toThrow(/no message item/);
+      expect.assertions(1);
+    });
+
+    it('handles top-level error in response body', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          error: { message: 'Invalid schema provided' },
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      await expect(
+        client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] })
+      ).rejects.toThrow(/OpenAI error: Invalid schema provided/);
+      expect.assertions(1);
+    });
+
+    it('handles incomplete response with max_tokens reason', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_tokens' },
+          output: [],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      try {
+        await client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] });
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('incomplete');
+        expect((error as Error).message).toContain('max_tokens');
+      }
+      expect.assertions(3);
+    });
   });
 
   describe('createRestCommentaryClient', () => {
@@ -245,9 +321,9 @@ describe('openaiClient', () => {
 
       expect(result).toBe('Keep pushing!');
 
-      // Verify low effort was set for commentary
+      // Verify no reasoning is used for commentary (256 token budget is tight)
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.reasoning?.effort).toBe('low');
+      expect(callBody.reasoning).toBeUndefined();
       expect(callBody.max_output_tokens).toBe(256); // COMMENTARY_MAX_TOKENS
 
       // Verify developer role is preserved for system instructions
@@ -322,6 +398,66 @@ describe('openaiClient', () => {
         expect(message).not.toContain('secret-789');
       }
       expect.assertions(1);
+    });
+
+    it('requires output_text part type on commentary — an Anthropic-shaped text part is rejected', async () => {
+      // Mirror of the chat-surface pin: this surface must also reject Anthropic's
+      // 'text' discriminator and only accept OpenAI's 'output_text'.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'text', text: 'nope' }] }],
+        }),
+      });
+
+      const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      await expect(
+        client.comment({ system: 'test', message: 'hi' })
+      ).rejects.toThrow(/no usable commentary text/);
+      expect.assertions(1);
+    });
+
+    it('finds message item on commentary when reasoning items precede it', async () => {
+      // Reasoning items may appear in output. Commentary surface must also skip
+      // non-message types to find the message item carrying the actual response.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [
+            { type: 'reasoning', content: [{ type: 'text', text: 'thinking...' }] },
+            { type: 'message', content: [{ type: 'output_text', text: 'Keep going!' }] },
+          ],
+        }),
+      });
+
+      const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);
+      const result = await client.comment({ system: 'test', message: 'hi' });
+
+      expect(result).toBe('Keep going!');
+      expect.assertions(1);
+    });
+
+    it('handles incomplete response on commentary (critical with tight token budget)', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_tokens' },
+          output: [],
+        }),
+      });
+
+      const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      try {
+        await client.comment({ system: 'test', message: 'hi' });
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('incomplete');
+        expect((error as Error).message).toContain('max_tokens');
+      }
+      expect.assertions(3);
     });
   });
 

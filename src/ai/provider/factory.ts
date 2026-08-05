@@ -12,7 +12,7 @@ import type { AiClient, ProviderConfig, AiProvider } from './types';
  * Explicit aiProvider setting wins if set, otherwise uses whichever key is present.
  * Throws if no provider can be determined.
  *
- * Resolution logic matches src/state/settings.ts:resolveImplicitProvider() — when both
+ * Resolution logic matches src/state/settings.ts:resolveAiProvider() — when both
  * keys are set, no implicit choice is made (requires explicit aiProvider to resolve).
  */
 function resolveProvider(config: ProviderConfig): AiProvider {
@@ -62,7 +62,8 @@ export function createAiClient(config: ProviderConfig): AiClient {
   // accepted-but-ignored test in factory.test.ts until then.
 
   if (provider === 'anthropic') {
-    if (!config.anthropicKey) {
+    // Guard matches resolveProvider's logic: require non-empty trimmed value
+    if (!config.anthropicKey?.trim()) {
       throw new Error('Anthropic provider selected but anthropicKey not configured');
     }
 
@@ -79,7 +80,8 @@ export function createAiClient(config: ProviderConfig): AiClient {
   }
 
   // provider === 'openai'
-  if (!config.openaiKey) {
+  // Guard matches resolveProvider's logic: require non-empty trimmed value
+  if (!config.openaiKey?.trim()) {
     throw new Error('OpenAI provider selected but openaiKey not configured');
   }
 

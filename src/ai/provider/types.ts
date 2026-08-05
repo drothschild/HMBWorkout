@@ -62,14 +62,17 @@ export interface ProviderConfig {
 export interface AiClient {
   /**
    * Send a chat message and get back structured JSON output.
-   * The schema must be valid for the provider's structured output
-   * format (Anthropic json_schema, OpenAI json_schema).
+   *
+   * NOTE: `schema` and `model` parameters are deferred to Phase 3.
+   * The plan names per-surface model selection (chat/debrief on frontier,
+   * exerciseQuestion/restCommentary on cheaper tier), but Phase 2 hardcodes
+   * models in the clients themselves and doesn't expose schema selection.
+   * Both fields will be added to this request type when Phase 3 wires the
+   * underlying clients to accept them. See factory.ts:51-62 for the gap docs.
    */
   chat(request: {
     system: string;
     messages: { role: 'user' | 'assistant'; content: string }[];
-    schema: unknown; // JSON schema as object
-    model?: string; // Override default model for this call
   }): Promise<unknown>;
 }
 

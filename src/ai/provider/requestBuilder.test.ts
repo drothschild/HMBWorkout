@@ -184,16 +184,19 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
       expect(body.max_output_tokens).toBe(4096);
     });
 
-    it('applies low reasoning effort for rest commentary', () => {
+    it('does not set reasoning for rest commentary (tight 256-token budget)', () => {
       const body = buildOpenAiBody(
         { ...testRequest, surface: 'restCommentary' as const },
         'gpt-5.6-sol'
       );
-      expect(body.reasoning).toEqual({ effort: 'low' });
+      // Reasoning tokens count against max_output_tokens, so with only 256 tokens
+      // budgeted, reasoning leaves almost no room for actual output. Removed for
+      // rest commentary to keep latency low and preserve the tight budget for prose.
+      expect(body.reasoning).toBeUndefined();
     });
 
-    it('does not set reasoning for other surfaces', () => {
-      for (const surface of ['chat', 'alternates', 'exerciseQuestion']) {
+    it('does not set reasoning for any surface', () => {
+      for (const surface of ['chat', 'alternates', 'exerciseQuestion', 'restCommentary']) {
         const body = buildOpenAiBody(
           { ...testRequest, surface: surface as any },
           'gpt-5.6-sol'

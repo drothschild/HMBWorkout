@@ -138,6 +138,7 @@ describe('createAiClient factory', () => {
       .catch(() => undefined);
 
     // The hardcoded model, NOT any caller-supplied one.
-    expect(captured.model).toBe('gpt-5.6');
+    // Uses explicit -sol (frontier tier) rather than the alias 'gpt-5.6'
+    expect(captured.model).toBe('gpt-5.6-sol');
   });
 });

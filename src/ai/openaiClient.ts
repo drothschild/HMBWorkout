@@ -2,7 +2,8 @@ import { AI_TURN_SCHEMA, AiTurn, DraftValidationError, parseAiTurn } from './dra
 import { buildOpenAiBody } from './provider/requestBuilder';
 
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
-const MODEL = 'gpt-5.6';
+// gpt-5.6 is an alias that can be repointed; use explicit -sol to pin the frontier tier
+const MODEL = 'gpt-5.6-sol';
 
 type FetchFn = typeof fetch;
 
@@ -32,6 +33,16 @@ export class OpenaiSchemaError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'OpenaiSchemaError';
+  }
+}
+
+export class OpenaiIncompleteError extends Error {
+  constructor(
+    public reason: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'OpenaiIncompleteError';
   }
 }
 
@@ -83,8 +94,8 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
       }
 
       if (!response.ok) {
-        await response.text().catch(() => '');
-        throw new OpenaiHttpError(response.status, `HTTP ${response.status}`);
+        const text = await response.text().catch(() => '');
+        throw new OpenaiHttpError(response.status, `HTTP ${response.status}: ${text}`);
       }
 
       let responseBody: unknown;
@@ -96,6 +107,20 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
 
       if (responseBody === null || typeof responseBody !== 'object') {
         throw new DraftValidationError('response body is not a valid object');
+      }
+
+      // Check for top-level error
+      const topLevelError = (responseBody as { error?: { message?: string } }).error;
+      if (topLevelError?.message) {
+        throw new DraftValidationError(`OpenAI error: ${topLevelError.message}`);
+      }
+
+      // Check for incomplete response
+      const status = (responseBody as { status?: string }).status;
+      if (status === 'incomplete') {
+        const incompleteDetails = (responseBody as { incomplete_details?: { reason?: string } }).incomplete_details;
+        const reason = incompleteDetails?.reason ?? 'unknown';
+        throw new OpenaiIncompleteError(reason, `response incomplete: ${reason}`);
       }
 
       // OpenAI Responses format: output is an array of items, find the message item
@@ -164,11 +189,10 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
             schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
             schemaName: 'CommentaryResponse',
             surface: 'restCommentary',
+            outputFormat: 'text',
           },
           MODEL
         );
-        // Override for plain text output instead of JSON
-        (body.text as any).format = { type: 'text' };
       } catch (error) {
         throw new OpenaiSchemaError(
           error instanceof Error ? error.message : 'Failed to build OpenAI commentary request body'
@@ -192,8 +216,8 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
       }
 
       if (!response.ok) {
-        await response.text().catch(() => '');
-        throw new OpenaiHttpError(response.status, `HTTP ${response.status}`);
+        const text = await response.text().catch(() => '');
+        throw new OpenaiHttpError(response.status, `HTTP ${response.status}: ${text}`);
       }
 
       let responseBody: unknown;
@@ -205,6 +229,20 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
 
       if (responseBody === null || typeof responseBody !== 'object') {
         throw new DraftValidationError('response body is not a valid object');
+      }
+
+      // Check for top-level error
+      const topLevelError = (responseBody as { error?: { message?: string } }).error;
+      if (topLevelError?.message) {
+        throw new DraftValidationError(`OpenAI error: ${topLevelError.message}`);
+      }
+
+      // Check for incomplete response (critical for commentary with tight token budget)
+      const status = (responseBody as { status?: string }).status;
+      if (status === 'incomplete') {
+        const incompleteDetails = (responseBody as { incomplete_details?: { reason?: string } }).incomplete_details;
+        const reason = incompleteDetails?.reason ?? 'unknown';
+        throw new OpenaiIncompleteError(reason, `response incomplete: ${reason}`);
       }
 
       // OpenAI Responses format: output is an array of items, find the message item

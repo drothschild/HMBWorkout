@@ -21,6 +21,11 @@ interface RequestInput {
   schema: unknown;
   schemaName: string;
   surface?: AiSurface;
+  /**
+   * Output format type. Defaults to 'json_schema' for structured responses.
+   * Set to 'text' for plain text output (used by rest commentary).
+   */
+  outputFormat?: 'json_schema' | 'text';
 }
 
 function getTokenBudget(surface: AiSurface | undefined): number {
@@ -107,6 +112,8 @@ export function buildOpenAiBody(
   // Verify transformed schema is safe for OpenAI strict mode before sending
   expectStructuredOutputSafeForOpenAI(transformedSchema);
 
+  const outputFormat = request.outputFormat ?? 'json_schema';
+
   const body: Record<string, unknown> = {
     model,
     max_output_tokens: getTokenBudget(request.surface),
@@ -119,19 +126,23 @@ export function buildOpenAiBody(
       ...request.messages,
     ],
     text: {
-      format: {
-        type: 'json_schema',
-        name: request.schemaName,
-        schema: transformedSchema,
-        strict: true,
-      },
+      format:
+        outputFormat === 'text'
+          ? { type: 'text' }
+          : {
+              type: 'json_schema',
+              name: request.schemaName,
+              schema: transformedSchema,
+              strict: true,
+            },
     },
   };
 
-  // Apply extended thinking for rest commentary (lower effort to save tokens)
-  if (request.surface === 'restCommentary') {
-    body.reasoning = { effort: 'low' };
-  }
+  // NOTE: rest commentary does NOT use reasoning. The 256-token budget is tight;
+  // reasoning tokens count against max_output_tokens, leaving almost no headroom
+  // for actual text. Rest commentary is 1-2 sentences against a ticking countdown,
+  // so latency matters and reasoning adds unnecessary delay. Frontier models handle
+  // it fine without reasoning.
 
   return body;
 }
