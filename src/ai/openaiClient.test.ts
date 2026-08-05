@@ -6,7 +6,7 @@ describe('openaiClient', () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          content: [{ type: 'text', text: '{"reply": "test response"}' }],
+          output: [{ type: 'message', content: [{ type: 'text', text: '{"reply": "test response"}' }] }],
         }),
       });
 
@@ -35,7 +35,9 @@ describe('openaiClient', () => {
 
       // Verify schema config is present
       expect(callBody.text?.format?.type).toBe('json_schema');
+      expect(callBody.text?.format?.name).toBe('AiTurn');
       expect(callBody.text?.format?.strict).toBe(true);
+      expect(callBody.text?.format?.schema).toBeDefined();
 
       expect(result).toEqual({ reply: 'test response' });
     });
@@ -50,6 +52,7 @@ describe('openaiClient', () => {
           messages: [{ role: 'user', content: 'hi' }],
         })
       ).rejects.toThrow(OpenaiUnreachable);
+      expect.assertions(1);
     });
 
     it('throws OpenaiHttpError on HTTP error', async () => {
@@ -68,6 +71,7 @@ describe('openaiClient', () => {
 
       expect(error).toBeInstanceOf(OpenaiHttpError);
       expect(error.status).toBe(400);
+      expect.assertions(2);
     });
 
     it('throws on invalid JSON response', async () => {
@@ -86,12 +90,13 @@ describe('openaiClient', () => {
           messages: [{ role: 'user', content: 'hi' }],
         })
       ).rejects.toThrow();
+      expect.assertions(1);
     });
 
     it('throws on missing text content', async () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ content: [] }),
+        json: async () => ({ output: [{ type: 'message', content: [] }] }),
       });
 
       const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
@@ -102,6 +107,7 @@ describe('openaiClient', () => {
           messages: [{ role: 'user', content: 'hi' }],
         })
       ).rejects.toThrow();
+      expect.assertions(1);
     });
 
     it('does not expose apiKey in error messages', async () => {
@@ -142,7 +148,7 @@ describe('openaiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          content: [{ type: 'text', text: '{"reply": "response"}' }],
+          output: [{ type: 'message', content: [{ type: 'text', text: '{"reply": "response"}' }] }],
         }),
       });
 
@@ -164,7 +170,7 @@ describe('openaiClient', () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          content: [{ type: 'text', text: 'Keep pushing!' }],
+          output: [{ type: 'message', content: [{ type: 'text', text: 'Keep pushing!' }] }],
         }),
       });
 
@@ -192,12 +198,13 @@ describe('openaiClient', () => {
           message: 'hi',
         })
       ).rejects.toThrow(OpenaiUnreachable);
+      expect.assertions(1);
     });
 
     it('throws on empty text response', async () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ content: [{ type: 'text', text: '' }] }),
+        json: async () => ({ output: [{ type: 'message', content: [{ type: 'text', text: '' }] }] }),
       });
 
       const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);
@@ -208,6 +215,7 @@ describe('openaiClient', () => {
           message: 'hi',
         })
       ).rejects.toThrow();
+      expect.assertions(1);
     });
 
     it('does not expose apiKey in error messages', async () => {

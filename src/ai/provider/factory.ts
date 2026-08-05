@@ -11,6 +11,9 @@ import type { AiClient, ProviderConfig, AiProvider } from './types';
  * Determine which provider is configured.
  * Explicit aiProvider setting wins if set, otherwise uses whichever key is present.
  * Throws if no provider can be determined.
+ *
+ * Resolution logic matches src/state/settings.ts:resolveImplicitProvider() — when both
+ * keys are set, no implicit choice is made (requires explicit aiProvider to resolve).
  */
 function resolveProvider(config: ProviderConfig): AiProvider {
   // Explicit setting wins
@@ -18,16 +21,20 @@ function resolveProvider(config: ProviderConfig): AiProvider {
     return config.aiProvider;
   }
 
-  // Implicit detection from keys
-  if (config.anthropicKey) {
+  // Implicit detection from keys — only if exactly one is set
+  const hasAnthropicKey = (config.anthropicKey ?? '').trim().length > 0;
+  const hasOpenaiKey = (config.openaiKey ?? '').trim().length > 0;
+
+  if (hasAnthropicKey && !hasOpenaiKey) {
     return 'anthropic';
   }
 
-  if (config.openaiKey) {
+  if (hasOpenaiKey && !hasAnthropicKey) {
     return 'openai';
   }
 
-  throw new Error('No AI provider configured: set either anthropicKey or openaiKey');
+  // Both or neither: no implicit choice
+  throw new Error('No AI provider configured: set either anthropicKey or openaiKey, or specify aiProvider explicitly');
 }
 
 /**

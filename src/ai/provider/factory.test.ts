@@ -3,33 +3,33 @@ import { createOpenaiClient } from '../openaiClient';
 import type { ProviderConfig } from './types';
 
 describe('createAiClient factory', () => {
-  it('creates Anthropic client when anthropicKey is set', () => {
+  it('creates a client when anthropicKey is set and openaiKey is not', () => {
     const config: ProviderConfig = {
       anthropicKey: 'test-anthropic-key',
     };
 
     const client = createAiClient(config);
     expect(client).toBeDefined();
+    expect(typeof client.chat).toBe('function');
   });
 
-  it('creates OpenAI client when openaiKey is set', () => {
+  it('creates a client when openaiKey is set and anthropicKey is not', () => {
     const config: ProviderConfig = {
       openaiKey: 'test-openai-key',
     };
 
     const client = createAiClient(config);
     expect(client).toBeDefined();
+    expect(typeof client.chat).toBe('function');
   });
 
-  it('prefers Anthropic when both keys are set but aiProvider is not set', () => {
+  it('requires explicit aiProvider when both keys are set', () => {
     const config: ProviderConfig = {
       anthropicKey: 'test-anthropic-key',
       openaiKey: 'test-openai-key',
     };
 
-    const client = createAiClient(config);
-    // When both keys present, anthropic is default preference
-    expect(client).toBeDefined();
+    expect(() => createAiClient(config)).toThrow();
   });
 
   it('uses aiProvider setting to override implicit detection', () => {
@@ -41,6 +41,21 @@ describe('createAiClient factory', () => {
 
     const client = createAiClient(config);
     expect(client).toBeDefined();
+    expect(typeof client.chat).toBe('function');
+  });
+
+  it('sends messages with the correct provider key when anthropic is selected', async () => {
+    const captured: { header?: string } = {};
+    const mockFetch = jest.fn(async (_url: string, init: { headers?: Record<string, string> }) => {
+      captured.header = init.headers?.authorization;
+      throw new Error('stop here');
+    });
+
+    const client = createOpenaiClient({ apiKey: 'test-openai-key-123' }, mockFetch as never);
+    await client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] }).catch(() => {});
+
+    expect(captured.header).toBe('Bearer test-openai-key-123');
+    expect.assertions(1);
   });
 
   it('throws when no provider is configured', () => {

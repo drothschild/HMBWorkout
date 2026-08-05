@@ -90,8 +90,8 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
       }
 
       if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new OpenaiHttpError(response.status, `HTTP ${response.status}: ${text}`);
+        await response.text().catch(() => '');
+        throw new OpenaiHttpError(response.status, `HTTP ${response.status}`);
       }
 
       let responseBody: unknown;
@@ -105,13 +105,25 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
         throw new DraftValidationError('response body is not a valid object');
       }
 
-      const content = (responseBody as { content?: { type?: string; text?: string }[] }).content;
+      // OpenAI Responses format: output is an array of items, find the message item
+      const output = (responseBody as { output?: { type?: string; content?: { type?: string; text?: string }[] }[] }).output;
 
-      const textBlocks = Array.isArray(content)
-        ? content.filter((block): block is { type: string; text: string } =>
-            block?.type === 'text' && typeof block.text === 'string'
-          )
-        : [];
+      if (!Array.isArray(output)) {
+        throw new DraftValidationError('response output is not an array');
+      }
+
+      // Find the message item in output (reasoning items may precede it)
+      const messageItem = output.find((item): item is { type: string; content: { type?: string; text?: string }[] } =>
+        item?.type === 'message' && Array.isArray(item?.content)
+      );
+
+      if (!messageItem) {
+        throw new DraftValidationError('response output contains no message item');
+      }
+
+      const textBlocks = messageItem.content.filter((block): block is { type: string; text: string } =>
+        block?.type === 'text' && typeof block.text === 'string'
+      );
 
       const textBlock = textBlocks.find((block) => block.text.length > 0);
 
@@ -144,18 +156,25 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
     async comment(request: { system: string; message: string }): Promise<string> {
-      const body = {
-        model: MODEL,
-        max_output_tokens: COMMENTARY_MAX_TOKENS,
-        reasoning: { effort: 'low' as const },
-        input: [
-          { role: 'developer' as const, content: request.system },
-          { role: 'user' as const, content: request.message },
-        ],
-        text: {
-          type: 'text' as const,
-        },
-      };
+      let body: Record<string, unknown>;
+      try {
+        body = buildOpenAiBody(
+          {
+            system: request.system,
+            messages: [{ role: 'user', content: request.message }],
+            schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+            schemaName: 'CommentaryResponse',
+            surface: 'restCommentary',
+          },
+          MODEL
+        );
+        // Override for plain text output instead of JSON
+        (body.text as any).format = { type: 'text' };
+      } catch (error) {
+        throw new OpenaiSchemaError(
+          error instanceof Error ? error.message : 'Failed to build OpenAI commentary request body'
+        );
+      }
 
       let response: Response;
       try {
@@ -174,8 +193,8 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
       }
 
       if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new OpenaiHttpError(response.status, `HTTP ${response.status}: ${text}`);
+        await response.text().catch(() => '');
+        throw new OpenaiHttpError(response.status, `HTTP ${response.status}`);
       }
 
       let responseBody: unknown;
@@ -189,14 +208,26 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
         throw new DraftValidationError('response body is not a valid object');
       }
 
-      const content = (responseBody as { content?: { type?: string; text?: string }[] }).content;
+      // OpenAI Responses format: output is an array of items, find the message item
+      const output = (responseBody as { output?: { type?: string; content?: { type?: string; text?: string }[] }[] }).output;
 
-      const textBlock = Array.isArray(content)
-        ? content.find(
-            (block): block is { type: string; text: string } =>
-              block?.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0
-          )
-        : undefined;
+      if (!Array.isArray(output)) {
+        throw new DraftValidationError('response output is not an array');
+      }
+
+      // Find the message item in output (reasoning items may precede it)
+      const messageItem = output.find((item): item is { type: string; content: { type?: string; text?: string }[] } =>
+        item?.type === 'message' && Array.isArray(item?.content)
+      );
+
+      if (!messageItem) {
+        throw new DraftValidationError('response output contains no message item');
+      }
+
+      const textBlock = messageItem.content.find(
+        (block): block is { type: string; text: string } =>
+          block?.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0
+      );
 
       if (!textBlock) {
         throw new DraftValidationError('response contains no usable commentary text');
