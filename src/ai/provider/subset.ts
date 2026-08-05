@@ -7,17 +7,17 @@
 
 /**
  * Keywords that OpenAI's structured output does NOT support.
- * These are verified against the live endpoint behavior per the task.
+ * Documented keywords are derived from official OpenAI documentation.
+ * Keywords with no explicit documentation are conservatively treated as unsupported
+ * until proven against the live endpoint.
  *
  * Supported keywords (will NOT be in this list):
- * - enum, anyOf, oneOf, pattern, format, multipleOf
+ * - enum, anyOf, pattern, format, multipleOf
  * - minimum, maximum, exclusiveMinimum, exclusiveMaximum
  * - minItems, maxItems
- * - contains, minContains, maxContains, propertyNames
- * - unevaluatedProperties, unevaluatedItems
  *
- * Notably includes composition keywords (allOf, not, if/then/else) that
- * the task description emphasizes.
+ * Notably includes composition keywords (allOf, not, if/then/else, oneOf) that
+ * OpenAI's documentation does not support.
  */
 const UNSUPPORTED_FOR_OPENAI = [
   // Composition/conditional keywords (schema combinators)
@@ -28,6 +28,7 @@ const UNSUPPORTED_FOR_OPENAI = [
   'else',
   'dependentSchemas',
   'dependentRequired',
+  'oneOf',
 
   // String bounds (minLength/maxLength are NOT supported)
   'minLength',
@@ -46,7 +47,7 @@ const UNSUPPORTED_FOR_OPENAI = [
 const SCHEMA_VALUED = ['items', 'additionalItems', 'additionalProperties', 'contains', 'propertyNames'];
 
 /** Keywords whose value is a list of schemas. */
-const SCHEMA_LIST_VALUED = ['anyOf', 'oneOf', 'prefixItems'];
+const SCHEMA_LIST_VALUED = ['anyOf', 'prefixItems'];
 
 /**
  * Keywords whose value is a map of name → schema.
@@ -61,7 +62,7 @@ const isSchemaNode = (value: unknown): value is Record<string, unknown> =>
  * Find structural violations for OpenAI's strict: true mode.
  * Strict mode requires:
  * 1. Every object must have additionalProperties: false
- * 2. Every property in required must exist in properties
+ * 2. Every property in properties must be in required (all properties are required)
  *
  * @returns array of paths to structural violations
  */
@@ -78,13 +79,14 @@ export function findStructuralViolationsForOpenAI(schema: unknown): string[] {
         violations.push(`${path}.additionalProperties must be false (or implicit false)`);
       }
 
-      // Check: all required properties must exist in properties
+      // Check: all properties must be in required
       const required = node.required;
       const properties = node.properties;
-      if (Array.isArray(required) && isSchemaNode(properties)) {
-        for (const prop of required) {
-          if (!(prop in properties)) {
-            violations.push(`${path}.required contains "${prop}" but it's not in properties`);
+      if (isSchemaNode(properties)) {
+        const requiredSet = new Set(Array.isArray(required) ? required : []);
+        for (const prop of Object.keys(properties)) {
+          if (!requiredSet.has(prop)) {
+            violations.push(`${path}.properties.${prop} is not in required`);
           }
         }
       }
@@ -153,6 +155,98 @@ export function findUnsupportedKeywordsForOpenAI(schema: unknown): string[] {
 
   walk(schema, '$');
   return found;
+}
+
+/**
+ * Transform a schema to be OpenAI-compatible.
+ *
+ * OpenAI's strict mode requires all properties to be in the required array,
+ * and optional fields to be expressed as nullable types (e.g., `type: ["string", "null"]`).
+ *
+ * This transform does NOT mutate the input schema — it returns a new copy.
+ */
+export function transformSchemaForOpenAI(schema: unknown): unknown {
+  const deepClone = (obj: unknown): unknown => {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(deepClone);
+    }
+    if (obj instanceof Date || obj instanceof RegExp) {
+      return obj;
+    }
+    const cloned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      cloned[key] = deepClone(value);
+    }
+    return cloned;
+  };
+
+  const transform = (node: unknown): unknown => {
+    if (!isSchemaNode(node)) {
+      return node;
+    }
+
+    const transformed = { ...node };
+
+    // If this is an object schema with properties, ensure all are required
+    if ((transformed.type === 'object' || transformed.properties !== undefined) && isSchemaNode(transformed.properties)) {
+      const properties = transformed.properties as Record<string, unknown>;
+      const required = Array.isArray(transformed.required) ? transformed.required : [];
+      const requiredSet = new Set(required);
+
+      // Add all properties to required
+      const newRequired = Array.from(new Set([...required, ...Object.keys(properties)]));
+      transformed.required = newRequired;
+
+      // For properties not in the original required, widen type to nullable
+      const newProperties: Record<string, unknown> = {};
+      for (const [propName, propSchema] of Object.entries(properties)) {
+        if (!requiredSet.has(propName) && isSchemaNode(propSchema)) {
+          // Clone and widen to nullable
+          const widened = { ...propSchema };
+          if ('type' in widened && widened.type !== null) {
+            const currentType = widened.type;
+            if (typeof currentType === 'string') {
+              widened.type = [currentType, 'null'];
+            } else if (Array.isArray(currentType) && !currentType.includes('null')) {
+              widened.type = [...currentType, 'null'];
+            }
+          }
+          newProperties[propName] = transform(widened);
+        } else {
+          newProperties[propName] = transform(propSchema);
+        }
+      }
+      transformed.properties = newProperties;
+    }
+
+    // Recursively transform nested schemas
+    for (const [key, value] of Object.entries(transformed)) {
+      if (SCHEMA_VALUED.includes(key)) {
+        transformed[key] = transform(value);
+      } else if (SCHEMA_LIST_VALUED.includes(key)) {
+        if (Array.isArray(value)) {
+          transformed[key] = value.map(child => transform(child));
+        }
+      } else if (SCHEMA_MAP_VALUED.includes(key)) {
+        if (isSchemaNode(value)) {
+          const transformed_map: Record<string, unknown> = {};
+          for (const [name, child] of Object.entries(value)) {
+            transformed_map[name] = transform(child);
+          }
+          transformed[key] = transformed_map;
+        }
+      }
+    }
+
+    return transformed;
+  };
+
+  // Deep clone first to ensure input is never mutated
+  const cloned = deepClone(schema);
+  return transform(cloned);
 }
 
 /**

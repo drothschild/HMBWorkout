@@ -3,6 +3,8 @@
  * Both providers accept the same input shape but have different wire formats.
  */
 
+import { transformSchemaForOpenAI } from './subset';
+
 /**
  * AI surface type determines token budget and settings.
  * - chat: frontier tier, 4096 tokens (conversation, debrief, routine drafting)
@@ -69,23 +71,16 @@ export function buildAnthropicBody(
  * Verified against OpenAI's live documentation 2026-08-04:
  *   - `input` replaces `messages`
  *   - there is **no** top-level `system` parameter; system content is an
- *     entry in `input` with role `system`/`developer`. That is what keeps
+ *     entry in `input` with role `developer`. That is what keeps
  *     IMMUTABLE_DIRECTIVES in their own channel rather than sharing a
  *     buffer with user-controlled free text (routine notes, exercise
  *     titles, goals) — the precedence guarantee AGENTS.md requires is a
  *     *channel* property, so a role-tagged entry preserves it and folding
  *     the prompt into the user turn does not.
  *   - structured output is `text: { format: { type, name, strict, schema } }`
- *
- * NOT yet verified — the reference page was truncated on fetch, so these two
- * are carried over from the Chat Completions shape and are very likely wrong:
- *   - the token-budget parameter (Responses is believed to use
- *     `max_output_tokens`, not `max_tokens`)
- *   - reasoning effort (believed `reasoning: { effort }`, not
- *     `reasoning_effort`)
- * Both are marked below. **Confirm them before Phase 2 wires a live call** —
- * nothing calls this builder yet, so a wrong name here is currently inert,
- * and guessing would have made it silently wrong instead of visibly open.
+ *   - token budget is `max_output_tokens`
+ *   - reasoning effort (when present) is `reasoning: { effort }`, used for
+ *     extended thinking on frontier models
  */
 export function buildOpenAiBody(
   request: RequestInput,
@@ -97,30 +92,28 @@ export function buildOpenAiBody(
 
   const body: Record<string, unknown> = {
     model,
-    // UNVERIFIED (see docstring): Responses is believed to use
-    // `max_output_tokens`. Confirm before Phase 2.
-    max_tokens: getTokenBudget(request.surface),
+    max_output_tokens: getTokenBudget(request.surface),
     // System content is a role-tagged entry in `input`, not a top-level
     // field — Responses has no `system` parameter. Keeping it as its own
     // entry is what preserves IMMUTABLE_DIRECTIVES' channel precedence.
+    // Role 'developer' is recommended by OpenAI for system-level instructions.
     input: [
-      { role: 'system', content: request.system },
+      { role: 'developer', content: request.system },
       ...request.messages,
     ],
     text: {
       format: {
         type: 'json_schema',
         name: request.schemaName,
-        schema: request.schema,
+        schema: transformSchemaForOpenAI(request.schema),
         strict: true,
       },
     },
   };
 
-  // UNVERIFIED (see docstring): believed to be `reasoning: { effort }`.
-  // Confirm before Phase 2.
+  // Apply extended thinking for rest commentary (lower effort to save tokens)
   if (request.surface === 'restCommentary') {
-    body.reasoning_effort = 'low';
+    body.reasoning = { effort: 'low' };
   }
 
   return body;

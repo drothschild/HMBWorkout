@@ -1,15 +1,15 @@
 import { buildAnthropicBody, buildOpenAiBody } from './requestBuilder';
 
 describe('request builders', () => {
-  const testSchema = {
+  const testSchema = Object.freeze({
     type: 'object' as const,
-    properties: {
+    properties: Object.freeze({
       reply: { type: 'string' },
       data: { type: 'object' },
-    },
+    }),
     required: ['reply'],
     additionalProperties: false,
-  };
+  });
 
   const testRequest = {
     system: 'You are a helpful assistant',
@@ -86,13 +86,13 @@ describe('request builders', () => {
 
       expect(body).toEqual({
         model: 'gpt-5.6-sol',
-        max_tokens: 4096,
+        max_output_tokens: 4096,
         // Responses API: no top-level `system`. System content is a
         // role-tagged entry in `input`, which is what keeps
         // IMMUTABLE_DIRECTIVES in their own channel rather than sharing a
         // buffer with user-controlled text.
         input: [
-          { role: 'system', content: 'You are a helpful assistant' },
+          { role: 'developer', content: 'You are a helpful assistant' },
           {
             role: 'user' as const,
             content: 'Hello',
@@ -102,7 +102,11 @@ describe('request builders', () => {
           format: {
             type: 'json_schema',
             name: 'TestSchema',
-            schema: testSchema,
+            schema: expect.objectContaining({
+              type: 'object',
+              required: expect.arrayContaining(['reply', 'data']),
+              additionalProperties: false,
+            }),
             strict: true,
           },
         },
@@ -127,7 +131,7 @@ describe('request builders', () => {
           { ...testRequest, surface: surface as any },
           'gpt-5.6-sol'
         );
-        expect(body.max_tokens).toBe(expectedTokens);
+        expect(body.max_output_tokens).toBe(expectedTokens);
       }
     });
 
@@ -136,16 +140,16 @@ describe('request builders', () => {
         { ...testRequest, surface: 'restCommentary' as const },
         'gpt-5.6-sol'
       );
-      expect(body.reasoning_effort).toBe('low');
+      expect(body.reasoning).toEqual({ effort: 'low' });
     });
 
-    it('does not set reasoning effort for other surfaces', () => {
+    it('does not set reasoning for other surfaces', () => {
       for (const surface of ['chat', 'alternates', 'exerciseQuestion']) {
         const body = buildOpenAiBody(
           { ...testRequest, surface: surface as any },
           'gpt-5.6-sol'
         );
-        expect(body.reasoning_effort).toBeUndefined();
+        expect(body.reasoning).toBeUndefined();
       }
     });
 
@@ -165,9 +169,9 @@ describe('request builders', () => {
         unknown
       >;
 
-      // System is kept separate in its own field
+      // System is kept separate in its own field with role 'developer'
       const sysEntry = (body.input as Record<string, unknown>[])[0];
-      expect(sysEntry).toEqual({ role: 'system', content: 'You are an AI coach' });
+      expect(sysEntry).toEqual({ role: 'developer', content: 'You are an AI coach' });
 
       // Messages are unchanged
       const messages = (body.input as Record<string, unknown>[]).slice(1);
@@ -226,19 +230,24 @@ describe('request builders', () => {
       expect(anthropicFormat.schema).toBe(testSchema);
     });
 
-    it('OpenAI request does not mutate schema', () => {
-      const originalSchema = { ...testSchema };
+    it('OpenAI request does not mutate input schema', () => {
+      const originalSchema = JSON.stringify(testSchema);
       const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
 
-      // Schema in request should be unchanged
-      expect(testRequest.schema).toEqual(originalSchema);
+      // Input schema should be unchanged
+      expect(JSON.stringify(testRequest.schema)).toBe(originalSchema);
 
-      // Schema in body should be the same reference (not copied)
+      // Schema in body is transformed (all properties required, optionals nullable)
       const openaiFormat = (body.text as Record<string, unknown>).format as Record<
         string,
         unknown
       >;
-      expect(openaiFormat.schema).toBe(testSchema);
+      expect(openaiFormat.schema).not.toBe(testSchema);
+      expect(openaiFormat.schema).toEqual(
+        expect.objectContaining({
+          required: expect.arrayContaining(['reply', 'data']),
+        })
+      );
     });
   });
 
@@ -273,7 +282,12 @@ describe('request builders', () => {
       >);
 
       expect(anthropicFormat.schema).toBe(testSchema);
-      expect(openaiFormat.schema).toBe(testSchema);
+      // OpenAI schema is transformed, not the original
+      expect(openaiFormat.schema).not.toBe(testSchema);
+      expect(openaiFormat.schema).toEqual(expect.objectContaining({
+        type: 'object',
+        required: expect.arrayContaining(['reply', 'data']),
+      }));
     });
   });
 });

@@ -3,7 +3,7 @@
  * Verifies that settings are cached in-memory and persisted to storage.
  */
 
-import { getSettings, setSettings, loadSettings, injectSettingsStorage, resetForTesting } from './settings';
+import { getSettings, setSettings, loadSettings, injectSettingsStorage, resetForTesting, resolveAiProvider } from './settings';
 
 describe('Settings Persistence', () => {
   let fakeCalls: string[] = [];
@@ -315,21 +315,63 @@ describe('Settings Persistence', () => {
     });
   });
 
-  test('install with both keys set can explicitly choose provider', () => {
+  // Provider resolver tests
+  test('resolver: with only anthropic key, resolves to anthropic', () => {
+    setSettings({
+      anthropicKey: 'sk-ant-xxxxx',
+      openaiKey: undefined,
+    });
+
+    expect(resolveAiProvider()).toBe('anthropic');
+  });
+
+  test('resolver: with only openai key, resolves to openai', () => {
+    setSettings({
+      anthropicKey: '',
+      openaiKey: 'sk-openai-xxxxx',
+    });
+
+    expect(resolveAiProvider()).toBe('openai');
+  });
+
+  test('resolver: with both keys set but no explicit provider, returns null', () => {
+    setSettings({
+      anthropicKey: 'sk-ant-xxxxx',
+      openaiKey: 'sk-openai-xxxxx',
+      aiProvider: undefined,
+    });
+
+    expect(resolveAiProvider()).toBe(null);
+  });
+
+  test('resolver: with both keys set, explicit provider wins', () => {
     setSettings({
       anthropicKey: 'sk-ant-xxxxx',
       openaiKey: 'sk-openai-xxxxx',
       aiProvider: 'openai',
     });
 
-    const loaded = getSettings();
+    expect(resolveAiProvider()).toBe('openai');
+  });
 
-    // Both keys present
-    expect(loaded.anthropicKey).toBe('sk-ant-xxxxx');
-    expect(loaded.openaiKey).toBe('sk-openai-xxxxx');
+  test('resolver: with neither key set, returns null (AI disabled)', () => {
+    setSettings({
+      anthropicKey: '',
+      openaiKey: '',
+      aiProvider: undefined,
+    });
 
-    // But explicit provider wins
-    expect(loaded.aiProvider).toBe('openai');
+    expect(resolveAiProvider()).toBe(null);
+  });
+
+  test('resolver: explicit provider overrides implicit detection', () => {
+    setSettings({
+      anthropicKey: 'sk-ant-xxxxx',
+      openaiKey: undefined,
+      aiProvider: 'openai',
+    });
+
+    expect(resolveAiProvider()).toBe('openai');
   });
 
   test('per-surface model selection allows different models for different surfaces', () => {

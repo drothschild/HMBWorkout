@@ -4,7 +4,7 @@
  * backed by secure storage.
  */
 
-import type { AiModelConfig } from '@/ai/provider/types';
+import type { AiModelConfig, AiProvider } from '@/ai/provider/types';
 
 interface BridgeSettings {
   baseUrl: string;
@@ -21,7 +21,7 @@ interface BridgeSettings {
    * Explicit provider selection ('anthropic' or 'openai').
    * When set, it wins over implicit key-based detection.
    */
-  aiProvider?: string;
+  aiProvider?: AiProvider;
 
   /**
    * Per-surface model selection.
@@ -115,4 +115,38 @@ export function setSettings(newSettings: Partial<BridgeSettings>): void {
       console.error('Failed to persist settings:', error);
     });
   }
+}
+
+/**
+ * Resolve which AI provider is active based on settings.
+ *
+ * Resolution order:
+ * 1. If aiProvider is explicitly set, use it (overrides implicit detection)
+ * 2. If only anthropicKey is set, use 'anthropic'
+ * 3. If only openaiKey is set, use 'openai'
+ * 4. If both keys are set, use the explicit aiProvider if set, otherwise return null
+ * 5. If neither key is set, return null (AI features disabled)
+ */
+export function resolveAiProvider(): 'anthropic' | 'openai' | null {
+  const settings = getSettings();
+
+  // Explicit provider setting wins
+  if (settings.aiProvider === 'anthropic' || settings.aiProvider === 'openai') {
+    return settings.aiProvider;
+  }
+
+  // Implicit detection: whichever key is set
+  const hasAnthropicKey = (settings.anthropicKey ?? '').trim().length > 0;
+  const hasOpenaiKey = (settings.openaiKey ?? '').trim().length > 0;
+
+  if (hasAnthropicKey && !hasOpenaiKey) {
+    return 'anthropic';
+  }
+
+  if (hasOpenaiKey && !hasAnthropicKey) {
+    return 'openai';
+  }
+
+  // Both or neither: no implicit choice
+  return null;
 }

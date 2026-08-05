@@ -1,6 +1,7 @@
 import {
   findUnsupportedKeywordsForOpenAI,
   expectStructuredOutputSafeForOpenAI,
+  transformSchemaForOpenAI,
 } from './subset';
 import { AI_TURN_SCHEMA } from '../draftSchema';
 import { ALTERNATES_SCHEMA } from '../alternatesSchema';
@@ -238,14 +239,14 @@ describe('OpenAI structured output schema validation', () => {
   });
 
   describe('expectStructuredOutputSafeForOpenAI', () => {
-    it('passes for valid schemas', () => {
+    it('passes for valid schemas with all properties required', () => {
       const schema = {
         type: 'object',
         properties: {
           reply: { type: 'string' },
-          count: { type: 'number' },
+          count: { type: ['number', 'null'] },
         },
-        required: ['reply'],
+        required: ['reply', 'count'],
         additionalProperties: false,
       };
 
@@ -267,13 +268,21 @@ describe('OpenAI structured output schema validation', () => {
     });
   });
 
-  describe('all existing schemas are safe', () => {
-    it('AI_TURN_SCHEMA is safe for OpenAI', () => {
-      expect(() => expectStructuredOutputSafeForOpenAI(AI_TURN_SCHEMA)).not.toThrow();
+  describe('all existing schemas are safe after transformation', () => {
+    it('AI_TURN_SCHEMA becomes safe for OpenAI after transform', () => {
+      const transformed = transformSchemaForOpenAI(AI_TURN_SCHEMA);
+      expect(() => expectStructuredOutputSafeForOpenAI(transformed)).not.toThrow();
     });
 
-    it('ALTERNATES_SCHEMA is safe for OpenAI', () => {
-      expect(() => expectStructuredOutputSafeForOpenAI(ALTERNATES_SCHEMA)).not.toThrow();
+    it('ALTERNATES_SCHEMA becomes safe for OpenAI after transform', () => {
+      const transformed = transformSchemaForOpenAI(ALTERNATES_SCHEMA);
+      expect(() => expectStructuredOutputSafeForOpenAI(transformed)).not.toThrow();
+    });
+
+    it('transform does not mutate input schemas', () => {
+      const original = JSON.stringify(AI_TURN_SCHEMA);
+      transformSchemaForOpenAI(AI_TURN_SCHEMA);
+      expect(JSON.stringify(AI_TURN_SCHEMA)).toBe(original);
     });
   });
 });

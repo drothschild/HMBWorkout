@@ -63,24 +63,33 @@ If an unsupported keyword is present, the endpoint rejects the entire request wi
 **Error Types:**  
 `AnthropicUnreachable` (network) vs `AnthropicHttpError` (HTTP status)
 
-### OpenAI's Structured Outputs (Effective August 2026)
+### OpenAI's Structured Outputs via Responses API (Effective August 2026)
 
 **Request Structure:**
 ```json
 {
-  "model": "gpt-5.6",
-  "response_format": {
-    "type": "json_schema",
-    "json_schema": {
-      "strict": true,
+  "model": "gpt-5.6-sol",
+  "max_output_tokens": 4096,
+  "input": [
+    { "role": "developer", "content": "system instructions" },
+    { "role": "user", "content": "user message" }
+  ],
+  "text": {
+    "format": {
+      "type": "json_schema",
       "name": "ai_turn",
+      "strict": true,
       "schema": { /* JSON Schema */ }
     }
   },
-  "system": "...",
-  "messages": [...]
+  "reasoning": { "effort": "low" }
 }
 ```
+
+**Note on API Shape:**
+OpenAI's Responses API uses `input` (message array with role `developer` for system content)
+rather than Chat Completions' top-level `system` parameter. This preserves the
+IMMUTABLE_DIRECTIVES channel precedence as a role-tagged entry.
 
 **Supported Keywords (enforced at generation time):**  
 Opposite of Anthropic: OpenAI **does** support `minItems`, `maxItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `pattern`.
