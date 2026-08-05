@@ -240,9 +240,14 @@ jest-expo makes sense for Phase 3 (end-to-end screen testing), not for layout re
    - Answer needed: For complex components, which parts matter for regression?
    - Mitigation: Start with smallest affected layout and iterate
 
-4. **Is `@testing-library/react` (DOM) stray and should be removed?**
-   - Current state: `^16.3.2` in devDependencies but cannot run (no jest-environment-jsdom)
-   - Action: Verify it's not used and remove it (separate small cleanup card)
+4. ~~**Is `@testing-library/react` (DOM) stray and should be removed?**~~ **Settled — yes, removed.**
+   - It was stray: zero imports anywhere in `src/`, and unrunnable regardless (devDependencies
+     carries `jest-environment-node` and no jsdom).
+   - Removing it orphans nothing. `@testing-library/dom`, `@testing-library/jest-dom` and
+     `@testing-library/user-event` remain in the lockfile, but they arrive via **`expo-router`**,
+     not via this package — so the tree below them is unaffected.
+   - This does **not** give Phase 1 a renderer. `@testing-library/react-native` is still absent
+     and still has to be added; the DOM package was never a substitute for it.
 
 ## Recommendation Summary
 
