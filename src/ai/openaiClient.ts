@@ -1,9 +1,8 @@
 import { AI_TURN_SCHEMA, AiTurn, DraftValidationError, parseAiTurn } from './draftSchema';
 import { buildOpenAiBody } from './provider/requestBuilder';
 
-const OPENAI_URL = 'https://api.openai.com/v1/messages';
-const MODEL = 'gpt-4-turbo';
-const MAX_TOKENS = 4096;
+const OPENAI_URL = 'https://api.openai.com/v1/responses';
+const MODEL = 'gpt-5.6';
 
 /**
  * The rest-screen comment is 1-2 sentences and runs against a ticking
@@ -36,6 +35,13 @@ export class OpenaiHttpError extends Error {
   }
 }
 
+export class OpenaiSchemaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OpenaiSchemaError';
+  }
+}
+
 export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
 
@@ -54,7 +60,9 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
           MODEL
         );
       } catch (error) {
-        throw error instanceof Error ? error : new Error('Failed to build OpenAI request body');
+        throw new OpenaiSchemaError(
+          error instanceof Error ? error.message : 'Failed to build OpenAI request body'
+        );
       }
 
       let response: Response;

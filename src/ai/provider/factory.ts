@@ -13,8 +13,8 @@ const DEFAULT_ANTHROPIC_MODELS: AiModelConfig = {
 };
 
 const DEFAULT_OPENAI_MODELS: AiModelConfig = {
-  chat: 'gpt-4-turbo',
-  oneShot: 'gpt-4-turbo',
+  chat: 'gpt-5.6',
+  oneShot: 'gpt-5.6',
 };
 
 /**
@@ -50,6 +50,10 @@ function resolveProvider(config: ProviderConfig): AiProvider {
  */
 export function createAiClient(config: ProviderConfig): AiClient {
   const provider = resolveProvider(config);
+  // TODO (Phase 3): Pass modelConfig to client factories when they support model selection.
+  // Currently, clients use hardcoded models defined in openaiClient.ts and anthropicClient.ts.
+  // This config is accepted for forward compatibility but not yet used.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const modelConfig = config.aiModel ?? (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODELS : DEFAULT_OPENAI_MODELS);
 
   if (provider === 'anthropic') {
