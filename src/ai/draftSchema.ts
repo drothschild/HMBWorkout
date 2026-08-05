@@ -15,6 +15,9 @@ export interface SettingsProposal {
   goals?: string;
   equipment?: string;
   personality?: string;
+  age?: string;
+  gender?: string;
+  experience?: string;
 }
 
 /**
@@ -94,11 +97,14 @@ export const AI_TURN_SCHEMA = {
     settingsProposal: {
       type: 'object',
       description:
-        'Include only when the user asked to change their training goals, available equipment, or coaching style. At least one field is required',
+        'Include only when the user asked to change their training goals, available equipment, coaching style, or profile information. At least one field is required',
       properties: {
         goals: { type: 'string' },
         equipment: { type: 'string' },
         personality: { type: 'string' },
+        age: { type: 'string' },
+        gender: { type: 'string' },
+        experience: { type: 'string' },
       },
       additionalProperties: false,
     },
@@ -187,6 +193,29 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
   return obj as unknown as RoutineDraft;
 }
 
+/**
+ * The field list the validator and `isEmptyProposal` both walk.
+ *
+ * `satisfies` is load-bearing, not decoration: without it this is a bare string
+ * tuple with no compile-time link to `SettingsProposal`, and a field can be
+ * deleted from the interface with tsc clean and the whole suite green. That is
+ * the same drift hazard `isEmptyProposal` used to carry, one layer up.
+ *
+ * Note what this does and does not pin. It catches a name here that is not on
+ * the interface, and a field renamed on the interface. It cannot catch a field
+ * ADDED to the interface but not listed here, nor one added to
+ * AI_TURN_SCHEMA.settingsProposal but not to either — those two directions
+ * remain hand-maintained.
+ */
+const SETTINGS_PROPOSAL_FIELDS = [
+  'goals',
+  'equipment',
+  'personality',
+  'age',
+  'gender',
+  'experience',
+] as const satisfies readonly (keyof SettingsProposal)[];
+
 export function validateSettingsProposal(value: unknown): SettingsProposal {
   if (!value || typeof value !== 'object') {
     throw new DraftValidationError('settings proposal must be an object');
@@ -210,13 +239,13 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
     }
   };
 
-  validateField('goals', obj.goals);
-  validateField('equipment', obj.equipment);
-  validateField('personality', obj.personality);
+  for (const field of SETTINGS_PROPOSAL_FIELDS) {
+    validateField(field, obj[field]);
+  }
 
   // An all-undefined proposal is an error: every proposal must have at least one field.
   // The shell's job is to drop empty proposals before calling this validator (in parseAiTurn).
-  if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
+  if (isEmptyProposal(obj as SettingsProposal)) {
     throw new DraftValidationError('settings proposal must have at least one field');
   }
 
@@ -232,7 +261,12 @@ function isEmptyProposal(value: unknown): boolean {
     return false;
   }
   const obj = value as Record<string, unknown>;
-  return obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined;
+  // Derived from the same constant the validator loops over, deliberately.
+  // Enumerating the fields by hand here is a silent-data-loss hazard: a field
+  // added to SETTINGS_PROPOSAL_FIELDS but missed in this function makes a
+  // proposal carrying ONLY that field read as empty, so parseAiTurn drops it
+  // and the model's answer is discarded with no error raised anywhere.
+  return SETTINGS_PROPOSAL_FIELDS.every((field) => obj[field] === undefined);
 }
 
 /**
