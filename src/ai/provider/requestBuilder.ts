@@ -3,7 +3,8 @@
  * Both providers accept the same input shape but have different wire formats.
  */
 
-import { transformSchemaForOpenAI } from './subset';
+import { transformSchemaForOpenAI, expectStructuredOutputSafeForOpenAI } from './subset';
+import { findUnsupportedKeywords as findUnsupportedKeywordsForAnthropic } from '../structuredOutputSubset';
 
 /**
  * AI surface type determines token budget and settings.
@@ -31,8 +32,10 @@ function getTokenBudget(surface: AiSurface | undefined): number {
     case 'restCommentary':
       return 256;
     case 'chat':
-    default:
       return 4096;
+    case undefined:
+      return 4096;
+    // Exhaustive check: if a new surface type is added, tsc will flag it
   }
 }
 
@@ -44,6 +47,16 @@ export function buildAnthropicBody(
   request: RequestInput,
   model: string
 ): Record<string, unknown> {
+  // Verify schema is safe for Anthropic's structured output endpoint.
+  // The endpoint rejects the entire request with 400 if it carries unsupported
+  // keywords — the model never runs. This guard catches them before sending.
+  const unsupported = findUnsupportedKeywordsForAnthropic(request.schema);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Schema contains unsupported keywords for Anthropic structured output:\n${unsupported.join('\n')}`
+    );
+  }
+
   return {
     model,
     max_tokens: getTokenBudget(request.surface),
@@ -90,6 +103,10 @@ export function buildOpenAiBody(
     throw new Error('schema name required for OpenAI structured output');
   }
 
+  const transformedSchema = transformSchemaForOpenAI(request.schema);
+  // Verify transformed schema is safe for OpenAI strict mode before sending
+  expectStructuredOutputSafeForOpenAI(transformedSchema);
+
   const body: Record<string, unknown> = {
     model,
     max_output_tokens: getTokenBudget(request.surface),
@@ -105,7 +122,7 @@ export function buildOpenAiBody(
       format: {
         type: 'json_schema',
         name: request.schemaName,
-        schema: transformSchemaForOpenAI(request.schema),
+        schema: transformedSchema,
         strict: true,
       },
     },
