@@ -98,13 +98,141 @@ describe('draftSchema', () => {
       expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
     });
 
-    test('throws DraftValidationError when settingsProposal is invalid', () => {
+    test('treats an empty settingsProposal as absent and keeps the reply', () => {
+      // An empty settingsProposal object is semantically equivalent to no proposal:
+      // all fields are undefined. parseAiTurn drops it to preserve the reply, and
+      // validateSettingsProposal throws if called directly on an empty proposal.
       const json = JSON.stringify({
         reply: 'reply',
-        settingsProposal: {}, // neither goals nor equipment
+        settingsProposal: {}, // all fields undefined
       });
 
+      const result = parseAiTurn(json);
+      expect(result.reply).toBe('reply');
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('parses OpenAI-style response with null draft and settingsProposal', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: null,
+        settingsProposal: null,
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Here is your routine');
+      expect(result.draft).toBeUndefined();
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('parses OpenAI-style response with draft containing null optional fields', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: {
+          name: 'My Routine',
+          notes: null,
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength',
+              supersetGroup: null,
+              description: null,
+            },
+          ],
+        },
+        settingsProposal: null,
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.draft?.name).toBe('My Routine');
+      expect(result.draft?.notes).toBeUndefined();
+      expect(result.draft?.exercises[0].supersetGroup).toBeUndefined();
+      expect(result.draft?.exercises[0].description).toBeUndefined();
+    });
+
+    test('parses OpenAI-style response with settingsProposal containing null fields', () => {
+      const json = JSON.stringify({
+        reply: 'Want me to update your equipment?',
+        draft: null,
+        settingsProposal: {
+          goals: 'Build strength',
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
+      expect(result.settingsProposal?.equipment).toBeUndefined();
+      expect(result.settingsProposal?.personality).toBeUndefined();
+    });
+
+    test('still works with Anthropic-style response (fields absent, not null)', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: {
+          name: 'My Routine',
+          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Here is your routine');
+      expect(result.draft?.name).toBe('My Routine');
+      expect(result.draft?.notes).toBeUndefined();
+    });
+
+    test('rejects __proto__ injection in draft (prevents prototype pollution bypass of validation)', () => {
+      // Craft a JSON string with __proto__ as a key in the draft object.
+      // When parsed, __proto__ is a regular property (JSON doesn't treat it specially).
+      // The normalizer must place __proto__ as an own data property, not on the prototype.
+      // Omit own name/exercises keys so the fixture actually tests the __proto__ injection.
+      const json = '{"reply":"x","draft":{"__proto__":{"name":"Injected","exercises":[{"title":"E","kind":"strength"}]}}}';
+
+      // The normalizer must use Object.defineProperty to place __proto__ as an own
+      // property, not allow it to hit the prototype setter. If it did, validation
+      // would see draft.name === "Injected" and pass, which is wrong.
+      // Without the own-property guard, the __proto__ would inject into the prototype
+      // and validation would find a name through the inheritance chain.
       expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+      expect(() => parseAiTurn(json)).toThrow('routine name is required');
+    });
+
+    test('treats an all-null settingsProposal as absent (drop empty proposal, keep reply)', () => {
+      const json = JSON.stringify({
+        reply: 'Check your goals?',
+        settingsProposal: {
+          goals: null,
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Check your goals?');
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('preserves a settingsProposal with at least one real field through normalization', () => {
+      const json = JSON.stringify({
+        reply: 'Check your goals?',
+        settingsProposal: {
+          goals: 'Build strength',
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
+      expect(result.settingsProposal?.equipment).toBeUndefined();
+      expect(result.settingsProposal?.personality).toBeUndefined();
     });
   });
 
@@ -149,16 +277,30 @@ describe('draftSchema', () => {
       expect(() => validateSettingsProposal(42)).toThrow(DraftValidationError);
     });
 
-    test('rejects a proposal carrying no fields', () => {
-      expect(() => validateSettingsProposal({})).toThrow(
-        'a settings proposal must include at least one of goals, equipment, or personality'
-      );
+    test('throws when called directly with an empty proposal object', () => {
+      // Empty proposals are dropped by parseAiTurn before validateSettingsProposal is called.
+      // If validateSettingsProposal is called directly on an empty proposal (as a layer-2
+      // defense), it must reject it cleanly, not crash or silently accept it.
+      expect(() => validateSettingsProposal({})).toThrow(DraftValidationError);
+      expect(() => validateSettingsProposal({})).toThrow('at least one field');
     });
 
-    test('rejects a proposal whose only fields are undefined', () => {
+    test('throws when called directly with all fields undefined', () => {
+      // Same layer-2 defense: the validator must reject empty proposals.
       expect(() =>
-        validateSettingsProposal({ goals: undefined, equipment: undefined, personality: undefined })
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+        })
       ).toThrow(DraftValidationError);
+      expect(() =>
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+        })
+      ).toThrow('at least one field');
     });
 
     test('rejects non-string goals', () => {

@@ -214,13 +214,68 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
   validateField('equipment', obj.equipment);
   validateField('personality', obj.personality);
 
+  // An all-undefined proposal is an error: every proposal must have at least one field.
+  // The shell's job is to drop empty proposals before calling this validator (in parseAiTurn).
   if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
-    throw new DraftValidationError(
-      'a settings proposal must include at least one of goals, equipment, or personality'
-    );
+    throw new DraftValidationError('settings proposal must have at least one field');
   }
 
   return obj as unknown as SettingsProposal;
+}
+
+/**
+ * Check whether a settings proposal has no defined fields.
+ * An empty proposal is semantically equivalent to no proposal.
+ */
+function isEmptyProposal(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined;
+}
+
+/**
+ * Normalize null values to undefined at the parse boundary.
+ *
+ * OpenAI's strict mode forces optional fields into the schema as "type: [..., "null"]"
+ * to express optionality, since it cannot express truly optional properties.
+ * This normaliser converts those nulls to undefined so downstream validators only
+ * need to handle one representation of absence.
+ *
+ * Pattern borrowed from syncService.ts, which does the same for WatermelonDB columns.
+ *
+ * INVARIANT: No field in `AI_TURN_SCHEMA` carries `null` as a distinct value
+ * separate from absence. A field that ever does must not go through this
+ * normaliser — it would lose the distinction.
+ *
+ * @returns a deep copy with all null values replaced by undefined. Arrays preserve
+ * their length (nulls become undefined, not sparse slots).
+ */
+function normalizeNullsToUndefined(value: unknown): unknown {
+  if (value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    // Arrays preserve holes (null becomes undefined but length is unchanged)
+    return value.map(normalizeNullsToUndefined);
+  }
+  // Plain object: recursively normalize each property.
+  // Use Object.defineProperty to reproduce JSON.parse's own-data-property semantics,
+  // preventing `__proto__` from hitting the prototype setter and bypassing validation.
+  const normalized: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    Object.defineProperty(normalized, key, {
+      value: normalizeNullsToUndefined(val),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  return normalized;
 }
 
 export function parseAiTurn(text: string): AiTurn {
@@ -236,15 +291,25 @@ export function parseAiTurn(text: string): AiTurn {
     throw new DraftValidationError('response must be a JSON object');
   }
 
-  const obj = parsed as Record<string, unknown>;
+  // Normalize null → undefined at the boundary, before validation
+  const normalized = normalizeNullsToUndefined(parsed) as Record<string, unknown>;
+  const obj = normalized;
 
   if (typeof obj.reply !== 'string') {
     throw new DraftValidationError('reply field is required and must be a string');
   }
 
   const draft = obj.draft === undefined ? undefined : validateRoutineDraft(obj.draft);
+
+  // Drop empty proposals (all fields undefined) before validation.
+  // An empty proposal is semantically equivalent to no proposal: the reply is preserved,
+  // and we avoid losing a coaching turn to a null-filled structure from the model.
   const settingsProposal =
-    obj.settingsProposal === undefined ? undefined : validateSettingsProposal(obj.settingsProposal);
+    obj.settingsProposal === undefined
+      ? undefined
+      : isEmptyProposal(obj.settingsProposal)
+        ? undefined
+        : validateSettingsProposal(obj.settingsProposal);
 
   return {
     reply: obj.reply,
