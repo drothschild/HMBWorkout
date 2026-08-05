@@ -7,17 +7,14 @@
 
 /**
  * Keywords that OpenAI's structured output does NOT support.
- * Documented keywords are derived from official OpenAI documentation.
  *
- * Supported keywords (will NOT be in this list):
- * - enum, anyOf, pattern, format, multipleOf
- * - minimum, maximum, exclusiveMinimum, exclusiveMaximum
- * - minItems, maxItems
- * - contains, minContains, maxContains
- * - propertyNames, unevaluatedProperties, unevaluatedItems, prefixItems
+ * Documented as unsupported in OpenAI's official structured output guide.
+ * Keywords with no explicit documentation are conservatively treated as unsupported
+ * until proven against the live endpoint. This guard catches them before sending a
+ * request (which would fail with 400 and never run the model).
  *
- * Notably includes composition keywords (allOf, not, if/then/else, oneOf) that
- * OpenAI's documentation does not support.
+ * Notably includes composition keywords (allOf, not, if/then/else, oneOf) and
+ * several keywords that OpenAI's guide explicitly lists as unsupported.
  */
 const UNSUPPORTED_FOR_OPENAI = [
   // Composition/conditional keywords (schema combinators)
@@ -30,13 +27,32 @@ const UNSUPPORTED_FOR_OPENAI = [
   'dependentRequired',
   'oneOf',
 
-  // String bounds (minLength/maxLength are NOT supported)
+  // String bounds (explicitly unsupported)
   'minLength',
   'maxLength',
+  'pattern',
 
-  // Object property counts (minProperties/maxProperties are NOT supported)
+  // Numeric bounds (explicitly unsupported)
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'multipleOf',
+
+  // Array/object counts (explicitly unsupported)
+  'minItems',
+  'maxItems',
   'minProperties',
   'maxProperties',
+
+  // Array/object introspection keywords (explicitly unsupported)
+  'contains',
+  'minContains',
+  'maxContains',
+  'propertyNames',
+  'unevaluatedProperties',
+  'unevaluatedItems',
+  'prefixItems',
 
   // Other unsupported keywords
   'patternProperties',
@@ -194,8 +210,13 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
 
     const transformed = { ...node };
 
-    // If this is an object schema with properties, ensure all are required
-    if ((transformed.type === 'object' || transformed.properties !== undefined) && isSchemaNode(transformed.properties)) {
+    // If this is an object schema, ensure it has properties and additionalProperties: false
+    if (transformed.type === 'object' || transformed.properties !== undefined) {
+      // Handle edge case: type: 'object' with no properties
+      if (!isSchemaNode(transformed.properties)) {
+        transformed.properties = {};
+      }
+
       const properties = transformed.properties as Record<string, unknown>;
       const required = Array.isArray(transformed.required) ? transformed.required : [];
       const requiredSet = new Set(required);
@@ -203,9 +224,6 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
       // OpenAI strict mode requires additionalProperties: false
       transformed.additionalProperties = false;
 
-      // For properties not in the original required, determine if they can be widened.
-      // Properties defined only by anyOf or const cannot express absence and should not
-      // be added to required (they'll remain optional implicitly).
       // OpenAI strict mode requires EVERY property to appear in `required` —
       // there is no such thing as an exempt property. An earlier version left
       // anyOf-only and const-only properties out on the reasoning that they
@@ -215,8 +233,9 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
       //
       // The answer is to give them a way to express absence rather than to
       // exempt them. A property with a plain `type` is widened to
-      // `type: [..., 'null']`; one defined by `anyOf` or `const` gets a
-      // `{ type: 'null' }` branch instead. Either way it lands in `required`.
+      // `type: [..., 'null']`; one defined by `anyOf`, `enum`, or `const` gets
+      // a `{ type: 'null' }` branch or null in the enum instead. Either way it
+      // lands in `required`.
       //
       // Not reachable from today's schemas (neither AI_TURN_SCHEMA nor
       // ALTERNATES_SCHEMA uses anyOf or const), but it is about to be:
@@ -245,6 +264,11 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
             if (Array.isArray(widened.enum) && !widened.enum.includes(null)) {
               widened.enum = [...widened.enum, null];
             }
+          } else if (Array.isArray(widened.enum)) {
+            // Enum-only (no type field): add null to the enum to allow absence.
+            if (!widened.enum.includes(null)) {
+              widened.enum = [...widened.enum, null];
+            }
           } else if (Array.isArray(widened.anyOf)) {
             // anyOf-defined: add a null branch rather than a `type` key, which
             // would fight the anyOf.
@@ -254,10 +278,11 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
             if (!hasNull) widened.anyOf = [...widened.anyOf, { type: 'null' }];
           } else if ('const' in widened) {
             // const-defined: the only way to admit absence is to offer the
-            // const or null as alternatives.
+            // const or null as alternatives. Use enum (supported) instead of const
+            // (unsupported) to avoid carrying an unsupported keyword to the wire.
             const literal = widened.const;
             delete widened.const;
-            widened.anyOf = [{ const: literal }, { type: 'null' }];
+            widened.enum = [literal, null];
           }
 
           newProperties[propName] = transform(widened);

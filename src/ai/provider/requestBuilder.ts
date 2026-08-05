@@ -4,6 +4,7 @@
  */
 
 import { transformSchemaForOpenAI, expectStructuredOutputSafeForOpenAI } from './subset';
+import { findUnsupportedKeywords as findUnsupportedKeywordsForAnthropic } from '../structuredOutputSubset';
 
 /**
  * AI surface type determines token budget and settings.
@@ -46,6 +47,16 @@ export function buildAnthropicBody(
   request: RequestInput,
   model: string
 ): Record<string, unknown> {
+  // Verify schema is safe for Anthropic's structured output endpoint.
+  // The endpoint rejects the entire request with 400 if it carries unsupported
+  // keywords — the model never runs. This guard catches them before sending.
+  const unsupported = findUnsupportedKeywordsForAnthropic(request.schema);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Schema contains unsupported keywords for Anthropic structured output:\n${unsupported.join('\n')}`
+    );
+  }
+
   return {
     model,
     max_tokens: getTokenBudget(request.surface),

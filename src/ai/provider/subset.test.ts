@@ -185,7 +185,7 @@ describe('OpenAI structured output schema validation', () => {
       expect(unsupported).toEqual([]);
     });
 
-    it('accepts pattern, format, and numeric bounds keywords', () => {
+    it('rejects pattern, format, and numeric bounds keywords that OpenAI does not support', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -210,7 +210,13 @@ describe('OpenAI structured output schema validation', () => {
       };
 
       const unsupported = findUnsupportedKeywordsForOpenAI(schema);
-      expect(unsupported).toEqual([]);
+      // OpenAI's documentation explicitly lists these as unsupported
+      expect(unsupported).toContain('$.properties.email.pattern');
+      expect(unsupported).toContain('$.properties.price.minimum');
+      expect(unsupported).toContain('$.properties.price.maximum');
+      expect(unsupported).toContain('$.properties.price.multipleOf');
+      expect(unsupported).toContain('$.properties.tags.minItems');
+      expect(unsupported).toContain('$.properties.tags.maxItems');
     });
 
     it('reports nested unsupported keywords', () => {
@@ -287,7 +293,7 @@ describe('OpenAI structured output schema validation', () => {
       expect(() => expectStructuredOutputSafeForOpenAI(transformed)).not.toThrow();
     });
 
-    it('puts anyOf- and const-only properties in required, with a null branch', () => {
+    it('puts anyOf-, const-, and enum-only properties in required, with a null branch', () => {
       // OpenAI strict mode has no exempt properties: every key in `properties`
       // must appear in `required`. An earlier version left anyOf/const props
       // out because they "cannot express absence" — which made the transform
@@ -311,7 +317,10 @@ describe('OpenAI structured output schema validation', () => {
 
       expect(t.required).toEqual(['always', 'viaAnyOf', 'viaConst', 'viaEnum']);
       expect(props.viaAnyOf.anyOf).toContainEqual({ type: 'null' });
-      expect(props.viaConst.anyOf).toContainEqual({ type: 'null' });
+      // const is unsupported, so it's rewritten as enum
+      expect(props.viaConst.enum).toContain('x');
+      expect(props.viaConst.enum).toContain(null);
+      expect(props.viaConst.const).toBeUndefined();
       // enum must admit null too, or a compliant model cannot emit the value
       // the widened type now permits.
       expect(props.viaEnum.enum).toContain(null);
@@ -385,7 +394,7 @@ describe('OpenAI structured output schema validation', () => {
       expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
-    it('property defined only by const IS required, rewritten as anyOf with null', () => {
+    it('property defined only by const IS required, rewritten as enum with null', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -400,10 +409,11 @@ describe('OpenAI structured output schema validation', () => {
       const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
       const props = transformed.properties as Record<string, Record<string, unknown>>;
 
-      // A bare `const` admits exactly one value, so the only way to allow
-      // absence is to offer const-or-null as alternatives.
+      // A bare `const` is unsupported, so the transform uses enum instead.
+      // The only way to allow absence is to offer the literal or null as alternatives.
       expect(transformed.required as string[]).toContain('fixed');
-      expect(props.fixed.anyOf).toEqual([{ const: 'CONSTANT_VALUE' }, { type: 'null' }]);
+      expect(props.fixed).toEqual({ enum: ['CONSTANT_VALUE', null] });
+      expect(props.fixed.const).toBeUndefined();
       expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
@@ -422,6 +432,227 @@ describe('OpenAI structured output schema validation', () => {
       const transformed2 = transformSchemaForOpenAI(transformed1);
 
       expect(JSON.stringify(transformed2)).toBe(JSON.stringify(transformed1));
+    });
+
+    it('adds missing additionalProperties: false', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string' },
+        },
+        required: ['reply'],
+        // Note: no additionalProperties field
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+
+      // The transform must add additionalProperties: false, not leave it absent
+      expect(transformed.additionalProperties).toBe(false);
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
+    });
+
+    it('handles optional enum-only properties without type field', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          status: {
+            enum: ['active', 'inactive'],
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const statusProp = (transformed.properties as Record<string, unknown>)
+        .status as Record<string, unknown>;
+
+      // When an optional enum-only property is widened to nullable,
+      // null must be added to the enum
+      expect(transformed.required as string[]).toContain('status');
+      expect(statusProp.enum).toContain('active');
+      expect(statusProp.enum).toContain('inactive');
+      expect(statusProp.enum).toContain(null);
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
+    });
+
+    it('handles type:object with no properties field', () => {
+      const schema = {
+        type: 'object',
+        // No properties field at all
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+
+      // The transform must add properties: {} and additionalProperties: false
+      expect(transformed.properties).toEqual({});
+      expect(transformed.additionalProperties).toBe(false);
+      expect(transformed.required).toEqual([]);
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
+    });
+
+    it('widening is applied only to optional properties, not required', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          required_string: { type: 'string' },
+          optional_string: { type: 'string' },
+        },
+        required: ['required_string'],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const props = transformed.properties as Record<string, Record<string, unknown>>;
+
+      // Required property should NOT be widened to include null
+      expect(props.required_string.type).toBe('string');
+      expect(props.required_string.type).not.toEqual(['string', 'null']);
+
+      // Optional property SHOULD be widened to include null
+      expect(props.optional_string.type).toEqual(['string', 'null']);
+    });
+  });
+
+  describe('unsupported keywords for OpenAI', () => {
+    it('rejects contains keyword', () => {
+      const schema = {
+        type: 'array',
+        items: { type: 'string' },
+        contains: { type: 'string' },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.contains');
+    });
+
+    it('rejects minContains/maxContains keywords', () => {
+      const schema = {
+        type: 'array',
+        items: { type: 'string' },
+        minContains: 1,
+        maxContains: 5,
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.minContains');
+      expect(unsupported).toContain('$.maxContains');
+    });
+
+    it('rejects propertyNames keyword', () => {
+      const schema = {
+        type: 'object',
+        propertyNames: { type: 'string', pattern: '^[A-Z]' },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.propertyNames');
+    });
+
+    it('rejects unevaluatedProperties keyword', () => {
+      const schema = {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        unevaluatedProperties: false,
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.unevaluatedProperties');
+    });
+
+    it('rejects unevaluatedItems keyword', () => {
+      const schema = {
+        type: 'array',
+        prefixItems: [{ type: 'string' }],
+        unevaluatedItems: { type: 'number' },
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.unevaluatedItems');
+    });
+
+    it('rejects prefixItems keyword', () => {
+      const schema = {
+        type: 'array',
+        prefixItems: [{ type: 'string' }, { type: 'number' }],
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.prefixItems');
+    });
+
+    it('rejects pattern keyword', () => {
+      const schema = {
+        type: 'string',
+        pattern: '^[A-Z]',
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.pattern');
+    });
+
+    it('rejects numeric bound keywords', () => {
+      const schema = {
+        type: 'number',
+        minimum: 0,
+        maximum: 100,
+        exclusiveMinimum: -1,
+        exclusiveMaximum: 101,
+        multipleOf: 5,
+      };
+
+      const unsupported = findUnsupportedKeywordsForOpenAI(schema);
+      expect(unsupported).toContain('$.minimum');
+      expect(unsupported).toContain('$.maximum');
+      expect(unsupported).toContain('$.exclusiveMinimum');
+      expect(unsupported).toContain('$.exclusiveMaximum');
+      expect(unsupported).toContain('$.multipleOf');
+    });
+  });
+
+  describe('structural violations detection', () => {
+    it('detects missing additionalProperties: false', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+        },
+        required: ['name'],
+      };
+
+      const violations = findStructuralViolationsForOpenAI(schema);
+      expect(violations).toContain('$.additionalProperties must be false (or implicit false)');
+    });
+
+    it('detects required array missing optional properties', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['name'],
+        additionalProperties: false,
+      };
+
+      const violations = findStructuralViolationsForOpenAI(schema);
+      expect(violations).toContain('$.properties.description is not in required');
+    });
+
+    it('detects both missing additionalProperties AND missing required entries', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['name'],
+      };
+
+      const violations = findStructuralViolationsForOpenAI(schema);
+      expect(violations.length).toBeGreaterThan(1);
+      expect(violations).toContain('$.additionalProperties must be false (or implicit false)');
+      expect(violations.some(v => v.includes('description is not in required'))).toBe(true);
     });
   });
 });

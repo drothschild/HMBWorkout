@@ -23,6 +23,29 @@ describe('request builders', () => {
 const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
 
   describe('buildAnthropicBody', () => {
+    it('throws on schema with unsupported keywords for Anthropic', () => {
+      const schemaWithUnsupported = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string', minItems: 1 },
+        },
+        required: ['reply'],
+        additionalProperties: false,
+      };
+
+      expect(() =>
+        buildAnthropicBody(
+          {
+            system: 'Test',
+            messages: [{ role: 'user' as const, content: 'Test' }],
+            schema: schemaWithUnsupported,
+            schemaName: 'BadSchema',
+          },
+          'claude-sonnet-5'
+        )
+      ).toThrow(/unsupported keywords.*Anthropic/i);
+    });
+
     it('builds correct request for Anthropic API', () => {
       const body = buildAnthropicBody(testRequest, 'claude-sonnet-5');
 
@@ -203,6 +226,56 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
       expect(() => buildOpenAiBody(bodyWithoutName, 'gpt-5.6-sol')).toThrow(
         /schema name required/i
       );
+    });
+
+    it('throws on schema with unsupported keywords', () => {
+      const schemaWithUnsupported = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string', minLength: 1 },
+        },
+        required: ['reply'],
+        additionalProperties: false,
+      };
+
+      expect(() =>
+        buildOpenAiBody(
+          {
+            system: 'Test',
+            messages: [{ role: 'user' as const, content: 'Test' }],
+            schema: schemaWithUnsupported,
+            schemaName: 'BadSchema',
+          },
+          'gpt-5.6-sol'
+        )
+      ).toThrow(/unsupported keywords/i);
+    });
+
+    it('transforms schema to meet strict mode requirements', () => {
+      // A schema that's missing additionalProperties gets it added by the transform
+      const schemaWithMissingAdditional = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string' },
+        },
+        required: ['reply'],
+        // Deliberately missing additionalProperties — the transform adds it
+      };
+
+      const body = buildOpenAiBody(
+        {
+          system: 'Test',
+          messages: [{ role: 'user' as const, content: 'Test' }],
+          schema: schemaWithMissingAdditional,
+          schemaName: 'TestSchema',
+        },
+        'gpt-5.6-sol'
+      );
+
+      // The transformed schema should have additionalProperties: false
+      const transformedSchema = (body.text as Record<string, unknown>)
+        .format as Record<string, unknown>;
+      expect((transformedSchema.schema as Record<string, unknown>).additionalProperties).toBe(false);
     });
 
     it('text.format must be json_schema with strict mode', () => {
