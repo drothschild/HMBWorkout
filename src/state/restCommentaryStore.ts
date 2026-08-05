@@ -189,6 +189,9 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         // choice — rendered last by buildRestCommentaryPrompt so it outranks
         // the user-controlled coaching-style text above it.
         directives: IMMUTABLE_DIRECTIVES,
+        profileAge: settings.profileAge,
+        profileGender: settings.profileGender,
+        profileExperience: settings.profileExperience,
       });
 
       const rawComment = await deps.createClient({ apiKey: trimmedKey }).comment(prompt);

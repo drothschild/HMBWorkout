@@ -195,6 +195,9 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           // routine* (warmups, cooldowns, stretch splitting) and says nothing
           // about substituting one movement for another.
           directives: IMMUTABLE_DIRECTIVES,
+          profileAge: settings.profileAge,
+          profileGender: settings.profileGender,
+          profileExperience: settings.profileExperience,
         });
 
         const result = await deps.createClient({ apiKey }).suggest(prompt);

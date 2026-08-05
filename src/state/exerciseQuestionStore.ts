@@ -154,6 +154,9 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
         // buildExerciseQuestionPrompt so it outranks the user-controlled
         // coaching-style text above it.
         directives: IMMUTABLE_DIRECTIVES,
+        profileAge: settings.profileAge,
+        profileGender: settings.profileGender,
+        profileExperience: settings.profileExperience,
       });
 
       const rawAnswer = await deps.createClient({ apiKey: trimmedKey }).ask(prompt);

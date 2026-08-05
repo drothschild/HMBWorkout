@@ -41,6 +41,12 @@ export interface ExerciseQuestionPromptInput {
   personality?: string;
   /** `IMMUTABLE_DIRECTIVES` from `src/ai/coachDirectives.ts`. */
   directives?: string;
+  /** `profileAge` from settings. */
+  profileAge?: string;
+  /** `profileGender` from settings. */
+  profileGender?: string;
+  /** `profileExperience` from settings. */
+  profileExperience?: string;
 }
 
 export interface ExerciseQuestionPrompt {
@@ -96,6 +102,18 @@ Rules:
 
 ${personality ? neutralizeForPrompt(personality) : 'Not specified.'}`,
   ];
+
+  // About-the-User section, before directives, only when profile has at least one field
+  const profileParts: Array<string> = [];
+  if (input.profileAge) profileParts.push(`Age: ${neutralizeForPrompt(input.profileAge)}`);
+  if (input.profileGender) profileParts.push(`Gender: ${neutralizeForPrompt(input.profileGender)}`);
+  if (input.profileExperience) profileParts.push(`Experience: ${neutralizeForPrompt(input.profileExperience)}`);
+
+  if (profileParts.length > 0) {
+    sections.push(`## About the User
+
+${profileParts.join('\n')}`);
+  }
 
   if (directives) {
     sections.push(`## Coaching Directives
