@@ -426,4 +426,100 @@ describe('Settings Persistence', () => {
     expect(loaded.aiProvider).toBe('openai');
     expect(loaded.aiModel?.chat).toBe('gpt-5.6-sol');
   });
+
+  // Coach onboarding Phase 1 tests
+  test('coach-onboarding.AC1.1 Success: The three profile* fields and onboardingState save and survive an app restart', async () => {
+    setSettings({
+      profileAge: '41',
+      profileGender: 'male',
+      profileExperience: 'intermediate, weak shoulders',
+      onboardingState: 'completed',
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(fakeStorage).toHaveProperty('bridge_settings');
+    const stored = JSON.parse(fakeStorage.bridge_settings);
+    expect(stored.profileAge).toBe('41');
+    expect(stored.profileGender).toBe('male');
+    expect(stored.profileExperience).toBe('intermediate, weak shoulders');
+    expect(stored.onboardingState).toBe('completed');
+
+    // Simulate fresh app start
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+    const reloaded = getSettings();
+    expect(reloaded.profileAge).toBe('41');
+    expect(reloaded.profileGender).toBe('male');
+    expect(reloaded.profileExperience).toBe('intermediate, weak shoulders');
+    expect(reloaded.onboardingState).toBe('completed');
+  });
+
+  test('coach-onboarding.AC1.2 Success: A stored blob written before this feature loads without error; the new fields default to empty and onboardingState to unseen', async () => {
+    // Pre-seed storage with legacy blob (no profile or onboarding fields)
+    fakeStorage.bridge_settings = JSON.stringify({
+      baseUrl: 'http://mac.local:3000',
+      token: 'tok',
+      anthropicKey: 'sk-test',
+      aiGoals: 'get strong',
+      aiEquipment: 'dumbbells',
+      aiPersonality: 'upbeat',
+    });
+
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    await loadSettings();
+
+    const settings = getSettings();
+    // Old fields intact
+    expect(settings.baseUrl).toBe('http://mac.local:3000');
+    expect(settings.token).toBe('tok');
+    expect(settings.anthropicKey).toBe('sk-test');
+    expect(settings.aiGoals).toBe('get strong');
+    expect(settings.aiEquipment).toBe('dumbbells');
+    expect(settings.aiPersonality).toBe('upbeat');
+    // New fields default to empty strings and 'unseen'
+    expect(settings.profileAge).toBe('');
+    expect(settings.profileGender).toBe('');
+    expect(settings.profileExperience).toBe('');
+    expect(settings.onboardingState).toBe('unseen');
+  });
+
+  test('coach-onboarding.AC1.3 Success: A refusal is stored as its own text, so empty still means never asked and the two are distinguishable by reading the value alone', () => {
+    // Test that empty string is different from a refusal
+    setSettings({ profileAge: '' });
+    const empty = getSettings();
+    expect(empty.profileAge).toBe('');
+
+    setSettings({ profileAge: 'prefer not to say' });
+    const refused = getSettings();
+    expect(refused.profileAge).toBe('prefer not to say');
+
+    // They are distinguishable by value alone
+    expect(empty.profileAge).not.toBe(refused.profileAge);
+  });
+
+  test('coach-onboarding.AC1.4 Edge: All three profile fields may be empty; the settings module behaves normally with none of them set', async () => {
+    setSettings({
+      profileAge: '',
+      profileGender: '',
+      profileExperience: '',
+      onboardingState: 'unseen',
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const stored = JSON.parse(fakeStorage.bridge_settings);
+    expect(stored.profileAge).toBe('');
+    expect(stored.profileGender).toBe('');
+    expect(stored.profileExperience).toBe('');
+    expect(stored.onboardingState).toBe('unseen');
+
+    const settings = getSettings();
+    expect(settings.profileAge).toBe('');
+    expect(settings.profileGender).toBe('');
+    expect(settings.profileExperience).toBe('');
+    expect(settings.onboardingState).toBe('unseen');
+  });
 });
