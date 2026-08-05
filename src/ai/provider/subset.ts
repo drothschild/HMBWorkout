@@ -206,48 +206,63 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
       // For properties not in the original required, determine if they can be widened.
       // Properties defined only by anyOf or const cannot express absence and should not
       // be added to required (they'll remain optional implicitly).
-      const widdenableProps = new Set<string>();
-      const nonWidenableProps = new Set<string>();
+      // OpenAI strict mode requires EVERY property to appear in `required` —
+      // there is no such thing as an exempt property. An earlier version left
+      // anyOf-only and const-only properties out on the reasoning that they
+      // "cannot express absence", which inverted the rule: the transform then
+      // emitted schemas that its own findStructuralViolationsForOpenAI
+      // rejected, and buildOpenAiBody's self-check would throw on them.
+      //
+      // The answer is to give them a way to express absence rather than to
+      // exempt them. A property with a plain `type` is widened to
+      // `type: [..., 'null']`; one defined by `anyOf` or `const` gets a
+      // `{ type: 'null' }` branch instead. Either way it lands in `required`.
+      //
+      // Not reachable from today's schemas (neither AI_TURN_SCHEMA nor
+      // ALTERNATES_SCHEMA uses anyOf or const), but it is about to be:
+      // PR #111 banned `oneOf` and OpenAI's documented replacement is `anyOf`.
+      const optionalProps = Object.keys(properties).filter((k) => !requiredSet.has(k));
 
-      for (const [propName, propSchema] of Object.entries(properties)) {
-        if (!requiredSet.has(propName) && isSchemaNode(propSchema)) {
-          // Check if this property has a type field we can widen
-          if (hasTypeField(propSchema)) {
-            widdenableProps.add(propName);
-          } else {
-            // Property defined only by anyOf, const, etc. - cannot widen, don't add to required
-            nonWidenableProps.add(propName);
-          }
-        }
-      }
-
-      // Build new required array: keep original required + widenable optional props
-      const newRequired = Array.from(new Set([...required, ...widdenableProps]));
-      transformed.required = newRequired;
+      // Every property is required under strict mode.
+      transformed.required = Object.keys(properties);
 
       // Transform properties
       const newProperties: Record<string, unknown> = {};
       for (const [propName, propSchema] of Object.entries(properties)) {
-        if (widdenableProps.has(propName) && isSchemaNode(propSchema)) {
-          // Clone and widen to nullable
+        if (optionalProps.includes(propName) && isSchemaNode(propSchema)) {
           const widened = { ...propSchema };
-          if ('type' in widened && widened.type !== null) {
+
+          if (hasTypeField(widened)) {
+            // Plain type: widen to a union including null.
             const currentType = widened.type;
             if (typeof currentType === 'string') {
               widened.type = [currentType, 'null'];
             } else if (Array.isArray(currentType) && !currentType.includes('null')) {
               widened.type = [...currentType, 'null'];
             }
-          }
-          // If the property has an enum, add null to it when widening
-          if (Array.isArray(widened.enum)) {
-            if (!widened.enum.includes(null)) {
+            // An enum constrains the value set, so null must join it too or a
+            // compliant model still cannot emit the value the type now permits.
+            if (Array.isArray(widened.enum) && !widened.enum.includes(null)) {
               widened.enum = [...widened.enum, null];
             }
+          } else if (Array.isArray(widened.anyOf)) {
+            // anyOf-defined: add a null branch rather than a `type` key, which
+            // would fight the anyOf.
+            const hasNull = widened.anyOf.some(
+              (b) => isSchemaNode(b) && (b as Record<string, unknown>).type === 'null'
+            );
+            if (!hasNull) widened.anyOf = [...widened.anyOf, { type: 'null' }];
+          } else if ('const' in widened) {
+            // const-defined: the only way to admit absence is to offer the
+            // const or null as alternatives.
+            const literal = widened.const;
+            delete widened.const;
+            widened.anyOf = [{ const: literal }, { type: 'null' }];
           }
+
           newProperties[propName] = transform(widened);
         } else {
-          // Non-widenabled props or original required props - transform without widening
+          // Originally required — transform without widening.
           newProperties[propName] = transform(propSchema);
         }
       }

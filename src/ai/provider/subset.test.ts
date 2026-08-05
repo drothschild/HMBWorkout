@@ -286,6 +286,39 @@ describe('OpenAI structured output schema validation', () => {
       expect(() => expectStructuredOutputSafeForOpenAI(transformed)).not.toThrow();
     });
 
+    it('puts anyOf- and const-only properties in required, with a null branch', () => {
+      // OpenAI strict mode has no exempt properties: every key in `properties`
+      // must appear in `required`. An earlier version left anyOf/const props
+      // out because they "cannot express absence" — which made the transform
+      // emit schemas its OWN findStructuralViolationsForOpenAI rejected, and
+      // buildOpenAiBody's self-check would have thrown on them. Give them a
+      // way to express absence instead of exempting them.
+      const schema = {
+        type: 'object',
+        properties: {
+          always: { type: 'string' },
+          viaAnyOf: { anyOf: [{ type: 'string' }] },
+          viaConst: { const: 'x' },
+          viaEnum: { type: 'string', enum: ['a'] },
+        },
+        required: ['always'],
+        additionalProperties: false,
+      };
+
+      const t = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const props = t.properties as Record<string, Record<string, unknown>>;
+
+      expect(t.required).toEqual(['always', 'viaAnyOf', 'viaConst', 'viaEnum']);
+      expect(props.viaAnyOf.anyOf).toContainEqual({ type: 'null' });
+      expect(props.viaConst.anyOf).toContainEqual({ type: 'null' });
+      // enum must admit null too, or a compliant model cannot emit the value
+      // the widened type now permits.
+      expect(props.viaEnum.enum).toContain(null);
+
+      // The transform's own output must satisfy the project's own guard.
+      expect(findStructuralViolationsForOpenAI(t)).toEqual([]);
+    });
+
     it('transform does not mutate input schemas', () => {
       // Compare against PRISTINE_AI_TURN, captured at module load. Snapshotting
       // inside this test is not enough: earlier tests in this file already run
