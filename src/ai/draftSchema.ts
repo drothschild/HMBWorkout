@@ -223,6 +223,36 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
   return obj as unknown as SettingsProposal;
 }
 
+/**
+ * Normalize null values to undefined at the parse boundary.
+ *
+ * OpenAI's strict mode forces optional fields into the schema as "type: [..., "null"]"
+ * to express optionality, since it cannot express truly optional properties.
+ * This normaliser converts those nulls to undefined so downstream validators only
+ * need to handle one representation of absence.
+ *
+ * Pattern borrowed from syncService.ts, which does the same for WatermelonDB columns.
+ *
+ * @returns a deep copy with all null values replaced by undefined
+ */
+function normalizeNullsToUndefined(value: unknown): unknown {
+  if (value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeNullsToUndefined);
+  }
+  // Plain object: recursively normalize each property
+  const normalized: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    normalized[key] = normalizeNullsToUndefined(val);
+  }
+  return normalized;
+}
+
 export function parseAiTurn(text: string): AiTurn {
   let parsed: unknown;
 
@@ -236,7 +266,9 @@ export function parseAiTurn(text: string): AiTurn {
     throw new DraftValidationError('response must be a JSON object');
   }
 
-  const obj = parsed as Record<string, unknown>;
+  // Normalize null → undefined at the boundary, before validation
+  const normalized = normalizeNullsToUndefined(parsed) as Record<string, unknown>;
+  const obj = normalized;
 
   if (typeof obj.reply !== 'string') {
     throw new DraftValidationError('reply field is required and must be a string');

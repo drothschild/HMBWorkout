@@ -106,6 +106,80 @@ describe('draftSchema', () => {
 
       expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
     });
+
+    test('parses OpenAI-style response with null draft and settingsProposal', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: null,
+        settingsProposal: null,
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Here is your routine');
+      expect(result.draft).toBeUndefined();
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('parses OpenAI-style response with draft containing null optional fields', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: {
+          name: 'My Routine',
+          notes: null,
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength',
+              supersetGroup: null,
+              description: null,
+            },
+          ],
+        },
+        settingsProposal: null,
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.draft?.name).toBe('My Routine');
+      expect(result.draft?.notes).toBeUndefined();
+      expect(result.draft?.exercises[0].supersetGroup).toBeUndefined();
+      expect(result.draft?.exercises[0].description).toBeUndefined();
+    });
+
+    test('parses OpenAI-style response with settingsProposal containing null fields', () => {
+      const json = JSON.stringify({
+        reply: 'Want me to update your equipment?',
+        draft: null,
+        settingsProposal: {
+          goals: 'Build strength',
+          equipment: null,
+          personality: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.settingsProposal).toEqual({ goals: 'Build strength' });
+      expect(result.settingsProposal?.equipment).toBeUndefined();
+      expect(result.settingsProposal?.personality).toBeUndefined();
+    });
+
+    test('still works with Anthropic-style response (fields absent, not null)', () => {
+      const json = JSON.stringify({
+        reply: 'Here is your routine',
+        draft: {
+          name: 'My Routine',
+          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Here is your routine');
+      expect(result.draft?.name).toBe('My Routine');
+      expect(result.draft?.notes).toBeUndefined();
+    });
   });
 
   describe('validateSettingsProposal', () => {
