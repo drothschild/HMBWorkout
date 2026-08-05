@@ -21,8 +21,7 @@
  *     `(ascender - descender + lineGap) / unitsPerEm`, and that ratio is the
  *     number the floor is supposed to be about.
  *   - `fvar` axes. Modern SF is ONE variable font with an `opsz` (optical size)
- *     axis, not the separate SF Text / SF Display faces it shipped as before
- *     macOS 10.13 / iOS 11.
+ *     axis, not the separate SF Text / SF Display faces it once shipped as.
  *   - `MVAR` value tags. MVAR is the only table that can make a font's vertical
  *     metrics vary along an axis (via the `hasc` / `hdsc` / `hlgp` / `tasc` /
  *     `tdsc` / `tlgp` / `wasc` / `wdsc` tags). If none of those tags are
@@ -37,9 +36,8 @@
  *       let lh = CTFontGetAscent(f) + CTFontGetDescent(f) + CTFontGetLeading(f)
  *       print(s, lh, lh / Double(s)) }'
  *
- * As of macOS 26 / SF Pro (SFNS.ttf), both agree: the ratio is 1.17773 at every
- * size. See the docstring in src/theme/typography.ts for what that means for
- * the ramp.
+ * SF Pro (SFNS.ttf), both agree: the ratio is 1.17773 at every size. See the
+ * docstring in src/theme/typography.ts for what that means for the ramp.
  */
 
 const fs = require('fs');
@@ -49,6 +47,10 @@ const FONTS = [
   ['SFNSRounded.ttf', 'SF Pro Rounded'],
   ['SFNSMono.ttf', 'SF Mono'],
   ['SFCompact.ttf', 'SF Compact — watchOS / tight UI'],
+  ['SFArmenian.ttf', 'SF Armenian'],
+  ['SFGeorgian.ttf', 'SF Georgian'],
+  ['SFHebrew.ttf', 'SF Hebrew'],
+  ['SFCamera.ttf', 'SF Camera'],
 ];
 const FONT_DIR = '/System/Library/Fonts';
 
@@ -178,6 +180,12 @@ const sfns = (() => {
   );
 })();
 
+// Hand-copied from src/theme/typography.ts's TypeRamp, on purpose: this script
+// stays dependency-free and runnable by plain `node`, so it cannot import the
+// TS module. That means this table can drift from the real ramp after a future
+// edit here — it is not the enforcement. src/theme/typography.test.ts is: it
+// checks every TypeRamp entry against LINE_HEIGHT_FLOOR directly, so a stale
+// table below can never let an actual violation ship.
 const RAMP = [
   ['small', 14, 20],
   ['smallBold', 14, 20],

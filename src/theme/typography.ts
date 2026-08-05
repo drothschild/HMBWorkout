@@ -21,9 +21,9 @@
  * `scripts/sf-line-height.js` (run it — `node scripts/sf-line-height.js` —
  * rather than trusting this prose) reads the vertical metrics straight out of
  * the font binaries on this Mac. SF Pro (`SFNS.ttf`, the one Latin system font
- * — there is no separate SF Text / SF Display binary; that split ended before
- * macOS 10.13 / iOS 11) reports `hhea` ascender 1980, descender -432, lineGap
- * 0, unitsPerEm 2048: a ratio of exactly `(1980 + 432) / 2048 = 1.177734375`.
+ * — there is no separate SF Text / SF Display binary today) reports `hhea`
+ * ascender 1980, descender -432, lineGap 0, unitsPerEm 2048: a ratio of
+ * exactly `(1980 + 432) / 2048 = 1.177734375`.
  * `OS/2` typo and win metrics agree. SF Pro's `opsz` (optical size) axis is
  * real, but its `MVAR` table only carries `stro strs undo unds xhgt` — none of
  * the eight tags (`hasc hdsc hlgp tasc tdsc tlgp wasc wdsc`) that could make
@@ -31,9 +31,9 @@
  * leading, so the ratio above is a constant for every size and weight, not one
  * end of a size-dependent range.
  *
- * 1.19336 — the top of the old range — is exactly SF Compact's ratio (also
- * measured by the script; same for SF Armenian/Georgian/Hebrew/Camera, per
- * Apple's own font list). "1.165–1.19" was spreading numbers across separate
+ * 1.19336 — the top of the old range — is exactly SF Compact's ratio, and the
+ * script measures the same ratio for SF Armenian/Georgian/Hebrew/Camera —
+ * run it to see. "1.165–1.19" was spreading numbers across separate
  * SF *faces*, not describing how one face's leading moves with size. 1.165
  * itself matches no SF face the script can find — it had no source, only three
  * prior PRs that copied it forward.
