@@ -6,11 +6,11 @@ This document maps acceptance criteria to automated tests and human verification
 
 ## AC1: Profile settings persist
 
-### AC1.1: Four profile fields and onboardingState save and survive app restart
+### AC1.1: Three profile fields and onboardingState save and survive app restart
 
 **Automated test:** `src/state/settings.test.ts`
 - Test: "profile settings: persist and reload all fields"
-- Verifies: setSettings with profileName, profileAge, profileGender, profileExperience, onboardingState persists to JSON blob and reloads intact
+- Verifies: setSettings with profileAge, profileGender, profileExperience, onboardingState persists to JSON blob and reloads intact
 
 **Automated test:** `src/state/settings.test.ts`
 - Test: "profile settings: survive app restart"
@@ -24,7 +24,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/state/settings.test.ts`
 - Test: "profile settings: legacy blob without profile fields loads with empty defaults"
-- Verifies: Old blob (no profileName/profileAge/profileGender/profileExperience/onboardingState) loads without error, new fields default to '' and 'unseen'
+- Verifies: Old blob (no profileAge/profileGender/profileExperience/onboardingState) loads without error, new fields default to '' and 'unseen'
 
 ---
 
@@ -32,11 +32,11 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/state/settings.test.ts`
 - Test: "profile settings: distinguish empty from declined"
-- Verifies: profileName: '' and profileName: 'prefer not to say' persist as different values
+- Verifies: profileAge: '' and profileAge: 'prefer not to say' persist as different values
 
 ---
 
-### AC1.4: All four profile fields may be empty; AI surfaces behave normally
+### AC1.4: All three profile fields may be empty; AI surfaces behave normally
 
 **Automated test:** `src/state/settings.test.ts`
 - Test: "profile settings: empty fields cause no errors"
@@ -62,7 +62,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/draftSchema.test.ts` (existing test, must still pass)
 - Test: "AI_TURN_SCHEMA: structuredOutputSafe"
-- Verifies: Schema passes safe-check with all seven settingsProposal properties present
+- Verifies: Schema passes safe-check with all six settingsProposal properties present
 
 ---
 
@@ -70,19 +70,19 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: rejects empty string"
-- Verifies: { name: '' } throws DraftValidationError
+- Verifies: { age: '' } throws DraftValidationError
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: rejects whitespace"
-- Verifies: { name: '   ' } throws DraftValidationError
+- Verifies: { age: '   ' } throws DraftValidationError
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: rejects non-string"
-- Verifies: { name: 123 } throws DraftValidationError
+- Verifies: { age: 123 } throws DraftValidationError
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: rejects exceeds max length"
-- Verifies: { name: 'x' * (SETTINGS_FIELD_MAX_LENGTH + 1) } throws DraftValidationError
+- Verifies: { age: 'x' * (SETTINGS_FIELD_MAX_LENGTH + 1) } throws DraftValidationError
 
 ---
 
@@ -136,7 +136,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/contextBuilder.test.ts`
 - Test: "buildSystem: profile values appear in About-the-User section"
-- Verifies: If profileName: 'Alice' is set, buildSystem prompt contains "Name: Alice"
+- Verifies: If profileAge: '41' is set, buildSystem prompt contains "Age: 41"
 
 **Human verification:** Phase 7, Verification 2 (second turn, observe coach references previously entered values)
 
@@ -169,8 +169,12 @@ This document maps acceptance criteria to automated tests and human verification
 ### AC3.7: Onboarding prompt does not ask for name; no settings field exists to record it
 
 **Automated test:** `src/ai/contextBuilder.test.ts`
-- Test: "onboarding mode: does not solicit name, no settings field exists for it"
-- Verifies: Onboarding persona does not contain language soliciting a name (phrases like "ask for your name", "what is your name"). The test also verifies that profile interview references only "age and gender" when mentioning profile fields, not "name and age" or similar.
+- Test: "ONBOARDING_PROFILE_FIELDS contains exactly the expected fields, no name"
+- Verifies: The constant `ONBOARDING_PROFILE_FIELDS` is exactly `['goals', 'equipment', 'personality', 'age', 'gender', 'experience']` with no 'name' field
+
+**Automated test:** `src/ai/contextBuilder.test.ts`
+- Test: "onboarding mode: persona interview instructions include only the ONBOARDING_PROFILE_FIELDS"
+- Verifies: Onboarding persona embeds the field list from the constant (proving changes to the constant immediately break this test). All fields in ONBOARDING_PROFILE_FIELDS appear in the persona, and "name" does not appear in the solicitation context.
 
 **Code inspection:** 
 - Verify: `SettingsProposal` interface has no `name` field (AC2)
@@ -271,9 +275,9 @@ This document maps acceptance criteria to automated tests and human verification
 
 ---
 
-### AC5.5: Settings screen persists all seven fields through autosave; Start/Redo re-enters
+### AC5.5: Settings screen persists all six fields through autosave; Start/Redo re-enters
 
-**Human verification only:** Phase 7, Verification 3 (all seven fields editable, autosave works, values survive restart)
+**Human verification only:** Phase 7, Verification 3 (all six fields editable, autosave works, values survive restart)
 
 ---
 
@@ -289,7 +293,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/contextBuilder.test.ts`
 - Test: "buildSystem: includes About-the-User section when profile present"
-- Verifies: If profileName is set, buildSystem includes "## About the User" section
+- Verifies: If profileAge is set, buildSystem includes "## About the User" section
 
 **Automated test:** `src/ai/contextBuilder.test.ts`
 - Test: "buildSystem: About-the-User sits before immutable directives"
@@ -301,7 +305,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/restCommentaryPrompt.test.ts`
 - Test: "buildRestCommentaryPrompt: includes About-the-User when profile present"
-- Verifies: If profileName is set, prompt includes "## About the User"
+- Verifies: If profileAge is set, prompt includes "## About the User"
 
 **Automated test:** `src/ai/restCommentaryPrompt.test.ts`
 - Test: "buildRestCommentaryPrompt: About-the-User before immutable directives"
@@ -357,7 +361,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/contextBuilder.test.ts`
 - Test: "buildSystem: neutralizes # in profile values"
-- Verifies: If profileName: '### Injection ###', prompt does not contain the raw string
+- Verifies: If profileAge: '### Injection ###', prompt does not contain the raw string
 
 **Automated test:** `src/ai/restCommentaryPrompt.test.ts`
 - Test: "buildRestCommentaryPrompt: neutralizes # in profile"

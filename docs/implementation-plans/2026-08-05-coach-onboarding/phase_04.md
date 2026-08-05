@@ -226,14 +226,14 @@ test('AC4.1: onboarding mode auto-applies proposal and nulls pending', async () 
   store.setState({ mode: { kind: 'onboarding' } });
   
   // Simulate turn with proposal
-  const turn = { reply: 'Great!', settingsProposal: { name: 'Alice' } };
+  const turn = { reply: 'Great!', settingsProposal: { age: '41' } };
   const mockClient = {
     chat: jest.fn().mockResolvedValue(turn),
   };
   
   // Execute the turn (via send or internal)
   // After turn completes:
-  expect(mockDeps.approveSettingsProposal).toHaveBeenCalledWith({ name: 'Alice' });
+  expect(mockDeps.approveSettingsProposal).toHaveBeenCalledWith({ age: '41' });
   expect(store.getState().pendingSettingsProposal).toBeNull();
 });
 
@@ -244,11 +244,11 @@ test('AC4.2: create mode does NOT auto-apply proposal', async () => {
   store.setState({ mode: { kind: 'create' } });
   
   // Simulate turn with proposal
-  const turn = { reply: 'Great!', settingsProposal: { name: 'Alice' } };
+  const turn = { reply: 'Great!', settingsProposal: { age: '41' } };
   
   // After turn completes:
   expect(mockDeps.approveSettingsProposal).not.toHaveBeenCalled();
-  expect(store.getState().pendingSettingsProposal).toEqual({ name: 'Alice' });
+  expect(store.getState().pendingSettingsProposal).toEqual({ age: '41' });
 });
 
 test('AC4.3: failed validation is swallowed, conversation continues', async () => {
@@ -263,7 +263,7 @@ test('AC4.3: failed validation is swallowed, conversation continues', async () =
   store.setState({ mode: { kind: 'onboarding' } });
   
   // Simulate turn with invalid proposal
-  const turn = { reply: 'Great!', settingsProposal: { name: '' } };
+  const turn = { reply: 'Great!', settingsProposal: { age: '' } };
   
   // After turn completes:
   expect(store.getState().status).toBe('idle');  // Not errored
@@ -298,6 +298,14 @@ test('AC4.5: turn from reset conversation is discarded', async () => {
 
 Run: `npx jest src/state/aiChatStore.test.ts --testNamePattern="AC4"`
 Expected: All tests pass.
+
+**Critical mutation check (AC4.2):** Before committing, prove the test actually catches the bug:
+1. Run the full AC4 suite and confirm all pass
+2. Edit `runTurn` to REMOVE the `mode.kind === 'onboarding'` condition (line 151: change `if (mode.kind === 'onboarding' && turn.settingsProposal)` to just `if (turn.settingsProposal)`)
+3. Run the test again: `npx jest src/state/aiChatStore.test.ts --testNamePattern="AC4.2"` — **it MUST fail**
+4. Restore the `mode.kind === 'onboarding'` condition
+5. Run the test again: **it MUST pass**
+6. This proves the guard is actually load-bearing and the test catches when it's missing
 
 **Commit:**
 

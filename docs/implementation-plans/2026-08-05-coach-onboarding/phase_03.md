@@ -60,7 +60,7 @@ export function personaSection(mode: AiCoachMode): string {
   if (mode.kind === 'onboarding') {
     return basePersona + `
 
-You are interviewing a new user to build their profile. Ask their goals, equipment, personality, name, age, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 
@@ -149,9 +149,8 @@ Create the new `aboutTheUserSection()` function:
 function aboutTheUserSection(): string {
   const settings = getSettings();
   
-  // All four fields might be empty; section is conditional but always calls this
+  // All three fields might be empty; section is conditional but always calls this
   const parts: string[] = [];
-  if (settings.profileName) parts.push(`Name: ${neutralizeForPrompt(settings.profileName)}`);
   if (settings.profileAge) parts.push(`Age: ${neutralizeForPrompt(settings.profileAge)}`);
   if (settings.profileGender) parts.push(`Gender: ${neutralizeForPrompt(settings.profileGender)}`);
   if (settings.profileExperience) parts.push(`Experience: ${neutralizeForPrompt(settings.profileExperience)}`);
@@ -171,7 +170,7 @@ Update the comment explaining placement to note that About-the-User sits before 
 ```typescript
   // Placement (immutable half): deliberately last, after every section built
   // from user-controlled free text — aiGoals/aiEquipment/aiPersonality and
-  // profileName/profileAge/profileGender/profileExperience above, and routine
+  // profileAge/profileGender/profileExperience above, and routine
   // notes/exercise titles woven in. [... existing justification ...]
 ```
 
@@ -183,8 +182,8 @@ Add tests in `contextBuilder.test.ts`:
 test('buildSystem: includes About-the-User section when profile is present', async () => {
   // Mock getSettings to return some profile values
   const system = await buildSystem(db, { kind: 'create' });
-  if (profileName is set) expect(system).toContain('## About the User');
-  if (profileName is set) expect(system).toContain('Name:');
+  if (profileAge is set) expect(system).toContain('## About the User');
+  if (profileAge is set) expect(system).toContain('Age:');
 });
 
 test('buildSystem: omits About-the-User section when profile is empty', async () => {
@@ -436,44 +435,92 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 <!-- END_TASK_4 -->
 
 <!-- START_TASK_5 -->
-### Task 5: Test that onboarding prompt does NOT solicit name
+### Task 5: Test that onboarding prompt does NOT solicit name via data-driven constant
 
 **Verifies:** coach-onboarding.AC3.7
 
 **Files:**
-- Test: `src/ai/contextBuilder.test.ts` (add assertion to persona tests)
+- Modify: `src/ai/contextBuilder.ts` (export ONBOARDING_PROFILE_FIELDS constant)
+- Test: `src/ai/contextBuilder.test.ts` (add assertion using the constant)
 
 **Implementation:**
 
-Add a test to verify AC3.7 — the onboarding prompt must not ask for a name field since no schema or settings field exists for it:
+**Step 1:** Export a constant defining the profile fields collected during onboarding.
+
+In `src/ai/contextBuilder.ts`, add this constant near the top:
 
 ```typescript
-test('onboarding mode: does not solicit name, no settings field exists for it', () => {
+/**
+ * The profile fields collected during onboarding interviews.
+ * No "name" field exists — users may volunteer names in conversation,
+ * but the coach never solicits or persists them.
+ */
+export const ONBOARDING_PROFILE_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
+```
+
+(The constant includes all six proposal fields; it documents exactly what the model can propose.)
+
+**Step 2:** Update the onboarding persona to render this list, proving that "name" is never included.
+
+Modify `personaSection()` to embed the list directly rather than hard-coding field names in prose:
+
+```typescript
+if (mode.kind === 'onboarding') {
+  const fields = ONBOARDING_PROFILE_FIELDS.filter(f => !['goals', 'equipment', 'personality'].includes(f)).join(', ');
+  // fields is now "age, gender, experience"
+  return basePersona + `
+
+You are interviewing a new user to build their profile. Ask their goals, equipment, personality, ${fields} in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+
+Every field you record must be grounded in something the user actually said. Do not infer or guess.
+
+At the end of the interview, offer to draft a first routine based on what you've learned about them.`;
+}
+```
+
+This way, if someone accidentally adds 'name' to `ONBOARDING_PROFILE_FIELDS`, the persona text would change and the test would immediately fail.
+
+**Step 3:** Add a test that asserts the constant's contents and that the rendered prompt reflects it.
+
+In `src/ai/contextBuilder.test.ts`, add:
+
+```typescript
+test('ONBOARDING_PROFILE_FIELDS contains exactly the expected fields, no name', () => {
+  expect(ONBOARDING_PROFILE_FIELDS).toEqual(['goals', 'equipment', 'personality', 'age', 'gender', 'experience']);
+  expect(ONBOARDING_PROFILE_FIELDS).not.toContain('name');
+});
+
+test('onboarding mode: persona interview instructions include only the ONBOARDING_PROFILE_FIELDS', () => {
   const onboarding = personaSection({ kind: 'onboarding' });
   
-  // The persona should not contain language that invites the user to share their name
-  // Use specific phrases rather than searching for the word "name" (too brittle)
-  // that would appear in context like "profile name" or "username".
-  // Instead, check that interview instructions don't include a "name" field in the list
-  // or solicit it as a step in the interview.
+  // All fields in ONBOARDING_PROFILE_FIELDS must be mentioned somewhere
+  const profileOnlyFields = ONBOARDING_PROFILE_FIELDS.filter(f => !['goals', 'equipment', 'personality'].includes(f));
+  for (const field of profileOnlyFields) {
+    // Capitalize for common patterns like "Age and gender"
+    const capitalized = field.charAt(0).toUpperCase() + field.slice(1);
+    expect(onboarding).toContain(capitalized);
+  }
   
+  // "name" must NOT appear in the interview context
+  // (it may appear in generic phrases like "profile name", but not as a solicited field)
   expect(onboarding).not.toContain('ask for your name');
   expect(onboarding).not.toContain('what is your name');
-  expect(onboarding).not.toContain('What is your name');
-  
-  // Also verify: no settings interface includes profileName
-  // This is implicit in the Types test, but can be confirmed at runtime:
-  // "age and gender" should be named, but "name" should not appear in that context
-  expect(onboarding).toContain('Age and gender are sensitive');
-  expect(onboarding).not.toContain('Name and age');
-  expect(onboarding).not.toContain('name and gender');
 });
 ```
 
-**Testing:**
+**Testing — observe the test failing first:**
 
-Run: `npx jest src/ai/contextBuilder.test.ts --testNamePattern="does not solicit name"`
+Before Step 2, run the test to confirm it fails (the persona doesn't yet embed the field list):
+
+Run: `npx jest src/ai/contextBuilder.test.ts --testNamePattern="ONBOARDING_PROFILE_FIELDS"`
+Expected: Test fails (constant does not exist or constant includes 'name').
+
+**After Step 2 implementation:**
+
+Run: `npx jest src/ai/contextBuilder.test.ts --testNamePattern="ONBOARDING_PROFILE_FIELDS"`
 Expected: Test passes.
+
+**Critical mutation check:** The implementor must observe the test failing by intentionally adding 'name' to `ONBOARDING_PROFILE_FIELDS`, run the test again and confirm it fails, then remove 'name' and confirm the test passes again. This proves the test actually catches the mistake.
 
 **Verification:**
 
@@ -483,12 +530,14 @@ Expected: All persona tests pass.
 **Commit:**
 
 ```bash
-git add src/ai/contextBuilder.test.ts
-git commit -m "test(coach): verify onboarding does not ask for name
+git add src/ai/contextBuilder.ts src/ai/contextBuilder.test.ts
+git commit -m "test(coach): verify onboarding profile fields via data-driven constant
 
-Add test for AC3.7: onboarding persona does not solicit user's name
-and no settings field (profileName) exists to persist it. Interview
-asks only age, gender, and experience as profile fields.
+Export ONBOARDING_PROFILE_FIELDS constant defining the six proposal fields
+(no 'name' field). Persona rendering embeds this list, proving field
+membership. Test asserts: constant has no 'name', all members are in
+persona. Adding 'name' to constant makes test fail immediately, catching
+the mistake where phrase-based tests would miss it.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```

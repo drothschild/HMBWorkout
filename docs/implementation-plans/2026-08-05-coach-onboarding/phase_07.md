@@ -23,7 +23,7 @@ This phase verifies what cannot be tested in jest:
 - **coach-onboarding.AC5.2:** Dismiss action (writes state, card gone on restart)
 - **coach-onboarding.AC5.3:** Completion flag (set on first write, not on open-without-answering)
 - **coach-onboarding.AC5.4:** Coexistence (card + resume button + error + loading all render together)
-- **coach-onboarding.AC5.5:** Settings screen layout and autosave (all seven fields visible and persistent)
+- **coach-onboarding.AC5.5:** Settings screen layout and autosave (all six settings fields visible and persistent)
 - **coach-onboarding.AC5.6:** Opt-out flow (navigate to settings, values intact)
 
 ### coach-onboarding.AC4: Auto-apply behavior (store integration)
@@ -79,13 +79,13 @@ Query SQLite after dismissal: `SELECT onboardingState FROM bridge_settings`
 **Setup:**
 1. onboardingState is 'unseen'
 2. anthropicKey is set
-3. All four profile fields empty in settings
+3. All three profile fields empty in settings
 
 **Test AC3.1-AC3.4 (interview interaction):**
 1. On Today tab, tap "Start" button on OnboardingCard
 2. **Expect:** Navigate to /ai-coach?onboarding=1 screen
 3. **Expect:** No user-visible opening message (hidden turn not rendered)
-4. **Expect:** Coach's first message appears, asking about goals/equipment/experience/name in batches
+4. **Expect:** Coach's first message appears, asking about goals/equipment/personality/age/gender/experience in batches
 
 **Test AC4.6 (coach speaks first):**
 Verify: The chat shows assistant message first (no user message visible before it)
@@ -125,9 +125,9 @@ Query SQLite: `SELECT onboardingState FROM bridge_settings`
 
 **Test AC5.5 (settings screen autosave):**
 1. Open Settings → AI Coach
-2. **Expect:** All seven fields visible:
+2. **Expect:** All six settings fields visible:
    - Anthropic Key, Goals, Equipment, Personality (existing)
-   - Name, Age, Gender, Experience (new)
+   - Age, Gender, Experience (new profile fields)
 3. Edit each field manually (add test values)
 4. **Expect:** Changes save automatically (no Save button needed for these fields)
 5. Force close and relaunch
@@ -144,11 +144,11 @@ Query SQLite: `SELECT onboardingState FROM bridge_settings`
 3. Open onboarding again: Today tab "Start" → onboarding conversation
 
 **Test AC5.6 (opt-out mid-conversation):**
-1. Participate in conversation until some values are written (e.g., name and goals)
+1. Participate in conversation until some values are written (e.g., goals and age)
 2. Look for "I'll fill this in myself" button (should be visible on ai-coach screen)
 3. Tap the button
 4. **Expect:** Navigate to Settings → AI Coach screen
-5. **Expect:** Already-entered values (name, goals) are still present in the form
+5. **Expect:** Already-entered values (goals, age) are still present in the form
 6. Manually finish filling the remaining fields if desired
 7. Force close and relaunch
 8. **Expect:** All values (from conversation + manual) persisted
@@ -165,7 +165,7 @@ Query SQLite: `SELECT onboardingState FROM bridge_settings`
 4. **Verify:** No overlapping text, buttons are tappable, spacing is consistent with other cards
 
 **Test AC6.6 (long profile values don't break UI):**
-1. On Settings → AI Coach, enter a very long name: "My name is this extremely long string that goes on and on and really tests whether the input layout handles long text gracefully without breaking"
+1. On Settings → AI Coach, enter a very long value in the "Experience" field: "My experience includes this extremely long string that goes on and on and really tests whether the input layout handles long text gracefully without breaking"
 2. **Expect:** Text wraps or truncates gracefully, input remains usable
 3. Navigate to Today tab → Start onboarding
 4. Check that long value doesn't break the system prompt or conversation rendering
@@ -184,7 +184,7 @@ Query SQLite: `SELECT onboardingState FROM bridge_settings`
 - [ ] Interview interaction: Coach asks in batches, records refusals verbatim, doesn't re-ask
 - [ ] Completion flag: Set to 'completed' on first successful write, not on open-without-answer
 - [ ] Auto-apply: Settings visible and updated during conversation (not pending card)
-- [ ] Settings screen: All seven fields editable and autosaved
+- [ ] Settings screen: All six fields (goals, equipment, personality, age, gender, experience) editable and autosaved
 - [ ] Opt-out: "I'll fill this in myself" navigates to settings with values intact
 - [ ] Layout: Long profile values don't break UI, no overlapping text
 

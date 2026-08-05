@@ -227,9 +227,9 @@ Add handlers (or reuse existing pattern if autosave is on-change):
 ```
 
 Render inputs in the section, after the existing personality field. Label them:
-- "Age"
-- "Gender"
-- "Experience"
+- "Age" (placeholder: "e.g. 41 or early 40s")
+- "Gender" (placeholder: "e.g. Male, Female, or prefer not to say")
+- "Experience" (placeholder: "e.g. Beginner, strong squat, terrible overhead")
 
 **Testing:**
 
@@ -246,10 +246,10 @@ Expected: Exits 0 with no output.
 git add src/app/\(tabs\)/settings/ai.tsx
 git commit -m "feat(settings): add profile field inputs to AI settings screen
 
-Add name, age, gender, experience text inputs to AI Coach section.
+Add age, gender, experience text inputs to AI Coach section.
 Follow existing autosave pattern: load from settings on mount, save
-via setSettings on change. All seven fields now editable from settings
-screen.
+via setSettings on change. All six settings fields (goals, equipment,
+personality, age, gender, experience) now editable from settings screen.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```

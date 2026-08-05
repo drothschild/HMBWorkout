@@ -42,7 +42,6 @@ In `restCommentaryStore.ts`, extract profile fields when building the prompt:
 ```typescript
 const settings = deps.getSettings();
 const profileFields = {
-  profileName: settings.profileName,
   profileAge: settings.profileAge,
   profileGender: settings.profileGender,
   profileExperience: settings.profileExperience,
@@ -59,7 +58,6 @@ function buildRestCommentaryPrompt(
   target: RestCommentaryTarget,
   history: WorkingSetHistory[],
   profile: {
-    profileName: string;
     profileAge: string;
     profileGender: string;
     profileExperience: string;
@@ -73,9 +71,8 @@ function buildRestCommentaryPrompt(
   // ... existing sections (the set, the next exercise, etc.) ...
   
   // Add About-the-User section BEFORE immutable directives
-  if (profile.profileName || profile.profileAge || profile.profileGender || profile.profileExperience) {
+  if (profile.profileAge || profile.profileGender || profile.profileExperience) {
     const parts: string[] = [];
-    if (profile.profileName) parts.push(`Name: ${neutralizeForPrompt(profile.profileName)}`);
     if (profile.profileAge) parts.push(`Age: ${neutralizeForPrompt(profile.profileAge)}`);
     if (profile.profileGender) parts.push(`Gender: ${neutralizeForPrompt(profile.profileGender)}`);
     if (profile.profileExperience) parts.push(`Experience: ${neutralizeForPrompt(profile.profileExperience)}`);
@@ -100,20 +97,20 @@ Write tests in `restCommentaryPrompt.test.ts`:
 
 ```typescript
 test('buildRestCommentaryPrompt: includes About-the-User when profile present', () => {
-  const profile = { profileName: 'Alice', profileAge: '41', profileGender: '', profileExperience: '' };
+  const profile = { profileAge: '41', profileGender: 'Female', profileExperience: '' };
   const prompt = buildRestCommentaryPrompt(target, [], profile);
   expect(prompt).toContain('## About the User');
-  expect(prompt).toContain('Name: Alice');
+  expect(prompt).toContain('Age: 41');
 });
 
 test('buildRestCommentaryPrompt: omits About-the-User when profile empty', () => {
-  const profile = { profileName: '', profileAge: '', profileGender: '', profileExperience: '' };
+  const profile = { profileAge: '', profileGender: '', profileExperience: '' };
   const prompt = buildRestCommentaryPrompt(target, [], profile);
   expect(prompt).not.toContain('## About the User');
 });
 
 test('buildRestCommentaryPrompt: About-the-User before immutable directives', () => {
-  const profile = { profileName: 'Alice', profileAge: '', profileGender: '', profileExperience: '' };
+  const profile = { profileAge: '41', profileGender: '', profileExperience: '' };
   const prompt = buildRestCommentaryPrompt(target, [], profile);
   const aboutIdx = prompt.indexOf('## About the User');
   const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
@@ -123,7 +120,7 @@ test('buildRestCommentaryPrompt: About-the-User before immutable directives', ()
 });
 
 test('buildRestCommentaryPrompt: neutralizes # in profile values', () => {
-  const profile = { profileName: '### Bad Injection ###', profileAge: '', profileGender: '', profileExperience: '' };
+  const profile = { profileAge: '### Bad Injection ###', profileGender: '', profileExperience: '' };
   const prompt = buildRestCommentaryPrompt(target, [], profile);
   // Verify # is stripped by checking the rendered output
   expect(prompt).not.toContain('### Bad Injection ###');
@@ -172,7 +169,6 @@ In `exerciseQuestionStore.ts`:
 ```typescript
 const settings = deps.getSettings();
 const profile = {
-  profileName: settings.profileName,
   profileAge: settings.profileAge,
   profileGender: settings.profileGender,
   profileExperience: settings.profileExperience,
@@ -226,7 +222,6 @@ In `exerciseReplaceStore.ts`:
 ```typescript
 const settings = deps.getSettings();
 const profile = {
-  profileName: settings.profileName,
   profileAge: settings.profileAge,
   profileGender: settings.profileGender,
   profileExperience: settings.profileExperience,
@@ -282,7 +277,7 @@ test('buildSystem: no leaked secrets', async () => {
     openaiKey: 'sk-openai-secret',
     token: 'bridge-token',
     baseUrl: 'http://private-url',
-    profileName: 'Alice', // Not a secret
+    profileAge: '41', // Not a secret
   });
 
   const prompt = await buildSystem(db, { kind: 'create' });
@@ -291,7 +286,7 @@ test('buildSystem: no leaked secrets', async () => {
   expect(prompt).not.toContain('sk-openai-secret');
   expect(prompt).not.toContain('bridge-token');
   expect(prompt).not.toContain('http://private-url');
-  expect(prompt).toContain('Alice'); // Profile IS included, but not secrets
+  expect(prompt).toContain('41'); // Profile IS included, but not secrets
 });
 ```
 

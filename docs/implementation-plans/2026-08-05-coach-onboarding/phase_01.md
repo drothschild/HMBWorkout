@@ -2,7 +2,7 @@
 
 **Goal:** Persist the three profile fields and the onboarding lifecycle flag so they survive app restarts and load correctly from legacy settings blobs.
 
-**Architecture:** Extend the existing `BridgeSettings` interface and `DEFAULT_SETTINGS` in `src/state/settings.ts` with four new fields. The existing merge-on-load pattern already handles backward compatibility.
+**Architecture:** Extend the existing `BridgeSettings` interface and `DEFAULT_SETTINGS` in `src/state/settings.ts` with three profile fields and one onboarding-state field. The existing merge-on-load pattern already handles backward compatibility.
 
 **Tech Stack:** TypeScript, Jest (node project, ts-jest).
 
@@ -35,7 +35,7 @@ This phase implements and tests:
 
 **Implementation:**
 
-Extend the `BridgeSettings` interface to add four new fields after the existing `aiPersonality` field:
+Extend the `BridgeSettings` interface to add three profile fields and one onboarding-state field after the existing `aiPersonality` field:
 
 ```typescript
 /** Free text: "41", "early 40s", "prefer not to say". '' = never asked. */
@@ -48,7 +48,7 @@ profileExperience: string;
 onboardingState: 'unseen' | 'dismissed' | 'completed';
 ```
 
-Update `DEFAULT_SETTINGS` constant to include all four new fields with their defaults:
+Update `DEFAULT_SETTINGS` constant to include all new fields with their defaults:
 
 ```typescript
 profileAge: '',
@@ -86,10 +86,10 @@ Expected: All tests pass (existing + new).
 git add src/state/settings.ts src/state/settings.test.ts
 git commit -m "feat(settings): add profile fields and onboarding state
 
-Add profileName, profileAge, profileGender, profileExperience, and
-onboardingState to BridgeSettings. Refactor resetForTesting() to use
-DEFAULT_SETTINGS for consistency. Legacy blobs load with new fields
-defaulting to empty/unseen.
+Add profileAge, profileGender, profileExperience, and onboardingState
+to BridgeSettings. Refactor resetForTesting() to use DEFAULT_SETTINGS
+for consistency. Legacy blobs load with new fields defaulting to
+empty/unseen.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
