@@ -47,6 +47,72 @@ customization — scene lifecycle, HealthKit entitlements, splash — comes from
 `app.json` plugins and is re-applied. Hand edits under `ios/` do not survive a
 regeneration; anything that must persist belongs in a config plugin (`plugins/`).
 
+**A new native dependency makes this mandatory, and the failure is a runtime
+crash rather than a build error.** `expo-audio` landed in `package.json` while
+the main checkout's `ios/` was five days old, so its `Podfile.lock` had zero
+`ExpoAudio` entries. The JS bundle then imported a native module the binary did
+not contain, and the app died at launch with `Cannot find native module
+'ExpoAudio'` — traced through `SetLogger` → `ExerciseStopwatch` →
+`timerSoundPlayer`. Nothing in `npm test`, `tsc`, or `lint` can catch this;
+`ios/` is gitignored, so a `git pull` that brings in a native dep leaves the
+checkout silently mismatched. **After any native module lands, prebuild before
+running.**
+
+### Building and installing
+
+**`--clean` can fail partway and leave `ios/` unusable.** It deletes the tree
+before regenerating, and `rmdir` on `ios/Pods` intermittently fails with
+`ENOTEMPTY`, aborting after the delete. The recovery is to finish the delete by
+hand and re-run — safe, since `ios/` is generated:
+
+    for i in 1 2 3; do rm -rf ios; done
+    LANG=en_US.UTF-8 npx expo prebuild -p ios --clean
+
+Confirm the module actually linked before building — `grep -c ExpoAudio
+ios/Podfile.lock` should be non-zero.
+
+**Simulator** — `npm run ios` works. To build without touching Metro:
+
+    xcodebuild -workspace ios/HMBWorkout.xcworkspace -scheme HMBWorkout \
+      -configuration Debug -sdk iphonesimulator \
+      -destination 'platform=iOS Simulator,id=<UDID>' \
+      -derivedDataPath /tmp/<name> build
+    xcrun simctl install <UDID> /tmp/<name>/Build/Products/Debug-iphonesimulator/HMBWorkout.app
+
+**Physical device — `expo run:ios --device` does NOT work under this toolchain.**
+It fails with `Unexpected devicectl JSON version output from devicectl`, then
+`No device UDID or name matching "..."`, because the Expo CLI cannot parse
+Xcode-beta's `devicectl` output. It never reaches a build. Go through
+`xcodebuild` directly, which bypasses that parsing entirely:
+
+    xcrun devicectl list devices                       # find the UDID
+    xcodebuild -workspace ios/HMBWorkout.xcworkspace -scheme HMBWorkout \
+      -configuration Debug -destination 'id=<DEVICE-UDID>' \
+      -allowProvisioningUpdates DEVELOPMENT_TEAM=33ZKM6VFS4 build
+    xcrun devicectl device install app --device <DEVICE-UDID> \
+      ~/Library/Developer/Xcode/DerivedData/HMBWorkout-*/Build/Products/Debug-iphoneos/HMBWorkout.app
+
+**`DEVELOPMENT_TEAM` must be passed explicitly, and the obvious choice is the
+wrong one.** `prebuild --clean` regenerates the Xcode project without a team —
+it is a local Xcode setting, not something `app.json` carries — so the build
+stops at `Signing for "HMBWorkout" requires a development team`. The keychain
+holds two: `N4W9M926BS` on the *Apple Development* cert and `33ZKM6VFS4` on the
+Distribution certs. **Use `33ZKM6VFS4`.** `N4W9M926BS` looks correct for a debug
+build and fails with `No Account for Team "N4W9M926BS"` plus `No profiles for
+'com.davidr.hmbworkout' were found`.
+
+**Verifying a native module actually linked — do not read `Frameworks/`.** Expo
+module pods build as **static** libraries, so `ExpoAudio.framework` is legitimately
+absent from a correct build. The evidence is in the dylib:
+
+    strings <App>.app/HMBWorkout.debug.dylib | grep -c ExpoAudio   # 38 when linked
+
+**In DerivedData, mtime does not imply completeness.** Several `HMBWorkout-*`
+directories accumulate, and the newest by mtime can be an *empty* `.app` from an
+interrupted build — no binary, no `Info.plist`. Sorting by mtime and taking the
+top hit reports "no build exists" while a working one sits one entry down. Check
+for the binary itself.
+
 ## Two-repo split
 
 - **This repo** = the iOS app.

@@ -35,3 +35,20 @@ export function vibrateForMinute(): void {
 export function vibrateAtZero(): void {
   buzzOnce('countdown zero');
 }
+
+/**
+ * Buzz once when a rest period finishes.
+ *
+ * Unlike the two above this is not a stopwatch event, but it lives here for
+ * the same reason: `Vibration` is react-native core, so it needs no native
+ * module and no dev-client rebuild, and keeping it out of src/state leaves
+ * the pure logic importable by the node jest project.
+ *
+ * This exists because the rest path previously had *no* non-audio signal at
+ * all. On a silenced phone with the app open, a finished rest produced
+ * nothing: the beep was muted, and the scheduled OS notification only helps
+ * when the app is backgrounded. A buzz always reaches the athlete.
+ */
+export function vibrateAtRestComplete(): void {
+  buzzOnce('rest complete');
+}
