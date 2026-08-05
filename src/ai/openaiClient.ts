@@ -60,6 +60,14 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
           MODEL
         );
       } catch (error) {
+        // Unreachable today: the schema and schemaName above are hardcoded and
+        // valid, so no caller can make buildOpenAiBody throw through this
+        // surface. Kept as defence-in-depth, and it becomes reachable when
+        // Phase 3 lets callers supply a schema. buildOpenAiBody's throw is a
+        // deliberate build-time programmer-error signal, so it is converted to a
+        // distinct type rather than swallowed into a generic failure — call
+        // sites still catch it like any other AI failure, because a workout must
+        // never depend on the AI.
         throw new OpenaiSchemaError(
           error instanceof Error ? error.message : 'Failed to build OpenAI request body'
         );

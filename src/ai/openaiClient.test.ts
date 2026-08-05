@@ -119,24 +119,25 @@ describe('openaiClient', () => {
       }
     });
 
-    it('converts buildOpenAiBody schema errors to OpenaiSchemaError', async () => {
-      // When fetch succeeds but buildOpenAiBody would throw, the client must
-      // catch and convert the error to OpenaiSchemaError before fetch is even called.
-      // Since buildOpenAiBody is called before fetch, if it throws, fetch never runs.
-      // We verify this by ensuring mockFetch is never called when schema building fails.
-
-      // Note: buildOpenAiBody requires both system and messages to be present.
-      // With valid inputs, it will succeed. To test error handling directly, see
-      // provider/requestBuilder.test.ts which tests buildOpenAiBody's own error cases.
-      // This test verifies the client's propagation of such errors.
-
+    // NOTE ON A TEST THAT USED TO BE HERE. It was named "converts buildOpenAiBody
+    // schema errors to OpenaiSchemaError" and did not test that: it built an
+    // `invalidSchema` fixture it never used, passed the valid AI_TURN_SCHEMA
+    // instead, and asserted `rejects.toBeTruthy()` — which passed only because a
+    // bare `jest.fn()` returns undefined and the client then threw reading
+    // `response.ok`. A rewrite kept the name while its own comments admitted it
+    // was "just verifying the client setup doesn't break with valid inputs",
+    // which is worse: a test that documents its own vacuity still reads as
+    // coverage in a list of test names.
+    //
+    // The honest position is that the catch in openaiClient.ts is UNREACHABLE
+    // today. The client hardcodes AI_TURN_SCHEMA and schemaName 'AiTurn', both
+    // valid, so no caller can make buildOpenAiBody throw through this surface.
+    // It stays as defence-in-depth and becomes reachable — and testable — when
+    // Phase 3 lets callers supply a schema. buildOpenAiBody's own error cases are
+    // covered where they are reachable, in provider/requestBuilder.test.ts.
+    it('posts to the OpenAI Responses endpoint and parses the turn', async () => {
       const mockFetch = jest.fn();
       const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
-
-      // The schema validation happens inside buildOpenAiBody. This client always
-      // uses AI_TURN_SCHEMA with schemaName 'AiTurn', which are valid.
-      // For testing actual schema errors, buildOpenAiBody.test.ts covers those cases.
-      // Here we just verify the client setup doesn't break with valid inputs.
 
       mockFetch.mockResolvedValueOnce({
         ok: true,

@@ -5,17 +5,7 @@
 
 import { createAnthropicClient } from '../anthropicClient';
 import { createOpenaiClient } from '../openaiClient';
-import type { AiClient, ProviderConfig, AiProvider, AiModelConfig } from './types';
-
-const DEFAULT_ANTHROPIC_MODELS: AiModelConfig = {
-  chat: 'claude-sonnet-5',
-  oneShot: 'claude-sonnet-5',
-};
-
-const DEFAULT_OPENAI_MODELS: AiModelConfig = {
-  chat: 'gpt-5.6',
-  oneShot: 'gpt-5.6',
-};
+import type { AiClient, ProviderConfig, AiProvider } from './types';
 
 /**
  * Determine which provider is configured.
@@ -50,11 +40,19 @@ function resolveProvider(config: ProviderConfig): AiProvider {
  */
 export function createAiClient(config: ProviderConfig): AiClient {
   const provider = resolveProvider(config);
-  // TODO (Phase 3): Pass modelConfig to client factories when they support model selection.
-  // Currently, clients use hardcoded models defined in openaiClient.ts and anthropicClient.ts.
-  // This config is accepted for forward compatibility but not yet used.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const modelConfig = config.aiModel ?? (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODELS : DEFAULT_OPENAI_MODELS);
+
+  // NOTE: `config.aiModel` is deliberately NOT read here. The settings field is
+  // real (Phase 1 added it, and settings.test.ts round-trips it), but neither
+  // client factory accepts a model argument yet — both hardcode their own. So a
+  // user-chosen model would be silently ignored.
+  //
+  // An earlier revision computed a `modelConfig` here, dropped it on the floor,
+  // and silenced the resulting unused-variable warning with an eslint-disable.
+  // That is strictly worse than not reading it: it looks wired, lints clean, and
+  // two tests named "uses provided model config" asserted only that the factory
+  // returned something. Wiring it for real is Phase 3 (it changes both client
+  // signatures, including the working Anthropic one) and is pinned by the
+  // accepted-but-ignored test in factory.test.ts until then.
 
   if (provider === 'anthropic') {
     if (!config.anthropicKey) {
