@@ -19,6 +19,9 @@ describe('request builders', () => {
     surface: 'chat' as const,
   };
 
+/** Captured at module load — see the immutability test below for why. */
+const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
+
   describe('buildAnthropicBody', () => {
     it('builds correct request for Anthropic API', () => {
       const body = buildAnthropicBody(testRequest, 'claude-sonnet-5');
@@ -231,11 +234,14 @@ describe('request builders', () => {
     });
 
     it('OpenAI request does not mutate input schema', () => {
-      const originalSchema = JSON.stringify(testSchema);
+      // PRISTINE_TEST_SCHEMA is captured at module load. Snapshotting here
+      // would be too late: seven earlier tests in this file already call
+      // buildOpenAiBody against the same shared object, so a mutating builder
+      // corrupts it before this line and the comparison passes anyway.
       const body = buildOpenAiBody(testRequest, 'gpt-5.6-sol');
 
       // Input schema should be unchanged
-      expect(JSON.stringify(testRequest.schema)).toBe(originalSchema);
+      expect(JSON.stringify(testRequest.schema)).toBe(PRISTINE_TEST_SCHEMA);
 
       // Schema in body is transformed (all properties required, optionals nullable)
       const openaiFormat = (body.text as Record<string, unknown>).format as Record<

@@ -6,6 +6,13 @@ import {
 import { AI_TURN_SCHEMA } from '../draftSchema';
 import { ALTERNATES_SCHEMA } from '../alternatesSchema';
 
+/**
+ * Captured at module load, before any test body runs — the only point at which
+ * these schemas are guaranteed untouched by a transform call in this file.
+ */
+const PRISTINE_AI_TURN = JSON.stringify(AI_TURN_SCHEMA);
+const PRISTINE_ALTERNATES = JSON.stringify(ALTERNATES_SCHEMA);
+
 describe('OpenAI structured output schema validation', () => {
   describe('findUnsupportedKeywordsForOpenAI', () => {
     it('accepts schema with supported keywords', () => {
@@ -280,9 +287,17 @@ describe('OpenAI structured output schema validation', () => {
     });
 
     it('transform does not mutate input schemas', () => {
-      const original = JSON.stringify(AI_TURN_SCHEMA);
+      // Compare against PRISTINE_AI_TURN, captured at module load. Snapshotting
+      // inside this test is not enough: earlier tests in this file already run
+      // the transform, so a mutating implementation corrupts the schema BEFORE
+      // the snapshot and the snapshot faithfully records the corruption. That
+      // is why the round-2 version of this guard survived a full-file mutation
+      // run and only died under `-t`.
       transformSchemaForOpenAI(AI_TURN_SCHEMA);
-      expect(JSON.stringify(AI_TURN_SCHEMA)).toBe(original);
+      expect(JSON.stringify(AI_TURN_SCHEMA)).toBe(PRISTINE_AI_TURN);
+
+      transformSchemaForOpenAI(ALTERNATES_SCHEMA);
+      expect(JSON.stringify(ALTERNATES_SCHEMA)).toBe(PRISTINE_ALTERNATES);
     });
   });
 });
