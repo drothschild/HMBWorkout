@@ -11,7 +11,10 @@ import { findUnsupportedKeywords as findUnsupportedKeywordsForAnthropic } from '
  * - chat: frontier tier, 4096 tokens (conversation, debrief, routine drafting)
  * - alternates: 1024 tokens (exercise replacement suggestions)
  * - exerciseQuestion: 512 tokens (per-exercise Q&A)
- * - restCommentary: 256 tokens + effort: 'low' (timed rest tips)
+ * - restCommentary: 256 tokens (timed rest tips)
+ *
+ * Reasoning is disabled on EVERY surface (see buildOpenAiBody) — these are
+ * token budgets for output prose only, not a reasoning allowance.
  */
 export type AiSurface = 'chat' | 'alternates' | 'exerciseQuestion' | 'restCommentary';
 
@@ -97,8 +100,9 @@ export function buildAnthropicBody(
  *     the prompt into the user turn does not.
  *   - structured output is `text: { format: { type, name, strict, schema } }`
  *   - token budget is `max_output_tokens`
- *   - reasoning effort (when present) is `reasoning: { effort }`, used for
- *     extended thinking on frontier models
+ *   - reasoning is `reasoning: { effort }`. This app always sends
+ *     `effort: 'none'`; the field is NOT optional in practice, because
+ *     omitting it means `medium` on GPT-5.6, not off
  */
 export function buildOpenAiBody(
   request: RequestInput,

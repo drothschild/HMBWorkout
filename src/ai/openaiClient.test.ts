@@ -478,6 +478,33 @@ describe('openaiClient', () => {
       expect.assertions(1);
     });
 
+    it('surfaces a refusal on the COMMENTARY surface too, not "no usable commentary text"', async () => {
+      // The chat surface got this pin when refusal handling was added; the
+      // commentary copy did not, and round 4's review found two mutations
+      // surviving on it — deleting the block outright, and breaking its
+      // discriminator so the guard can never match. Both left 441/441 green.
+      //
+      // The manager's "mutation-verified, full-file" claim for that commit had
+      // measured only the chat surface, which is the same defect one layer down
+      // from the one being fixed: present in code, absent from tests, on a
+      // surface that swallows every error at runtime.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'Not something I can advise on.' }] }],
+        }),
+      });
+
+      const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);
+      const error = await client
+        .comment({ system: 'Be brief', message: 'Time for set 3' })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(OpenaiRefusalError);
+      expect((error as OpenaiRefusalError).refusal).toBe('Not something I can advise on.');
+      expect((error as Error).message).not.toMatch(/no usable commentary text/);
+    });
+
     it('handles incomplete response on commentary (critical with tight token budget)', async () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
