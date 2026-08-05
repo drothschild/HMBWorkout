@@ -58,6 +58,38 @@ describe('createAiClient factory', () => {
     expect.assertions(1);
   });
 
+  // The test above lives in factory.test.ts but calls createOpenaiClient
+  // DIRECTLY — it never goes through createAiClient, so it proves nothing about
+  // the factory's own key forwarding. That is why the review's F07/F08 mutants
+  // (hand each client a 'WRONG-KEY' instead of the configured one) survived: the
+  // coverage looked present because of where the test lived, not what it called.
+  // Right file, wrong unit. These two go through the factory.
+  describe('forwards the configured key to the selected provider', () => {
+    afterEach(() => jest.resetModules());
+
+    it('passes openaiKey to the OpenAI client', async () => {
+      jest.resetModules();
+      const openaiSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      jest.doMock('../openaiClient', () => ({ createOpenaiClient: openaiSpy }));
+
+      const { createAiClient: freshFactory } = await import('./factory');
+      freshFactory({ openaiKey: 'the-openai-key', aiProvider: 'openai' });
+
+      expect(openaiSpy).toHaveBeenCalledWith({ apiKey: 'the-openai-key' });
+    });
+
+    it('passes anthropicKey to the Anthropic client', async () => {
+      jest.resetModules();
+      const anthropicSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      jest.doMock('../anthropicClient', () => ({ createAnthropicClient: anthropicSpy }));
+
+      const { createAiClient: freshFactory } = await import('./factory');
+      freshFactory({ anthropicKey: 'the-anthropic-key', aiProvider: 'anthropic' });
+
+      expect(anthropicSpy).toHaveBeenCalledWith({ apiKey: 'the-anthropic-key' });
+    });
+  });
+
   it('throws when explicit aiProvider requires missing key', () => {
     const config: ProviderConfig = {
       anthropicKey: 'test-anthropic-key',

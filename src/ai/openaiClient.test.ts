@@ -6,7 +6,7 @@ describe('openaiClient', () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          output: [{ type: 'message', content: [{ type: 'text', text: '{"reply": "test response"}' }] }],
+          output: [{ type: 'message', content: [{ type: 'output_text', text: '{"reply": "test response"}' }] }],
         }),
       });
 
@@ -162,6 +162,33 @@ describe('openaiClient', () => {
     // It stays as defence-in-depth and becomes reachable — and testable — when
     // Phase 3 lets callers supply a schema. buildOpenAiBody's own error cases are
     // covered where they are reachable, in provider/requestBuilder.test.ts.
+    it('requires the output_text part type — an Anthropic-shaped text part is rejected', async () => {
+      // This pins the discriminator itself, because the code and the mocks were
+      // wrong TOGETHER twice on this PR. First the parser read a top-level
+      // `content[]` (Anthropic) instead of `output[]`, and the mocks matched, so
+      // mutating the code to the correct shape was KILLED by the suite — the
+      // tests enforced the bug. Fixing the wrapper left the same defect one level
+      // down: parts were still matched on `type: 'text'`, Anthropic's name,
+      // rather than `output_text`, and again the mocks agreed.
+      //
+      // A green suite cannot catch that class on its own; only an assertion that
+      // the WRONG shape is rejected can. Feed a real OpenAI envelope carrying
+      // Anthropic's part type and require it to fail.
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'text', text: '{"reply": "nope"}' }] }],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
+
+      await expect(
+        client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] })
+      ).rejects.toThrow(/no text content block/);
+      expect.assertions(1);
+    });
+
     it('posts to the OpenAI Responses endpoint and parses the turn', async () => {
       const mockFetch = jest.fn();
       const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as any);
@@ -169,7 +196,7 @@ describe('openaiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          output: [{ type: 'message', content: [{ type: 'text', text: '{"reply": "response"}' }] }],
+          output: [{ type: 'message', content: [{ type: 'output_text', text: '{"reply": "response"}' }] }],
         }),
       });
 
@@ -206,7 +233,7 @@ describe('openaiClient', () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          output: [{ type: 'message', content: [{ type: 'text', text: 'Keep pushing!' }] }],
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'Keep pushing!' }] }],
         }),
       });
 
@@ -247,7 +274,7 @@ describe('openaiClient', () => {
     it('throws on empty text response', async () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ output: [{ type: 'message', content: [{ type: 'text', text: '' }] }] }),
+        json: async () => ({ output: [{ type: 'message', content: [{ type: 'output_text', text: '' }] }] }),
       });
 
       const client = createRestCommentaryClient({ apiKey: 'test-key' }, mockFetch as any);

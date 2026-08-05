@@ -4,13 +4,6 @@ import { buildOpenAiBody } from './provider/requestBuilder';
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
 const MODEL = 'gpt-5.6';
 
-/**
- * The rest-screen comment is 1-2 sentences and runs against a ticking
- * countdown, so it gets its own budget: a small ceiling and `effort: low`, both
- * of which the conversational client would be wrong to adopt.
- */
-const COMMENTARY_MAX_TOKENS = 256;
-
 type FetchFn = typeof fetch;
 
 export interface AiChatMessage {
@@ -121,8 +114,14 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
         throw new DraftValidationError('response output contains no message item');
       }
 
+      // Part type is `output_text`, NOT `text`. `text` is Anthropic's discriminator
+      // and was what this filter checked until PR #120's fix round 2 — with the
+      // mocks agreeing, so the suite stayed green while a real response matched
+      // nothing and threw 'no text content block'. Do not widen this to accept
+      // both: accepting Anthropic's name here is what let the wrong shape survive
+      // two rounds of review.
       const textBlocks = messageItem.content.filter((block): block is { type: string; text: string } =>
-        block?.type === 'text' && typeof block.text === 'string'
+        block?.type === 'output_text' && typeof block.text === 'string'
       );
 
       const textBlock = textBlocks.find((block) => block.text.length > 0);
@@ -224,9 +223,10 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
         throw new DraftValidationError('response output contains no message item');
       }
 
+      // `output_text`, not `text` — see the note on the chat surface above.
       const textBlock = messageItem.content.find(
         (block): block is { type: string; text: string } =>
-          block?.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0
+          block?.type === 'output_text' && typeof block.text === 'string' && block.text.trim().length > 0
       );
 
       if (!textBlock) {
