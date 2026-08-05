@@ -63,24 +63,33 @@ If an unsupported keyword is present, the endpoint rejects the entire request wi
 **Error Types:**  
 `AnthropicUnreachable` (network) vs `AnthropicHttpError` (HTTP status)
 
-### OpenAI's Structured Outputs (Effective August 2026)
+### OpenAI's Structured Outputs via Responses API (Effective August 2026)
 
 **Request Structure:**
 ```json
 {
-  "model": "gpt-5.6",
-  "response_format": {
-    "type": "json_schema",
-    "json_schema": {
-      "strict": true,
+  "model": "gpt-5.6-sol",
+  "max_output_tokens": 4096,
+  "input": [
+    { "role": "developer", "content": "system instructions" },
+    { "role": "user", "content": "user message" }
+  ],
+  "text": {
+    "format": {
+      "type": "json_schema",
       "name": "ai_turn",
+      "strict": true,
       "schema": { /* JSON Schema */ }
     }
   },
-  "system": "...",
-  "messages": [...]
+  "reasoning": { "effort": "low" }
 }
 ```
+
+**Note on API Shape:**
+OpenAI's Responses API uses `input` (message array with role `developer` for system content)
+rather than Chat Completions' top-level `system` parameter. This preserves the
+IMMUTABLE_DIRECTIVES channel precedence as a role-tagged entry.
 
 **Supported Keywords (enforced at generation time):**  
 Opposite of Anthropic: OpenAI **does** support `minItems`, `maxItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `pattern`.
@@ -93,7 +102,7 @@ OpenAI **does not** support: `minLength`, `maxLength`, `minProperties`, `maxProp
 OpenAI's structured output uses Context-Free Grammar (CFG) to guarantee schema adherence at the token level. The request includes `"strict": true` and a required `name` field on the schema root.
 
 **Critical Differences:**
-1. Field name: `response_format` (not `output_config`)
+1. Field name: **`text.format`** (not `output_config`). *Corrected — an earlier draft said `response_format`, which is the older Chat Completions shape; this design targets the Responses API.*
 2. Nested structure: `json_schema` object contains `strict`, `name`, and `schema` (not flat)
 3. Supported keyword set: different from Anthropic
 4. `strict: true` is mandatory
@@ -212,7 +221,7 @@ If future experience suggests OpenAI's model family needs different directives (
 Create a new `src/ai/provider/requestBuilder.ts` module that translates a uniform request shape into provider-specific POST bodies.
 
 **Why:**
-- Anthropic and OpenAI differ in: field names (`output_config` vs `response_format`), nesting depth, and required fields (`strict`, `name`)
+- Anthropic and OpenAI differ in: field names (`output_config` vs **`text.format`**), the message channel (`messages` + `system` vs `input` with a role-tagged `developer` entry), token budget (`max_tokens` vs `max_output_tokens`), reasoning effort (`output_config.effort` vs `reasoning: { effort }`), nesting depth, and required fields (`strict`, `name`)
 - Separating this translation from the client logic makes the provider abstraction testable
 - The translation is stateless and deterministic (same input → same output for each provider)
 
