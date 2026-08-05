@@ -6,25 +6,33 @@
  */
 
 /**
- * Keywords that OpenAI's structured output does NOT support for this project.
+ * Keywords this module refuses to send to OpenAI's structured output endpoint.
  *
- * The first two groups — composition/conditional and string/numeric/array bounds —
- * **are documented as supported by OpenAI** for non-fine-tuned models. They are
- * banned here as a house rule, matching the Anthropic module's `structuredOutputSubset`:
- * bounds belong in the validators rather than in a schema handed to `output_config.format`.
+ * Every entry is banned, but for **three different reasons**, and the distinction
+ * matters to anyone who later wants one of them back. Two earlier revisions of this
+ * comment collapsed the groups and each asserted the opposite of the docs — once
+ * calling documented-unsupported keywords "supported", once the reverse. Check a
+ * keyword's group before moving it.
  *
- * The remaining keywords — array/object introspection and others — are genuinely
- * undocumented in OpenAI's guide, so they are conservatively treated as unsupported
- * until proven against the live endpoint. This guard catches them before sending a
- * request (which would fail with 400 and never run the model).
+ *  1. **Documented unsupported.** OpenAI's structured-outputs guide names these as
+ *     not supported, unconditionally. Not negotiable — the endpoint 400s and the
+ *     model never runs.
+ *  2. **House rule.** Documented as *supported* for non-fine-tuned models, banned
+ *     here anyway, matching the Anthropic module's `structuredOutputSubset`: bounds
+ *     belong in the validators, not in a schema handed to `output_config.format`.
+ *     This group is a convention, so it is the one a future maintainer may revisit —
+ *     do not read it as an API constraint.
+ *  3. **Undocumented.** Absent from the guide entirely. Silence is not evidence of
+ *     support, so they are conservatively banned until proven against the live
+ *     endpoint. PR #71 is why: one unsupported keyword in `ALTERNATES_SCHEMA` made
+ *     the Replace button 400 on every tap.
  *
- * Keywords not listed here but also not documented are still present in OpenAI's
- * structured output — most composition keywords (allOf, not, if/then/else, oneOf)
- * are explicitly documented as unsupported and are correctly banned.
+ * Group membership was read from OpenAI's guide on 2026-08-04. No live call was made
+ * — every claim here is documentation-based, and re-reading the docs (not this
+ * comment) is the way to check it.
  */
 const UNSUPPORTED_FOR_OPENAI = [
-  // Composition/conditional keywords (schema combinators)
-  // OpenAI explicitly documents these as unsupported
+  // (1) DOCUMENTED UNSUPPORTED — composition, conditionals, and patternProperties.
   'allOf',
   'not',
   'if',
@@ -32,12 +40,10 @@ const UNSUPPORTED_FOR_OPENAI = [
   'else',
   'dependentSchemas',
   'dependentRequired',
-  'oneOf',
+  'patternProperties',
 
-  // String/numeric/array bounds — HOUSE RULE
-  // These are documented as supported by OpenAI for non-fine-tuned models.
-  // Banning them here is a deliberate house rule matching structuredOutputSubset.ts:
-  // bounds belong in the validators, not in schemas sent to the endpoint.
+  // (2) HOUSE RULE — string/numeric/array bounds. Documented as SUPPORTED by
+  // OpenAI for non-fine-tuned models; banned here by choice, per structuredOutputSubset.ts.
   'minLength',
   'maxLength',
   'pattern',
@@ -48,12 +54,14 @@ const UNSUPPORTED_FOR_OPENAI = [
   'multipleOf',
   'minItems',
   'maxItems',
+
+  // (3) UNDOCUMENTED — absent from the guide; banned conservatively.
+  // `oneOf` sits here rather than in group 1: the docs' composition list does not
+  // name it. The transform's own PR #111 ban on it (see the widening code below)
+  // therefore rests on this conservative default, not on a documented rejection.
+  'oneOf',
   'minProperties',
   'maxProperties',
-
-  // Array/object introspection keywords — genuinely undocumented
-  // No explicit support or rejection in OpenAI's guide; conservatively banned
-  // until proven against the live endpoint.
   'contains',
   'minContains',
   'maxContains',
@@ -61,9 +69,6 @@ const UNSUPPORTED_FOR_OPENAI = [
   'unevaluatedProperties',
   'unevaluatedItems',
   'prefixItems',
-
-  // Other undocumented keywords
-  'patternProperties',
   'uniqueItems',
 ] as const;
 

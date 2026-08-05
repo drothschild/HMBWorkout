@@ -418,6 +418,35 @@ describe('OpenAI structured output schema validation', () => {
       expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
+    it('an ALREADY-REQUIRED const is rewritten as enum too, with no null branch', () => {
+      // The sibling test above covers the optional path. This one exists because
+      // the two rewrites are separate branches: PR #117's round-2 review found the
+      // required path emitted a bare `const` straight to the wire, and every
+      // existing const fixture omitted the property from `required`, so nothing
+      // exercised it. Deleting the required-path branch must fail this test alone.
+      const schema = {
+        type: 'object',
+        properties: {
+          fixed: {
+            const: 'CONSTANT_VALUE',
+          },
+        },
+        required: ['fixed'],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const props = transformed.properties as Record<string, Record<string, unknown>>;
+
+      // No null branch: the property is required, so absence is not expressible
+      // and must not be offered. `const` itself is undocumented for OpenAI
+      // structured output, which is why the literal moves into an enum at all.
+      expect(props.fixed).toEqual({ enum: ['CONSTANT_VALUE'] });
+      expect(props.fixed.const).toBeUndefined();
+      expect(transformed.required as string[]).toContain('fixed');
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
+    });
+
     it('transform is idempotent', () => {
       const schema = {
         type: 'object',
