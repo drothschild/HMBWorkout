@@ -193,7 +193,28 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
   return obj as unknown as RoutineDraft;
 }
 
-const SETTINGS_PROPOSAL_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
+/**
+ * The field list the validator and `isEmptyProposal` both walk.
+ *
+ * `satisfies` is load-bearing, not decoration: without it this is a bare string
+ * tuple with no compile-time link to `SettingsProposal`, and a field can be
+ * deleted from the interface with tsc clean and the whole suite green. That is
+ * the same drift hazard `isEmptyProposal` used to carry, one layer up.
+ *
+ * Note what this does and does not pin. It catches a name here that is not on
+ * the interface, and a field renamed on the interface. It cannot catch a field
+ * ADDED to the interface but not listed here, nor one added to
+ * AI_TURN_SCHEMA.settingsProposal but not to either — those two directions
+ * remain hand-maintained.
+ */
+const SETTINGS_PROPOSAL_FIELDS = [
+  'goals',
+  'equipment',
+  'personality',
+  'age',
+  'gender',
+  'experience',
+] as const satisfies readonly (keyof SettingsProposal)[];
 
 export function validateSettingsProposal(value: unknown): SettingsProposal {
   if (!value || typeof value !== 'object') {

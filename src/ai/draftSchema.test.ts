@@ -218,6 +218,48 @@ describe('draftSchema', () => {
       expect(result.settingsProposal).toBeUndefined();
     });
 
+    test('coach-onboarding.AC2.4: treats an all-null six-field proposal as absent', () => {
+      // This exact shape is what an OpenAI install puts on the wire on every
+      // turn where the model declines to propose anything: transformSchemaForOpenAI
+      // makes all six `required` with type ['string','null'], so the nulls are
+      // not hypothetical. The pre-existing null tests cover only the old three.
+      const json = JSON.stringify({
+        reply: 'Nothing to change.',
+        settingsProposal: {
+          goals: null,
+          equipment: null,
+          personality: null,
+          age: null,
+          gender: null,
+          experience: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Nothing to change.');
+      expect(result.settingsProposal).toBeUndefined();
+    });
+
+    test('coach-onboarding.AC2.4: a proposal whose only real field is a new one survives normalization', () => {
+      const json = JSON.stringify({
+        reply: 'Noted.',
+        settingsProposal: {
+          goals: null,
+          equipment: null,
+          personality: null,
+          age: '41',
+          gender: null,
+          experience: null,
+        },
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('Noted.');
+      expect(result.settingsProposal).toEqual({ age: '41' });
+    });
+
     test('preserves a settingsProposal with at least one real field through normalization', () => {
       const json = JSON.stringify({
         reply: 'Check your goals?',
