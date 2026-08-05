@@ -432,12 +432,20 @@ describe('createExerciseQuestionStore', () => {
   });
 
   describe('Security: secrets regression guard', () => {
-    it('never puts the anthropic key, bridge token, or baseUrl in the prompt', async () => {
+    it('coach-onboarding.AC6.3 / AC6.5: profile reaches the prompt, secrets never do', async () => {
+      // This test covers the store→builder wiring, which the prompt-builder
+      // tests cannot: they call the builder directly, so deleting the three
+      // profile lines from this store leaves them all green. Asserting the
+      // profile VALUES appear in the request body is what pins the wiring.
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
+        openaiKey: 'sk-openai-secret-key',
         token: 'bridge-token-12345',
         baseUrl: 'http://bridge.local:3000',
         aiPersonality: 'Encouraging but honest.',
+        profileAge: '41',
+        profileGender: 'Female',
+        profileExperience: 'Advanced',
       });
       const store = makeStore();
 
@@ -446,8 +454,16 @@ describe('createExerciseQuestionStore', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       const prompt = `${body.system}\n${JSON.stringify(body.messages)}`;
 
+      // Profile SHOULD appear — this is the store-wiring assertion.
+      expect(prompt).toContain('41');
+      expect(prompt).toContain('Female');
+      expect(prompt).toContain('Advanced');
       expect(prompt).toContain('Encouraging but honest.');
+
+      // Secrets should NOT. openaiKey is a real reachable field, not a
+      // hypothetical key name — an openai client exists.
       expect(prompt).not.toContain('sk-ant-test-secret');
+      expect(prompt).not.toContain('sk-openai-secret-key');
       expect(prompt).not.toContain('bridge-token-12345');
       expect(prompt).not.toContain('bridge.local');
     });

@@ -174,3 +174,104 @@ describe('buildAlternatesPrompt: the prompt carries data, never secrets', () => 
     expect(prompt.toLowerCase()).not.toContain('api key');
   });
 });
+
+describe('coach-onboarding.AC6.4 Success: profile in prompt before directives', () => {
+  it('includes About-the-User when profile present', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileAge: '41',
+        profileGender: 'Female',
+        profileExperience: '',
+      })
+    );
+
+    expect(system).toContain('## About the User');
+    expect(system).toContain('Age: 41');
+    expect(system).toContain('Gender: Female');
+  });
+
+  it('omits About-the-User when profile is empty', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileAge: '',
+        profileGender: '',
+        profileExperience: '',
+      })
+    );
+
+    expect(system).not.toContain('## About the User');
+  });
+
+  it('omits About-the-User when profile fields are not provided', () => {
+    const { system } = buildAlternatesPrompt(input());
+
+    expect(system).not.toContain('## About the User');
+  });
+
+  it('includes About-the-User before Coaching Directives', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileAge: '41',
+        directives: 'Never suggest adding load two sessions running.',
+      })
+    );
+
+    const aboutIdx = system.indexOf('## About the User');
+    const directivesIdx = system.indexOf('## Coaching Directives');
+
+    expect(aboutIdx).not.toBe(-1);
+    expect(directivesIdx).not.toBe(-1);
+    expect(aboutIdx).toBeLessThan(directivesIdx);
+  });
+
+  it('includes only non-empty profile fields', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileAge: '41',
+        profileGender: '',
+        profileExperience: 'Intermediate',
+      })
+    );
+
+    expect(system).toContain('Age: 41');
+    expect(system).toContain('Experience: Intermediate');
+    expect(system).not.toContain('Gender:');
+  });
+});
+
+describe('coach-onboarding.AC6.6 Edge: neutralize # in profile', () => {
+  it('neutralizes # in profile age to prevent prompt injection', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileAge: '### Injection Attack ###',
+      })
+    );
+
+    expect(system).not.toContain('### Injection Attack ###');
+    expect(system).toContain('## About the User');
+    expect(system).toContain('Injection Attack');
+  });
+
+  it('neutralizes # in profile gender', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileGender: '## Bad Injection',
+      })
+    );
+
+    expect(system).not.toContain('## Bad Injection');
+    expect(system).toContain('Bad Injection');
+  });
+
+  it('neutralizes # in profile experience', () => {
+    const { system } = buildAlternatesPrompt(
+      input({
+        profileExperience: '# Beginner\n## Fake\nContent',
+      })
+    );
+
+    expect(system).not.toContain('# Beginner');
+    expect(system).not.toContain('## Fake');
+    expect(system).toContain('Beginner');
+  });
+});

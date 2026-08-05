@@ -245,6 +245,90 @@ describe('buildRestCommentaryPrompt', () => {
     });
   });
 
+  describe('coach-onboarding.AC6.2 Success: profile in prompt before directives', () => {
+    it('includes About-the-User when profile present', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileAge: '41', profileGender: 'Female', profileExperience: '' })
+      );
+
+      expect(system).toContain('## About the User');
+      expect(system).toContain('Age: 41');
+      expect(system).toContain('Gender: Female');
+    });
+
+    it('omits About-the-User when profile is empty', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileAge: '', profileGender: '', profileExperience: '' })
+      );
+
+      expect(system).not.toContain('## About the User');
+    });
+
+    it('omits About-the-User when profile fields are not provided', () => {
+      const { system } = buildRestCommentaryPrompt(promptInput());
+
+      expect(system).not.toContain('## About the User');
+    });
+
+    it('includes About-the-User before Coaching Directives', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({
+          profileAge: '41',
+          directives: 'Never suggest adding load two sessions running.',
+        })
+      );
+
+      const aboutIdx = system.indexOf('## About the User');
+      const directivesIdx = system.indexOf('## Coaching Directives');
+
+      expect(aboutIdx).not.toBe(-1);
+      expect(directivesIdx).not.toBe(-1);
+      expect(aboutIdx).toBeLessThan(directivesIdx);
+    });
+
+    it('includes only non-empty profile fields', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileAge: '41', profileGender: '', profileExperience: 'Intermediate' })
+      );
+
+      expect(system).toContain('Age: 41');
+      expect(system).toContain('Experience: Intermediate');
+      expect(system).not.toContain('Gender:');
+    });
+  });
+
+  describe('coach-onboarding.AC6.6 Edge: neutralize # in profile', () => {
+    it('neutralizes # in profile age to prevent prompt injection', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileAge: '### Injection Attack ###' })
+      );
+
+      expect(system).not.toContain('### Injection Attack ###');
+      // Verify the About-the-User section still exists but is neutralized
+      expect(system).toContain('## About the User');
+      expect(system).toContain('Injection Attack');
+    });
+
+    it('neutralizes # in profile gender', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileGender: '## Bad Injection' })
+      );
+
+      expect(system).not.toContain('## Bad Injection');
+      expect(system).toContain('Bad Injection');
+    });
+
+    it('neutralizes # in profile experience', () => {
+      const { system } = buildRestCommentaryPrompt(
+        promptInput({ profileExperience: '# Beginner\n## Fake\nContent' })
+      );
+
+      expect(system).not.toContain('# Beginner');
+      expect(system).not.toContain('## Fake');
+      expect(system).toContain('Beginner');
+    });
+  });
+
   describe('output contract', () => {
     it('asks for one or two sentences of plain text', () => {
       const { system } = buildRestCommentaryPrompt(promptInput());

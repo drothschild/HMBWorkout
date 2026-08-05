@@ -125,6 +125,102 @@ describe('buildExerciseQuestionPrompt', () => {
     expect(prompt.system).not.toContain('## New Rules');
     expect(prompt.system).toContain('New Rules');
   });
+
+  describe('coach-onboarding.AC6.3 Success: profile in prompt before directives', () => {
+    it('includes About-the-User when profile present', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileAge: '41',
+        profileGender: 'Female',
+        profileExperience: '',
+      });
+
+      expect(prompt.system).toContain('## About the User');
+      expect(prompt.system).toContain('Age: 41');
+      expect(prompt.system).toContain('Gender: Female');
+    });
+
+    it('omits About-the-User when profile is empty', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileAge: '',
+        profileGender: '',
+        profileExperience: '',
+      });
+
+      expect(prompt.system).not.toContain('## About the User');
+    });
+
+    it('omits About-the-User when profile fields are not provided', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+      });
+
+      expect(prompt.system).not.toContain('## About the User');
+    });
+
+    it('includes About-the-User before Coaching Directives', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileAge: '41',
+        directives: 'Never suggest adding load two sessions running.',
+      });
+
+      const aboutIdx = prompt.system.indexOf('## About the User');
+      const directivesIdx = prompt.system.indexOf('## Coaching Directives');
+
+      expect(aboutIdx).not.toBe(-1);
+      expect(directivesIdx).not.toBe(-1);
+      expect(aboutIdx).toBeLessThan(directivesIdx);
+    });
+
+    it('includes only non-empty profile fields', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileAge: '41',
+        profileGender: '',
+        profileExperience: 'Intermediate',
+      });
+
+      expect(prompt.system).toContain('Age: 41');
+      expect(prompt.system).toContain('Experience: Intermediate');
+      expect(prompt.system).not.toContain('Gender:');
+    });
+  });
+
+  describe('coach-onboarding.AC6.6 Edge: neutralize # in profile', () => {
+    it('neutralizes # in profile age to prevent prompt injection', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileAge: '### Injection Attack ###',
+      });
+
+      expect(prompt.system).not.toContain('### Injection Attack ###');
+      expect(prompt.system).toContain('## About the User');
+      expect(prompt.system).toContain('Injection Attack');
+    });
+
+    it('neutralizes # in profile gender', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileGender: '## Bad Injection',
+      });
+
+      expect(prompt.system).not.toContain('## Bad Injection');
+      expect(prompt.system).toContain('Bad Injection');
+    });
+
+    it('neutralizes # in profile experience', () => {
+      const prompt = buildExerciseQuestionPrompt({
+        exercise: { title: 'Bench Press', kind: 'strength', description: null },
+        profileExperience: '# Beginner\n## Fake\nContent',
+      });
+
+      expect(prompt.system).not.toContain('# Beginner');
+      expect(prompt.system).not.toContain('## Fake');
+      expect(prompt.system).toContain('Beginner');
+    });
+  });
 });
 
 describe('normalizeExerciseAnswerText', () => {
