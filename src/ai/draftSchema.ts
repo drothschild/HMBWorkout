@@ -15,6 +15,9 @@ export interface SettingsProposal {
   goals?: string;
   equipment?: string;
   personality?: string;
+  age?: string;
+  gender?: string;
+  experience?: string;
 }
 
 /**
@@ -94,11 +97,14 @@ export const AI_TURN_SCHEMA = {
     settingsProposal: {
       type: 'object',
       description:
-        'Include only when the user asked to change their training goals, available equipment, or coaching style. At least one field is required',
+        'Include only when the user asked to change their training goals, available equipment, coaching style, or profile information. At least one field is required',
       properties: {
         goals: { type: 'string' },
         equipment: { type: 'string' },
         personality: { type: 'string' },
+        age: { type: 'string' },
+        gender: { type: 'string' },
+        experience: { type: 'string' },
       },
       additionalProperties: false,
     },
@@ -187,6 +193,8 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
   return obj as unknown as RoutineDraft;
 }
 
+const SETTINGS_PROPOSAL_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
+
 export function validateSettingsProposal(value: unknown): SettingsProposal {
   if (!value || typeof value !== 'object') {
     throw new DraftValidationError('settings proposal must be an object');
@@ -210,13 +218,13 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
     }
   };
 
-  validateField('goals', obj.goals);
-  validateField('equipment', obj.equipment);
-  validateField('personality', obj.personality);
+  for (const field of SETTINGS_PROPOSAL_FIELDS) {
+    validateField(field, obj[field]);
+  }
 
   // An all-undefined proposal is an error: every proposal must have at least one field.
   // The shell's job is to drop empty proposals before calling this validator (in parseAiTurn).
-  if (obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined) {
+  if (isEmptyProposal(obj as SettingsProposal)) {
     throw new DraftValidationError('settings proposal must have at least one field');
   }
 
@@ -232,7 +240,14 @@ function isEmptyProposal(value: unknown): boolean {
     return false;
   }
   const obj = value as Record<string, unknown>;
-  return obj.goals === undefined && obj.equipment === undefined && obj.personality === undefined;
+  return (
+    obj.goals === undefined &&
+    obj.equipment === undefined &&
+    obj.personality === undefined &&
+    obj.age === undefined &&
+    obj.gender === undefined &&
+    obj.experience === undefined
+  );
 }
 
 /**

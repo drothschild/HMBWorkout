@@ -360,6 +360,101 @@ describe('draftSchema', () => {
 
       expect(validateSettingsProposal({ goals }).goals).toBe(goals);
     });
+
+    test('coach-onboarding.AC2.1 Success: age-only proposal validates and round-trips', () => {
+      const proposal = { age: '41' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('coach-onboarding.AC2.1 Success: gender-only proposal validates and round-trips', () => {
+      const proposal = { gender: 'Male' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('coach-onboarding.AC2.1 Success: experience-only proposal validates and round-trips', () => {
+      const proposal = { experience: '5 years of weight training' };
+
+      expect(validateSettingsProposal(proposal)).toEqual(proposal);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: age with empty string is rejected', () => {
+      expect(() => validateSettingsProposal({ age: '' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: age with whitespace-only is rejected', () => {
+      expect(() => validateSettingsProposal({ age: '   ' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: age with non-string is rejected', () => {
+      expect(() => validateSettingsProposal({ age: 42 })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: age exceeding max length is rejected', () => {
+      const age = 'a'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ age })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: gender with empty string is rejected', () => {
+      expect(() => validateSettingsProposal({ gender: '' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: gender with whitespace-only is rejected', () => {
+      expect(() => validateSettingsProposal({ gender: '   ' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: gender with non-string is rejected', () => {
+      expect(() => validateSettingsProposal({ gender: ['Male'] })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: gender exceeding max length is rejected', () => {
+      const gender = 'g'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ gender })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: experience with empty string is rejected', () => {
+      expect(() => validateSettingsProposal({ experience: '' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: experience with whitespace-only is rejected', () => {
+      expect(() => validateSettingsProposal({ experience: '\n\t' })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: experience with non-string is rejected', () => {
+      expect(() => validateSettingsProposal({ experience: true })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.3 Failure: experience exceeding max length is rejected', () => {
+      const experience = 'e'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
+
+      expect(() => validateSettingsProposal({ experience })).toThrow(DraftValidationError);
+    });
+
+    test('coach-onboarding.AC2.4 Edge: all six fields undefined is rejected as empty', () => {
+      expect(() =>
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+          age: undefined,
+          gender: undefined,
+          experience: undefined,
+        })
+      ).toThrow(DraftValidationError);
+      expect(() =>
+        validateSettingsProposal({
+          goals: undefined,
+          equipment: undefined,
+          personality: undefined,
+          age: undefined,
+          gender: undefined,
+          experience: undefined,
+        })
+      ).toThrow('at least one field');
+    });
   });
 
   describe('validateRoutineDraft', () => {
@@ -867,6 +962,20 @@ describe('draftSchema', () => {
       // validateSettingsProposal is what enforces it.
       const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
       expect(proposalSchema.required ?? []).toEqual([]);
+    });
+
+    test('coach-onboarding.AC2.2 Success: expectStructuredOutputSafe passes with three new properties', () => {
+      // Verify that the widened schema with age, gender, experience carries no
+      // unsupported keywords that would cause the Anthropic structured-output
+      // endpoint to reject the request with a 400.
+      expectStructuredOutputSafe(AI_TURN_SCHEMA);
+    });
+
+    test('declares age, gender, and experience as strings on settingsProposal', () => {
+      const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
+      expect(proposalSchema.properties.age?.type).toBe('string');
+      expect(proposalSchema.properties.gender?.type).toBe('string');
+      expect(proposalSchema.properties.experience?.type).toBe('string');
     });
   });
 });
