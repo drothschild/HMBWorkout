@@ -488,17 +488,27 @@ describe('Settings Persistence', () => {
   });
 
   test('coach-onboarding.AC1.3 Success: A refusal is stored as its own text, so empty still means never asked and the two are distinguishable by reading the value alone', () => {
-    // Test that empty string is different from a refusal
-    setSettings({ profileAge: '' });
+    // All three fields carry the same "declining is data, not absence"
+    // invariant, so all three are guarded. The failure this catches does not
+    // exist yet: it is a future normaliser that blanks a refusal back to '',
+    // reintroducing the sentinel the design deliberately avoids. Guarding only
+    // profileAge would let such a normaliser land on gender or experience
+    // unnoticed.
+    setSettings({ profileAge: '', profileGender: '', profileExperience: '' });
     const empty = getSettings();
     expect(empty.profileAge).toBe('');
+    expect(empty.profileGender).toBe('');
+    expect(empty.profileExperience).toBe('');
 
-    setSettings({ profileAge: 'prefer not to say' });
+    setSettings({
+      profileAge: 'prefer not to say',
+      profileGender: 'prefer not to say',
+      profileExperience: 'rather not answer',
+    });
     const refused = getSettings();
     expect(refused.profileAge).toBe('prefer not to say');
-
-    // They are distinguishable by value alone
-    expect(empty.profileAge).not.toBe(refused.profileAge);
+    expect(refused.profileGender).toBe('prefer not to say');
+    expect(refused.profileExperience).toBe('rather not answer');
   });
 
   test('coach-onboarding.AC1.4 Edge: All three profile fields may be empty; the settings module behaves normally with none of them set', async () => {
