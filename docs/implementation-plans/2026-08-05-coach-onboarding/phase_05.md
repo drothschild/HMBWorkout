@@ -1,8 +1,8 @@
 # Coach Onboarding Implementation Plan — Phase 5: Entry and exit surfaces
 
-**Goal:** Add a dismissible card to the Today tab inviting users into onboarding, persist all seven settings fields on the manual AI settings screen with an auto-save flow, and add an "I'll fill this in myself" button on the ai-coach screen to opt out mid-conversation into manual entry.
+**Goal:** Add a dismissible card to the Today tab inviting users into onboarding, persist all six settings fields on the manual AI settings screen with an auto-save flow, and add an "I'll fill this in myself" button on the ai-coach screen to opt out mid-conversation into manual entry.
 
-**Architecture:** Add a pure predicate `shouldShowOnboardingCard()` to decide visibility (already in Phase 3), render a dismissible card component above the Today tab's main content without replacing it, extend the AI settings screen with four new text inputs that autosave like the existing three, and add navigation/button logic to the ai-coach screen.
+**Architecture:** Add a pure predicate `shouldShowOnboardingCard()` to decide visibility (already in Phase 3), render a dismissible card component above the Today tab's main content without replacing it, extend the AI settings screen with three new text inputs that autosave like the existing three, and add navigation/button logic to the ai-coach screen.
 
 **Tech Stack:** React Native (Expo SDK 57), Zustand (store updates), expo-router (navigation).
 
@@ -23,7 +23,7 @@ This phase implements and tests:
 - **coach-onboarding.AC5.2 Success:** Dismissing writes `'dismissed'` and card doesn't return
 - **coach-onboarding.AC5.3 Success:** First successful write sets `'completed'`; opening without answering doesn't
 - **coach-onboarding.AC5.4 Success:** Card renders alongside resume button, error banner, loading state
-- **coach-onboarding.AC5.5 Success:** Settings screen persists all seven fields through autosave, Start/Redo control re-enters regardless of state
+- **coach-onboarding.AC5.5 Success:** Settings screen persists all six fields through autosave, Start/Redo control re-enters regardless of state
 - **coach-onboarding.AC5.6 Success:** Opting out mid-conversation lands on settings screen with answers already written
 
 ---
@@ -178,11 +178,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Verifies:** coach-onboarding.AC5.5
 
 **Files:**
-- Modify: `src/app/(tabs)/settings/ai.tsx` (add four new inputs)
+- Modify: `src/app/(tabs)/settings/ai.tsx` (add three new inputs)
 
 **Implementation:**
 
-In the AI Coach section of the settings screen, add four new text inputs for the profile fields after the existing personality field. Follow the existing pattern:
+In the AI Coach section of the settings screen, add three new text inputs for the profile fields after the existing personality field. Follow the existing pattern:
 - Add `useState` hooks for each field
 - Load initial values in `useEffect` on mount from `getSettings()`
 - Each field has its own `TextInput` with appropriate placeholder
@@ -191,7 +191,6 @@ In the AI Coach section of the settings screen, add four new text inputs for the
 Add states:
 
 ```typescript
-const [profileName, setProfileName] = useState('');
 const [profileAge, setProfileAge] = useState('');
 const [profileGender, setProfileGender] = useState('');
 const [profileExperience, setProfileExperience] = useState('');
@@ -206,7 +205,6 @@ useEffect(() => {
   setAiGoals(settings.aiGoals);
   setAiEquipment(settings.aiEquipment);
   setAiPersonality(settings.aiPersonality);
-  setProfileName(settings.profileName);
   setProfileAge(settings.profileAge);
   setProfileGender(settings.profileGender);
   setProfileExperience(settings.profileExperience);
@@ -218,18 +216,17 @@ Add handlers (or reuse existing pattern if autosave is on-change):
 ```typescript
 // If fields autosave on change:
 <TextInput
-  value={profileName}
+  value={profileAge}
   onChangeText={(text) => {
-    setProfileName(text);
-    setSettings({ profileName: text });
+    setProfileAge(text);
+    setSettings({ profileAge: text });
   }}
-  placeholder="e.g. Alice"
+  placeholder="e.g. 41 or early 40s"
   style={styles.input}
 />
 ```
 
 Render inputs in the section, after the existing personality field. Label them:
-- "Name"
 - "Age"
 - "Gender"
 - "Experience"

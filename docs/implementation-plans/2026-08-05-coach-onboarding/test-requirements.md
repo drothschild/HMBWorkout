@@ -50,15 +50,15 @@ This document maps acceptance criteria to automated tests and human verification
 
 ## AC2: Widened settings-proposal contract
 
-### AC2.1: Proposal carrying only name/age/gender/experience validates and round-trips
+### AC2.1: Proposal carrying only age/gender/experience validates and round-trips
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: single new field"
-- Verifies for each of name, age, gender, experience: { [field]: "value" } validates and round-trips
+- Verifies for each of age, gender, experience: { [field]: "value" } validates and round-trips
 
 ---
 
-### AC2.2: expectStructuredOutputSafe(AI_TURN_SCHEMA) passes with four new properties
+### AC2.2: expectStructuredOutputSafe(AI_TURN_SCHEMA) passes with three new properties
 
 **Automated test:** `src/ai/draftSchema.test.ts` (existing test, must still pass)
 - Test: "AI_TURN_SCHEMA: structuredOutputSafe"
@@ -90,7 +90,7 @@ This document maps acceptance criteria to automated tests and human verification
 
 **Automated test:** `src/ai/draftSchema.test.ts`
 - Test: "validateSettingsProposal: rejects all undefined"
-- Verifies: Proposal with all seven fields undefined throws "must include at least one field"
+- Verifies: Proposal with all six fields undefined throws "must include at least one field"
 
 **Automated test:** `src/ai/draftSchema.test.ts` (existing, must still pass)
 - Test: "parseAiTurn: drops empty settingsProposal"
@@ -163,6 +163,18 @@ This document maps acceptance criteria to automated tests and human verification
 **Automated test:** `src/state/postWorkoutDebrief.test.ts`
 - Test: "aiCoachModeFromParams: routineId alone yields edit mode (existing behavior unchanged)"
 - Verifies: { routineId: 'X' } → { kind: 'edit', routineId: 'X' }
+
+---
+
+### AC3.7: Onboarding prompt does not ask for name; no settings field exists to record it
+
+**Automated test:** `src/ai/contextBuilder.test.ts`
+- Test: "onboarding mode: does not solicit name, no settings field exists for it"
+- Verifies: Onboarding persona does not contain language soliciting a name (phrases like "ask for your name", "what is your name"). The test also verifies that profile interview references only "age and gender" when mentioning profile fields, not "name and age" or similar.
+
+**Code inspection:** 
+- Verify: `SettingsProposal` interface has no `name` field (AC2)
+- Verify: `BridgeSettings` has no `profileName` field (AC1)
 
 ---
 

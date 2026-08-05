@@ -1,6 +1,6 @@
 # Coach Onboarding Implementation Plan — Phase 6: Profile in the one-shot surfaces
 
-**Goal:** Thread the four new profile fields through all three one-shot AI surfaces (rest commentary, exercise Question button, Replace alternates) so they coach against the same profile as the main conversation.
+**Goal:** Thread the three new profile fields through all three one-shot AI surfaces (rest commentary, exercise Question button, Replace alternates) so they coach against the same profile as the main conversation.
 
 **Architecture:** Extract profile data from settings in each one-shot store, pass it to the corresponding prompt builder, and render an About-the-User section (before immutable directives) in each prompt using the same `neutralizeForPrompt` helper.
 

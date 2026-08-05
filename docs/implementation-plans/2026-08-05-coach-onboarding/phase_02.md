@@ -1,6 +1,6 @@
 # Coach Onboarding Implementation Plan — Phase 2: Widened settings-proposal contract
 
-**Goal:** Extend the `SettingsProposal` type and `AI_TURN_SCHEMA` to include four new profile fields alongside the existing three (goals, equipment, personality), with full validation on both receipt and before write.
+**Goal:** Extend the `SettingsProposal` type and `AI_TURN_SCHEMA` to include three new profile fields alongside the existing three (goals, equipment, personality), with full validation on both receipt and before write.
 
 **Architecture:** Widen the existing `SettingsProposal` interface from 3 optional fields to 7, add the four new properties to the JSON schema, and update validators to apply the same constraints (non-empty, length-bounded, string-typed) to all seven fields.
 
@@ -17,10 +17,10 @@
 This phase implements and tests:
 
 ### coach-onboarding.AC2: Widened settings-proposal contract
-- **coach-onboarding.AC2.1 Success:** A proposal carrying only `name`, `age`, `gender`, or `experience` validates and round-trips
-- **coach-onboarding.AC2.2 Success:** `expectStructuredOutputSafe(AI_TURN_SCHEMA)` passes with the four new properties present
+- **coach-onboarding.AC2.1 Success:** A proposal carrying only `age`, `gender`, or `experience` validates and round-trips
+- **coach-onboarding.AC2.2 Success:** `expectStructuredOutputSafe(AI_TURN_SCHEMA)` passes with the three new properties present
 - **coach-onboarding.AC2.3 Failure:** A proposal whose new field is empty string, whitespace, non-string, or exceeds `SETTINGS_FIELD_MAX_LENGTH` is rejected with `DraftValidationError`
-- **coach-onboarding.AC2.4 Edge:** A proposal with all seven fields undefined is rejected as empty, `parseAiTurn` still drops it before validation
+- **coach-onboarding.AC2.4 Edge:** A proposal with all six fields undefined is rejected as empty, `parseAiTurn` still drops it before validation
 
 ---
 
@@ -34,21 +34,20 @@ This phase implements and tests:
 
 **Implementation:**
 
-Extend the `SettingsProposal` interface to add four new optional fields:
+Extend the `SettingsProposal` interface to add three new optional fields:
 
 ```typescript
 export interface SettingsProposal {
   goals?: string;
   equipment?: string;
   personality?: string;
-  name?: string;
   age?: string;
   gender?: string;
   experience?: string;
 }
 ```
 
-Extend the `AI_TURN_SCHEMA.settingsProposal.properties` object to add the four new fields. Each new property has the same structure as goals/equipment/personality:
+Extend the `AI_TURN_SCHEMA.settingsProposal.properties` object to add the three new fields. Each new property has the same structure as goals/equipment/personality:
 
 ```typescript
 settingsProposal: {
@@ -59,7 +58,6 @@ settingsProposal: {
     goals: { type: 'string' },
     equipment: { type: 'string' },
     personality: { type: 'string' },
-    name: { type: 'string' },
     age: { type: 'string' },
     gender: { type: 'string' },
     experience: { type: 'string' },
@@ -102,10 +100,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Implementation:**
 
-The `validateSettingsProposal` function (lines 190-224 in current codebase) iterates over `['goals', 'equipment', 'personality']` and validates each. Extend this to iterate over all seven fields:
+The `validateSettingsProposal` function (lines 190-224 in current codebase) iterates over `['goals', 'equipment', 'personality']` and validates each. Extend this to iterate over all six fields:
 
 ```typescript
-const SETTINGS_PROPOSAL_FIELDS = ['goals', 'equipment', 'personality', 'name', 'age', 'gender', 'experience'] as const;
+const SETTINGS_PROPOSAL_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
 
 export function validateSettingsProposal(value: unknown): SettingsProposal {
   if (!value || typeof value !== 'object') {
@@ -141,7 +139,7 @@ export function validateSettingsProposal(value: unknown): SettingsProposal {
 }
 ```
 
-Update `isEmptyProposal` to check all seven fields:
+Update `isEmptyProposal` to check all six fields:
 
 ```typescript
 export function isEmptyProposal(proposal: SettingsProposal): boolean {
@@ -149,7 +147,6 @@ export function isEmptyProposal(proposal: SettingsProposal): boolean {
     proposal.goals ||
     proposal.equipment ||
     proposal.personality ||
-    proposal.name ||
     proposal.age ||
     proposal.gender ||
     proposal.experience

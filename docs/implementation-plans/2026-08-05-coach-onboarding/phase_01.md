@@ -1,8 +1,8 @@
 # Coach Onboarding Implementation Plan — Phase 1: Profile settings and onboarding state
 
-**Goal:** Persist the four profile fields and the onboarding lifecycle flag so they survive app restarts and load correctly from legacy settings blobs.
+**Goal:** Persist the three profile fields and the onboarding lifecycle flag so they survive app restarts and load correctly from legacy settings blobs.
 
-**Architecture:** Extend the existing `BridgeSettings` interface and `DEFAULT_SETTINGS` in `src/state/settings.ts` with five new fields. The existing merge-on-load pattern already handles backward compatibility.
+**Architecture:** Extend the existing `BridgeSettings` interface and `DEFAULT_SETTINGS` in `src/state/settings.ts` with four new fields. The existing merge-on-load pattern already handles backward compatibility.
 
 **Tech Stack:** TypeScript, Jest (node project, ts-jest).
 
@@ -17,10 +17,10 @@
 This phase implements and tests:
 
 ### coach-onboarding.AC1: Profile settings persist
-- **coach-onboarding.AC1.1 Success:** The four `profile*` fields and `onboardingState` save and survive an app restart
+- **coach-onboarding.AC1.1 Success:** The three `profile*` fields and `onboardingState` save and survive an app restart
 - **coach-onboarding.AC1.2 Success:** A stored blob written before this feature loads without error; the new fields default to `''` and `onboardingState` to `'unseen'`
 - **coach-onboarding.AC1.3 Success:** A refusal is stored as its own text, so `''` still means "never asked" and the two are distinguishable
-- **coach-onboarding.AC1.4 Edge:** All four profile fields may be empty; every AI surface behaves normally
+- **coach-onboarding.AC1.4 Edge:** All three profile fields may be empty; every AI surface behaves normally
 
 ---
 
@@ -35,11 +35,9 @@ This phase implements and tests:
 
 **Implementation:**
 
-Extend the `BridgeSettings` interface to add five new fields after the existing `aiPersonality` field:
+Extend the `BridgeSettings` interface to add four new fields after the existing `aiPersonality` field:
 
 ```typescript
-/** User's preferred name. '' = never asked. */
-profileName: string;
 /** Free text: "41", "early 40s", "prefer not to say". '' = never asked. */
 profileAge: string;
 /** Free text, including self-described. '' = never asked. */
@@ -50,10 +48,9 @@ profileExperience: string;
 onboardingState: 'unseen' | 'dismissed' | 'completed';
 ```
 
-Update `DEFAULT_SETTINGS` constant to include all five new fields with their defaults:
+Update `DEFAULT_SETTINGS` constant to include all four new fields with their defaults:
 
 ```typescript
-profileName: '',
 profileAge: '',
 profileGender: '',
 profileExperience: '',
@@ -73,9 +70,9 @@ export function resetForTesting(): void {
 
 Write tests in `src/state/settings.test.ts` following the existing pattern. Tests must verify:
 
-- **AC1.1:** setSettings with all profile fields and onboardingState persists them to JSON blob. A fresh loadSettings() + getSettings() roundtrip returns the same values.
+- **AC1.1:** setSettings with all profile fields (age, gender, experience) and onboardingState persists them to JSON blob. A fresh loadSettings() + getSettings() roundtrip returns the same values.
 - **AC1.2:** Legacy blob with only bridge/AI fields (no profile fields, no onboardingState) loads without error. New fields default to '' and onboardingState to 'unseen'. Existing fields remain intact.
-- **AC1.3:** Setting profileName to '' is distinguishable from setting it to 'prefer not to say' by value alone (no sentinel).
+- **AC1.3:** Setting profileAge to '' is distinguishable from setting it to 'prefer not to say' by value alone (no sentinel).
 - **AC1.4:** All profile fields and onboardingState can be empty and store operations work normally.
 
 **Verification:**

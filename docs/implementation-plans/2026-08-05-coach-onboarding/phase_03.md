@@ -23,6 +23,7 @@ This phase implements and tests:
 - **coach-onboarding.AC3.4 Success:** Already-recorded profile values appear in prompt
 - **coach-onboarding.AC3.5 Success:** `/ai-coach?onboarding=1` maps to onboarding mode; `?onboarding=1&routineId=X` still yields onboarding
 - **coach-onboarding.AC3.6 Failure:** No other param combo yields onboarding unless param present
+- **coach-onboarding.AC3.7 Failure:** Onboarding prompt does not ask for user's name; no schema/settings field to record it
 
 ### coach-onboarding.AC6: Profile reaches all four AI surfaces
 - **coach-onboarding.AC6.1 Success:** `buildSystem` renders profile before immutable directives
@@ -433,3 +434,63 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 <!-- END_TASK_4 -->
+
+<!-- START_TASK_5 -->
+### Task 5: Test that onboarding prompt does NOT solicit name
+
+**Verifies:** coach-onboarding.AC3.7
+
+**Files:**
+- Test: `src/ai/contextBuilder.test.ts` (add assertion to persona tests)
+
+**Implementation:**
+
+Add a test to verify AC3.7 — the onboarding prompt must not ask for a name field since no schema or settings field exists for it:
+
+```typescript
+test('onboarding mode: does not solicit name, no settings field exists for it', () => {
+  const onboarding = personaSection({ kind: 'onboarding' });
+  
+  // The persona should not contain language that invites the user to share their name
+  // Use specific phrases rather than searching for the word "name" (too brittle)
+  // that would appear in context like "profile name" or "username".
+  // Instead, check that interview instructions don't include a "name" field in the list
+  // or solicit it as a step in the interview.
+  
+  expect(onboarding).not.toContain('ask for your name');
+  expect(onboarding).not.toContain('what is your name');
+  expect(onboarding).not.toContain('What is your name');
+  
+  // Also verify: no settings interface includes profileName
+  // This is implicit in the Types test, but can be confirmed at runtime:
+  // "age and gender" should be named, but "name" should not appear in that context
+  expect(onboarding).toContain('Age and gender are sensitive');
+  expect(onboarding).not.toContain('Name and age');
+  expect(onboarding).not.toContain('name and gender');
+});
+```
+
+**Testing:**
+
+Run: `npx jest src/ai/contextBuilder.test.ts --testNamePattern="does not solicit name"`
+Expected: Test passes.
+
+**Verification:**
+
+Run: `npx jest src/ai/contextBuilder.test.ts`
+Expected: All persona tests pass.
+
+**Commit:**
+
+```bash
+git add src/ai/contextBuilder.test.ts
+git commit -m "test(coach): verify onboarding does not ask for name
+
+Add test for AC3.7: onboarding persona does not solicit user's name
+and no settings field (profileName) exists to persist it. Interview
+asks only age, gender, and experience as profile fields.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+<!-- END_TASK_5 -->
