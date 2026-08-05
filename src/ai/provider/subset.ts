@@ -9,30 +9,39 @@
  * Keywords this module refuses to send to OpenAI's structured output endpoint.
  *
  * Every entry is banned, but for **three different reasons**, and the distinction
- * matters to anyone who later wants one of them back. Two earlier revisions of this
- * comment collapsed the groups and each asserted the opposite of the docs — once
- * calling documented-unsupported keywords "supported", once the reverse. Check a
- * keyword's group before moving it.
+ * matters to anyone who later wants one of them back. Three earlier revisions of
+ * this comment got the grouping wrong — twice by collapsing the groups and
+ * asserting the opposite of the docs, once by sourcing one keyword from a stale
+ * copy of them. Check a keyword's group before moving it, and see the sourcing
+ * note at the bottom before trusting any of it.
  *
  *  1. **Documented unsupported.** OpenAI's structured-outputs guide names these as
  *     not supported, unconditionally. Not negotiable — the endpoint 400s and the
  *     model never runs.
- *  2. **House rule.** Documented as *supported* for non-fine-tuned models, banned
- *     here anyway, matching the Anthropic module's `structuredOutputSubset`: bounds
- *     belong in the validators, not in a schema handed to `output_config.format`.
- *     This group is a convention, so it is the one a future maintainer may revisit —
- *     do not read it as an API constraint.
+ *  2. **House rule.** Documented as *supported* for the models this app uses;
+ *     OpenAI restricts them only for **fine-tuned** models, and this project uses
+ *     none. Banned here anyway, matching the Anthropic module's
+ *     `structuredOutputSubset`: bounds belong in the validators, not in a schema
+ *     handed to `output_config.format`. This group is a convention, so it is the
+ *     one a future maintainer may revisit — do not read it as an API constraint.
  *  3. **Undocumented.** Absent from the guide entirely. Silence is not evidence of
  *     support, so they are conservatively banned until proven against the live
  *     endpoint. PR #71 is why: one unsupported keyword in `ALTERNATES_SCHEMA` made
  *     the Replace button 400 on every tap.
  *
- * Group membership was read from OpenAI's guide on 2026-08-04. No live call was made
- * — every claim here is documentation-based, and re-reading the docs (not this
- * comment) is the way to check it.
+ * **Sourcing, and why it is written down.** Group membership was read from
+ * OpenAI's current structured-outputs guide on 2026-08-04. No live call was made —
+ * every claim here is documentation-based. This matters more than usual because an
+ * *older* revision of that page (still mirrored in Azure's structured-outputs docs)
+ * lists ten of group 3 plus `patternProperties` as unconditionally unsupported,
+ * where the current one splits them. Reading half the list from each revision is
+ * exactly how the previous version of this comment put `patternProperties` in
+ * group 1. Take the whole grouping from one revision, and re-read the docs rather
+ * than this comment when checking it.
  */
 const UNSUPPORTED_FOR_OPENAI = [
-  // (1) DOCUMENTED UNSUPPORTED — composition, conditionals, and patternProperties.
+  // (1) DOCUMENTED UNSUPPORTED — composition and conditionals. Exactly the seven
+  // keywords the guide's own composition list names, and nothing else.
   'allOf',
   'not',
   'if',
@@ -40,10 +49,10 @@ const UNSUPPORTED_FOR_OPENAI = [
   'else',
   'dependentSchemas',
   'dependentRequired',
-  'patternProperties',
 
-  // (2) HOUSE RULE — string/numeric/array bounds. Documented as SUPPORTED by
-  // OpenAI for non-fine-tuned models; banned here by choice, per structuredOutputSubset.ts.
+  // (2) HOUSE RULE — string/numeric/object/array bounds. The guide restricts these
+  // for FINE-TUNED models only, so for the models this app uses they are supported;
+  // banned here by choice, per structuredOutputSubset.ts.
   'minLength',
   'maxLength',
   'pattern',
@@ -54,6 +63,11 @@ const UNSUPPORTED_FOR_OPENAI = [
   'multipleOf',
   'minItems',
   'maxItems',
+  // `patternProperties` is the guide's object-shaped member of this same
+  // fine-tuned-only list. It sat in group 1 until PR #117's round-4 review caught
+  // it — read from a stale mirror of the docs while the rest of the list came from
+  // the current one. See the sourcing note above.
+  'patternProperties',
 
   // (3) UNDOCUMENTED — absent from the guide; banned conservatively.
   // `oneOf` sits here rather than in group 1: the docs' composition list does not
