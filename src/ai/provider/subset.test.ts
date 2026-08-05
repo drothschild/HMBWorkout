@@ -2,6 +2,7 @@ import {
   findUnsupportedKeywordsForOpenAI,
   expectStructuredOutputSafeForOpenAI,
   transformSchemaForOpenAI,
+  findStructuralViolationsForOpenAI,
 } from './subset';
 import { AI_TURN_SCHEMA } from '../draftSchema';
 import { ALTERNATES_SCHEMA } from '../alternatesSchema';
@@ -359,7 +360,7 @@ describe('OpenAI structured output schema validation', () => {
       expect(statusProp.enum).toContain(null);
     });
 
-    it('property defined only by anyOf stays non-required if not in original required', () => {
+    it('property defined only by anyOf IS required, with a null branch added', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -372,13 +373,19 @@ describe('OpenAI structured output schema validation', () => {
       };
 
       const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const props = transformed.properties as Record<string, Record<string, unknown>>;
 
-      // Properties defined only by anyOf that aren't in the original required
-      // should not be forced into required (they can't express absence with just anyOf)
-      expect((transformed.required as string[])).not.toContain('flexible');
+      // Strict mode has no exempt properties. An earlier version left anyOf-only
+      // properties out of `required` on the reasoning that they "cannot express
+      // absence" — which made this transform emit schemas its own
+      // findStructuralViolationsForOpenAI rejected. Absence is expressed by
+      // adding a null branch, not by exempting the property.
+      expect(transformed.required as string[]).toContain('flexible');
+      expect(props.flexible.anyOf).toContainEqual({ type: 'null' });
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
-    it('property defined only by const stays non-required if not in original required', () => {
+    it('property defined only by const IS required, rewritten as anyOf with null', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -391,10 +398,13 @@ describe('OpenAI structured output schema validation', () => {
       };
 
       const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const props = transformed.properties as Record<string, Record<string, unknown>>;
 
-      // Properties defined only by const that aren't in the original required
-      // should not be forced into required (const has no type to widen)
-      expect((transformed.required as string[])).not.toContain('fixed');
+      // A bare `const` admits exactly one value, so the only way to allow
+      // absence is to offer const-or-null as alternatives.
+      expect(transformed.required as string[]).toContain('fixed');
+      expect(props.fixed.anyOf).toEqual([{ const: 'CONSTANT_VALUE' }, { type: 'null' }]);
+      expect(findStructuralViolationsForOpenAI(transformed)).toEqual([]);
     });
 
     it('transform is idempotent', () => {
