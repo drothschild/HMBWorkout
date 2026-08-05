@@ -664,6 +664,7 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontSize: 18,
+    lineHeight: 21,
     fontWeight: '700',
   },
   missingKeyContainer: {
@@ -676,6 +677,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
     textAlign: 'center',
     fontSize: 20,
+    lineHeight: 23,
   },
   missingKeyMessage: {
     textAlign: 'center',
