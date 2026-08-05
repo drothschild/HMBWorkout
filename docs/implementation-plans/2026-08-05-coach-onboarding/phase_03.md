@@ -493,13 +493,15 @@ test('ONBOARDING_PROFILE_FIELDS contains exactly the expected fields, no name', 
 test('onboarding mode: persona interview instructions include only the ONBOARDING_PROFILE_FIELDS', () => {
   const onboarding = personaSection({ kind: 'onboarding' });
   
-  // All fields in ONBOARDING_PROFILE_FIELDS must be mentioned somewhere
+  // Assert the rendered list, derived from the constant, appears verbatim.
+  // This is what ties the prose to the data: if a field is added to or removed
+  // from ONBOARDING_PROFILE_FIELDS, this string changes and the assertion moves
+  // with it. Do NOT assert capitalized variants — the list renders lowercase
+  // ("age, gender, experience"), and the only capital in the persona is the "A"
+  // in "Age and gender are sensitive", so `toContain('Gender')` would fail
+  // against a perfectly correct implementation.
   const profileOnlyFields = ONBOARDING_PROFILE_FIELDS.filter(f => !['goals', 'equipment', 'personality'].includes(f));
-  for (const field of profileOnlyFields) {
-    // Capitalize for common patterns like "Age and gender"
-    const capitalized = field.charAt(0).toUpperCase() + field.slice(1);
-    expect(onboarding).toContain(capitalized);
-  }
+  expect(onboarding).toContain(profileOnlyFields.join(', '));
   
   // "name" must NOT appear in the interview context
   // (it may appear in generic phrases like "profile name", but not as a solicited field)
