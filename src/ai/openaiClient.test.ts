@@ -110,7 +110,7 @@ describe('openaiClient', () => {
       expect.assertions(1);
     });
 
-    it('does not expose apiKey in error messages', async () => {
+    it('does not expose apiKey in network error messages', async () => {
       const mockFetch = jest.fn().mockRejectedValueOnce(new Error('Network failed'));
       const client = createOpenaiClient({ apiKey: 'super-secret-key-123' }, mockFetch as any);
 
@@ -123,6 +123,27 @@ describe('openaiClient', () => {
         const message = (error as Error).toString();
         expect(message).not.toContain('super-secret-key-123');
       }
+      expect.assertions(1);
+    });
+
+    it('does not expose apiKey in HTTP error messages', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Unauthorized - check your key',
+      });
+      const client = createOpenaiClient({ apiKey: 'super-secret-key-456' }, mockFetch as any);
+
+      try {
+        await client.chat({
+          system: 'test',
+          messages: [{ role: 'user', content: 'hi' }],
+        });
+      } catch (error) {
+        const message = (error as Error).toString();
+        expect(message).not.toContain('super-secret-key-456');
+      }
+      expect.assertions(1);
     });
 
     // NOTE ON A TEST THAT USED TO BE HERE. It was named "converts buildOpenAiBody
@@ -163,6 +184,21 @@ describe('openaiClient', () => {
         expect.any(Object)
       );
     });
+
+    it('uses correct token budget: 4096 for chat surface, not 256', async () => {
+      const captured: { maxTokens?: number } = {};
+      const mockFetch = jest.fn(async (_url: string, init: { body: string }) => {
+        captured.maxTokens = (JSON.parse(init.body) as { max_output_tokens?: number }).max_output_tokens;
+        throw new Error('stop here');
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key' }, mockFetch as never);
+      await client.chat({ system: 'test', messages: [{ role: 'user', content: 'hi' }] }).catch(() => {});
+
+      // Chat surface should use 4096, not 256
+      expect(captured.maxTokens).toBe(4096);
+      expect.assertions(1);
+    });
   });
 
   describe('createRestCommentaryClient', () => {
@@ -186,6 +222,13 @@ describe('openaiClient', () => {
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.reasoning?.effort).toBe('low');
       expect(callBody.max_output_tokens).toBe(256); // COMMENTARY_MAX_TOKENS
+
+      // Verify developer role is preserved for system instructions
+      const developerInput = callBody.input?.find((entry: any) => entry.role === 'developer');
+      expect(developerInput?.content).toBe('Be brief');
+
+      // Verify text format for plain text output
+      expect(callBody.text?.format?.type).toBe('text');
     });
 
     it('throws OpenaiUnreachable on network error', async () => {
@@ -218,7 +261,7 @@ describe('openaiClient', () => {
       expect.assertions(1);
     });
 
-    it('does not expose apiKey in error messages', async () => {
+    it('does not expose apiKey in network error messages', async () => {
       const mockFetch = jest.fn().mockRejectedValueOnce(new Error('failed'));
       const client = createRestCommentaryClient({ apiKey: 'secret-456' }, mockFetch as any);
 
@@ -231,6 +274,27 @@ describe('openaiClient', () => {
         const message = (error as Error).toString();
         expect(message).not.toContain('secret-456');
       }
+      expect.assertions(1);
+    });
+
+    it('does not expose apiKey in HTTP error messages', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'Access forbidden',
+      });
+      const client = createRestCommentaryClient({ apiKey: 'secret-789' }, mockFetch as any);
+
+      try {
+        await client.comment({
+          system: 'test',
+          message: 'hi',
+        });
+      } catch (error) {
+        const message = (error as Error).toString();
+        expect(message).not.toContain('secret-789');
+      }
+      expect.assertions(1);
     });
   });
 

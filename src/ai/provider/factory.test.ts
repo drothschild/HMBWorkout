@@ -44,7 +44,7 @@ describe('createAiClient factory', () => {
     expect(typeof client.chat).toBe('function');
   });
 
-  it('sends messages with the correct provider key when anthropic is selected', async () => {
+  it('sends messages with the correct provider key when openai is selected', async () => {
     const captured: { header?: string } = {};
     const mockFetch = jest.fn(async (_url: string, init: { headers?: Record<string, string> }) => {
       captured.header = init.headers?.authorization;
@@ -56,6 +56,24 @@ describe('createAiClient factory', () => {
 
     expect(captured.header).toBe('Bearer test-openai-key-123');
     expect.assertions(1);
+  });
+
+  it('throws when explicit aiProvider requires missing key', () => {
+    const config: ProviderConfig = {
+      anthropicKey: 'test-anthropic-key',
+      aiProvider: 'openai',
+      // Missing openaiKey but requesting openai provider
+    };
+
+    expect(() => createAiClient(config)).toThrow(/openaiKey.*not configured/i);
+  });
+
+  it('throws when both keys are missing', () => {
+    const config: ProviderConfig = {
+      // Neither key set
+    };
+
+    expect(() => createAiClient(config)).toThrow();
   });
 
   it('throws when no provider is configured', () => {
