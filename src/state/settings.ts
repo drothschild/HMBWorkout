@@ -14,6 +14,15 @@ interface BridgeSettings {
   aiEquipment: string;
   aiPersonality: string;
 
+  /** Free text: "41", "early 40s", "prefer not to say". '' = never asked. */
+  profileAge: string;
+  /** Free text, including self-described. '' = never asked. */
+  profileGender: string;
+  /** Free text: "beginner", "strong squat, terrible overhead". '' = never asked. */
+  profileExperience: string;
+  /** Lifecycle of the opening conversation. Defaults to 'unseen'. */
+  onboardingState: 'unseen' | 'dismissed' | 'completed';
+
   /** OpenAI API key (set on openai-only installs) */
   openaiKey?: string;
 
@@ -45,6 +54,10 @@ const DEFAULT_SETTINGS: BridgeSettings = {
   aiGoals: '',
   aiEquipment: '',
   aiPersonality: '',
+  profileAge: '',
+  profileGender: '',
+  profileExperience: '',
+  onboardingState: 'unseen',
   openaiKey: undefined,
   aiProvider: undefined,
   aiModel: undefined,
