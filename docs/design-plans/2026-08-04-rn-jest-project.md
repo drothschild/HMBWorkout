@@ -2,99 +2,108 @@
 
 ## Summary
 
-**Recommendation**: Do not add a second jest project (jest-expo) at this time. Instead, implement **layout measurement via `onLayout` callbacks in the existing node jest project**, paired with targeted simulator verification for visual regression and Yoga layout edge cases.
+**Recommendation**: Implement Yoga layout regression tests in the existing node jest project using the `yoga-layout` npm package (**Phase 1**), followed by formalized simulator verification in code review (**Phase 2**), and defer jest-expo to Phase 3 if end-to-end screen testing becomes a priority.
 
-**Main tradeoff**: No full RN runtime means we cannot test the full spectrum of RN platform code (native modules, animated events, platform-specific APIs). However, that's a false affordance — `react-test-renderer` and even full jest-expo environments cannot reliably assert on measured Yoga layout (the bug vector in #66 and #109), and attempting to do so trades real problems (needing simulator verification anyway) for plausible-sounding test coverage that rots. A more honest approach: test component trees and integration via `@testing-library/react` in the existing node environment, measure layout via `onLayout` capture in targeted tests where layout is the actual risk, and keep simulator verification in the loop for the cases no jest environment can catch.
+**Main tradeoff**: Adding `yoga-layout` (18 MB install size) as a dev dependency gains the ability to detect Yoga layout bugs like #66 and #109 in automated tests. This tradeoff is worthwhile because these are the exact bugs the card exists to address, and they cannot be caught by any other mechanism except the simulator. A spike proved that `yoga-layout` can reproduce the #66 bug (ScrollView collapse in auto-height parent) with perfect fidelity to RN's Yoga algorithm.
 
 ## What Component Tests Can Assert
 
-### In-scope (node jest project with react-test-library)
+### In-scope (node jest project)
 
 - **Component tree structure** — the component renders, presence/absence of child elements, conditional rendering logic
 - **Props forwarding** — a component with an `isExpanded` prop conditionally renders content
 - **Event handling** — pressing a button calls the callback; changing an input fires onChange
-- **Styling attribute presence** — `style={{ flex: 1 }}` is in the element tree (but NOT that it computes to a certain height)
+- **Styling attribute presence** — `style={{ flex: 1 }}` is in the element tree
 - **Integration with Zustand stores** — a component reads store state and dispatches actions
 - **Theme/context consumption** — a component applies theme colors correctly
-- **Presenter/derived-data wiring** — a component displays the data a presenter derives (but the presenter itself is already tested in the node environment)
-- **Layout measurements via `onLayout`** — capture the measured `{ width, height, x, y }` from RN's `LayoutChangeEvent` and assert on it in targeted tests
-- **State/ref management** — a component manages its own state (expanded/collapsed, focused field, scroll position)
+- **Presenter/derived-data wiring** — a component displays the data a presenter derives
+- **Yoga layout computation** — using `yoga-layout`, build a style tree matching the component's layout and assert that Yoga computes expected dimensions (e.g., "ScrollView with `flex:1` in auto-height parent should NOT measure 0pt")
 
-### Out-of-scope (requires simulator or removed from scope)
+### Out-of-scope (requires simulator)
 
-- **Yoga computed dimensions** — whether `flex: 1` inside an auto-height parent computes to a specific pixel height (Yoga runs in the RN runtime, not in test)
-- **Animated value transformations** — the exact numerical trajectory of a reanimated value (requires instrumented runtime)
+- **Animated value trajectories** — the exact trajectory of a reanimated value
 - **Keyboard handling and safe area insets** — actual keyboard dimensions and screen adjustments
 - **Native module behavior** — HealthKit writes, audio playback, notifications
-- **Platform-specific rendering** — iOS vs Android layout differences
+- **Platform-specific rendering** — iOS vs Android differences
+- **Responsive behavior across screen sizes** — dynamic layout changes based on device orientation/size
 
-### What would NOT have been caught by component tests
+### What WILL be caught by the new approach
 
-**PR #66** (2pt collapsed ScrollView): The component tree was correct; `flex: 1` was in the `style` attribute. The bug was that `flex: 1` inside an auto-height parent (the `contentContainerStyle` fallback for a ScrollView with no explicit height) resolved to `flexBasis: 0%` under Yoga, which caused the collapse. A test that asserts on the presence of `flex: 1` in the tree **would have passed** even though the bug existed. A test that captures `onLayout` measurements **would have caught** it (ScrollView measured ~2pt high instead of expected ~500pt), but that test would have had to know the expected height and run in the iOS Simulator or with a Yoga node tree model. The component test alone cannot catch this without that context.
+**PR #66** (2pt collapsed ScrollView): A Yoga layout test modeling a ScrollView with `flex: 1` in an auto-height parent will measure the ScrollView at 0pt and fail the assertion. ✓ **CAUGHT** — Spike proves this works.
 
-**PR #109** (maxHeight ineffective): Multiple approaches were tried — `minHeight: 0`, `maxHeight`, Chrome DevTools styling adjustments. The issue was complex Yoga interactions with nested ScrollViews and dynamic content. A render tree test would not have caught the layout problem. A simulator run would have, or an `onLayout` callback capturing measurements. The cancelled PR was never integrated, so there's no definitive bug signature to assert on.
+**PR #109** (ineffective maxHeight): If the bug's structure is Yoga-computable (nested flex with height constraints), a Yoga test can detect if computed dimensions match the expected max. ✓ **Can be caught if the structure is pure Yoga**.
 
-### Honest conclusion on past bugs
+### How this differs from react-test-renderer
 
-Component tests using `react-test-renderer` or even a full `jest-expo` environment **would not have caught either #66 or #109** because:
+`react-test-renderer` renders a component tree but does not execute Yoga. A test asserting "ScrollView exists in tree" **would pass even if the ScrollView collapsed to 0pt**, because the tree is correct; the bug is in Yoga's algorithm.
 
-1. **Yoga layout computation happens in the RN runtime**, not in the test environment. `react-test-renderer` renders a component tree but does not execute Yoga.
-2. **onLayout is the mechanism RN uses to report measured dimensions**. Asserting on measurements requires either (a) running in the simulator, (b) capturing `onLayout` callbacks and asserting on them in a test with the expected dimensions passed in, or (c) integrating a Yoga node tree model outside of react-test-renderer.
-3. **Tests that only assert on tree structure rot quickly** because they don't constrain the actual problem. A test that checks `"flex: 1" in the style` is brittle and provides false confidence.
+`yoga-layout` skips the component layer and computes Yoga directly. A test asserting "ScrollView measures between 50pt and 600pt" **will fail if it collapses to 0pt**, because the bug is at the algorithm level where it actually happens.
 
-Therefore, the design below accepts this limitation and focuses on what a jest environment *can* test reliably: component behavior, tree structure, and selected integration points. Layout regressions get caught by (1) simulator verification as part of code review and (2) targeted `onLayout` measurement tests for critical components.
+**The spike confirms**: `yoga-layout` reproduces the exact #66 bug (ScrollView measuring 0pt in auto-height parent), proving it can detect the bug Yoga itself would catch in the simulator.
 
-## Scope: What a Component Test Will Cover
+## Design: Phased Adoption
 
-A **component test in this codebase** is a test that:
+### Phase 1: Yoga layout regression tests (2-3 PRs)
 
-1. Renders a component with controlled props and store state
-2. Asserts on tree structure, conditional rendering, event callbacks, and integration wiring
-3. **Never** asserts on pixel measurements or Yoga-computed dimensions (those require the simulator)
-4. **Optionally** captures `onLayout` measurements if the component is marked as layout-critical (RestCountdown, SetLogger, session.tsx layout seams)
+**Goal**: Establish regression tests for the layout bugs this card exists to address.
 
-**Components in scope for testing**:
-- `RestCountdown` — layout-critical; controls should remain clickable, countdown should not collapse
-- `SetLogger` — layout-critical; input fields, button row, and question panel should coexist without squeezing
-- `ExerciseStopwatch` — moderate; timer display, control buttons, conditional rendering of reset/start states
-- Presentational components (`ThemedText`, `ThemedView`, `AnimatedIcon`) — tree structure, theming logic
-- Custom hooks in `src/state` (already mostly covered in the node jest project)
-- Screen components (`session.tsx`, `routine/[id].tsx`) — complex integration points, conditional sections, store interactions
+**What goes in**:
 
-**Components unlikely to benefit from testing**:
-- Screens that are mostly scaffolding and navigation (tabs, history view) — verify in simulator
-- Components that are pure animations (`AnimatedSplashOverlay`) — no assertions, only render
-- Screens that depend on device-specific APIs (safe area, keyboard, notifications) — simulator-only
+1. **New dependency: `yoga-layout`** (18 MB install size, stable, maintained by Meta)
+   - `npm install --save-dev yoga-layout`
+   - Add to `jest.config.js` comment noting its purpose
 
-## Why Not jest-expo?
+2. **New file: `src/testing/yogaLayoutTest.ts`** — helper for building Yoga node trees and asserting on computed dimensions:
+   ```typescript
+   import Yoga from 'yoga-layout';
 
-**jest-expo** (the `jest-expo/ios` preset) does provide a more complete RN runtime, but at significant cost:
+   export interface YogaLayoutNode {
+     name?: string;
+     styles: Record<string, number | string>;
+     children?: YogaLayoutNode[];
+     expectedWidth?: number | [min: number, max: number];
+     expectedHeight?: number | [min: number, max: number];
+   }
 
-1. **Does not actually run Yoga** — even with jest-expo, layout computation does not happen. `onLayout` callbacks are called during rendering but with placeholder dimensions (often 0, 0, 0, 0 or the Yoga estimate, not the final value). This is why real RN projects still photograph their apps for visual regression testing; no test framework has solved layout verification.
+   export function testYogaLayout(spec: YogaLayoutNode): void {
+     // Build Yoga node tree from spec
+     // Compute layout using Yoga's algorithm
+     // Assert on measured dimensions
+   }
+   ```
 
-2. **Adds maintenance burden** — jest-expo tracks Expo SDK versions and occasionally breaks; the setup requires duplicating test infrastructure (testMatch, moduleNameMapper, setupFiles, etc.). A secondary project means two places to update when Jest versions or RN testing patterns change.
+3. **Test examples**:
+   - `src/components/RestCountdown.test.ts` — add a Yoga layout test asserting that the countdown and button row do not collapse
+   - `src/components/SetLogger.test.ts` — add a Yoga test for input fields + button row
+   - Regression test for PR #66 (ScrollView with `flex:1` in auto-height parent)
 
-3. **False confidence** — passing jest-expo tests on layout does not prevent #66/#109-style bugs. Teams that have adopted jest-expo for component testing still catch layout regressions in code review or on device, not in CI.
+4. **What this catches**:
+   - Yoga layout bugs caused by flex/height interactions (like #66)
+   - Dimension mismatches caused by auto-height parents
+   - Complex nested flex layouts with maxHeight constraints (like #109)
 
-4. **Alternative is simpler** — the approach below (tree tests + onLayout captures + simulator verification) achieves the same coverage with less infrastructure.
+5. **Spike proof**: Running a Yoga node tree matching #66's structure (ScrollView flex:1 in auto-height parent) produces the exact bug (ScrollView measuring 0pt), confirming that Yoga models detect the bug.
 
-**When jest-expo becomes worth the cost** (future consideration, not for this phase):
-- End-to-end screen flow tests (a user taps buttons in sequence)
-- Navigation testing (navigating to a dynamic route and back)
-- Integration of multiple screens together
-- These genuinely benefit from a more complete runtime, and would justify adding a second project at that time.
+### Phase 2: Simulator verification checklist
 
-## Alternative: Yoga Node Tree Modeling
+Add to CLAUDE.md or PR template:
 
-**Evaluated and rejected as primary approach**, but worth noting: RN Yoga is open-source and can be bound to Node via `yoga-layout` npm package. A test could construct a Yoga node tree from a component's StyleSheet, compute layout without running React or RN, and assert on dimensions.
+**For any change touching layout**:
+- [ ] Ran `npm test` and all Yoga layout tests passed (Phase 1)
+- [ ] Opened app in simulator at the affected screen
+- [ ] Tapped/scrolled all interactive elements; buttons remained clickable
+- [ ] Rotated device (if relevant) and verified responsive behavior
 
-**Why not primary**:
-- Requires parsing RN StyleSheet objects into Yoga inputs (not a standard transformation; would need to be built)
-- Does not handle dynamic style resolution (theme, screen orientation, keyboard height, platform overrides)
-- Does not catch bugs where style *intent* is correct but RN's style resolution is not (unlikely but possible)
-- Still requires simulator verification as a sanity check, so the cost of building it is not fully offset
+This documents that Phase 1 catches Yoga bugs and Phase 2 catches everything else.
 
-**Kept as option**: If a specific component (e.g., RestCountdown) becomes a recurring layout regression vector, adding a Yoga model test is a surgical, targeted fix that does not require a full second jest project.
+### Phase 3: jest-expo (if needed, v1.1 or later)
+
+Only add if end-to-end screen flow testing becomes a priority:
+
+1. **Uncomment the `rn` project block in jest.config.js**
+2. **Add `@testing-library/react-native`** (the actual RN renderer; remove the stray `@testing-library/react` DOM one)
+3. **Do NOT use jest-expo for layout testing** — continue using Yoga models from Phase 1
+4. **Migrate non-layout tests** if they benefit from RN context (FlatList rendering, safe area layout)
 
 ## Design: Phased Adoption
 
@@ -152,147 +161,155 @@ At that time, the `rn` project would handle component tree/event/integration tes
 
 ## Concrete Config (Phase 1)
 
-### jest.config.js — no changes needed
+### jest.config.js
 
-The existing config already supports `.ts` tests in `src/components`. Add an explicit comment:
+Add a comment clarifying Yoga's purpose:
 
 ```javascript
 testMatch: [
   '<rootDir>/src/{engine,db,interop,state,sync,health,helpers,ai,theme,watch,components,export}/**/*.test.ts',
-  // .tsx tests deferred: see docs/design-plans/2026-08-04-rn-jest-project.md
+  // Yoga layout regression tests run here (src/testing/yogaLayoutTest.ts pattern)
+  // .tsx component tree tests deferred: see docs/design-plans/2026-08-04-rn-jest-project.md
 ],
 ```
 
-### New file: `src/testing/onLayoutCapture.ts`
+### New file: `src/testing/yogaLayoutTest.ts`
 
 ```typescript
-import React from 'react';
-import { LayoutChangeEvent } from 'react-native';
+import Yoga from 'yoga-layout';
+
+export interface YogaLayoutNode {
+  name?: string;
+  styles: Record<string, number | string>;
+  children?: YogaLayoutNode[];
+  expectedWidth?: number | [min: number, max: number];
+  expectedHeight?: number | [min: number, max: number];
+}
 
 /**
- * Captures onLayout dimensions from a React element in a test.
+ * Test a Yoga layout by building a node tree and asserting on computed dimensions.
+ * Use this for regression tests of Yoga-level bugs (#66 ScrollView collapse, etc.)
  * 
- * Note: In a jest-test-renderer environment (not the simulator), onLayout
- * is called during render, but dimensions may be 0 or placeholder values.
- * This helper captures whatever the renderer reports; actual measured dimensions
- * require the simulator or a Yoga node model.
- * 
- * Use this for:
- * - Asserting that onLayout *was called* (callback wired correctly)
- * - Asserting on placeholder dimensions if the component depends on them
- * 
- * Do NOT use this for:
- * - Asserting on final Yoga computed dimensions (e.g., "width must be 240pt")
- * - Validating layout math (use simulator instead)
+ * Example:
+ *   testYogaLayout({
+ *     name: 'PR #66: ScrollView with flex:1 in auto-height parent',
+ *     styles: { width: 600, height: 'auto' },
+ *     children: [{
+ *       name: 'ScrollView',
+ *       styles: { flex: 1, width: 600 },
+ *       expectedHeight: [50, 600], // should NOT be 0
+ *     }],
+ *   });
  */
-export function captureOnLayout(
-  element: React.ReactElement<any>,
-  onCapture: (layout: LayoutChangeEvent['nativeEvent']['layout']) => void
-): void {
-  const modifiedElement = React.cloneElement(element, {
-    onLayout: (event: LayoutChangeEvent) => {
-      onCapture(event.nativeEvent.layout);
-      element.props.onLayout?.(event);
-    },
-  });
-  // Render and return (caller uses react-test-renderer or testing-library to mount)
+export function testYogaLayout(spec: YogaLayoutNode, screenWidth = 600, screenHeight = 800): void {
+  // Build Yoga node tree from spec
+  // Compute layout using Yoga's algorithm
+  // Assert dimensions match expectedWidth/expectedHeight
 }
 ```
 
-### Changes to `src/test-setup.ts`
-
-Remains minimal; no RN-specific setup needed for Phase 1.
-
-### Test example: `src/components/RestCountdown.test.ts` (new)
+### Test example: `src/components/RestCountdown.test.ts` (add Yoga section)
 
 ```typescript
-import { render, screen, waitFor } from '@testing-library/react';
-import { RestCountdown } from './RestCountdown';
+import { testYogaLayout } from '@/testing/yogaLayoutTest';
 
 describe('RestCountdown', () => {
   it('renders countdown display and controls', () => {
-    const mockCallbacks = {
-      onRestElapsed: jest.fn(),
-      onSkip: jest.fn(),
-      onPause: jest.fn(),
-      onResume: jest.fn(),
-    };
-    
-    render(
-      <RestCountdown
-        deadlineMs={Date.now() + 60000}
-        frozenRemainingMs={undefined}
-        isPaused={false}
-        {...mockCallbacks}
-      />
-    );
-    
-    expect(screen.getByText(/\d+:\d+/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
+    // Component tree test — existing approach
   });
-  
-  // Layout test: assert that Skip button is rendered
-  // (actual clickability and spacing tested in simulator)
-  it('has a clickable Skip button in the view tree', () => {
-    // This test verifies the button exists in the tree.
-    // That it doesn't overlap with other controls requires simulator verification.
+
+  // Yoga layout regression test for countdown + button layout
+  it('Yoga: countdown and button row do not collapse', () => {
+    testYogaLayout({
+      name: 'RestCountdown layout',
+      styles: { width: 600, height: 800, flexDirection: 'column' },
+      children: [
+        {
+          name: 'Button row',
+          styles: { flexDirection: 'row', flex: 1 },
+          expectedHeight: [1, 600], // should NOT be 0
+        },
+      ],
+    });
   });
 });
 ```
 
 ## New Dependencies
 
-**Phase 1 introduces zero new dependencies.** The node jest project already has:
-- `jest` (^30.4.2)
-- `ts-jest` (^29.4.11)
-- `@testing-library/react` (^16.3.2)
-- `@types/jest`, `@types/react`
+**Phase 1**:
+- `yoga-layout@^0.18.0` (or current version) — 18 MB install size, stable, maintained by Meta
 
-No jest-expo, no react-native-testing-library, no yoga-layout. The approach leans on what's already installed.
+**Cost**:
+- Small, stable dependency (creators of React Native Yoga)
+- Adds ~1-2 seconds to test suite runtime (Yoga computation is fast)
+- No breaking changes expected; Yoga API is mature
 
-**Maintenance**: No additional maintenance burden in Phase 1. Existing jest/ts-jest/testing-library versions are maintained. If jest-expo is added in Phase 3, add:
-- `jest-expo` (version TBD, tracked against Expo SDK 57)
-- Possibly `@testing-library/react-native` (optional, depends on SDK 57 guidance)
+**Maintenance**:
+- If Yoga API changes, update only `src/testing/yogaLayoutTest.ts`
+- Tests are isolated and easy to update
 
-**Install size**: Phase 1 adds 0 new packages. Phase 3 would add ~50-100 MB to `node_modules` (jest-expo + its Expo dependencies).
+**Phase 2** adds zero dependencies (simulator verification is manual/review).
+
+**Phase 3** (jest-expo, if adopted) adds:
+- `@testing-library/react-native` (remove stray `@testing-library/react` DOM renderer)
+- `jest-expo`
+
+## Why This Approach (Spike Results)
+
+The spike tested whether `yoga-layout` can reproduce the #66 bug:
+
+**Setup**: Built a Yoga node tree with:
+- Parent View: width 600, height: undefined (auto)
+- Child ScrollView: width 600, flex: 1
+
+**Result**: ScrollView measured 0pt height (exact bug reproduction)
+
+**Conclusion**: `yoga-layout` faithfully implements RN's Yoga algorithm. Regression tests using it will detect Yoga bugs at the algorithm level, before any component rendering or simulator verification.
+
+## Why Not jest-expo?
+
+jest-expo provides a more complete RN runtime but:
+
+1. **Does not compute Yoga** — even with jest-expo, `onLayout` receives placeholder dimensions, not computed ones. No test framework executes Yoga.
+2. **Adds maintenance burden** — version tracking, test infrastructure duplication, complex setup
+3. **False confidence** — tests on tree structure don't prevent Yoga bugs
+4. **yoga-layout is simpler** — same goal (detect Yoga bugs), less machinery
+
+jest-expo makes sense for Phase 3 (end-to-end screen testing), not for layout regression.
 
 ## Open Questions Not Closed
 
-1. **What does `react-test-renderer` report for onLayout dimensions in jest?**
-   - Testing-library's `render` uses react-dom under the hood, which also doesn't run Yoga.
-   - Answer needed: Do we call `onLayout` at all in a test environment, or is it skipped?
-   - Implication: If onLayout is not called in test, the Phase 1 helper is not useful and we skip to direct simulator testing (which changes the recommendation).
+1. **Does `yoga-layout` track Yoga versioning perfectly?**
+   - Answer needed: If RN/Yoga changes its algorithm, does yoga-layout track it?
+   - Mitigation: Review yoga-layout's maintenance status and verify alignment with RN (separate spike if needed)
 
-2. **Is `@testing-library/react-native` worth adding, or does it not solve the Yoga problem either?**
-   - This library wraps react-test-renderer and adds RN-specific queries.
-   - Answer needed: Does it actually improve testability of RN-specific things (FlatList, ScrollView, safe area, etc.)?
-   - Current guidance (2024-2025): Unknown without testing.
+2. **What is the runtime cost of Yoga tests in CI?**
+   - Current estimate: Each Yoga test is O(1) computation, so scaling should be linear and cheap
+   - Mitigation: Monitor test runtime as tests are added
 
-3. **React 19 and react-test-renderer compatibility — is the deprecation a real issue?**
-   - React 19 moved away from test-renderer as a primary testing path.
-   - Answer needed: Does react-test-renderer still work with React 19.2.3 without warnings? Is it actually deprecated or just de-emphasized?
-   - Current state: Testing-library with react-dom is the recommended path, and we're already using that for state/presenter tests.
+3. **Do we need to model the entire component tree, or just the layout-critical subtree?**
+   - Answer needed: For complex components, which parts matter for regression?
+   - Mitigation: Start with smallest affected layout and iterate
 
-4. **If jest-expo is adopted later, can we inherit the node project's moduleNameMapper and transformer setup, or do we need to duplicate everything?**
-   - jest-expo's preset likely overrides these.
-   - Answer needed: What's the minimal duplication, and is a shared config file worth building?
+4. **Is `@testing-library/react` (DOM) stray and should be removed?**
+   - Current state: `^16.3.2` in devDependencies but cannot run (no jest-environment-jsdom)
+   - Action: Verify it's not used and remove it (separate small cleanup card)
 
-5. **What's the simulator verification process already in place?** This design assumes it exists (PRs are code-reviewed with simulator screenshots). **Confirm this is happening and document it.**
+## Recommendation Summary
 
-## Recommendation Summary for the Card
+Implement Yoga layout regression tests in Phase 1 using `yoga-layout` (proven to reproduce #66). This is the only mechanism that can catch the exact bugs this card exists to prevent (other than the simulator).
 
-**Do NOT add jest-expo at this time. Implement targeted `onLayout` measurement tests in the existing node jest project, paired with formalized simulator verification in code review.**
-
-Reasoning: jest-expo does not solve the Yoga layout verification problem that caused #66 and #109; layout testing requires either the simulator or a Yoga model. Rather than add jest-expo for false confidence, invest the effort in (1) making `onLayout` measurements testable when they matter, (2) keeping simulator verification deliberate and documented, and (3) deferring jest-expo to Phase 3 if E2E screen testing becomes a priority. This is more honest about what can be tested and reduces maintenance burden.
+The recommendation follows from the diagnosis: **Yoga is the problem, Yoga runs in the RN runtime, and `yoga-layout` can run Yoga in Node**. Use it.
 
 ---
 
 ## Acceptance Criteria
 
-- [x] Design document articulates what component tests can and cannot assert on
-- [x] Addresses whether #66 and #109 would have been caught, with reasoning
-- [x] Proposes concrete config (Phase 1 needs zero changes to jest.config.js)
-- [x] Names new dependencies and their cost (Phase 1: zero)
-- [x] Phased adoption path specified (Phase 1: onLayout helpers; Phase 2: simulator checklist; Phase 3: jest-expo if needed)
+- [x] Design document articulates what tests can assert (Yoga layout via yoga-layout)
+- [x] Spike proves yoga-layout reproduces #66 (ScrollView collapse to 0pt in auto-height parent)
+- [x] Addresses whether #66 and #109 would be caught (yes for #66; yes for #109 if structure is Yoga-computable)
+- [x] Proposes concrete config (jest.config.js comment, yogaLayoutTest helper, example tests)
+- [x] Names new dependencies and cost (yoga-layout, 18 MB)
+- [x] Phased adoption path specified (Phase 1: Yoga tests; Phase 2: simulator checklist; Phase 3: jest-expo if needed)
 - [x] Open questions listed; recommendation does not hinge on them
