@@ -300,4 +300,85 @@ describe('OpenAI structured output schema validation', () => {
       expect(JSON.stringify(ALTERNATES_SCHEMA)).toBe(PRISTINE_ALTERNATES);
     });
   });
+
+  describe('widening edge cases', () => {
+    it('optional enum adds null to enum list when widening', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['active', 'inactive'],
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const statusProp = (transformed.properties as Record<string, unknown>)
+        .status as Record<string, unknown>;
+
+      // When an optional enum is widened to nullable, null must be added to the enum
+      expect(statusProp.type).toEqual(['string', 'null']);
+      expect(statusProp.enum).toContain('active');
+      expect(statusProp.enum).toContain('inactive');
+      expect(statusProp.enum).toContain(null);
+    });
+
+    it('property defined only by anyOf stays non-required if not in original required', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          flexible: {
+            anyOf: [{ type: 'string' }, { type: 'number' }],
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+
+      // Properties defined only by anyOf that aren't in the original required
+      // should not be forced into required (they can't express absence with just anyOf)
+      expect((transformed.required as string[])).not.toContain('flexible');
+    });
+
+    it('property defined only by const stays non-required if not in original required', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          fixed: {
+            const: 'CONSTANT_VALUE',
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      };
+
+      const transformed = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+
+      // Properties defined only by const that aren't in the original required
+      // should not be forced into required (const has no type to widen)
+      expect((transformed.required as string[])).not.toContain('fixed');
+    });
+
+    it('transform is idempotent', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string' },
+          optional: { type: 'number' },
+        },
+        required: ['reply'],
+        additionalProperties: false,
+      };
+
+      const transformed1 = transformSchemaForOpenAI(schema) as Record<string, unknown>;
+      const transformed2 = transformSchemaForOpenAI(transformed1);
+
+      expect(JSON.stringify(transformed2)).toBe(JSON.stringify(transformed1));
+    });
+  });
 });

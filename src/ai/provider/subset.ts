@@ -8,13 +8,13 @@
 /**
  * Keywords that OpenAI's structured output does NOT support.
  * Documented keywords are derived from official OpenAI documentation.
- * Keywords with no explicit documentation are conservatively treated as unsupported
- * until proven against the live endpoint.
  *
  * Supported keywords (will NOT be in this list):
  * - enum, anyOf, pattern, format, multipleOf
  * - minimum, maximum, exclusiveMinimum, exclusiveMaximum
  * - minItems, maxItems
+ * - contains, minContains, maxContains
+ * - propertyNames, unevaluatedProperties, unevaluatedItems, prefixItems
  *
  * Notably includes composition keywords (allOf, not, if/then/else, oneOf) that
  * OpenAI's documentation does not support.
@@ -183,6 +183,10 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
     return cloned;
   };
 
+  const hasTypeField = (schema: unknown): boolean => {
+    return isSchemaNode(schema) && 'type' in schema && schema.type !== null;
+  };
+
   const transform = (node: unknown): unknown => {
     if (!isSchemaNode(node)) {
       return node;
@@ -196,14 +200,35 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
       const required = Array.isArray(transformed.required) ? transformed.required : [];
       const requiredSet = new Set(required);
 
-      // Add all properties to required
-      const newRequired = Array.from(new Set([...required, ...Object.keys(properties)]));
-      transformed.required = newRequired;
+      // OpenAI strict mode requires additionalProperties: false
+      transformed.additionalProperties = false;
 
-      // For properties not in the original required, widen type to nullable
-      const newProperties: Record<string, unknown> = {};
+      // For properties not in the original required, determine if they can be widened.
+      // Properties defined only by anyOf or const cannot express absence and should not
+      // be added to required (they'll remain optional implicitly).
+      const widdenableProps = new Set<string>();
+      const nonWidenableProps = new Set<string>();
+
       for (const [propName, propSchema] of Object.entries(properties)) {
         if (!requiredSet.has(propName) && isSchemaNode(propSchema)) {
+          // Check if this property has a type field we can widen
+          if (hasTypeField(propSchema)) {
+            widdenableProps.add(propName);
+          } else {
+            // Property defined only by anyOf, const, etc. - cannot widen, don't add to required
+            nonWidenableProps.add(propName);
+          }
+        }
+      }
+
+      // Build new required array: keep original required + widenable optional props
+      const newRequired = Array.from(new Set([...required, ...widdenableProps]));
+      transformed.required = newRequired;
+
+      // Transform properties
+      const newProperties: Record<string, unknown> = {};
+      for (const [propName, propSchema] of Object.entries(properties)) {
+        if (widdenableProps.has(propName) && isSchemaNode(propSchema)) {
           // Clone and widen to nullable
           const widened = { ...propSchema };
           if ('type' in widened && widened.type !== null) {
@@ -214,8 +239,15 @@ export function transformSchemaForOpenAI(schema: unknown): unknown {
               widened.type = [...currentType, 'null'];
             }
           }
+          // If the property has an enum, add null to it when widening
+          if (Array.isArray(widened.enum)) {
+            if (!widened.enum.includes(null)) {
+              widened.enum = [...widened.enum, null];
+            }
+          }
           newProperties[propName] = transform(widened);
         } else {
+          // Non-widenabled props or original required props - transform without widening
           newProperties[propName] = transform(propSchema);
         }
       }
