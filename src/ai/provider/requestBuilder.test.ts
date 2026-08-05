@@ -150,6 +150,11 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
             strict: true,
           },
         },
+        // Explicit, on every surface. Omitting this field does NOT disable
+        // reasoning — GPT-5.6 defaults to 'medium' — and this whole-body
+        // equality is the assertion that would have caught the field going
+        // missing, had it been asserting the right thing at the time.
+        reasoning: { effort: 'none' },
       });
     });
 
@@ -184,21 +189,31 @@ const PRISTINE_TEST_SCHEMA = JSON.stringify(testSchema);
       expect(body.max_output_tokens).toBe(4096);
     });
 
-    it('applies low reasoning effort for rest commentary', () => {
+    it('disables reasoning EXPLICITLY on rest commentary, not by omitting the field', () => {
       const body = buildOpenAiBody(
         { ...testRequest, surface: 'restCommentary' as const },
         'gpt-5.6-sol'
       );
-      expect(body.reasoning).toEqual({ effort: 'low' });
+      // `toBeUndefined()` is exactly what this test used to assert, and it was
+      // wrong: GPT-5.6 defaults to effort 'medium' when `reasoning` is absent, so
+      // an omitted field is not a disabled one. Reasoning tokens count against
+      // max_output_tokens, so at this surface's 256-token ceiling that returns
+      // `status: 'incomplete'` with no text — and every AI failure here is
+      // swallowed, so the feature would ship silently dead.
+      expect(body.reasoning).toEqual({ effort: 'none' });
     });
 
-    it('does not set reasoning for other surfaces', () => {
-      for (const surface of ['chat', 'alternates', 'exerciseQuestion']) {
+    it('disables reasoning on every surface, matching the Anthropic path', () => {
+      // buildAnthropicBody sends `thinking: { type: 'disabled' }` unconditionally.
+      // The two providers should not differ on whether the app pays for reasoning
+      // it never asked for, so this is asserted for all four surfaces rather than
+      // only the one with a tight budget.
+      for (const surface of ['chat', 'alternates', 'exerciseQuestion', 'restCommentary']) {
         const body = buildOpenAiBody(
           { ...testRequest, surface: surface as any },
           'gpt-5.6-sol'
         );
-        expect(body.reasoning).toBeUndefined();
+        expect(body.reasoning).toEqual({ effort: 'none' });
       }
     });
 
