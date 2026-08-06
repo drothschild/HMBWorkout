@@ -117,8 +117,11 @@ describe('buildSystem: AI Coach context builder', () => {
     it('maps the proposal fields to the prompt sections they replace', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
+      // Age/Gender/Experience are labelled lines inside one "About the User"
+      // section, not sections of their own — the prose must not promise the
+      // model a structure the prompt does not contain.
       expect(prompt).toContain(
-        'proposes new values for the "User Goals", "Available Equipment", "Coaching Style", "Age", "Gender", and "Experience" sections below'
+        'proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age, Gender and Experience lines under "About the User"'
       );
     }, 30000);
 
@@ -1993,11 +1996,39 @@ describe('buildSystem: AI Coach context builder', () => {
       ]);
     }, 30000);
 
-    it('coach-onboarding.AC3.7 Failure: onboarding persona never solicits name', async () => {
+    it('coach-onboarding.AC3.7 Failure: the onboarding block is pinned whole, so no instruction can be added to it', async () => {
+      // Three previous attempts at this criterion were each walked around:
+      //   1. a list of literal phrases ('ask for your name', ...) — the persona
+      //      asked for the name in different words and passed;
+      //   2. a constant with no production consumer — the prose was hand-written,
+      //      so pinning the constant governed nothing;
+      //   3. a regex over the whole prompt — catches "their name" but not
+      //      "what the user is called" or "how they'd like to be addressed",
+      //      both verified to survive.
+      //
+      // The threat is not one phrasing, it is ANY added instruction. So pin the
+      // whole block: everything from the interview sentence to the next section
+      // heading. An inserted sentence changes this string whatever its wording,
+      // and a legitimate edit has to be re-approved here deliberately.
+      //
+      // The list inside it is rendered from ONBOARDING_PROFILE_FIELDS (asserted
+      // separately above), so this literal and the constant must agree too.
       const prompt = await buildSystem(database, { kind: 'onboarding' });
-      // The onboarding block must not contain language asking for the user's name
-      // Check for "their name", "your name", "ask for name", etc.
-      expect(prompt).not.toMatch(/\b(their|your|ask.*)\s+(name|name\s+is)\b/i);
+
+      const start = prompt.indexOf('You are interviewing a new user');
+      expect(start).toBeGreaterThan(-1);
+      const rest = prompt.slice(start);
+      const end = rest.indexOf('\n\n## ');
+      const block = (end === -1 ? rest : rest.slice(0, end)).trim();
+
+      expect(block).toBe(
+        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, gender, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+
+Every field you record must be grounded in something the user actually said. Do not infer or guess.
+
+At the end of the interview, offer to draft a first routine based on what you've learned about them.`
+      );
+      expect(block).not.toMatch(/\bname\b/i);
     }, 30000);
   });
 
