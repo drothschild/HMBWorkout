@@ -37,13 +37,22 @@ describe('acceptDraft', () => {
     });
   });
 
-  describe('coach-onboarding.AC7.1 (onboarding mints a new routine, like create)', () => {
-    test('onboarding mode mints a fresh routine id rather than reusing one', async () => {
+  describe('coach-onboarding.AC7.1 (partial: onboarding takes the create branch)', () => {
+    test('onboarding mode yields a minted routine id, not mode.routineId', async () => {
       // Onboarding carries no routine id — the first routine the interview
-      // offers is brand new — so it must take the create branch. This path is
-      // live today (?onboarding=1 → chat → accept) and had no coverage at all:
-      // a mutation returning undefined for the routine id survived the suite,
-      // with only TypeScript standing between it and a broken accept.
+      // offers is brand new — so it must take the create branch. Without this,
+      // a mutation resolving the id from `mode.routineId` survives the suite;
+      // TypeScript blocks the naive version, but a cast defeats it.
+      //
+      // Scope of this test, stated precisely because the previous name
+      // overclaimed: it does NOT prove freshness (the `routine-\d+` shape is
+      // satisfied by a hardcoded constant — the pre-existing AC3.2 test covers
+      // per-accept uniqueness), and it does not cover AC7.1's "and navigates to
+      // it" half, which is Phase 4's. It pins branch selection only.
+      //
+      // Not reachable from the UI yet: ai-coach.tsx drops the `onboarding`
+      // route param before the mode mapper sees it (issue #189, folded into
+      // #179).
       const draft = {
         name: 'Starter Routine',
         exercises: [{ title: 'Goblet Squat', kind: 'strength' as const, targetSets: 3, targetReps: 8 }],

@@ -1964,7 +1964,7 @@ describe('buildSystem: AI Coach context builder', () => {
       }
     }, 30000);
 
-    it('AC6.6: profile field values are neutralized (markdown-safe)', async () => {
+    it('coach-onboarding.AC6.6 Edge: profile field values are neutralized (markdown-safe)', async () => {
       setSettings({
         profileAge: '## Secret Heading',
         profileGender: '## Another Heading',
@@ -2017,7 +2017,7 @@ describe('buildSystem: AI Coach context builder', () => {
       ]);
     }, 30000);
 
-    it('coach-onboarding.AC3.7 Failure: the onboarding block is pinned whole, so no instruction can be added to it', async () => {
+    it('coach-onboarding.AC3.7 Failure: the onboarding persona block is pinned whole, so no instruction can be added inside it', async () => {
       // Three previous attempts at this criterion were each walked around:
       //   1. a list of literal phrases ('ask for your name', ...) — the persona
       //      asked for the name in different words and passed;
@@ -2048,7 +2048,12 @@ describe('buildSystem: AI Coach context builder', () => {
       const start = tailIdx + personaTail.length;
       expect(prompt.indexOf('You are interviewing a new user')).toBeGreaterThan(-1);
       const rest = prompt.slice(start);
-      const end = rest.indexOf('\n\n## ');
+      // Terminate on the SPECIFIC next section, not a generic '\n\n## '. A
+      // generic heading terminator is controlled by the very content being
+      // guarded: adding a '## Interview Notes' heading inside the onboarding
+      // branch pushed everything after it outside the pin, and a name
+      // solicitation there passed 1634/1634 (round-3 review).
+      const end = rest.indexOf('\n\n## Coach Directives (Default Behavior)');
       const block = (end === -1 ? rest : rest.slice(0, end)).trim();
 
       expect(block).toBe(
@@ -2067,7 +2072,15 @@ At the end of the interview, offer to draft a first routine based on what you've
       // buildSystem, or a sentence added to the base persona, neither of which
       // the block can see. Deleting this in favour of the pin was a net loss
       // for that case, which the round-2 review proved with a green mutation.
-      expect(prompt).not.toMatch(/\b(their|your|ask.*)\s+(name|name\s+is)\b/i);
+      //
+      // Deliberately narrow. An earlier `ask.*\s+name` alternative was
+      // line-scoped but otherwise unbounded, so any line pairing "ask" with a
+      // later "name" tripped it — and this runs over the WHOLE prompt, which
+      // interpolates user-authored routine and exercise titles. A guard that
+      // fails on legitimate prose ("…repeat the routine name back in your
+      // reply") gets weakened by whoever hits it next. The `name\s+is` branch
+      // was also dead: ordered alternation always matched `name` first.
+      expect(prompt).not.toMatch(/\b(their|your)\s+name\b/i);
     }, 30000);
   });
 
