@@ -24,8 +24,9 @@
  * WHAT THIS SCRIPT MEASURES
  * -------------------------
  * It does NOT use the project's test suite, models, or jest. It builds the
- * smallest thing that contends the queue — two overlapping `database.write()`
- * calls on an empty schema — then measures how long the process stays alive
+ * smallest thing that contends the queue — four overlapping `database.write()`
+ * calls on an empty schema, which yield exactly three *contended* enqueues —
+ * then measures how long the process stays alive
  * after all work has settled and the adapter is closed. If the lead is real,
  * the process should linger for ~the remainder of 1500ms with nothing left to
  * do, and the count of intercepted 1500ms WorkQueue timers should be non-zero.
@@ -113,9 +114,11 @@ function closeDatabase(database) {
 async function main() {
   const database = createEmptyDatabase();
 
-  // Two writes issued in the same tick. The first occupies the queue, so the
-  // second (and any after it) enqueue *contended* and arm the warning timer.
-  // A single write would not reproduce this — `_queue.length` is 0 for it.
+  // Four writes issued in the same tick. The first occupies the queue, so the
+  // remaining three enqueue *contended* and each arms a warning timer — which
+  // is why every run reports warningTimersCreated: 3, not 4. A single write
+  // would not reproduce this at all: `_queue.length` is 0 for it, so the
+  // dev-mode branch is never taken.
   await Promise.all([
     database.write(async () => {}),
     database.write(async () => {}),

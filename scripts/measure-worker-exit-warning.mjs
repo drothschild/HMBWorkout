@@ -33,7 +33,7 @@
  * Exit code is always 0 — this is a measurement, not a gate.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,6 +52,14 @@ function runJest(extraEnv) {
       cwd: REPO_ROOT,
       env: { ...process.env, ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // 'close' fires even after a spawn failure, so this does not hang — but
+    // without it a failed spawn resolves silently into {warned:false,
+    // testsRan:false} and a "0/N" summary looks like a finding rather than a
+    // misconfiguration. Log the reason.
+    child.on('error', (err) => {
+      console.error(`  ! failed to spawn jest: ${err.message}`);
     });
 
     let output = '';
@@ -80,7 +88,39 @@ const ARMS = [
   { name: 'unref', env: { WMDB_UNREF_QUEUE_WARNING: '1' } },
 ];
 
+/**
+ * Refuse to run unless patch-workqueue-unref.js has been applied.
+ *
+ * Without the patch both arms execute identical unpatched code, so the
+ * measurement comes back as a clean "no difference either way" — which reads
+ * exactly like a negative finding about the mechanism, when it is really a
+ * misconfigured harness. Failing loudly is the whole point: a silent null
+ * result here would be worse than no result.
+ */
+function assertPatchApplied() {
+  const statusScript = path.join(REPO_ROOT, 'scripts', 'patch-workqueue-unref.js');
+  let applied = false;
+  try {
+    const out = execFileSync(process.execPath, [statusScript, 'status'], { encoding: 'utf8' });
+    applied = JSON.parse(out).applied === true;
+  } catch (err) {
+    console.error(`Could not determine patch status: ${err.message}`);
+    process.exit(1);
+  }
+  if (!applied) {
+    console.error(
+      'Refusing to run: the WorkQueue unref patch is NOT applied, so both arms\n' +
+        'would execute identical code and report a meaningless 0% difference.\n\n' +
+        '  node scripts/patch-workqueue-unref.js apply ./node_modules\n\n' +
+        'Remember to revert it when the measurement is done.',
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
+  assertPatchApplied();
+
   const results = new Map(ARMS.map((arm) => [arm.name, []]));
 
   console.log(
