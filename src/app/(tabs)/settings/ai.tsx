@@ -14,6 +14,9 @@ type AiSettingsPatch = Partial<{
   aiGoals: string;
   aiEquipment: string;
   aiPersonality: string;
+  profileAge: string;
+  profileGender: string;
+  profileExperience: string;
 }>;
 
 const AUTOSAVE_DELAY_MS = 500;
@@ -25,6 +28,9 @@ export default function AiCoachSettingsScreen() {
   const [aiGoals, setAiGoals] = useState(() => getSettings().aiGoals);
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
   const [aiPersonality, setAiPersonality] = useState(() => getSettings().aiPersonality);
+  const [profileAge, setProfileAge] = useState(() => getSettings().profileAge);
+  const [profileGender, setProfileGender] = useState(() => getSettings().profileGender);
+  const [profileExperience, setProfileExperience] = useState(() => getSettings().profileExperience);
 
   const pendingRef = useRef<AiSettingsPatch>({});
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,6 +70,9 @@ export default function AiCoachSettingsScreen() {
       setAiGoals(settings.aiGoals);
       setAiEquipment(settings.aiEquipment);
       setAiPersonality(settings.aiPersonality);
+      setProfileAge(settings.profileAge);
+      setProfileGender(settings.profileGender);
+      setProfileExperience(settings.profileExperience);
     }, [flush])
   );
 
@@ -182,6 +191,69 @@ export default function AiCoachSettingsScreen() {
               multiline
             />
           </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Age
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. 41 or early 40s"
+              placeholderTextColor={placeholderColor}
+              value={profileAge}
+              onChangeText={(value) => {
+                setProfileAge(value);
+                queueSave({ profileAge: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Gender
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. Male, Female, or prefer not to say"
+              placeholderTextColor={placeholderColor}
+              value={profileGender}
+              onChangeText={(value) => {
+                setProfileGender(value);
+                queueSave({ profileGender: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Experience
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. Beginner, strong squat, terrible overhead"
+              placeholderTextColor={placeholderColor}
+              value={profileExperience}
+              onChangeText={(value) => {
+                setProfileExperience(value);
+                queueSave({ profileExperience: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <View style={styles.buttonRow}>
+            <Pressable
+              style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+              onPress={() => router.push('/ai-coach?onboarding=1')}
+            >
+              <ThemedText style={styles.startButtonText}>Start/Redo</ThemedText>
+            </Pressable>
+          </View>
         </ScrollView>
       </View>
     </ThemedView>
@@ -263,5 +335,27 @@ const styles = StyleSheet.create({
   multilineInput: {
     flex: 1,
     textAlignVertical: 'top',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.one,
+  },
+  startButton: {
+    flex: 1,
+    paddingVertical: Spacing.two,
+    borderRadius: 6,
+    backgroundColor: ActionButtonColor.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  startButtonPressed: {
+    opacity: 0.6,
+  },
+  startButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

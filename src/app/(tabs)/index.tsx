@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, FlatList, View } from 'react-native';
+import { StyleSheet, Pressable, FlatList, View, ScrollView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
 
@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { OnboardingCard } from '@/components/OnboardingCard';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
@@ -242,9 +243,10 @@ export default function TodayScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
-        <ThemedView style={styles.content}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <OnboardingCard />
           {renderContent()}
-        </ThemedView>
+        </ScrollView>
       </View>
     </ThemedView>
   );
@@ -271,6 +273,12 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.three,
     width: '100%',
+  },
+  scrollContent: {
+    alignItems: 'stretch',
+    gap: Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
   },
   centered: {
     flex: 1,

@@ -35,20 +35,25 @@ export default function AiCoachScreen() {
   const router = useRouter();
   const theme = useTheme();
   const isDark = useIsDark();
-  const { routineId, debriefSessionId } = useLocalSearchParams<{
+  const { routineId, debriefSessionId, onboarding } = useLocalSearchParams<{
     routineId?: string;
     debriefSessionId?: string;
+    onboarding?: string;
   }>();
   const store = getAiChatStore();
   // Stable per set of params, so it doubles as the identity of the conversation
   // these params ask for.
   const mode = useMemo(
-    () => aiCoachModeFromParams({ routineId, debriefSessionId }),
-    [routineId, debriefSessionId]
+    () => aiCoachModeFromParams({
+      routineId,
+      debriefSessionId,
+      onboarding: onboarding === '1' ? '1' : (onboarding ? true : undefined),
+    }),
+    [routineId, debriefSessionId, onboarding]
   );
   // Guard on a derived string key rather than useMemo object identity, which React
   // does not guarantee to cache. Use the key to detect when params change.
-  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
+  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}:${onboarding ?? ''}`;
   const startedModeRef = useRef<string | null>(null);
 
   // Start the conversation before paint on first mount (and whenever the params
@@ -66,6 +71,10 @@ export default function AiCoachScreen() {
       // A debrief is the coach's conversation to open; the store sends the
       // first turn so the user arrives to a question, not a blank thread.
       void store.getState().openDebrief(mode);
+    } else if (mode.kind === 'onboarding') {
+      // Onboarding is also a coach-speaks-first conversation; the store sends
+      // the opening turn so the user arrives to a question, not a blank thread.
+      void store.getState().openOnboarding();
     } else {
       store.getState().reset(mode);
     }
