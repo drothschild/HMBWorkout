@@ -190,6 +190,9 @@ export default function AiCoachScreen() {
         currentGoals={settings.aiGoals}
         currentEquipment={settings.aiEquipment}
         currentPersonality={settings.aiPersonality}
+        currentAge={settings.profileAge}
+        currentGender={settings.profileGender}
+        currentExperience={settings.profileExperience}
         onApprove={handleApproveSettings}
         onDecline={handleDeclineSettings}
       />
@@ -447,6 +450,9 @@ interface SettingsProposalCardProps {
   currentGoals: string;
   currentEquipment: string;
   currentPersonality: string;
+  currentAge: string;
+  currentGender: string;
+  currentExperience: string;
   onApprove: () => void;
   onDecline: () => void;
 }
@@ -456,6 +462,9 @@ function SettingsProposalCard({
   currentGoals,
   currentEquipment,
   currentPersonality,
+  currentAge,
+  currentGender,
+  currentExperience,
   onApprove,
   onDecline,
 }: SettingsProposalCardProps) {
@@ -474,6 +483,18 @@ function SettingsProposalCard({
 
   if (proposal.personality !== undefined) {
     rows.push({ label: 'Coaching style', current: currentPersonality, proposed: proposal.personality });
+  }
+
+  if (proposal.age !== undefined) {
+    rows.push({ label: 'Age', current: currentAge, proposed: proposal.age });
+  }
+
+  if (proposal.gender !== undefined) {
+    rows.push({ label: 'Gender', current: currentGender, proposed: proposal.gender });
+  }
+
+  if (proposal.experience !== undefined) {
+    rows.push({ label: 'Experience', current: currentExperience, proposed: proposal.experience });
   }
 
   return (

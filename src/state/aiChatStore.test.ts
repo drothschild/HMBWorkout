@@ -1,5 +1,6 @@
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
 import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
+import { ONBOARDING_OPENING_MESSAGE } from './coachOnboarding';
 import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
@@ -1417,6 +1418,152 @@ describe('aiChatStore', () => {
 
       expect(store.getState().pendingDraft).toEqual(draft);
       expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+  });
+
+  describe('openOnboarding', () => {
+    it('sets mode to onboarding', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      expect(store.getState().mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('sends hidden opening message', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      const messages = store.getState().messages;
+      expect(messages.length).toBeGreaterThanOrEqual(1);
+      expect(messages[0]).toEqual({
+        role: 'user',
+        content: ONBOARDING_OPENING_MESSAGE,
+        hidden: true,
+      });
+    });
+
+    it('clears pending state', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      store.setState({ pendingDraft: { name: 'Test', exercises: [] }, pendingSettingsProposal: { goals: 'Build' } });
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      expect(store.getState().pendingDraft).toBeNull();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('AC4.6: coach speaks first via hidden opening turn', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Great! Let me ask you some questions.' });
+      await store.getState().openOnboarding();
+
+      const messages = store.getState().messages;
+      expect(messages[0].hidden).toBe(true);
+      expect(messages[0].role).toBe('user');
+      expect(messages[1].role).toBe('assistant');
+      expect(messages[1].hidden).toBeUndefined();
+    });
+  });
+
+  describe('AC4 - onboarding auto-apply', () => {
+    it('AC4.1: onboarding mode auto-applies proposal and nulls pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: 'Build strength', age: '35' },
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(fakeSetSettings).toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('AC4.2: create mode does NOT auto-apply proposal, leaves pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ goals: 'Build strength' });
+    });
+
+    it('AC4.3: failed validation is swallowed, conversation continues', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore({
+        setSettings: jest.fn().mockImplementation(() => {
+          throw new DraftValidationError('Invalid field');
+        }),
+      });
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: '' }, // empty proposal
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(store.getState().status).toBe('idle'); // not errored
+      expect(store.getState().messages).toContainEqual(expect.objectContaining({ role: 'assistant' }));
+      expect(store.getState().pendingSettingsProposal).toBeNull(); // swallowed
+    });
+
+    it('AC4.4: write invalidates cached prompt without bumping generation', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Let me get your info',
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      await store.getState().send('Tell me about myself');
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Next question' });
+      await store.getState().send('I am 35');
+
+      // buildSystem is called again because cached system was invalidated
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+    });
+
+    it('AC4.5: turn from reset conversation is discarded', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+
+      const p1 = store.getState().send('message 1');
+
+      // Reset while the request is in flight
+      store.getState().reset({ kind: 'onboarding' });
+
+      fakeChat.mockResolvedValueOnce({
+        reply: 'response to message 1',
+        settingsProposal: { goals: 'Old proposal' },
+      });
+
+      await p1;
+
+      // The old response should be discarded
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+      expect(store.getState().messages).toHaveLength(0); // reset cleared messages
     });
   });
 });
