@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { OnboardingCard } from '@/components/OnboardingCard';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { activeSessionStore } from '@/state/activeSession';
 import { database } from '@/db';
@@ -242,9 +243,17 @@ export default function TodayScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
-        <ThemedView style={styles.content}>
-          {renderContent()}
-        </ThemedView>
+        {/* The card is a SIBLING of the content, not a ScrollView child. An
+            earlier version wrapped both in a ScrollView whose contentContainer
+            had no flexGrow, which collapsed every renderContent() branch to
+            zero height — each returns a flex:1 root, so their hypothetical main
+            size is 0, the auto-height container sums to padding, and grow has
+            nothing to distribute. The routine list would have been invisible.
+            This is the PR #66 regression AGENTS.md records, and 1665 green
+            tests did not see it. safeArea is already flex:1 with a gap, so the
+            card needs no container of its own. */}
+        <OnboardingCard />
+        <ThemedView style={styles.content}>{renderContent()}</ThemedView>
       </View>
     </ThemedView>
   );

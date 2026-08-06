@@ -21,7 +21,8 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { getSettings } from '@/state/settings';
+import { getSettings, setSettings } from '@/state/settings';
+import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
 const HEADER_TITLES = {
@@ -35,20 +36,25 @@ export default function AiCoachScreen() {
   const router = useRouter();
   const theme = useTheme();
   const isDark = useIsDark();
-  const { routineId, debriefSessionId } = useLocalSearchParams<{
+  const { routineId, debriefSessionId, onboarding } = useLocalSearchParams<{
     routineId?: string;
     debriefSessionId?: string;
+    onboarding?: string;
   }>();
   const store = getAiChatStore();
   // Stable per set of params, so it doubles as the identity of the conversation
   // these params ask for.
   const mode = useMemo(
-    () => aiCoachModeFromParams({ routineId, debriefSessionId }),
-    [routineId, debriefSessionId]
+    () => aiCoachModeFromParams({
+      routineId,
+      debriefSessionId,
+      onboarding: onboarding === '1' ? '1' : undefined,
+    }),
+    [routineId, debriefSessionId, onboarding]
   );
   // Guard on a derived string key rather than useMemo object identity, which React
   // does not guarantee to cache. Use the key to detect when params change.
-  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}`;
+  const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}:${onboarding ?? ''}`;
   const startedModeRef = useRef<string | null>(null);
 
   // Start the conversation before paint on first mount (and whenever the params
@@ -66,6 +72,10 @@ export default function AiCoachScreen() {
       // A debrief is the coach's conversation to open; the store sends the
       // first turn so the user arrives to a question, not a blank thread.
       void store.getState().openDebrief(mode);
+    } else if (mode.kind === 'onboarding') {
+      // Onboarding is also a coach-speaks-first conversation; the store sends
+      // the opening turn so the user arrives to a question, not a blank thread.
+      void store.getState().openOnboarding();
     } else {
       store.getState().reset(mode);
     }
@@ -324,6 +334,35 @@ export default function AiCoachScreen() {
             </Pressable>
           </View>
         </KeyboardAvoidingView>
+
+        {mode.kind === 'onboarding' && (
+          <View style={[styles.optOutContainer, { borderTopColor: theme.backgroundSelected }]}>
+            <Pressable
+              style={({ pressed }) => [styles.optOutButton, pressed && styles.pressed]}
+              onPress={() => {
+                // Close the conversation FIRST. The opening turn is auto-sent on
+                // mount and this button is live while it is still in flight —
+                // which is exactly when an impatient user taps it. Without the
+                // reset, that response lands afterwards, auto-applies in
+                // onboarding mode, and writes both the profile patch and
+                // `onboardingState: 'completed'` — silently reverting the
+                // opt-out and overwriting settings for a user who just declined
+                // the interview. reset() bumps `generation`, and the store's
+                // existing guard discards the late response. That is what the
+                // counter is for.
+                store.getState().reset({ kind: 'create' });
+                setSettings(optOutPatch(getSettings()));
+                // replace, not push: this screen stays mounted under a pushed
+                // route, so the settings screen's back control would return the
+                // user to the abandoned, now-blank onboarding chat — still
+                // headed "Meet Your Coach", but running create-mode turns.
+                router.replace('/settings/ai');
+              }}
+            >
+              <ThemedText style={styles.optOutButtonText}>I&apos;ll fill this in myself</ThemedText>
+            </Pressable>
+          </View>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -934,6 +973,25 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sendButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  optOutContainer: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderTopWidth: 1,
+    // borderTopColor is theme-resolved inline — a hardcoded black at 10% is
+    // invisible against the dark-mode background.
+  },
+  optOutButton: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 6,
+    backgroundColor: ActionButtonColor.secondary,
+    alignItems: 'center',
+  },
+  optOutButtonText: {
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,

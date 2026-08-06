@@ -8,12 +8,16 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
+import { ONBOARDING_ROUTE } from '@/state/coachOnboarding';
 
 type AiSettingsPatch = Partial<{
   anthropicKey: string;
   aiGoals: string;
   aiEquipment: string;
   aiPersonality: string;
+  profileAge: string;
+  profileGender: string;
+  profileExperience: string;
 }>;
 
 const AUTOSAVE_DELAY_MS = 500;
@@ -25,6 +29,9 @@ export default function AiCoachSettingsScreen() {
   const [aiGoals, setAiGoals] = useState(() => getSettings().aiGoals);
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
   const [aiPersonality, setAiPersonality] = useState(() => getSettings().aiPersonality);
+  const [profileAge, setProfileAge] = useState(() => getSettings().profileAge);
+  const [profileGender, setProfileGender] = useState(() => getSettings().profileGender);
+  const [profileExperience, setProfileExperience] = useState(() => getSettings().profileExperience);
 
   const pendingRef = useRef<AiSettingsPatch>({});
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,6 +71,9 @@ export default function AiCoachSettingsScreen() {
       setAiGoals(settings.aiGoals);
       setAiEquipment(settings.aiEquipment);
       setAiPersonality(settings.aiPersonality);
+      setProfileAge(settings.profileAge);
+      setProfileGender(settings.profileGender);
+      setProfileExperience(settings.profileExperience);
     }, [flush])
   );
 
@@ -83,10 +93,23 @@ export default function AiCoachSettingsScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        {/* Fits on one screen by construction: contentContainer flexGrow:1 makes
-            the column exactly viewport-height, and the three free-text boxes each
-            take flex:1 to split the leftover space — so at rest the content can
-            never exceed the viewport and there is nothing to scroll.
+        {/* This screen SCROLLS, and no longer fits on one screen by construction.
+            It used to: the three free-text boxes took flex:1 and split the
+            leftover space exactly. Phase 5 added three more label+input groups
+            and a button row — roughly 260pt of fixed content — so the column now
+            overflows the viewport on every phone (measured in yoga-layout: 752pt
+            of content in a 482pt ScrollView on an iPhone SE, clean at 1x-3x
+            Dynamic Type).
+            What `minHeight: 88` on multilineInput actually buys: with the column
+            overflowing, `flex: 1` never receives any free space to distribute, so
+            the three free-text boxes fall back to their intrinsic single-line
+            height — about 35pt, measured — on EVERY iPhone. They do not collapse
+            to zero; an earlier version of this comment said they did, and anyone
+            testing that claim would fail to reproduce it and reasonably delete
+            the constant. The floor is what keeps them ~6 lines tall.
+            Corollary from the same model: `flex: 1` on multilineInput is inert at
+            phone sizes — the boxes sit at exactly minHeight and only grow on
+            ~1000pt+ (iPad) layouts.
             The ScrollView earns its keep only when the keyboard is up:
             automaticallyAdjustKeyboardInsets insets the bottom and scrolls the
             focused field into view. A KeyboardAvoidingView was tried first and
@@ -182,6 +205,79 @@ export default function AiCoachSettingsScreen() {
               multiline
             />
           </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Age
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. 41 or early 40s"
+              placeholderTextColor={placeholderColor}
+              value={profileAge}
+              onChangeText={(value) => {
+                setProfileAge(value);
+                queueSave({ profileAge: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Gender
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. Male, Female, or prefer not to say"
+              placeholderTextColor={placeholderColor}
+              value={profileGender}
+              onChangeText={(value) => {
+                setProfileGender(value);
+                queueSave({ profileGender: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Experience
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="e.g. Beginner, strong squat, terrible overhead"
+              placeholderTextColor={placeholderColor}
+              value={profileExperience}
+              onChangeText={(value) => {
+                setProfileExperience(value);
+                queueSave({ profileExperience: value });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </ThemedView>
+
+          <View style={styles.buttonRow}>
+            <Pressable
+              style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+              onPress={() => {
+                // Flush before navigating. router.push leaves this screen
+                // MOUNTED, so neither the unmount effect nor useFocusEffect
+                // fires — unlike the back button at the top, which unmounts.
+                // Without this, an edit made in the last 500ms is still sitting
+                // in pendingRef: the interview starts blind to it, and worse,
+                // when the user comes back useFocusEffect flushes that stale
+                // patch OVER whatever the coach wrote during the conversation.
+                flush();
+                router.push(ONBOARDING_ROUTE);
+              }}
+            >
+              <ThemedText style={styles.startButtonText}>Start/Redo</ThemedText>
+            </Pressable>
+          </View>
         </ScrollView>
       </View>
     </ThemedView>
@@ -262,6 +358,32 @@ const styles = StyleSheet.create({
   },
   multilineInput: {
     flex: 1,
+    // Floor for the free-text boxes. Without it they render at their intrinsic
+    // single-line height (~35pt, measured in yoga-layout) on every phone-sized
+    // viewport, because the column overflows and `flex: 1` gets no free space.
+    minHeight: 88,
     textAlignVertical: 'top',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginTop: Spacing.one,
+  },
+  startButton: {
+    flex: 1,
+    paddingVertical: Spacing.two,
+    borderRadius: 6,
+    backgroundColor: ActionButtonColor.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  startButtonPressed: {
+    opacity: 0.6,
+  },
+  startButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
