@@ -17,6 +17,7 @@ import {
 import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
 import { getSettings, setSettings } from '@/state/settings';
 import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
+import { ONBOARDING_OPENING_MESSAGE } from '@/state/coachOnboarding';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
@@ -42,6 +43,7 @@ interface AiChatState {
   error: AiChatError | null;
   reset(mode: AiCoachMode): void;
   openDebrief(mode: DebriefMode): Promise<void>;
+  openOnboarding(): Promise<void>;
   send(text: string): Promise<void>;
   retry(): Promise<void>;
   acceptDraft(): Promise<string | null>;
@@ -72,6 +74,17 @@ function mapError(error: unknown): AiChatError {
   } else {
     return { kind: 'unknown' };
   }
+}
+
+function buildSettingsPatch(proposal: SettingsProposal): Parameters<typeof setSettings>[0] {
+  const patch: Parameters<typeof setSettings>[0] = {};
+  if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
+  if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
+  if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
+  if (proposal.age !== undefined) patch.profileAge = proposal.age;
+  if (proposal.gender !== undefined) patch.profileGender = proposal.gender;
+  if (proposal.experience !== undefined) patch.profileExperience = proposal.experience;
+  return patch;
 }
 
 export function createAiChatStore(deps: AiChatDeps) {
@@ -127,21 +140,73 @@ export function createAiChatStore(deps: AiChatDeps) {
       try {
         const turn = await performRequest(messages, mode, apiKey, gen);
         if (generation !== gen) return;
-        set((currentState) => ({
-          messages: [
-            ...currentState.messages,
-            {
-              role: 'assistant',
-              content: JSON.stringify(turn),
-              turn,
-            },
-          ],
-          status: 'idle',
-          pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
-          pendingSettingsProposal: turn.settingsProposal
-            ? turn.settingsProposal
-            : currentState.pendingSettingsProposal,
-        }));
+
+        // Auto-apply settings proposal ONLY in onboarding mode
+        if (mode.kind === 'onboarding' && turn.settingsProposal) {
+          try {
+            // Validate twice: structured output is not a guarantee, and this is the
+            // last point before the values reach persistent storage.
+            const proposal = validateSettingsProposal(turn.settingsProposal);
+
+            const patch = buildSettingsPatch(proposal);
+            deps.setSettings(patch);
+            // Mark onboarding as completed on first successful write
+            deps.setSettings({ onboardingState: 'completed' });
+
+            // The cached prompt embeds goals, equipment, and coaching style, so it is
+            // now stale. Clear it without bumping `generation`: the conversation
+            // carries on and an in-flight response must still be committed.
+            invalidateCachedSystem();
+
+            // Add the turn and move to idle, proposal is NOT pending in onboarding
+            set((currentState) => ({
+              messages: [
+                ...currentState.messages,
+                {
+                  role: 'assistant',
+                  content: JSON.stringify(turn),
+                  turn,
+                },
+              ],
+              status: 'idle',
+              pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+              pendingSettingsProposal: null, // Do NOT leave proposal pending in onboarding
+            }));
+          } catch (error) {
+            // Proposal validation failed: swallow the error, continue conversation, render turn
+            if (generation !== gen) return;
+            set((currentState) => ({
+              messages: [
+                ...currentState.messages,
+                {
+                  role: 'assistant',
+                  content: JSON.stringify(turn),
+                  turn,
+                },
+              ],
+              status: 'idle',
+              pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+              pendingSettingsProposal: null, // Do NOT leave proposal pending even if validation failed
+            }));
+          }
+        } else {
+          // Non-onboarding modes: leave proposal pending for user approval card
+          set((currentState) => ({
+            messages: [
+              ...currentState.messages,
+              {
+                role: 'assistant',
+                content: JSON.stringify(turn),
+                turn,
+              },
+            ],
+            status: 'idle',
+            pendingDraft: turn.draft ? turn.draft : currentState.pendingDraft,
+            pendingSettingsProposal: turn.settingsProposal
+              ? turn.settingsProposal
+              : currentState.pendingSettingsProposal,
+          }));
+        }
       } catch (error) {
         if (generation !== gen) return;
         set({
@@ -206,6 +271,19 @@ export function createAiChatStore(deps: AiChatDeps) {
         await startTurn(newMessages, mode);
       },
 
+      async openOnboarding() {
+        // Onboarding is a conversation the coach starts, so the opening turn is
+        // sent for the user. Going through reset() first keeps the generation
+        // and prompt-cache rules identical to every other conversation start.
+        const startMode: AiCoachMode = { kind: 'onboarding' };
+        get().reset(startMode);
+
+        // Send the opening message but mark it hidden: the user never typed it,
+        // and the AI's greeting should be the first visible message.
+        const newMessages: AiDisplayMessage[] = [{ role: 'user', content: ONBOARDING_OPENING_MESSAGE, hidden: true }];
+        await startTurn(newMessages, startMode);
+      },
+
       async send(text: string) {
         const state = get();
 
@@ -265,13 +343,7 @@ export function createAiChatStore(deps: AiChatDeps) {
         // leaves the proposal pending so the card stays on screen.
         const proposal = validateSettingsProposal(state.pendingSettingsProposal);
 
-        // Build the patch from present fields only — spreading an explicit
-        // `undefined` over the settings cache would blank the other fields.
-        const patch: Parameters<typeof setSettings>[0] = {};
-        if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
-        if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
-        if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
-
+        const patch = buildSettingsPatch(proposal);
         deps.setSettings(patch);
 
         // The cached prompt embeds goals, equipment, and coaching style, so it is

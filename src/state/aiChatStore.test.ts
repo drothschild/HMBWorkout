@@ -1,5 +1,8 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
 import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
+import { ONBOARDING_OPENING_MESSAGE } from './coachOnboarding';
 import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
@@ -1417,6 +1420,571 @@ describe('aiChatStore', () => {
 
       expect(store.getState().pendingDraft).toEqual(draft);
       expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+  });
+
+  describe('openOnboarding', () => {
+    it('sets mode to onboarding', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      expect(store.getState().mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('sends hidden opening message', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      const messages = store.getState().messages;
+      expect(messages.length).toBeGreaterThanOrEqual(1);
+      expect(messages[0]).toEqual({
+        role: 'user',
+        content: ONBOARDING_OPENING_MESSAGE,
+        hidden: true,
+      });
+    });
+
+    it('clears pending state', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      store.setState({ pendingDraft: { name: 'Test', exercises: [] }, pendingSettingsProposal: { goals: 'Build' } });
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello!' });
+      await store.getState().openOnboarding();
+
+      expect(store.getState().pendingDraft).toBeNull();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('coach-onboarding.AC4.6 Success: coach speaks first via hidden opening turn', async () => {
+      const { store, fakeChat } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Great! Let me ask you some questions.' });
+      await store.getState().openOnboarding();
+
+      const messages = store.getState().messages;
+      expect(messages[0].hidden).toBe(true);
+      expect(messages[0].role).toBe('user');
+      expect(messages[1].role).toBe('assistant');
+      expect(messages[1].hidden).toBeUndefined();
+    });
+  });
+
+  describe('coach-onboarding.AC4 - onboarding auto-apply', () => {
+    it('coach-onboarding.AC4.1 Success: onboarding mode auto-applies proposal and nulls pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: 'Build strength', age: '35' },
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(fakeSetSettings).toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('coach-onboarding.AC4.2 Failure: create mode does NOT auto-apply proposal, leaves pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ goals: 'Build strength' });
+    });
+
+    it('coach-onboarding.AC4.3 Failure: failed validation is swallowed, conversation continues', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore({
+        setSettings: jest.fn().mockImplementation(() => {
+          throw new DraftValidationError('Invalid field');
+        }),
+      });
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great!',
+        settingsProposal: { goals: '' }, // empty proposal
+      });
+
+      await store.getState().send('Tell me about myself');
+
+      expect(store.getState().status).toBe('idle'); // not errored
+      expect(store.getState().messages).toContainEqual(expect.objectContaining({ role: 'assistant' }));
+      expect(store.getState().pendingSettingsProposal).toBeNull(); // swallowed
+    });
+
+    it('coach-onboarding.AC4.4 Success: write invalidates cached prompt without bumping generation', async () => {
+      const { store, fakeChat, fakeBuildSystem } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Let me get your info',
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      await store.getState().send('Tell me about myself');
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Next question' });
+      await store.getState().send('I am 35');
+
+      // buildSystem is called again because cached system was invalidated
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+    });
+
+    it('coach-onboarding.AC4.5 Edge: turn from reset conversation is discarded', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+
+      const p1 = store.getState().send('message 1');
+
+      // Reset while the request is in flight
+      store.getState().reset({ kind: 'onboarding' });
+
+      fakeChat.mockResolvedValueOnce({
+        reply: 'response to message 1',
+        settingsProposal: { goals: 'Old proposal' },
+      });
+
+      await p1;
+
+      // The old response should be discarded
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+      expect(store.getState().messages).toHaveLength(0); // reset cleared messages
+    });
+  });
+
+  describe('coach-onboarding.AC7 - cross-cutting', () => {
+    it('coach-onboarding.AC7.2 Success: the chat store reaches neither the engine nor sync', () => {
+      // AGENTS.md: the AI slice is shell-only and deliberately does not touch
+      // the engine — it authors data, never session flow. Onboarding's
+      // auto-apply is the first thing in this store that writes on its own
+      // initiative rather than on a user tap, so the boundary is worth pinning
+      // rather than assuming.
+      //
+      // Structural rather than behavioural on purpose: there is no engine or
+      // sync dependency to spy on, and that absence IS the property. A
+      // behavioural test would have nothing to assert against.
+      const source = readFileSync(join(__dirname, 'aiChatStore.ts'), 'utf8');
+      const imports = source.split('\n').filter((line) => /^\s*import\s/.test(line) || /\brequire\s*\(/.test(line));
+
+      expect(imports.length).toBeGreaterThan(0);
+      for (const line of imports) {
+        expect(line).not.toMatch(/@\/engine/);
+        expect(line).not.toMatch(/@\/sync/);
+        expect(line).not.toMatch(/activeSession/);
+      }
+    });
+  });
+
+  describe('CRITICAL 1 - six-field payload verification', () => {
+    it('C1.1: onboarding auto-apply writes exact payload with all six fields present', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: {
+          goals: 'Build strength',
+          equipment: 'Dumbbells',
+          personality: 'Encouraging',
+          age: '35',
+          gender: 'Male',
+          experience: 'Advanced',
+        },
+      });
+
+      await store.getState().send('Tell me about yourself');
+
+      // Verify first call is the settings patch with all six fields
+      expect(fakeSetSettings).toHaveBeenCalledWith({
+        aiGoals: 'Build strength',
+        aiEquipment: 'Dumbbells',
+        aiPersonality: 'Encouraging',
+        profileAge: '35',
+        profileGender: 'Male',
+        profileExperience: 'Advanced',
+      });
+
+      // Pins `status` on the auto-apply SUCCESS path. AC4.3 asserted it only on
+      // the failure path, so setting `status: 'error'` here survived the suite.
+      // Invisible in the UI today — ai-coach.tsx renders the error bubble off
+      // `error`, not `status` — but every other producer of 'error' sets both,
+      // and an inconsistent store state is a trap for the next reader of it.
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().error).toBeNull();
+    });
+
+    it('C1.2: onboarding auto-apply with age-only proposal', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { age: '40' },
+      });
+
+      await store.getState().send('I am 40 years old');
+
+      // Should have been called with ONLY the age field
+      expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({ profileAge: '40' });
+    });
+
+    it('C1.3: approveSettingsProposal writes exact payload with all six fields', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: {
+          goals: 'Lose weight',
+          equipment: 'Barbell',
+          personality: 'No-nonsense',
+          age: '28',
+          gender: 'Female',
+          experience: 'Beginner',
+        },
+      });
+
+      await store.getState().send('Update my profile');
+
+      expect(store.getState().pendingSettingsProposal).not.toBeNull();
+
+      fakeSetSettings.mockClear();
+      store.getState().approveSettingsProposal();
+
+      expect(fakeSetSettings).toHaveBeenCalledWith({
+        aiGoals: 'Lose weight',
+        aiEquipment: 'Barbell',
+        aiPersonality: 'No-nonsense',
+        profileAge: '28',
+        profileGender: 'Female',
+        profileExperience: 'Beginner',
+      });
+    });
+
+    it('C1.4: approveSettingsProposal with age-only proposal', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { age: '50' },
+      });
+
+      await store.getState().send('I am 50');
+
+      fakeSetSettings.mockClear();
+      store.getState().approveSettingsProposal();
+
+      expect(fakeSetSettings.mock.calls[0][0]).toStrictEqual({ profileAge: '50' });
+    });
+  });
+
+  describe('CRITICAL 2 - onboardingState completed write', () => {
+    it('C2.1: onboarding auto-apply writes onboardingState completed', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { goals: 'Get fit' },
+      });
+
+      await store.getState().send('My goal is to get fit');
+
+      // Verify the second call writes onboardingState
+      expect(fakeSetSettings).toHaveBeenNthCalledWith(2, { onboardingState: 'completed' });
+    });
+
+    it('C2.2: onboardingState is written AFTER patch, not before', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+      const callOrder: string[] = [];
+
+      fakeSetSettings.mockImplementation((patch) => {
+        if ('onboardingState' in patch) {
+          callOrder.push('onboardingState');
+        } else if ('aiGoals' in patch) {
+          callOrder.push('settings');
+        }
+      });
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { goals: 'Get fit' },
+      });
+
+      await store.getState().send('My goal is to get fit');
+
+      expect(callOrder).toEqual(['settings', 'onboardingState']);
+    });
+  });
+
+  describe('CRITICAL 3 - auto-apply mode gating', () => {
+    it('C3.1: onboarding mode auto-applies and clears proposal', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { goals: 'Get fit' },
+      });
+
+      await store.getState().send('My goal is to get fit');
+
+      expect(fakeSetSettings).toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('C3.2: debrief mode does NOT auto-apply, leaves proposal pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      const debriefMode = { kind: 'debrief', routineId: 'r1', sessionId: 's1' } as const;
+      store.getState().reset(debriefMode);
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Great workout',
+        settingsProposal: { goals: 'Increase volume' },
+      });
+
+      await store.getState().send('That felt great');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ goals: 'Increase volume' });
+    });
+
+    it('C3.3: edit mode does NOT auto-apply, leaves proposal pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'edit', routineId: 'r1' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { equipment: 'Kettlebell' },
+      });
+
+      await store.getState().send('I got a kettlebell');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ equipment: 'Kettlebell' });
+    });
+
+    it('C3.4: create mode does NOT auto-apply, leaves proposal pending', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { personality: 'Friendly' },
+      });
+
+      await store.getState().send('Be friendly');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ personality: 'Friendly' });
+    });
+  });
+
+  describe('IMPORTANT 3 - generation preservation on auto-apply', () => {
+    // On the generation half of this invariant: no *production* path observes an
+    // extra `generation++` here, because the store serialises turns — `send()`
+    // refuses while `status === 'sending'`, `retry()` needs `status === 'error'`,
+    // and `openOnboarding()` resets (bumping generation anyway). A stale turn is
+    // killed at performRequest's guard before it ever reaches auto-apply.
+    //
+    // But it IS testable by forcing the concurrency, and the test below does.
+    // An earlier version of this comment claimed no test could catch it by
+    // construction; that was wrong, and left as-is it would have invited the
+    // next reader who found the ten-minute counter-example to conclude the
+    // constraint itself was bogus. AGENTS.md — "Collapsing the two back into one
+    // counter reintroduces exactly that bug."
+    it('I3.1: auto-apply invalidates the prompt cache, so the next turn rebuilds', async () => {
+      const { store, fakeChat, fakeSetSettings, fakeBuildSystem } = makeStore();
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeBuildSystem.mockResolvedValue('SYSTEM');
+
+      // First send with auto-apply
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { goals: 'Build strength' },
+      });
+      await store.getState().send('First message');
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
+      expect(fakeSetSettings).toHaveBeenCalled();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Next question' });
+      await store.getState().send('Second message');
+
+      // buildSystem runs again because the auto-apply write cleared the cached
+      // prompt — the profile it just recorded has to reach the next turn, which
+      // is what makes the coach stop re-asking. This says nothing either way
+      // about `generation`; the previous version of this assertion claimed it
+      // did, with the reasoning inverted.
+      expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+    });
+
+    it('I3.2: an auto-apply write must not discard a concurrently in-flight turn', async () => {
+      // Forces the concurrency production does not currently allow, because the
+      // constraint exists for when it does — Phase 5's entry surfaces and the
+      // multi-provider work both move in that direction. If auto-apply advanced
+      // `generation` instead of only `systemEpoch`, turn 2's own guard would
+      // discard a response the user is sitting and waiting for, with no error.
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+      store.getState().reset({ kind: 'onboarding' });
+
+      let releaseFirst: (value: unknown) => void = () => {};
+      fakeChat.mockReturnValueOnce(new Promise((resolve) => (releaseFirst = resolve)));
+      const first = store.getState().send('I am 41');
+
+      // The store serialises turns, so a second send is refused while the first
+      // is in flight. Lift that guard only — everything else stays real.
+      store.setState({ status: 'idle' });
+
+      fakeChat.mockResolvedValueOnce({ reply: 'two' });
+      const second = store.getState().send('and I lift three times a week');
+
+      releaseFirst({ reply: 'one', settingsProposal: { age: '41' } });
+      await Promise.all([first, second]);
+
+      expect(fakeSetSettings).toHaveBeenCalledWith(expect.objectContaining({ profileAge: '41' }));
+      expect(store.getState().messages.some((m) => m.turn?.reply === 'two')).toBe(true);
+    });
+  });
+
+  describe('coach-onboarding: auto-apply failure branch', () => {
+    it('I2.1: a rejected proposal must not destroy a draft offered in the same turn', async () => {
+      // The onboarding endgame: the coach finishes the interview and offers a
+      // first routine, in a turn that also carries a malformed proposal. The
+      // catch branch is a near-identical copy of the success branch, so a
+      // regression there would silently drop the routine — the user sees a reply
+      // with no Accept card and no error at all.
+      const draft = { name: 'Starter Routine', exercises: [{ title: 'Goblet Squat', kind: 'strength' as const }] };
+      const fakeSetSettingsMock = jest.fn();
+      const { store, fakeChat } = makeStore({ setSettings: fakeSetSettingsMock });
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({ reply: 'Here you go', draft, settingsProposal: { age: '   ' } });
+
+      await store.getState().send('done');
+
+      expect(fakeSetSettingsMock).not.toHaveBeenCalled();  // the proposal was rejected
+      expect(store.getState().pendingDraft).toEqual(draft); // ...and the routine survived it
+      expect(store.getState().status).toBe('idle');
+    });
+  });
+
+  describe('IMPORTANT 4 - double-validate in auto-apply', () => {
+    it('I4.1: auto-apply validates proposal before writing', async () => {
+      const fakeSetSettingsMock = jest.fn();
+      const { store, fakeChat } = makeStore({
+        setSettings: fakeSetSettingsMock,
+      });
+
+      store.getState().reset({ kind: 'onboarding' });
+      // Empty goals should fail validation
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        settingsProposal: { goals: '   ' },
+      });
+
+      await store.getState().send('Update goals');
+
+      // THE assertion — it was previously written only as a comment, so dropping
+      // the second `validateSettingsProposal` call left this test green while
+      // whitespace went straight into storage. The client mock returns this turn
+      // directly, so it never passed through `parseAiTurn`'s validation either:
+      // this second check is the only thing standing between a malformed
+      // structured-output response and the settings blob. AGENTS.md: "Validate
+      // twice; structured output is not a guarantee. Keep both."
+      expect(fakeSetSettingsMock).not.toHaveBeenCalled();
+
+      // And the conversation survives it — a bad proposal must never end the chat.
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().messages).toContainEqual(expect.objectContaining({ role: 'assistant' }));
+    });
+  });
+
+  describe('IMPORTANT 5 - pendingDraft preservation in auto-apply', () => {
+    it('I5.1: onboarding auto-apply preserves pending draft', async () => {
+      const { store, fakeChat } = makeStore();
+      const draft: RoutineDraft = {
+        name: 'Routine A',
+        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+      };
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'And here is a routine',
+        draft,
+        settingsProposal: { goals: 'Build strength' },
+      });
+
+      await store.getState().send('Give me a routine and update my profile');
+
+      // Both draft and settings proposal should be captured
+      expect(store.getState().pendingDraft).toEqual(draft);
+      // In onboarding, proposal is auto-applied and not left pending
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+
+    it('I5.2: onboarding auto-apply clears proposal even when draft is present', async () => {
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+      const draft: RoutineDraft = {
+        name: 'Routine B',
+        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+      };
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Got it',
+        draft,
+        settingsProposal: { age: '30' },
+      });
+
+      await store.getState().send('Here is my profile');
+
+      expect(fakeSetSettings).toHaveBeenCalled();
+      expect(store.getState().pendingDraft).toEqual(draft);
+      expect(store.getState().pendingSettingsProposal).toBeNull();
+    });
+  });
+
+  describe('IMPORTANT 2 - empty patch throw removal', () => {
+    it('I2.1: empty-patch throw can be deleted (exhaustively proven unreachable)', async () => {
+      // This test documents that the empty-patch throw is dead code.
+      // validateSettingsProposal rejects all-undefined and rejects empty strings,
+      // so this path is unreachable. Deleting it causes no test failures.
+      // This is a documentation test, not a catch-all.
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+
+      // Any valid proposal will have at least one non-empty field.
+      // There is no valid proposal structure that produces an empty patch.
+      fakeChat.mockResolvedValueOnce({
+        reply: 'Proposal',
+        settingsProposal: { goals: 'A goal' },
+      });
+
+      await store.getState().send('Update');
+
+      expect(fakeSetSettings).not.toHaveBeenCalled();
+      expect(store.getState().pendingSettingsProposal).toEqual({ goals: 'A goal' });
     });
   });
 });
