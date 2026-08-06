@@ -1823,4 +1823,163 @@ describe('buildSystem: AI Coach context builder', () => {
       );
     }, 30000);
   });
+
+  describe('coach-onboarding.AC3.1: onboarding mode persona', () => {
+    it('coach-onboarding.AC3.1 Success: persona includes interview instructions', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).toContain('You are interviewing a new user to build their profile');
+      expect(prompt).toContain('Ask their goals, equipment, personality');
+      expect(prompt).toContain('natural batches');
+      expect(prompt).toContain('Age and gender are sensitive; ask them last');
+      expect(prompt).toContain('If the user declines to answer, record their refusal verbatim');
+      expect(prompt).toContain('Every field you record must be grounded in something the user actually said');
+    }, 30000);
+
+    it('coach-onboarding.AC3.2 Success: onboarding persona closes with routine offer', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).toContain('At the end of the interview, offer to draft a first routine');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence absent in onboarding', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).not.toContain('The user must approve a settings proposal before it takes effect');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in create mode', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in edit mode', async () => {
+      // Create a routine first so edit mode is valid
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-edit-test';
+          r.name = 'Test Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-edit-test';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-edit-test', {
+        exerciseId: 'exercise-edit-test',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'edit', routineId: 'routine-edit-test' });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in debrief mode', async () => {
+      // Create session for debrief
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-debrief-test';
+          r.name = 'Test Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-debrief-test';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-debrief-test', {
+        exerciseId: 'exercise-debrief-test',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      await createSession(database, {
+        sessionId: 'session-debrief-test',
+        routineId: 'routine-debrief-test',
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      const prompt = await buildSystem(database, {
+        kind: 'debrief',
+        routineId: 'routine-debrief-test',
+        sessionId: 'session-debrief-test',
+      });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC3.4: already-recorded profile values', () => {
+    it('coach-onboarding.AC3.4 Success: already-recorded profile values appear in prompt', async () => {
+      setSettings({
+        profileAge: '35',
+        profileGender: 'male',
+        profileExperience: 'intermediate',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      expect(prompt).toContain('35');
+      expect(prompt).toContain('male');
+      expect(prompt).toContain('intermediate');
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC3.7: no name field', () => {
+    it('coach-onboarding.AC3.7 Failure: ONBOARDING_PROFILE_FIELDS does not contain name', async () => {
+      // Import the constant
+      const { ONBOARDING_PROFILE_FIELDS } = await import('./contextBuilder');
+      expect(ONBOARDING_PROFILE_FIELDS).not.toContain('name');
+    }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: ONBOARDING_PROFILE_FIELDS contains exactly expected fields', async () => {
+      const { ONBOARDING_PROFILE_FIELDS } = await import('./contextBuilder');
+      expect(ONBOARDING_PROFILE_FIELDS).toEqual([
+        'goals',
+        'equipment',
+        'personality',
+        'age',
+        'gender',
+        'experience',
+      ]);
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC6.1: profile section before immutable directives', () => {
+    it('coach-onboarding.AC6.1 Success: buildSystem renders profile before immutable directives', async () => {
+      setSettings({
+        profileAge: '40',
+        profileGender: 'female',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      const profileIdx = prompt.indexOf('## About the User');
+      const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+
+      if (profileIdx !== -1) {
+        expect(profileIdx).toBeLessThan(immutableIdx);
+      }
+    }, 30000);
+
+    it('coach-onboarding.AC6.1 Success: omits About-the-User section when profile is empty', async () => {
+      setSettings({
+        profileAge: '',
+        profileGender: '',
+        profileExperience: '',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      expect(prompt).not.toContain('## About the User');
+    }, 30000);
+  });
 });

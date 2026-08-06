@@ -22,7 +22,18 @@ import { OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES } from './coachDirectives'
  */
 export type DebriefMode = { kind: 'debrief'; routineId: string; sessionId: string };
 
-export type AiCoachMode = { kind: 'create' } | { kind: 'edit'; routineId: string } | DebriefMode;
+export type AiCoachMode =
+  | { kind: 'create' }
+  | { kind: 'edit'; routineId: string }
+  | DebriefMode
+  | { kind: 'onboarding' };
+
+/**
+ * The profile fields collected during onboarding interviews.
+ * No "name" field exists — users may volunteer names in conversation,
+ * but the coach never solicits or persists them.
+ */
+export const ONBOARDING_PROFILE_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
 
 type RoutineWithDetail = { routine: RoutineListItem; detail: RoutineDetail | null };
 
@@ -84,6 +95,12 @@ export async function buildSystem(
   sections.push(goalsSection());
   sections.push(equipmentSection());
   sections.push(personalitySection());
+
+  // About-the-User section: already-recorded profile values before immutable directives
+  const aboutUser = aboutTheUserSection();
+  if (aboutUser) {
+    sections.push(aboutUser);
+  }
 
   // Build routine details once, reuse for both routines and history sections
   const routines = await routineListPresenter(db);
@@ -180,7 +197,7 @@ ${immutable.trim()}`;
 }
 
 function personaSection(mode: AiCoachMode): string {
-  const persona = `You are a strength-training coach inside a workout-logging app.
+  const basePersona = `You are a strength-training coach inside a workout-logging app.
 
 Every response must be valid JSON with this structure:
 {
@@ -204,7 +221,12 @@ Exercise schema (inside draft.exercises):
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
 
-The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below — its "goals", "equipment", and "personality" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style — a workout question is not such a request. The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.
+The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below — its "goals", "equipment", and "personality" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style — a workout question is not such a request.`;
+
+  // Only add approval sentence in non-onboarding modes
+  const settingsApprovalText = mode.kind === 'onboarding' ? '' : ` The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.`;
+
+  const persona = `${basePersona}${settingsApprovalText}
 
 Settings proposal constraints:
 - A settings proposal must include at least one of "goals", "equipment", or "personality"
@@ -222,16 +244,26 @@ Planning from history:
 - Every set in "Recent Training History" carries the date it was logged, so read load progression over time from it instead of only echoing the last weight
 - Plan against that history: pace progression from what actually moved, and suggest a lighter week when recent sessions have been both frequent and heavy`;
 
-  if (mode.kind !== 'debrief') {
-    return persona;
+  if (mode.kind === 'onboarding') {
+    return `${persona}
+
+You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, gender, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+
+Every field you record must be grounded in something the user actually said. Do not infer or guess.
+
+At the end of the interview, offer to draft a first routine based on what you've learned about them.`;
   }
 
-  return `${persona}
+  if (mode.kind === 'debrief') {
+    return `${persona}
 
 Debrief mode:
 - The user has just finished the workout summarised under "Just-Finished Workout" below
 - Open the conversation by asking how the workout went before proposing any changes
 - Any draft you propose is a complete revision of the routine the user just performed, for next time`;
+  }
+
+  return persona;
 }
 
 function goalsSection(): string {
@@ -277,6 +309,25 @@ Not specified.`;
   return `## Coaching Style
 
 ${personality}`;
+}
+
+function aboutTheUserSection(): string {
+  const settings = getSettings();
+
+  const parts: string[] = [];
+  if (settings.profileAge?.trim()) parts.push(`Age: ${neutralizeNotesForPrompt(settings.profileAge)}`);
+  if (settings.profileGender?.trim())
+    parts.push(`Gender: ${neutralizeNotesForPrompt(settings.profileGender)}`);
+  if (settings.profileExperience?.trim())
+    parts.push(`Experience: ${neutralizeNotesForPrompt(settings.profileExperience)}`);
+
+  if (parts.length === 0) {
+    return '';
+  }
+
+  return `## About the User
+
+${parts.join('\n')}`;
 }
 
 function routinesSection(routineDetails: RoutineWithDetail[]): string {

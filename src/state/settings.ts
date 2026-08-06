@@ -6,7 +6,7 @@
 
 import type { AiModelConfig, AiProvider } from '@/ai/provider/types';
 
-interface BridgeSettings {
+export interface BridgeSettings {
   baseUrl: string;
   token: string;
   anthropicKey: string;

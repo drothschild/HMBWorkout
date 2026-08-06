@@ -59,6 +59,42 @@ describe('ai-coach route params', () => {
   it('reads a debrief session without a routine as create mode', () => {
     expect(aiCoachModeFromParams({ debriefSessionId: 'session-1' })).toEqual({ kind: 'create' });
   });
+
+  describe('coach-onboarding.AC3.5: onboarding param mapping', () => {
+    it('coach-onboarding.AC3.5 Success: onboarding param (string "1") yields onboarding mode', () => {
+      const mode = aiCoachModeFromParams({ onboarding: '1' });
+      expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('coach-onboarding.AC3.5 Success: onboarding param (boolean true) yields onboarding mode', () => {
+      const mode = aiCoachModeFromParams({ onboarding: true });
+      expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('coach-onboarding.AC3.5 Success: onboarding param takes priority over edit mode', () => {
+      const mode = aiCoachModeFromParams({ onboarding: '1', routineId: 'routine-123' });
+      expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('coach-onboarding.AC3.5 Success: onboarding param takes priority over debrief params', () => {
+      const mode = aiCoachModeFromParams({
+        onboarding: '1',
+        routineId: 'routine-123',
+        debriefSessionId: 'session-456',
+      });
+      expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    it('coach-onboarding.AC3.6 Failure: no onboarding param yields create mode', () => {
+      const mode = aiCoachModeFromParams({});
+      expect(mode).toEqual({ kind: 'create' });
+    });
+
+    it('coach-onboarding.AC3.6 Failure: routineId alone still yields edit mode (unchanged)', () => {
+      const mode = aiCoachModeFromParams({ routineId: 'routine-123' });
+      expect(mode).toEqual({ kind: 'edit', routineId: 'routine-123' });
+    });
+  });
 });
 
 describe('DEBRIEF_OPENING_MESSAGE', () => {
