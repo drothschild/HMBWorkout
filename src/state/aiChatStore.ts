@@ -76,6 +76,17 @@ function mapError(error: unknown): AiChatError {
   }
 }
 
+function buildSettingsPatch(proposal: SettingsProposal): Parameters<typeof setSettings>[0] {
+  const patch: Parameters<typeof setSettings>[0] = {};
+  if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
+  if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
+  if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
+  if (proposal.age !== undefined) patch.profileAge = proposal.age;
+  if (proposal.gender !== undefined) patch.profileGender = proposal.gender;
+  if (proposal.experience !== undefined) patch.profileExperience = proposal.experience;
+  return patch;
+}
+
 export function createAiChatStore(deps: AiChatDeps) {
   // Cache the system prompt for the duration of a conversation
   let cachedSystem: string | null = null;
@@ -137,25 +148,10 @@ export function createAiChatStore(deps: AiChatDeps) {
             // last point before the values reach persistent storage.
             const proposal = validateSettingsProposal(turn.settingsProposal);
 
-            // Build the patch from present fields only — spreading an explicit
-            // `undefined` over the settings cache would blank the other fields.
-            const patch: Parameters<typeof setSettings>[0] = {};
-            if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
-            if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
-            if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
-            if (proposal.age !== undefined) patch.profileAge = proposal.age;
-            if (proposal.gender !== undefined) patch.profileGender = proposal.gender;
-            if (proposal.experience !== undefined) patch.profileExperience = proposal.experience;
-
-            // Only write if patch is non-empty
-            if (Object.keys(patch).length > 0) {
-              deps.setSettings(patch);
-              // Mark onboarding as completed on first successful write
-              deps.setSettings({ onboardingState: 'completed' });
-            } else {
-              // Empty patch should not be silently discarded
-              throw new DraftValidationError('Settings proposal is empty');
-            }
+            const patch = buildSettingsPatch(proposal);
+            deps.setSettings(patch);
+            // Mark onboarding as completed on first successful write
+            deps.setSettings({ onboardingState: 'completed' });
 
             // The cached prompt embeds goals, equipment, and coaching style, so it is
             // now stale. Clear it without bumping `generation`: the conversation
@@ -347,21 +343,7 @@ export function createAiChatStore(deps: AiChatDeps) {
         // leaves the proposal pending so the card stays on screen.
         const proposal = validateSettingsProposal(state.pendingSettingsProposal);
 
-        // Build the patch from present fields only — spreading an explicit
-        // `undefined` over the settings cache would blank the other fields.
-        const patch: Parameters<typeof setSettings>[0] = {};
-        if (proposal.goals !== undefined) patch.aiGoals = proposal.goals;
-        if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
-        if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
-        if (proposal.age !== undefined) patch.profileAge = proposal.age;
-        if (proposal.gender !== undefined) patch.profileGender = proposal.gender;
-        if (proposal.experience !== undefined) patch.profileExperience = proposal.experience;
-
-        // Do not silently discard an empty proposal
-        if (Object.keys(patch).length === 0) {
-          throw new DraftValidationError('Settings proposal is empty');
-        }
-
+        const patch = buildSettingsPatch(proposal);
         deps.setSettings(patch);
 
         // The cached prompt embeds goals, equipment, and coaching style, so it is
