@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, FlatList, View, ScrollView } from 'react-native';
+import { StyleSheet, Pressable, FlatList, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useRef } from 'react';
 
@@ -243,10 +243,17 @@ export default function TodayScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <OnboardingCard />
-          {renderContent()}
-        </ScrollView>
+        {/* The card is a SIBLING of the content, not a ScrollView child. An
+            earlier version wrapped both in a ScrollView whose contentContainer
+            had no flexGrow, which collapsed every renderContent() branch to
+            zero height — each returns a flex:1 root, so their hypothetical main
+            size is 0, the auto-height container sums to padding, and grow has
+            nothing to distribute. The routine list would have been invisible.
+            This is the PR #66 regression AGENTS.md records, and 1665 green
+            tests did not see it. safeArea is already flex:1 with a gap, so the
+            card needs no container of its own. */}
+        <OnboardingCard />
+        <ThemedView style={styles.content}>{renderContent()}</ThemedView>
       </View>
     </ThemedView>
   );
@@ -273,12 +280,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.three,
     width: '100%',
-  },
-  scrollContent: {
-    alignItems: 'stretch',
-    gap: Spacing.three,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
   },
   centered: {
     flex: 1,

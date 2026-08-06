@@ -1,5 +1,6 @@
 import type { BridgeSettings } from '@/state/settings';
 
+import { aiCoachModeFromParams } from './postWorkoutDebrief';
 import {
   shouldShowOnboardingCard,
   ONBOARDING_OPENING_MESSAGE,
@@ -117,11 +118,24 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       expect(Object.keys(dismissOnboardingPatch())).toEqual(['onboardingState']);
     });
 
-    test('coach-onboarding.AC5.5 Success: the route carries the onboarding param', () => {
-      // Without the param aiCoachModeFromParams returns create mode and the user
-      // silently gets an ordinary chat instead of the interview — issue #189.
-      expect(ONBOARDING_ROUTE).toContain('onboarding=1');
-      expect(ONBOARDING_ROUTE.startsWith('/ai-coach')).toBe(true);
+    test('coach-onboarding.AC5.5 Success: the route round-trips to onboarding mode', () => {
+      // Asserts the MECHANISM, not two substrings of the literal. The previous
+      // version (`toContain('onboarding=1')` + `startsWith('/ai-coach')`) was
+      // shown by review to survive both `onboarding=10` and `/ai-coachX` — so it
+      // would have stayed green through the exact bug it names, which is #189:
+      // the param never reaching aiCoachModeFromParams and the user silently
+      // getting an ordinary chat instead of the interview.
+      const [path, query] = ONBOARDING_ROUTE.split('?');
+      expect(path).toBe('/ai-coach');
+
+      const params = Object.fromEntries(new URLSearchParams(query));
+      const mode = aiCoachModeFromParams(params as Parameters<typeof aiCoachModeFromParams>[0]);
+      expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    test('coach-onboarding.AC5.5 Success: onboarding wins over a routineId in the same params', () => {
+      const mode = aiCoachModeFromParams({ onboarding: '1', routineId: 'routine-1' });
+      expect(mode).toEqual({ kind: 'onboarding' });
     });
 
     test('coach-onboarding.AC7.3 Failure: with no key the card is absent whatever the state', () => {

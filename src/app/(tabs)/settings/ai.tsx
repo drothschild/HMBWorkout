@@ -93,10 +93,14 @@ export default function AiCoachSettingsScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        {/* Fits on one screen by construction: contentContainer flexGrow:1 makes
-            the column exactly viewport-height, and the three free-text boxes each
-            take flex:1 to split the leftover space — so at rest the content can
-            never exceed the viewport and there is nothing to scroll.
+        {/* This screen SCROLLS, and no longer fits on one screen by construction.
+            It used to: the three free-text boxes took flex:1 and split the
+            leftover space exactly. Phase 5 added three more label+input groups
+            and a button row — roughly 260pt of fixed content — so on a small
+            device the free space reaches 0, and a flexBasis:0% box with nothing
+            to grow into collapses to HEIGHT ZERO: a label with no input under
+            it. minHeight on the multiline inputs is what stops that, and it is
+            load-bearing rather than cosmetic.
             The ScrollView earns its keep only when the keyboard is up:
             automaticallyAdjustKeyboardInsets insets the bottom and scrolls the
             focused field into view. A KeyboardAvoidingView was tried first and
@@ -250,7 +254,17 @@ export default function AiCoachSettingsScreen() {
           <View style={styles.buttonRow}>
             <Pressable
               style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
-              onPress={() => router.push(ONBOARDING_ROUTE)}
+              onPress={() => {
+                // Flush before navigating. router.push leaves this screen
+                // MOUNTED, so neither the unmount effect nor useFocusEffect
+                // fires — unlike the back button at the top, which unmounts.
+                // Without this, an edit made in the last 500ms is still sitting
+                // in pendingRef: the interview starts blind to it, and worse,
+                // when the user comes back useFocusEffect flushes that stale
+                // patch OVER whatever the coach wrote during the conversation.
+                flush();
+                router.push(ONBOARDING_ROUTE);
+              }}
             >
               <ThemedText style={styles.startButtonText}>Start/Redo</ThemedText>
             </Pressable>
@@ -335,6 +349,10 @@ const styles = StyleSheet.create({
   },
   multilineInput: {
     flex: 1,
+    // Floor for the free-text boxes. Without it they collapse to zero on any
+    // viewport where the screen's fixed content (six labels, three single-line
+    // inputs, the key field, the button row) leaves no free space to distribute.
+    minHeight: 88,
     textAlignVertical: 'top',
   },
   buttonRow: {

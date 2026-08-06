@@ -48,7 +48,7 @@ export default function AiCoachScreen() {
     () => aiCoachModeFromParams({
       routineId,
       debriefSessionId,
-      onboarding: onboarding === '1' ? '1' : (onboarding ? true : undefined),
+      onboarding: onboarding === '1' ? '1' : undefined,
     }),
     [routineId, debriefSessionId, onboarding]
   );
@@ -336,12 +336,23 @@ export default function AiCoachScreen() {
         </KeyboardAvoidingView>
 
         {mode.kind === 'onboarding' && (
-          <View style={styles.optOutContainer}>
+          <View style={[styles.optOutContainer, { borderTopColor: theme.backgroundSelected }]}>
             <Pressable
               style={({ pressed }) => [styles.optOutButton, pressed && styles.pressed]}
               onPress={() => {
+                // Close the conversation FIRST. The opening turn is auto-sent on
+                // mount and this button is live while it is still in flight —
+                // which is exactly when an impatient user taps it. Without the
+                // reset, that response lands afterwards, auto-applies in
+                // onboarding mode, and writes both the profile patch and
+                // `onboardingState: 'completed'` — silently reverting the
+                // opt-out and overwriting settings for a user who just declined
+                // the interview. reset() bumps `generation`, and the store's
+                // existing guard discards the late response. That is what the
+                // counter is for.
+                store.getState().reset({ kind: 'create' });
                 setSettings(dismissOnboardingPatch());
-                router.push('/(tabs)/settings/ai');
+                router.push('/settings/ai');
               }}
             >
               <ThemedText style={styles.optOutButtonText}>I&apos;ll fill this in myself</ThemedText>
@@ -966,7 +977,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+    // borderTopColor is theme-resolved inline — a hardcoded black at 10% is
+    // invisible against the dark-mode background.
   },
   optOutButton: {
     paddingVertical: Spacing.two,

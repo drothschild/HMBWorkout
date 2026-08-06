@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { ThemedView } from '@/components/themed-view';
