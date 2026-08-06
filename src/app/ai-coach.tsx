@@ -22,7 +22,7 @@ import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { getSettings, setSettings } from '@/state/settings';
-import { dismissOnboardingPatch } from '@/state/coachOnboarding';
+import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
 const HEADER_TITLES = {
@@ -351,8 +351,12 @@ export default function AiCoachScreen() {
                 // existing guard discards the late response. That is what the
                 // counter is for.
                 store.getState().reset({ kind: 'create' });
-                setSettings(dismissOnboardingPatch());
-                router.push('/settings/ai');
+                setSettings(optOutPatch(getSettings()));
+                // replace, not push: this screen stays mounted under a pushed
+                // route, so the settings screen's back control would return the
+                // user to the abandoned, now-blank onboarding chat — still
+                // headed "Meet Your Coach", but running create-mode turns.
+                router.replace('/settings/ai');
               }}
             >
               <ThemedText style={styles.optOutButtonText}>I&apos;ll fill this in myself</ThemedText>

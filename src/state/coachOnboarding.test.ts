@@ -6,12 +6,15 @@ import {
   ONBOARDING_OPENING_MESSAGE,
   ONBOARDING_ROUTE,
   dismissOnboardingPatch,
+  optOutPatch,
 } from './coachOnboarding';
 
 describe('coach-onboarding.AC4.6: onboarding constants', () => {
   test('ONBOARDING_OPENING_MESSAGE is a non-empty string', () => {
     expect(typeof ONBOARDING_OPENING_MESSAGE).toBe('string');
-    expect(ONBOARDING_OPENING_MESSAGE.length).toBeGreaterThan(0);
+    // .trim() — a whitespace-only message survived the bare length check,
+    // and would reach the wire as an empty user turn.
+    expect(ONBOARDING_OPENING_MESSAGE.trim().length).toBeGreaterThan(0);
   });
 
   test('shouldShowOnboardingCard: true when onboardingState is unseen and key present', () => {
@@ -136,6 +139,21 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
     test('coach-onboarding.AC5.5 Success: onboarding wins over a routineId in the same params', () => {
       const mode = aiCoachModeFromParams({ onboarding: '1', routineId: 'routine-1' });
       expect(mode).toEqual({ kind: 'onboarding' });
+    });
+
+    test('coach-onboarding.AC5.6 Success: opting out does not walk completed backwards', () => {
+      // If the coach already recorded something this session the state is
+      // 'completed'; writing 'dismissed' over it would move the lifecycle
+      // backwards. Nothing reads 'completed' today, so this is state-machine
+      // correctness rather than a live bug — but the tri-state is documented as
+      // a lifecycle and a future reader of it would be misled.
+      const completed = { onboardingState: 'completed' } as unknown as Parameters<typeof optOutPatch>[0];
+      expect(optOutPatch(completed)).toEqual({});
+
+      for (const state of ['unseen', 'dismissed'] as const) {
+        const settings = { onboardingState: state } as unknown as Parameters<typeof optOutPatch>[0];
+        expect(optOutPatch(settings)).toEqual({ onboardingState: 'dismissed' });
+      }
     });
 
     test('coach-onboarding.AC7.3 Failure: with no key the card is absent whatever the state', () => {

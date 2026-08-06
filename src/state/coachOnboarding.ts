@@ -51,3 +51,23 @@ export const ONBOARDING_ROUTE = '/ai-coach?onboarding=1';
 export function dismissOnboardingPatch(): Pick<BridgeSettings, 'onboardingState'> {
   return { onboardingState: 'dismissed' };
 }
+
+/**
+ * The patch for opting out mid-conversation, which is NOT always a dismissal.
+ *
+ * If the coach already recorded something this session, `onboardingState` is
+ * already `'completed'`, and writing `'dismissed'` over it would walk the
+ * lifecycle backwards. Nothing reads `'completed'` today — only `'unseen'` is
+ * ever tested — so this is a correctness-of-the-state-machine fix rather than a
+ * live bug, but the tri-state is documented as a lifecycle and a future reader
+ * of `'completed'` would be misled.
+ *
+ * Returns an empty patch when there is nothing to change, which `setSettings`
+ * spreads harmlessly.
+ */
+export function optOutPatch(settings: BridgeSettings): Partial<BridgeSettings> {
+  if (settings.onboardingState === 'completed') {
+    return {};
+  }
+  return dismissOnboardingPatch();
+}

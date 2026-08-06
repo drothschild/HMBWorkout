@@ -86,7 +86,6 @@ export function OnboardingCard(): React.ReactElement | null {
 const styles = StyleSheet.create({
   card: {
     padding: Spacing.three,
-    marginBottom: Spacing.three,
     borderRadius: 8,
     borderWidth: 1,
     gap: Spacing.two,
@@ -107,6 +106,7 @@ const styles = StyleSheet.create({
   },
   startButton: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: Spacing.two,
     borderRadius: 6,
     alignItems: 'center',
@@ -119,6 +119,7 @@ const styles = StyleSheet.create({
   },
   dismissButton: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: Spacing.two,
     borderRadius: 6,
     borderWidth: 1,

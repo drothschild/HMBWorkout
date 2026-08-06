@@ -96,11 +96,20 @@ export default function AiCoachSettingsScreen() {
         {/* This screen SCROLLS, and no longer fits on one screen by construction.
             It used to: the three free-text boxes took flex:1 and split the
             leftover space exactly. Phase 5 added three more label+input groups
-            and a button row — roughly 260pt of fixed content — so on a small
-            device the free space reaches 0, and a flexBasis:0% box with nothing
-            to grow into collapses to HEIGHT ZERO: a label with no input under
-            it. minHeight on the multiline inputs is what stops that, and it is
-            load-bearing rather than cosmetic.
+            and a button row — roughly 260pt of fixed content — so the column now
+            overflows the viewport on every phone (measured in yoga-layout: 752pt
+            of content in a 482pt ScrollView on an iPhone SE, clean at 1x-3x
+            Dynamic Type).
+            What `minHeight: 88` on multilineInput actually buys: with the column
+            overflowing, `flex: 1` never receives any free space to distribute, so
+            the three free-text boxes fall back to their intrinsic single-line
+            height — about 35pt, measured — on EVERY iPhone. They do not collapse
+            to zero; an earlier version of this comment said they did, and anyone
+            testing that claim would fail to reproduce it and reasonably delete
+            the constant. The floor is what keeps them ~6 lines tall.
+            Corollary from the same model: `flex: 1` on multilineInput is inert at
+            phone sizes — the boxes sit at exactly minHeight and only grow on
+            ~1000pt+ (iPad) layouts.
             The ScrollView earns its keep only when the keyboard is up:
             automaticallyAdjustKeyboardInsets insets the bottom and scrolls the
             focused field into view. A KeyboardAvoidingView was tried first and
@@ -349,9 +358,9 @@ const styles = StyleSheet.create({
   },
   multilineInput: {
     flex: 1,
-    // Floor for the free-text boxes. Without it they collapse to zero on any
-    // viewport where the screen's fixed content (six labels, three single-line
-    // inputs, the key field, the button row) leaves no free space to distribute.
+    // Floor for the free-text boxes. Without it they render at their intrinsic
+    // single-line height (~35pt, measured in yoga-layout) on every phone-sized
+    // viewport, because the column overflows and `flex: 1` gets no free space.
     minHeight: 88,
     textAlignVertical: 'top',
   },
