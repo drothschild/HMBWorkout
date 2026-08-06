@@ -21,7 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { getSettings } from '@/state/settings';
+import { getSettings, setSettings } from '@/state/settings';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
 const HEADER_TITLES = {
@@ -333,6 +333,20 @@ export default function AiCoachScreen() {
             </Pressable>
           </View>
         </KeyboardAvoidingView>
+
+        {mode.kind === 'onboarding' && (
+          <View style={styles.optOutContainer}>
+            <Pressable
+              style={({ pressed }) => [styles.optOutButton, pressed && styles.pressed]}
+              onPress={() => {
+                setSettings({ onboardingState: 'dismissed' });
+                router.push('/(tabs)/settings/ai');
+              }}
+            >
+              <ThemedText style={styles.optOutButtonText}>I'll fill this in myself</ThemedText>
+            </Pressable>
+          </View>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -943,6 +957,24 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sendButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  optOutContainer: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  optOutButton: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 6,
+    backgroundColor: ActionButtonColor.secondary,
+    alignItems: 'center',
+  },
+  optOutButtonText: {
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
