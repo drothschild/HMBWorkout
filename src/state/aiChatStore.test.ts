@@ -1792,7 +1792,20 @@ describe('aiChatStore', () => {
   });
 
   describe('IMPORTANT 3 - generation preservation on auto-apply', () => {
-    it('I3.1: auto-apply does not advance generation counter', async () => {
+    // On the generation half of this invariant, stated plainly because the
+    // obvious test does not exist and a future reader should not go hunting:
+    // injecting `generation++` beside `invalidateCachedSystem()` here is an
+    // EQUIVALENT MUTANT — it passes all 1659 tests, and no test can catch it by
+    // construction. `send()` refuses while `status === 'sending'`, `retry()`
+    // requires `status === 'error'`, and `openOnboarding()` resets (which bumps
+    // generation anyway), so no turn can be in flight concurrently with the one
+    // doing auto-apply. The bump would land after that turn's own guard with no
+    // later guard in the success path, so nothing observes it.
+    //
+    // The constraint still matters and must stay: it becomes observable the
+    // moment concurrent turns are possible. AGENTS.md — "Collapsing the two back
+    // into one counter reintroduces exactly that bug."
+    it('I3.1: auto-apply invalidates the prompt cache, so the next turn rebuilds', async () => {
       const { store, fakeChat, fakeSetSettings, fakeBuildSystem } = makeStore();
 
       store.getState().reset({ kind: 'onboarding' });
@@ -1807,13 +1820,14 @@ describe('aiChatStore', () => {
       expect(fakeBuildSystem).toHaveBeenCalledTimes(1);
       expect(fakeSetSettings).toHaveBeenCalled();
 
-      // Second send should rebuild system (auto-apply invalidated cache)
-      // but the generation counter should not have advanced
       fakeChat.mockResolvedValueOnce({ reply: 'Next question' });
       await store.getState().send('Second message');
 
-      // If generation HAD advanced during auto-apply, buildSystem would NOT
-      // be called again (cached). Since it IS called, generation was not advanced.
+      // buildSystem runs again because the auto-apply write cleared the cached
+      // prompt — the profile it just recorded has to reach the next turn, which
+      // is what makes the coach stop re-asking. This says nothing either way
+      // about `generation`; the previous version of this assertion claimed it
+      // did, with the reasoning inverted.
       expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
     });
   });
@@ -1834,9 +1848,16 @@ describe('aiChatStore', () => {
 
       await store.getState().send('Update goals');
 
-      // setSettings should not have been called with the invalid proposal
-      // (it should have been caught by validation)
-      // The conversation continues (status idle, turn is in messages)
+      // THE assertion — it was previously written only as a comment, so dropping
+      // the second `validateSettingsProposal` call left this test green while
+      // whitespace went straight into storage. The client mock returns this turn
+      // directly, so it never passed through `parseAiTurn`'s validation either:
+      // this second check is the only thing standing between a malformed
+      // structured-output response and the settings blob. AGENTS.md: "Validate
+      // twice; structured output is not a guarantee. Keep both."
+      expect(fakeSetSettingsMock).not.toHaveBeenCalled();
+
+      // And the conversation survives it — a bad proposal must never end the chat.
       expect(store.getState().status).toBe('idle');
       expect(store.getState().messages).toContainEqual(expect.objectContaining({ role: 'assistant' }));
     });
