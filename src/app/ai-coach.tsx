@@ -22,6 +22,7 @@ import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { getSettings, setSettings } from '@/state/settings';
+import { dismissOnboardingPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
 const HEADER_TITLES = {
@@ -339,11 +340,11 @@ export default function AiCoachScreen() {
             <Pressable
               style={({ pressed }) => [styles.optOutButton, pressed && styles.pressed]}
               onPress={() => {
-                setSettings({ onboardingState: 'dismissed' });
+                setSettings(dismissOnboardingPatch());
                 router.push('/(tabs)/settings/ai');
               }}
             >
-              <ThemedText style={styles.optOutButtonText}>I'll fill this in myself</ThemedText>
+              <ThemedText style={styles.optOutButtonText}>I&apos;ll fill this in myself</ThemedText>
             </Pressable>
           </View>
         )}

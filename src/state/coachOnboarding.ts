@@ -28,3 +28,26 @@ export function shouldShowOnboardingCard(settings: BridgeSettings): boolean {
   const hasKey = !!(settings.anthropicKey && settings.anthropicKey.trim().length > 0);
   return hasKey && settings.onboardingState === 'unseen';
 }
+
+/**
+ * The route that opens the interview. A constant rather than a literal at each
+ * call site because three surfaces navigate here — the Today card, the settings
+ * screen's Start/Redo control, and any future entry point — and the param is
+ * load-bearing: without `onboarding=1`, `aiCoachModeFromParams` returns create
+ * mode and the user gets an ordinary chat instead of the interview, with nothing
+ * to indicate anything went wrong (that was issue #189).
+ */
+export const ONBOARDING_ROUTE = '/ai-coach?onboarding=1';
+
+/**
+ * The settings patch written when the user turns the invitation down — from the
+ * card's dismiss control, or by opting out mid-conversation into manual entry.
+ *
+ * Pure and exported so the write is testable: the screens that call it live in
+ * `src/app`, which jest does not cover, so inlining `{ onboardingState:
+ * 'dismissed' }` at each call site would put the decision permanently out of
+ * reach of any suite.
+ */
+export function dismissOnboardingPatch(): Pick<BridgeSettings, 'onboardingState'> {
+  return { onboardingState: 'dismissed' };
+}

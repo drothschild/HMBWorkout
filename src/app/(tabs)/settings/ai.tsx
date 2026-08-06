@@ -8,6 +8,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { getSettings, setSettings } from '@/state/settings';
+import { ONBOARDING_ROUTE } from '@/state/coachOnboarding';
 
 type AiSettingsPatch = Partial<{
   anthropicKey: string;
@@ -249,7 +250,7 @@ export default function AiCoachSettingsScreen() {
           <View style={styles.buttonRow}>
             <Pressable
               style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
-              onPress={() => router.push('/ai-coach?onboarding=1')}
+              onPress={() => router.push(ONBOARDING_ROUTE)}
             >
               <ThemedText style={styles.startButtonText}>Start/Redo</ThemedText>
             </Pressable>

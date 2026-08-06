@@ -7,8 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
-import { getAiChatStore } from '@/state/aiChatStore';
-import { shouldShowOnboardingCard } from '@/state/coachOnboarding';
+import { shouldShowOnboardingCard, dismissOnboardingPatch, ONBOARDING_ROUTE } from '@/state/coachOnboarding';
 import { getSettings, setSettings } from '@/state/settings';
 
 /**
@@ -17,7 +16,7 @@ import { getSettings, setSettings } from '@/state/settings';
  *
  * - Shows only when onboardingState is 'unseen' and a key is present
  * - Dismiss button writes 'dismissed' to settings
- * - Start button opens the onboarding conversation and navigates
+ * - Start button navigates; the ai-coach screen opens the conversation itself
  * - Renders above the main content (resume button, error, loading) without replacing them
  */
 export function OnboardingCard(): React.ReactElement | null {
@@ -32,23 +31,30 @@ export function OnboardingCard(): React.ReactElement | null {
   }
 
   const handleDismiss = () => {
-    setSettings({ onboardingState: 'dismissed' });
+    setSettings(dismissOnboardingPatch());
     setDismissed(true);
   };
 
-  const handleStart = async () => {
-    const store = getAiChatStore();
-    await store.getState().openOnboarding();
-    router.push('/ai-coach?onboarding=1');
+  const handleStart = () => {
+    // Navigate only. The screen's own layout effect opens the conversation when
+    // it sees onboarding mode, exactly as the debrief flow works — nothing calls
+    // openDebrief before navigating either.
+    //
+    // Calling openOnboarding() here as well sent the opening turn TWICE: once
+    // from this card, then again when the screen mounted and reset, discarding
+    // the first response. Two billable requests per tap, and because the card
+    // awaited the first one, the user pressed Start and watched nothing happen
+    // for a full round-trip.
+    router.push(ONBOARDING_ROUTE);
   };
 
   return (
     <ThemedView style={[styles.card, { borderColor: theme.backgroundSelected }]}>
       <ThemedText type="subtitle" style={styles.title}>
-        Let's Get Started
+        Let&apos;s Get Started
       </ThemedText>
       <ThemedText style={styles.body}>
-        Your coach can give better advice when they know more about you. Let's have a quick
+        Your coach can give better advice when they know more about you. Let&apos;s have a quick
         conversation.
       </ThemedText>
       <View style={styles.buttons}>
