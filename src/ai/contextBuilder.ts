@@ -35,6 +35,18 @@ export type AiCoachMode =
  */
 export const ONBOARDING_PROFILE_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
 
+/**
+ * The interview's field list as the persona states it, joined with an Oxford
+ * comma. Exported so the AC3.1/AC3.7 tests can assert the rendered sentence
+ * against the same source the prose is built from — an assertion on a
+ * hand-written copy of this list would pass while the two drifted.
+ */
+export function onboardingFieldList(): string {
+  const fields = [...ONBOARDING_PROFILE_FIELDS];
+  const last = fields.pop();
+  return `${fields.join(', ')}, and ${last}`;
+}
+
 type RoutineWithDetail = { routine: RoutineListItem; detail: RoutineDetail | null };
 
 export const HISTORY_SETS_PER_EXERCISE = 5;
@@ -245,9 +257,16 @@ Planning from history:
 - Plan against that history: pace progression from what actually moved, and suggest a lighter week when recent sessions have been both frequent and heavy`;
 
   if (mode.kind === 'onboarding') {
+    // Rendered from ONBOARDING_PROFILE_FIELDS, not written out by hand. The
+    // constant is the single place that decides what the interview collects, so
+    // a field cannot be added to the prose without appearing in the data the
+    // AC3.7 test pins — which is the whole point, since "name" must never be
+    // solicited and there is nowhere to persist one.
+    const fieldList = onboardingFieldList();
+
     return `${persona}
 
-You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, gender, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+You are interviewing a new user to build their profile. Ask their ${fieldList} in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 

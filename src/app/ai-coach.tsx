@@ -28,6 +28,7 @@ const HEADER_TITLES = {
   create: 'AI Coach',
   edit: 'Edit with AI Coach',
   debrief: 'Workout Debrief',
+  onboarding: 'Meet Your Coach',
 } as const;
 
 export default function AiCoachScreen() {

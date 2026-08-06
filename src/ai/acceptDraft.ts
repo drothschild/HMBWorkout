@@ -15,7 +15,11 @@ export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoa
   // Mode is authoritative for the routine id. In create mode, mint a fresh id
   // regardless of any draft-supplied id (which may be echoing an existing routine's id).
   // In edit mode, force the id to match the mode's routine, ignoring the draft.
-  const routineId = mode.kind === 'create' ? `routine-${Date.now()}` : mode.routineId;
+  // Onboarding carries no routine id — the first routine it offers is a brand-new
+  // one — so it takes the create branch. This is not optional bookkeeping: without
+  // it `mode.routineId` does not typecheck, since onboarding has no such field.
+  const routineId =
+    mode.kind === 'create' || mode.kind === 'onboarding' ? `routine-${Date.now()}` : mode.routineId;
 
   const exercisesTable = db.get('exercises');
 

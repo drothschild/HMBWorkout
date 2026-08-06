@@ -1828,8 +1828,10 @@ describe('buildSystem: AI Coach context builder', () => {
     it('coach-onboarding.AC3.1 Success: persona includes interview instructions', async () => {
       const prompt = await buildSystem(database, { kind: 'onboarding' });
       expect(prompt).toContain('You are interviewing a new user to build their profile');
-      expect(prompt).toContain('Ask their goals, equipment, personality');
-      expect(prompt).toContain('natural batches');
+      // The WHOLE list, terminated by "in natural batches". A prefix match here
+      // ('Ask their goals, equipment, personality') let a seventh field be
+      // appended to the sentence with the entire suite green — verified.
+      expect(prompt).toContain('Ask their goals, equipment, personality, age, gender, and experience in natural batches');
       expect(prompt).toContain('Age and gender are sensitive; ask them last');
       expect(prompt).toContain('If the user declines to answer, record their refusal verbatim');
       expect(prompt).toContain('Every field you record must be grounded in something the user actually said');
@@ -1938,6 +1940,20 @@ describe('buildSystem: AI Coach context builder', () => {
       // Import the constant
       const { ONBOARDING_PROFILE_FIELDS } = await import('./contextBuilder');
       expect(ONBOARDING_PROFILE_FIELDS).not.toContain('name');
+    }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: the rendered prompt asks for exactly the constant, and never a name', async () => {
+      // The point of AC3.7 that the constant alone cannot carry: the constant is
+      // only a guard if the PROSE is built from it. When it was declared but
+      // unused, appending "and name" to the hand-written sentence left all 85
+      // tests green. Asserting the rendered list against onboardingFieldList()
+      // ties the sentence to the data; asserting the literal separately (above,
+      // in AC3.1) stops the constant itself from quietly growing a field.
+      const { onboardingFieldList } = await import('./contextBuilder');
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      expect(prompt).toContain(`Ask their ${onboardingFieldList()} in natural batches`);
+      expect(onboardingFieldList()).not.toContain('name');
     }, 30000);
 
     it('coach-onboarding.AC3.7 Failure: ONBOARDING_PROFILE_FIELDS contains exactly expected fields', async () => {
