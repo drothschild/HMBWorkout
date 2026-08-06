@@ -1620,6 +1620,14 @@ describe('aiChatStore', () => {
         profileGender: 'Male',
         profileExperience: 'Advanced',
       });
+
+      // Pins `status` on the auto-apply SUCCESS path. AC4.3 asserted it only on
+      // the failure path, so setting `status: 'error'` here survived the suite.
+      // Invisible in the UI today — ai-coach.tsx renders the error bubble off
+      // `error`, not `status` — but every other producer of 'error' sets both,
+      // and an inconsistent store state is a trap for the next reader of it.
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().error).toBeNull();
     });
 
     it('C1.2: onboarding auto-apply with age-only proposal', async () => {
@@ -1792,19 +1800,18 @@ describe('aiChatStore', () => {
   });
 
   describe('IMPORTANT 3 - generation preservation on auto-apply', () => {
-    // On the generation half of this invariant, stated plainly because the
-    // obvious test does not exist and a future reader should not go hunting:
-    // injecting `generation++` beside `invalidateCachedSystem()` here is an
-    // EQUIVALENT MUTANT — it passes all 1659 tests, and no test can catch it by
-    // construction. `send()` refuses while `status === 'sending'`, `retry()`
-    // requires `status === 'error'`, and `openOnboarding()` resets (which bumps
-    // generation anyway), so no turn can be in flight concurrently with the one
-    // doing auto-apply. The bump would land after that turn's own guard with no
-    // later guard in the success path, so nothing observes it.
+    // On the generation half of this invariant: no *production* path observes an
+    // extra `generation++` here, because the store serialises turns — `send()`
+    // refuses while `status === 'sending'`, `retry()` needs `status === 'error'`,
+    // and `openOnboarding()` resets (bumping generation anyway). A stale turn is
+    // killed at performRequest's guard before it ever reaches auto-apply.
     //
-    // The constraint still matters and must stay: it becomes observable the
-    // moment concurrent turns are possible. AGENTS.md — "Collapsing the two back
-    // into one counter reintroduces exactly that bug."
+    // But it IS testable by forcing the concurrency, and the test below does.
+    // An earlier version of this comment claimed no test could catch it by
+    // construction; that was wrong, and left as-is it would have invited the
+    // next reader who found the ten-minute counter-example to conclude the
+    // constraint itself was bogus. AGENTS.md — "Collapsing the two back into one
+    // counter reintroduces exactly that bug."
     it('I3.1: auto-apply invalidates the prompt cache, so the next turn rebuilds', async () => {
       const { store, fakeChat, fakeSetSettings, fakeBuildSystem } = makeStore();
 
@@ -1829,6 +1836,55 @@ describe('aiChatStore', () => {
       // about `generation`; the previous version of this assertion claimed it
       // did, with the reasoning inverted.
       expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
+    });
+
+    it('I3.2: an auto-apply write must not discard a concurrently in-flight turn', async () => {
+      // Forces the concurrency production does not currently allow, because the
+      // constraint exists for when it does — Phase 5's entry surfaces and the
+      // multi-provider work both move in that direction. If auto-apply advanced
+      // `generation` instead of only `systemEpoch`, turn 2's own guard would
+      // discard a response the user is sitting and waiting for, with no error.
+      const { store, fakeChat, fakeSetSettings } = makeStore();
+      store.getState().reset({ kind: 'onboarding' });
+
+      let releaseFirst: (value: unknown) => void = () => {};
+      fakeChat.mockReturnValueOnce(new Promise((resolve) => (releaseFirst = resolve)));
+      const first = store.getState().send('I am 41');
+
+      // The store serialises turns, so a second send is refused while the first
+      // is in flight. Lift that guard only — everything else stays real.
+      store.setState({ status: 'idle' });
+
+      fakeChat.mockResolvedValueOnce({ reply: 'two' });
+      const second = store.getState().send('and I lift three times a week');
+
+      releaseFirst({ reply: 'one', settingsProposal: { age: '41' } });
+      await Promise.all([first, second]);
+
+      expect(fakeSetSettings).toHaveBeenCalledWith(expect.objectContaining({ profileAge: '41' }));
+      expect(store.getState().messages.some((m) => m.turn?.reply === 'two')).toBe(true);
+    });
+  });
+
+  describe('coach-onboarding: auto-apply failure branch', () => {
+    it('I2.1: a rejected proposal must not destroy a draft offered in the same turn', async () => {
+      // The onboarding endgame: the coach finishes the interview and offers a
+      // first routine, in a turn that also carries a malformed proposal. The
+      // catch branch is a near-identical copy of the success branch, so a
+      // regression there would silently drop the routine — the user sees a reply
+      // with no Accept card and no error at all.
+      const draft = { name: 'Starter Routine', exercises: [{ title: 'Goblet Squat', kind: 'strength' as const }] };
+      const fakeSetSettingsMock = jest.fn();
+      const { store, fakeChat } = makeStore({ setSettings: fakeSetSettingsMock });
+
+      store.getState().reset({ kind: 'onboarding' });
+      fakeChat.mockResolvedValueOnce({ reply: 'Here you go', draft, settingsProposal: { age: '   ' } });
+
+      await store.getState().send('done');
+
+      expect(fakeSetSettingsMock).not.toHaveBeenCalled();  // the proposal was rejected
+      expect(store.getState().pendingDraft).toEqual(draft); // ...and the routine survived it
+      expect(store.getState().status).toBe('idle');
     });
   });
 
