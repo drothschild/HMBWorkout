@@ -50,10 +50,13 @@ export function planPostWorkoutDebrief(
 export interface AiCoachRouteParams {
   routineId?: string;
   debriefSessionId?: string;
+  onboarding?: '1' | true;
 }
 
 /** Encode a debrief mode as route params for the ai-coach screen. */
-export function debriefRouteParams(mode: DebriefMode): Required<AiCoachRouteParams> {
+export function debriefRouteParams(
+  mode: DebriefMode
+): { routineId: string; debriefSessionId: string } {
   return {
     routineId: mode.routineId,
     debriefSessionId: mode.sessionId,
@@ -62,10 +65,17 @@ export function debriefRouteParams(mode: DebriefMode): Required<AiCoachRoutePara
 
 /**
  * Decode the ai-coach screen's route params back into a conversation mode.
+ * Onboarding param takes priority over routineId branches, so ?onboarding=1&routineId=X
+ * still yields onboarding mode.
  * A debrief needs both halves; a session id on its own names no routine to
  * revise, so it degrades to a fresh conversation rather than a broken debrief.
  */
 export function aiCoachModeFromParams(params: AiCoachRouteParams): AiCoachMode {
+  // Onboarding takes priority over routineId branches
+  if (params.onboarding === '1' || params.onboarding === true) {
+    return { kind: 'onboarding' };
+  }
+
   const routineId = params.routineId;
 
   if (!routineId) {

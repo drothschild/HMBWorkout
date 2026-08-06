@@ -37,6 +37,37 @@ describe('acceptDraft', () => {
     });
   });
 
+  describe('coach-onboarding.AC7.1 (partial: onboarding takes the create branch)', () => {
+    test('onboarding mode yields a minted routine id, not mode.routineId', async () => {
+      // Onboarding carries no routine id — the first routine the interview
+      // offers is brand new — so it must take the create branch. Without this,
+      // a mutation resolving the id from `mode.routineId` survives the suite;
+      // TypeScript blocks the naive version, but a cast defeats it.
+      //
+      // Scope of this test, stated precisely because the previous name
+      // overclaimed: it does NOT prove freshness (the `routine-\d+` shape is
+      // satisfied by a hardcoded constant — the pre-existing AC3.2 test covers
+      // per-accept uniqueness), and it does not cover AC7.1's "and navigates to
+      // it" half, which is Phase 4's. It pins branch selection only.
+      //
+      // Not reachable from the UI yet: ai-coach.tsx drops the `onboarding`
+      // route param before the mode mapper sees it (issue #189, folded into
+      // #179).
+      const draft = {
+        name: 'Starter Routine',
+        exercises: [{ title: 'Goblet Squat', kind: 'strength' as const, targetSets: 3, targetReps: 8 }],
+      };
+
+      const routineId = await acceptDraft(database, draft, { kind: 'onboarding' });
+
+      expect(routineId).toMatch(/^routine-\d+$/);
+      const routines = await database.get('routines').query().fetch();
+      expect(routines).toHaveLength(1);
+      expect(routines[0].id).toBe(routineId);
+      expect((routines[0] as any).name).toBe('Starter Routine');
+    });
+  });
+
   describe('AC3.2 (new routine)', () => {
     test('creates a routine with exercises and routine_exercises entries', async () => {
       const draft = {

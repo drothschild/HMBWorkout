@@ -117,8 +117,11 @@ describe('buildSystem: AI Coach context builder', () => {
     it('maps the proposal fields to the prompt sections they replace', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
+      // Age/Gender/Experience are labelled lines inside one "About the User"
+      // section, not sections of their own — the prose must not promise the
+      // model a structure the prompt does not contain.
       expect(prompt).toContain(
-        'proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below'
+        'proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age, Gender and Experience lines under "About the User"'
       );
     }, 30000);
 
@@ -126,7 +129,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'A settings proposal must include at least one of "goals", "equipment", or "personality"'
+        'A settings proposal must include at least one of "goals", "equipment", "personality", "age", "gender", or "experience"'
       );
     }, 30000);
 
@@ -134,7 +137,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        `goals, equipment, personality: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
+        `goals, equipment, personality, age, gender, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
       );
     }, 30000);
 
@@ -150,7 +153,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style'
+        'Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, gender, or experience'
       );
     }, 30000);
 
@@ -1821,6 +1824,292 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain(
         'Do not spontaneously bring up or ask about RPE (Rate of Perceived Exertion) unless the user has logged RPE in their workout history or raises it themselves'
       );
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC3.1: onboarding mode persona', () => {
+    it('coach-onboarding.AC3.1 Success: persona includes interview instructions', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).toContain('You are interviewing a new user to build their profile');
+      // The WHOLE list, terminated by "in natural batches". A prefix match here
+      // ('Ask their goals, equipment, personality') let a seventh field be
+      // appended to the sentence with the entire suite green — verified.
+      expect(prompt).toContain('Ask their goals, equipment, personality, age, gender, and experience in natural batches');
+      expect(prompt).toContain('Age and gender are sensitive; ask them last');
+      expect(prompt).toContain('If the user declines to answer, record their refusal verbatim');
+      expect(prompt).toContain('Every field you record must be grounded in something the user actually said');
+    }, 30000);
+
+    it('coach-onboarding.AC3.2 Success: onboarding persona closes with routine offer', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).toContain('At the end of the interview, offer to draft a first routine');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence absent in onboarding', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      expect(prompt).not.toContain('The user must approve a settings proposal before it takes effect');
+      // Ensure onboarding mode still includes the base persona with JSON contract
+      expect(prompt).toContain('Every response must be valid JSON');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in create mode', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in edit mode', async () => {
+      // Create a routine first so edit mode is valid
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-edit-test';
+          r.name = 'Test Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-edit-test';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-edit-test', {
+        exerciseId: 'exercise-edit-test',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'edit', routineId: 'routine-edit-test' });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
+    }, 30000);
+
+    it('coach-onboarding.AC3.3 Success: approval sentence present in debrief mode', async () => {
+      // Create session for debrief
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-debrief-test';
+          r.name = 'Test Routine';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'exercise-debrief-test';
+          e.title = 'Test Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-debrief-test', {
+        exerciseId: 'exercise-debrief-test',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+      });
+
+      await createSession(database, {
+        sessionId: 'session-debrief-test',
+        routineId: 'routine-debrief-test',
+        startedAtMs: Date.now() - 3600000,
+      });
+
+      const prompt = await buildSystem(database, {
+        kind: 'debrief',
+        routineId: 'routine-debrief-test',
+        sessionId: 'session-debrief-test',
+      });
+      expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC3.4: already-recorded profile values', () => {
+    it('coach-onboarding.AC3.4 Success: already-recorded profile values appear in prompt', async () => {
+      setSettings({
+        profileAge: '35',
+        profileGender: 'male',
+        profileExperience: 'intermediate',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      // Assert label pairs to ensure values aren't mislabeled
+      expect(prompt).toContain('Age: 35');
+      expect(prompt).toContain('Gender: male');
+      expect(prompt).toContain('Experience: intermediate');
+    }, 30000);
+
+    it('coach-onboarding.AC3.4 Success: the profile reaches every mode, not just onboarding', async () => {
+      // The profile is coaching input, not interview bookkeeping — the whole
+      // point of Phase 6 was getting it in front of every surface. Asserting it
+      // only in onboarding mode let a guard restricting the section to that mode
+      // pass 1632/1632, which would silently strip the profile from ordinary
+      // coaching while the create-mode persona still promises the model "the
+      // Age, Gender and Experience lines under 'About the User'".
+      setSettings({
+        profileAge: '35',
+        profileGender: 'male',
+        profileExperience: 'intermediate',
+      });
+
+      for (const mode of [{ kind: 'create' } as const, { kind: 'edit', routineId: 'routine-1' } as const]) {
+        const prompt = await buildSystem(database, mode);
+        expect(prompt).toContain('Age: 35');
+        expect(prompt).toContain('Gender: male');
+        expect(prompt).toContain('Experience: intermediate');
+      }
+    }, 30000);
+
+    it('coach-onboarding.AC6.6 Edge: profile field values are neutralized (markdown-safe)', async () => {
+      setSettings({
+        profileAge: '## Secret Heading',
+        profileGender: '## Another Heading',
+        profileExperience: '#### Deep Heading',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      // Values starting with ## should not render as markdown headings
+      expect(prompt).not.toContain('## Secret Heading');
+      expect(prompt).not.toContain('## Another Heading');
+      expect(prompt).not.toContain('#### Deep Heading');
+      // Instead, they should be neutralized (leading hashes stripped)
+      expect(prompt).toContain('Secret Heading');
+      expect(prompt).toContain('Another Heading');
+      expect(prompt).toContain('Deep Heading');
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC3.7: no name field', () => {
+    it('coach-onboarding.AC3.7 Failure: ONBOARDING_PROFILE_FIELDS does not contain name', async () => {
+      // Import the constant
+      const { ONBOARDING_PROFILE_FIELDS } = await import('./contextBuilder');
+      expect(ONBOARDING_PROFILE_FIELDS).not.toContain('name');
+    }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: the rendered prompt asks for exactly the constant, and never a name', async () => {
+      // The point of AC3.7 that the constant alone cannot carry: the constant is
+      // only a guard if the PROSE is built from it. When it was declared but
+      // unused, appending "and name" to the hand-written sentence left all 85
+      // tests green. Asserting the rendered list against onboardingFieldList()
+      // ties the sentence to the data; asserting the literal separately (above,
+      // in AC3.1) stops the constant itself from quietly growing a field.
+      const { onboardingFieldList } = await import('./contextBuilder');
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      expect(prompt).toContain(`Ask their ${onboardingFieldList()} in natural batches`);
+      expect(onboardingFieldList()).not.toContain('name');
+    }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: ONBOARDING_PROFILE_FIELDS contains exactly expected fields', async () => {
+      const { ONBOARDING_PROFILE_FIELDS } = await import('./contextBuilder');
+      expect(ONBOARDING_PROFILE_FIELDS).toEqual([
+        'goals',
+        'equipment',
+        'personality',
+        'age',
+        'gender',
+        'experience',
+      ]);
+    }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: the onboarding persona block is pinned whole, so no instruction can be added inside it', async () => {
+      // Three previous attempts at this criterion were each walked around:
+      //   1. a list of literal phrases ('ask for your name', ...) — the persona
+      //      asked for the name in different words and passed;
+      //   2. a constant with no production consumer — the prose was hand-written,
+      //      so pinning the constant governed nothing;
+      //   3. a regex over the whole prompt — catches "their name" but not
+      //      "what the user is called" or "how they'd like to be addressed",
+      //      both verified to survive.
+      //
+      // The threat is not one phrasing, it is ANY added instruction. So pin the
+      // whole block: everything from the interview sentence to the next section
+      // heading. An inserted sentence changes this string whatever its wording,
+      // and a legitimate edit has to be re-approved here deliberately.
+      //
+      // The list inside it is rendered from ONBOARDING_PROFILE_FIELDS (asserted
+      // separately above), so this literal and the constant must agree too.
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      // Anchor the low edge at the END OF THE SHARED PERSONA, not at the
+      // interview sentence. Anchoring on the interview sentence left everything
+      // between the persona and it unguarded — and that is the natural place to
+      // add an onboarding instruction, inside the same `if (mode.kind ===
+      // 'onboarding')` return. Verified: a sentence inserted there passed
+      // 1632/1632 before this change.
+      const personaTail = 'suggest a lighter week when recent sessions have been both frequent and heavy';
+      const tailIdx = prompt.indexOf(personaTail);
+      expect(tailIdx).toBeGreaterThan(-1);
+      const start = tailIdx + personaTail.length;
+      expect(prompt.indexOf('You are interviewing a new user')).toBeGreaterThan(-1);
+      const rest = prompt.slice(start);
+      // Terminate on the SPECIFIC next section, not a generic '\n\n## '. A
+      // generic heading terminator is controlled by the very content being
+      // guarded: adding a '## Interview Notes' heading inside the onboarding
+      // branch pushed everything after it outside the pin, and a name
+      // solicitation there passed 1634/1634 (round-3 review).
+      const end = rest.indexOf('\n\n## Coach Directives (Default Behavior)');
+      const block = (end === -1 ? rest : rest.slice(0, end)).trim();
+
+      expect(block).toBe(
+        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, gender, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+
+Every field you record must be grounded in something the user actually said. Do not infer or guess.
+
+At the end of the interview, offer to draft a first routine based on what you've learned about them.`
+      );
+      expect(block).not.toMatch(/\bname\b/i);
+
+      // Keep the whole-PROMPT regex alongside the block pin. These are
+      // complements, not alternatives: the pin catches any edit inside the
+      // block whatever its wording, and this catches a literally-phrased name
+      // solicitation placed anywhere else — a section pushed later in
+      // buildSystem, or a sentence added to the base persona, neither of which
+      // the block can see. Deleting this in favour of the pin was a net loss
+      // for that case, which the round-2 review proved with a green mutation.
+      //
+      // Deliberately narrow. An earlier `ask.*\s+name` alternative was
+      // line-scoped but otherwise unbounded, so any line pairing "ask" with a
+      // later "name" tripped it — and this runs over the WHOLE prompt, which
+      // interpolates user-authored routine and exercise titles. A guard that
+      // fails on legitimate prose ("…repeat the routine name back in your
+      // reply") gets weakened by whoever hits it next. The `name\s+is` branch
+      // was also dead: ordered alternation always matched `name` first.
+      expect(prompt).not.toMatch(/\b(their|your)\s+name\b/i);
+    }, 30000);
+  });
+
+  describe('coach-onboarding.AC6.1: profile section before immutable directives', () => {
+    it('coach-onboarding.AC6.1 Success: buildSystem renders profile before immutable directives', async () => {
+      setSettings({
+        profileAge: '40',
+        profileGender: 'female',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      const profileIdx = prompt.indexOf('## About the User');
+      const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
+
+      expect(profileIdx).toBeGreaterThan(-1);
+      expect(profileIdx).toBeLessThan(immutableIdx);
+    }, 30000);
+
+    it('coach-onboarding.AC6.1 Success: omits About-the-User section when profile is empty', async () => {
+      setSettings({
+        profileAge: '',
+        profileGender: '',
+        profileExperience: '',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      expect(prompt).not.toContain('## About the User');
     }, 30000);
   });
 });
