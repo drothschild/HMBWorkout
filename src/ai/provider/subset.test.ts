@@ -442,9 +442,18 @@ describe('OpenAI structured output schema validation', () => {
     },
     "settingsProposal": {
       "additionalProperties": false,
-      "description": "Include only when the user asked to change their training goals, available equipment, or coaching style. At least one field is required",
+      "description": "Include only when the user asked to change their training goals, available equipment, coaching style, or profile information. At least one field is required",
       "properties": {
+        "age": {
+          "type": "string",
+        },
         "equipment": {
+          "type": "string",
+        },
+        "experience": {
+          "type": "string",
+        },
+        "gender": {
           "type": "string",
         },
         "goals": {
