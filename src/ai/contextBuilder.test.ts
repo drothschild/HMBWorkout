@@ -118,7 +118,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below'
+        'proposes new values for the "User Goals", "Available Equipment", "Coaching Style", "Age", "Gender", and "Experience" sections below'
       );
     }, 30000);
 
@@ -126,7 +126,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'A settings proposal must include at least one of "goals", "equipment", or "personality"'
+        'A settings proposal must include at least one of "goals", "equipment", "personality", "age", "gender", or "experience"'
       );
     }, 30000);
 
@@ -134,7 +134,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        `goals, equipment, personality: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
+        `goals, equipment, personality, age, gender, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
       );
     }, 30000);
 
@@ -150,7 +150,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style'
+        'Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, gender, or experience'
       );
     }, 30000);
 
@@ -1845,11 +1845,14 @@ describe('buildSystem: AI Coach context builder', () => {
     it('coach-onboarding.AC3.3 Success: approval sentence absent in onboarding', async () => {
       const prompt = await buildSystem(database, { kind: 'onboarding' });
       expect(prompt).not.toContain('The user must approve a settings proposal before it takes effect');
+      // Ensure onboarding mode still includes the base persona with JSON contract
+      expect(prompt).toContain('Every response must be valid JSON');
     }, 30000);
 
     it('coach-onboarding.AC3.3 Success: approval sentence present in create mode', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
       expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
     }, 30000);
 
     it('coach-onboarding.AC3.3 Success: approval sentence present in edit mode', async () => {
@@ -1878,6 +1881,7 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'edit', routineId: 'routine-edit-test' });
       expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
     }, 30000);
 
     it('coach-onboarding.AC3.3 Success: approval sentence present in debrief mode', async () => {
@@ -1916,6 +1920,7 @@ describe('buildSystem: AI Coach context builder', () => {
         sessionId: 'session-debrief-test',
       });
       expect(prompt).toContain('The user must approve a settings proposal before it takes effect');
+      expect(prompt).not.toContain('You are interviewing a new user to build their profile');
     }, 30000);
   });
 
@@ -1929,9 +1934,29 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'onboarding' });
 
-      expect(prompt).toContain('35');
-      expect(prompt).toContain('male');
-      expect(prompt).toContain('intermediate');
+      // Assert label pairs to ensure values aren't mislabeled
+      expect(prompt).toContain('Age: 35');
+      expect(prompt).toContain('Gender: male');
+      expect(prompt).toContain('Experience: intermediate');
+    }, 30000);
+
+    it('AC6.6: profile field values are neutralized (markdown-safe)', async () => {
+      setSettings({
+        profileAge: '## Secret Heading',
+        profileGender: '## Another Heading',
+        profileExperience: '#### Deep Heading',
+      });
+
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+
+      // Values starting with ## should not render as markdown headings
+      expect(prompt).not.toContain('## Secret Heading');
+      expect(prompt).not.toContain('## Another Heading');
+      expect(prompt).not.toContain('#### Deep Heading');
+      // Instead, they should be neutralized (leading hashes stripped)
+      expect(prompt).toContain('Secret Heading');
+      expect(prompt).toContain('Another Heading');
+      expect(prompt).toContain('Deep Heading');
     }, 30000);
   });
 
@@ -1967,6 +1992,13 @@ describe('buildSystem: AI Coach context builder', () => {
         'experience',
       ]);
     }, 30000);
+
+    it('coach-onboarding.AC3.7 Failure: onboarding persona never solicits name', async () => {
+      const prompt = await buildSystem(database, { kind: 'onboarding' });
+      // The onboarding block must not contain language asking for the user's name
+      // Check for "their name", "your name", "ask for name", etc.
+      expect(prompt).not.toMatch(/\b(their|your|ask.*)\s+(name|name\s+is)\b/i);
+    }, 30000);
   });
 
   describe('coach-onboarding.AC6.1: profile section before immutable directives', () => {
@@ -1981,9 +2013,8 @@ describe('buildSystem: AI Coach context builder', () => {
       const profileIdx = prompt.indexOf('## About the User');
       const immutableIdx = prompt.indexOf('## Coach Directives (Non-Negotiable)');
 
-      if (profileIdx !== -1) {
-        expect(profileIdx).toBeLessThan(immutableIdx);
-      }
+      expect(profileIdx).toBeGreaterThan(-1);
+      expect(profileIdx).toBeLessThan(immutableIdx);
     }, 30000);
 
     it('coach-onboarding.AC6.1 Success: omits About-the-User section when profile is empty', async () => {

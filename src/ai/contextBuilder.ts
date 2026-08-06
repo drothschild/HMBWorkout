@@ -233,7 +233,7 @@ Exercise schema (inside draft.exercises):
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
 
-The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment", and "Coaching Style" sections below — its "goals", "equipment", and "personality" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, or coaching style — a workout question is not such a request.`;
+The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment", "Coaching Style", "Age", "Gender", and "Experience" sections below — its "goals", "equipment", "personality", "age", "gender", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, gender, or experience — a workout question is not such a request.`;
 
   // Only add approval sentence in non-onboarding modes
   const settingsApprovalText = mode.kind === 'onboarding' ? '' : ` The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.`;
@@ -241,8 +241,8 @@ The "settingsProposal" field proposes new values for the "User Goals", "Availabl
   const persona = `${basePersona}${settingsApprovalText}
 
 Settings proposal constraints:
-- A settings proposal must include at least one of "goals", "equipment", or "personality"
-- goals, equipment, personality: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
+- A settings proposal must include at least one of "goals", "equipment", "personality", "age", "gender", or "experience"
+- goals, equipment, personality, age, gender, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
 - Each field is a full replacement for the user's current value, not an addition to it, so carry over any part of the current wording that should survive the change
 - Omit the field you are not changing rather than repeating its current value
 

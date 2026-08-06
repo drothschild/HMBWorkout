@@ -94,6 +94,18 @@ describe('ai-coach route params', () => {
       const mode = aiCoachModeFromParams({ routineId: 'routine-123' });
       expect(mode).toEqual({ kind: 'edit', routineId: 'routine-123' });
     });
+
+    it('M4 Failure: onboarding param (string "0") does NOT yield onboarding mode', () => {
+      const mode = aiCoachModeFromParams({ onboarding: '0' } as any);
+      expect(mode).not.toEqual({ kind: 'onboarding' });
+      expect(mode).toEqual({ kind: 'create' });
+    });
+
+    it('M4 Failure: onboarding param (boolean false) does NOT yield onboarding mode', () => {
+      const mode = aiCoachModeFromParams({ onboarding: false } as any);
+      expect(mode).not.toEqual({ kind: 'onboarding' });
+      expect(mode).toEqual({ kind: 'create' });
+    });
   });
 });
 
