@@ -1943,6 +1943,27 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('Experience: intermediate');
     }, 30000);
 
+    it('coach-onboarding.AC3.4 Success: the profile reaches every mode, not just onboarding', async () => {
+      // The profile is coaching input, not interview bookkeeping — the whole
+      // point of Phase 6 was getting it in front of every surface. Asserting it
+      // only in onboarding mode let a guard restricting the section to that mode
+      // pass 1632/1632, which would silently strip the profile from ordinary
+      // coaching while the create-mode persona still promises the model "the
+      // Age, Gender and Experience lines under 'About the User'".
+      setSettings({
+        profileAge: '35',
+        profileGender: 'male',
+        profileExperience: 'intermediate',
+      });
+
+      for (const mode of [{ kind: 'create' } as const, { kind: 'edit', routineId: 'routine-1' } as const]) {
+        const prompt = await buildSystem(database, mode);
+        expect(prompt).toContain('Age: 35');
+        expect(prompt).toContain('Gender: male');
+        expect(prompt).toContain('Experience: intermediate');
+      }
+    }, 30000);
+
     it('AC6.6: profile field values are neutralized (markdown-safe)', async () => {
       setSettings({
         profileAge: '## Secret Heading',
@@ -2015,8 +2036,17 @@ describe('buildSystem: AI Coach context builder', () => {
       // separately above), so this literal and the constant must agree too.
       const prompt = await buildSystem(database, { kind: 'onboarding' });
 
-      const start = prompt.indexOf('You are interviewing a new user');
-      expect(start).toBeGreaterThan(-1);
+      // Anchor the low edge at the END OF THE SHARED PERSONA, not at the
+      // interview sentence. Anchoring on the interview sentence left everything
+      // between the persona and it unguarded — and that is the natural place to
+      // add an onboarding instruction, inside the same `if (mode.kind ===
+      // 'onboarding')` return. Verified: a sentence inserted there passed
+      // 1632/1632 before this change.
+      const personaTail = 'suggest a lighter week when recent sessions have been both frequent and heavy';
+      const tailIdx = prompt.indexOf(personaTail);
+      expect(tailIdx).toBeGreaterThan(-1);
+      const start = tailIdx + personaTail.length;
+      expect(prompt.indexOf('You are interviewing a new user')).toBeGreaterThan(-1);
       const rest = prompt.slice(start);
       const end = rest.indexOf('\n\n## ');
       const block = (end === -1 ? rest : rest.slice(0, end)).trim();
@@ -2029,6 +2059,15 @@ Every field you record must be grounded in something the user actually said. Do 
 At the end of the interview, offer to draft a first routine based on what you've learned about them.`
       );
       expect(block).not.toMatch(/\bname\b/i);
+
+      // Keep the whole-PROMPT regex alongside the block pin. These are
+      // complements, not alternatives: the pin catches any edit inside the
+      // block whatever its wording, and this catches a literally-phrased name
+      // solicitation placed anywhere else — a section pushed later in
+      // buildSystem, or a sentence added to the base persona, neither of which
+      // the block can see. Deleting this in favour of the pin was a net loss
+      // for that case, which the round-2 review proved with a green mutation.
+      expect(prompt).not.toMatch(/\b(their|your|ask.*)\s+(name|name\s+is)\b/i);
     }, 30000);
   });
 
