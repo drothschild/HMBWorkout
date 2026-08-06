@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { createAiChatStore, AiChatDeps, AiChatError } from './aiChatStore';
 import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from './coachOnboarding';
@@ -1459,7 +1461,7 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingSettingsProposal).toBeNull();
     });
 
-    it('AC4.6: coach speaks first via hidden opening turn', async () => {
+    it('coach-onboarding.AC4.6 Success: coach speaks first via hidden opening turn', async () => {
       const { store, fakeChat } = makeStore();
 
       fakeChat.mockResolvedValueOnce({ reply: 'Great! Let me ask you some questions.' });
@@ -1473,8 +1475,8 @@ describe('aiChatStore', () => {
     });
   });
 
-  describe('AC4 - onboarding auto-apply', () => {
-    it('AC4.1: onboarding mode auto-applies proposal and nulls pending', async () => {
+  describe('coach-onboarding.AC4 - onboarding auto-apply', () => {
+    it('coach-onboarding.AC4.1 Success: onboarding mode auto-applies proposal and nulls pending', async () => {
       const { store, fakeChat, fakeSetSettings } = makeStore();
 
       store.getState().reset({ kind: 'onboarding' });
@@ -1489,7 +1491,7 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingSettingsProposal).toBeNull();
     });
 
-    it('AC4.2: create mode does NOT auto-apply proposal, leaves pending', async () => {
+    it('coach-onboarding.AC4.2 Failure: create mode does NOT auto-apply proposal, leaves pending', async () => {
       const { store, fakeChat, fakeSetSettings } = makeStore();
 
       store.getState().reset({ kind: 'create' });
@@ -1504,7 +1506,7 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingSettingsProposal).toEqual({ goals: 'Build strength' });
     });
 
-    it('AC4.3: failed validation is swallowed, conversation continues', async () => {
+    it('coach-onboarding.AC4.3 Failure: failed validation is swallowed, conversation continues', async () => {
       const { store, fakeChat, fakeSetSettings } = makeStore({
         setSettings: jest.fn().mockImplementation(() => {
           throw new DraftValidationError('Invalid field');
@@ -1524,7 +1526,7 @@ describe('aiChatStore', () => {
       expect(store.getState().pendingSettingsProposal).toBeNull(); // swallowed
     });
 
-    it('AC4.4: write invalidates cached prompt without bumping generation', async () => {
+    it('coach-onboarding.AC4.4 Success: write invalidates cached prompt without bumping generation', async () => {
       const { store, fakeChat, fakeBuildSystem } = makeStore();
 
       store.getState().reset({ kind: 'onboarding' });
@@ -1543,7 +1545,7 @@ describe('aiChatStore', () => {
       expect(fakeBuildSystem).toHaveBeenCalledTimes(2);
     });
 
-    it('AC4.5: turn from reset conversation is discarded', async () => {
+    it('coach-onboarding.AC4.5 Edge: turn from reset conversation is discarded', async () => {
       const { store, fakeChat, fakeSetSettings } = makeStore();
 
       store.getState().reset({ kind: 'onboarding' });
@@ -1564,6 +1566,29 @@ describe('aiChatStore', () => {
       expect(fakeSetSettings).not.toHaveBeenCalled();
       expect(store.getState().pendingSettingsProposal).toBeNull();
       expect(store.getState().messages).toHaveLength(0); // reset cleared messages
+    });
+  });
+
+  describe('coach-onboarding.AC7 - cross-cutting', () => {
+    it('coach-onboarding.AC7.2 Success: the chat store reaches neither the engine nor sync', () => {
+      // AGENTS.md: the AI slice is shell-only and deliberately does not touch
+      // the engine — it authors data, never session flow. Onboarding's
+      // auto-apply is the first thing in this store that writes on its own
+      // initiative rather than on a user tap, so the boundary is worth pinning
+      // rather than assuming.
+      //
+      // Structural rather than behavioural on purpose: there is no engine or
+      // sync dependency to spy on, and that absence IS the property. A
+      // behavioural test would have nothing to assert against.
+      const source = readFileSync(join(__dirname, 'aiChatStore.ts'), 'utf8');
+      const imports = source.split('\n').filter((line) => /^\s*import\s/.test(line));
+
+      expect(imports.length).toBeGreaterThan(0);
+      for (const line of imports) {
+        expect(line).not.toMatch(/@\/engine/);
+        expect(line).not.toMatch(/@\/sync/);
+        expect(line).not.toMatch(/activeSession/);
+      }
     });
   });
 });
