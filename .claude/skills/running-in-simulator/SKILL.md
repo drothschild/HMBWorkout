@@ -5,7 +5,7 @@ description: Use when running, launching, or driving HMBWorkout in the iOS Simul
 
 # Running HMBWorkout in the iOS Simulator
 
-Last verified: 2026-08-06 (Xcode 27.0 beta build 27A5228h, Expo SDK 57, dev
+Last verified: 2026-08-07 (Xcode 27.0 beta build 27A5228h, Expo SDK 57, dev
 client `com.davidr.hmbworkout`)
 
 WatermelonDB is native, so the app runs only as a dev-client build plus Metro.
@@ -33,10 +33,20 @@ specific ways; every rule below was hit in practice.
   all** (measured 2026-08-06 against Device Hub, iOS 26.5): with the field
   focused and demonstrably editable, `type` lands *nothing* — not garbled
   text, nothing. Toggling Device Hub's **Capture Keyboard** button does not
-  help. But `cmd+v` lands reliably and immediately, with no iOS Paste
-  callout to click. So: `write_clipboard` (or `pbcopy`) → click the field →
-  `cmd+v`. Control that proves it: pasting into a field where `type` had
-  just silently failed appended correctly on the first try.
+  help. So: `write_clipboard` (or `pbcopy`) → click the field → paste.
+  **Which paste mechanism actually lands is not stable across sessions —
+  try `cmd+v` first, but have the callout fallback ready.** On 2026-08-06,
+  `cmd+v` landed directly with no iOS Paste callout. On 2026-08-07, in a
+  different session, every `key`/`hold_key` action (including a plain
+  `key: "escape"`) aborted with a tool-layer `"user interrupt"` error before
+  reaching the device at all — `cmd+v` was never delivered. The working
+  fallback: `write_clipboard` → click the field once (or twice if already
+  focused) to surface iOS's native **Paste** callout bubble → click
+  **Paste**. This is the same callout an earlier version of this skill
+  called obsolete — it isn't; which path works appears to depend on
+  computer-use tool state, not on Device Hub or iOS. If `cmd+v` doesn't
+  visibly land (or errors), don't retry it — go straight to the callout
+  path.
 - Run your own Metro on a free port (8082+) from the checkout under test and
   connect the dev client to it explicitly (step 2). A Metro already on 8081
   may be serving a different checkout.
@@ -97,7 +107,21 @@ Use the computer-use MCP on the **Device Hub** window (`request_access` with
   (re-entrancy checks).
 - The dev-menu gear bubble floats over the top-right of the header; click
   around it.
-- Device-only frames: `xcrun simctl io <udid> screenshot <path>`.
+- **`simctl launch` issued immediately after `simctl terminate` frequently
+  reports a live PID (`launchctl list` shows it) while the screen actually
+  sits on SpringBoard, not the app.** Hit consistently across 3 relaunches
+  on 2 devices (2026-08-07). A second `simctl launch` call (no `terminate`
+  in between) brings it forward for real. Don't trust `launchctl list`
+  alone as proof the app is frontmost — screenshot and check.
+- **Computer-use's `scroll` action silently no-ops on the app's embedded RN
+  `ScrollView`s** (2026-08-07) — no error, just no movement. A real
+  `left_click_drag` (press, drag, release) from a non-input part of the
+  screen works reliably where `scroll` doesn't.
+- Device-only frames: `xcrun simctl io <udid> screenshot <path>`. **Prefer
+  this over reading the embedded Device Hub pane for anything needing exact
+  text/layout detail** (e.g. checking word-wrap on a long value) — the
+  embedded pane is chrome-cropped and lower-fidelity than a direct device
+  screenshot.
 
 ## 5. Read ground truth from SQLite
 
