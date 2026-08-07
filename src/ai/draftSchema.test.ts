@@ -274,6 +274,34 @@ describe('draftSchema', () => {
       expect(result.settingsProposal?.equipment).toBeUndefined();
       expect(result.settingsProposal?.personality).toBeUndefined();
     });
+
+    test('issue-191: pins empty string in goals throws from parseAiTurn, not silently dropped', () => {
+      // { goals: '' } should throw from parseAiTurn because validateSettingsProposal
+      // rejects empty/whitespace-only strings. This guards against the behavior
+      // flipping to silently drop it as if goals were undefined.
+      const json = JSON.stringify({
+        reply: 'reply',
+        settingsProposal: { goals: '' },
+      });
+
+      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+      expect(() => parseAiTurn(json)).toThrow('must be a non-empty string');
+    });
+
+    test('issue-191: pins empty array settingsProposal silently dropped (treated as empty proposal)', () => {
+      // An empty array [] for settingsProposal is treated as if it has no fields
+      // and is silently dropped, keeping the reply. This guards against the behavior
+      // flipping to either throw or treat the array as a valid proposal.
+      const json = JSON.stringify({
+        reply: 'reply',
+        settingsProposal: [],
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('reply');
+      expect(result.settingsProposal).toBeUndefined();
+    });
   });
 
   describe('validateSettingsProposal', () => {
@@ -468,34 +496,6 @@ describe('draftSchema', () => {
           experience: undefined,
         })
       ).toThrow('at least one field');
-    });
-
-    test('issue-191: pins empty string in goals throws from parseAiTurn, not silently dropped', () => {
-      // { goals: '' } should throw from parseAiTurn because validateSettingsProposal
-      // rejects empty/whitespace-only strings. This guards against the behavior
-      // flipping to silently drop it as if goals were undefined.
-      const json = JSON.stringify({
-        reply: 'reply',
-        settingsProposal: { goals: '' },
-      });
-
-      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
-      expect(() => parseAiTurn(json)).toThrow('must be a non-empty string');
-    });
-
-    test('issue-191: pins empty array settingsProposal silently dropped (treated as empty proposal)', () => {
-      // An empty array [] for settingsProposal is treated as if it has no fields
-      // and is silently dropped, keeping the reply. This guards against the behavior
-      // flipping to either throw or treat the array as a valid proposal.
-      const json = JSON.stringify({
-        reply: 'reply',
-        settingsProposal: [],
-      });
-
-      const result = parseAiTurn(json);
-
-      expect(result.reply).toBe('reply');
-      expect(result.settingsProposal).toBeUndefined();
     });
   });
 
@@ -1024,69 +1024,30 @@ describe('draftSchema', () => {
       // due to grammar complexity limits. This threshold of 20 gives early warning (~4 property headroom)
       // so that adding new fields breaks the test before hitting the runtime failure.
       //
-      // Count optional properties: those in AI_TURN_SCHEMA.properties but NOT in required array.
-      // Recursively count optional fields in nested objects (draft, exercise items, settingsProposal).
-      function countOptionalProperties(schema: any, parentRequired: readonly string[] = []): number {
-        if (!schema || typeof schema !== 'object') {
-          return 0;
-        }
+      // Recursively count optional fields at all levels of the schema tree.
+      type SchemaNode = {
+        properties?: Record<string, SchemaNode>;
+        items?: SchemaNode;
+        required?: readonly string[];
+      };
 
+      function countOptional(node: SchemaNode, required: readonly string[] = []): number {
+        if (!node || typeof node !== 'object') return 0;
         let count = 0;
-
-        // Count optional properties at this level
-        if (schema.properties && typeof schema.properties === 'object') {
-          for (const propName of Object.keys(schema.properties)) {
-            // A property is optional if it's not in the required array
-            if (!parentRequired.includes(propName)) {
-              count++;
-            }
-          }
+        for (const [name, child] of Object.entries(node.properties ?? {})) {
+          if (!required.includes(name)) count++;
+          count += countOptional(child, child.required ?? []);
         }
-
-        // Recurse into nested objects
-        if (schema.properties) {
-          // Check draft properties and nested exercise items
-          if (schema.properties.draft) {
-            const draftSchema = schema.properties.draft;
-            const draftRequired = draftSchema.required ?? [];
-            // Count optional in draft itself
-            if (draftSchema.properties) {
-              for (const propName of Object.keys(draftSchema.properties)) {
-                if (!draftRequired.includes(propName)) {
-                  count++;
-                }
-              }
-            }
-            // Count optional in exercise items
-            if (draftSchema.properties?.exercises?.items?.properties) {
-              const exerciseRequired = draftSchema.properties.exercises.items.required ?? [];
-              for (const propName of Object.keys(draftSchema.properties.exercises.items.properties)) {
-                if (!exerciseRequired.includes(propName)) {
-                  count++;
-                }
-              }
-            }
-          }
-
-          // Check settingsProposal properties
-          if (schema.properties.settingsProposal) {
-            const proposalSchema = schema.properties.settingsProposal;
-            const proposalRequired = proposalSchema.required ?? [];
-            if (proposalSchema.properties) {
-              for (const propName of Object.keys(proposalSchema.properties)) {
-                if (!proposalRequired.includes(propName)) {
-                  count++;
-                }
-              }
-            }
-          }
-        }
-
+        if (node.items) count += countOptional(node.items, node.items.required ?? []);
         return count;
       }
 
-      const optionalCount = countOptionalProperties(AI_TURN_SCHEMA, AI_TURN_SCHEMA.required ?? []);
+      const optionalCount = countOptional(AI_TURN_SCHEMA as unknown as SchemaNode, AI_TURN_SCHEMA.required ?? []);
 
+      // Bump this deliberately when AI_TURN_SCHEMA legitimately grows — if this assertion moves,
+      // also re-check the <20 ceiling below still gives comfortable headroom before Anthropic's
+      // ~24-optional-property structured-output limit.
+      expect(optionalCount).toBe(16);
       expect(optionalCount).toBeLessThan(20);
     });
   });
