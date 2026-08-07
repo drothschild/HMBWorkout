@@ -1836,7 +1836,12 @@ describe('buildSystem: AI Coach context builder', () => {
       // appended to the sentence with the entire suite green — verified.
       expect(prompt).toContain('Ask their goals, equipment, personality, age, and experience. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last.');
       expect(prompt).toContain('Age is sensitive; ask it last');
-      expect(prompt).toContain('If the user declines to answer, record their refusal verbatim');
+      // Pin the mechanism, not just the sentiment. The previous wording said
+      // "record their refusal verbatim", which the live model read as something
+      // to do in its reply rather than a field to emit — see #193. The words
+      // that carry the fix are "send it in settingsProposal".
+      expect(prompt).toContain('send it in settingsProposal with their own words as the value');
+      expect(prompt).toContain('Never re-ask a field the user has declined');
       expect(prompt).toContain('Every field you record must be grounded in something the user actually said');
     }, 30000);
 
@@ -2055,7 +2060,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const block = (end === -1 ? rest : rest.slice(0, end)).trim();
 
       expect(block).toBe(
-        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, and experience. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, and experience. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines a field, that IS their answer: send it in settingsProposal with their own words as the value (e.g. age: "prefer not to say"). Acknowledging a refusal only in your reply does not record it — a field you never send is indistinguishable from one you never asked, so a later conversation will ask again. Never re-ask a field the user has declined.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 
