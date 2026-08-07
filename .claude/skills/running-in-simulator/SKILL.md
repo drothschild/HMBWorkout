@@ -29,9 +29,14 @@ specific ways; every rule below was hit in practice.
   Device Hub window.
 - Start Metro plain: `EXPO_NO_TELEMETRY=1 npx expo start --port <port>`.
   `CI=1` disables file watching and silently serves a stale bundle.
-- Enter long text via clipboard paste — `printf '...' | pbcopy`, then send
-  `cmd+v` (Simulator forwards Mac paste). Synthetic per-key typing triggers
-  iOS's press-and-hold accent picker and garbles the field.
+- **All text entry must go through the clipboard. `type` does not work at
+  all** (measured 2026-08-06 against Device Hub, iOS 26.5): with the field
+  focused and demonstrably editable, `type` lands *nothing* — not garbled
+  text, nothing. Toggling Device Hub's **Capture Keyboard** button does not
+  help. But `cmd+v` lands reliably and immediately, with no iOS Paste
+  callout to click. So: `write_clipboard` (or `pbcopy`) → click the field →
+  `cmd+v`. Control that proves it: pasting into a field where `type` had
+  just silently failed appended correctly on the first try.
 - Run your own Metro on a free port (8082+) from the checkout under test and
   connect the dev client to it explicitly (step 2). A Metro already on 8081
   may be serving a different checkout.
@@ -78,6 +83,16 @@ Use the computer-use MCP on the **Device Hub** window (`request_access` with
 - If clicks and keystrokes are landing nowhere at all, check you are targeting
   Device Hub before concluding the host or the simulator is broken. A grant
   for "Simulator" now resolves to nothing.
+- **Device Hub renders the device screen *inside* its own window, and its
+  bottom toolbar OVERLAYS the device's dock and home-indicator strip.** A
+  click aimed at the dock lands on a Device Hub control instead — aiming at
+  the Settings search field hit Device Hub's Home button and bounced the
+  device to SpringBoard. Target anything in the bottom ~15pt of the device
+  screen by scrolling it upward first, or drive it with a deep link.
+- Pick the device in the left sidebar; the screen only appears once it is
+  selected. The toolbar's four magnifiers are fixed zoom levels — go to the
+  largest before doing coordinate work, the default is small enough to make
+  taps unreliable.
 - `double_click` on a button delivers a genuine rapid double-tap
   (re-entrancy checks).
 - The dev-menu gear bubble floats over the top-right of the header; click
