@@ -24,6 +24,7 @@ import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
+import { LINE_HEIGHT_FLOOR } from '@/theme/typography';
 
 const HEADER_TITLES = {
   create: 'AI Coach',
@@ -718,6 +719,9 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontSize: 18,
+    // 21 is 0.20pt short of LINE_HEIGHT_FLOOR × 18 (21.20). Exempted as an
+    // element-specific glyph exception: modal header titles contain no descenders,
+    // so the shortfall lands in the unused descent band.
     lineHeight: 21,
     fontWeight: '700',
   },
@@ -731,10 +735,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
     textAlign: 'center',
     fontSize: 20,
-    // 24, not 23: SF's natural line height is ~1.165-1.19x the point size, so
-    // 20pt needs >=23.3 and 23 is 0.3pt short — the same defect this pass
-    // exists to remove, just smaller. 24 also matches the whole-number scale
-    // themed-text.tsx uses throughout.
+    // 24, not 23: SF's natural line height is LINE_HEIGHT_FLOOR (1.177734375),
+    // so 20pt needs >=23.55 and 23 is 0.55pt short — the same defect this pass
+    // exists to remove, just smaller. 24 clears by 0.45pt and also matches the
+    // whole-number scale themed-text.tsx uses throughout.
     lineHeight: 24,
   },
   missingKeyMessage: {

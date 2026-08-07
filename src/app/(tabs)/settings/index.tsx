@@ -92,6 +92,9 @@ const styles = StyleSheet.create({
   },
   chevron: {
     fontSize: 24,
+    // 28 is 0.27pt short of LINE_HEIGHT_FLOOR × 24 (28.27). Exempted as an
+    // element-specific glyph exception: the chevron character (›) contains no
+    // descenders, so the shortfall lands in the unused descent band.
     lineHeight: 28,
     opacity: 0.4,
     paddingLeft: Spacing.two,
