@@ -5,7 +5,8 @@ description: Use when running, launching, or driving HMBWorkout in the iOS Simul
 
 # Running HMBWorkout in the iOS Simulator
 
-Last verified: 2026-07-30 (Xcode-beta 27, Expo SDK 57, dev client `com.davidr.hmbworkout`)
+Last verified: 2026-08-06 (Xcode 27.0 beta build 27A5228h, Expo SDK 57, dev
+client `com.davidr.hmbworkout`)
 
 WatermelonDB is native, so the app runs only as a dev-client build plus Metro.
 This Mac runs the Xcode-beta toolchain, which changes the standard tooling in
@@ -13,10 +14,19 @@ specific ways; every rule below was hit in practice.
 
 ## Constraints that cost an hour if ignored
 
+- **`Simulator.app` no longer exists. Xcode 27 replaced it with *Device Hub*.**
+  `open -a Simulator` fails outright with "Unable to find application named
+  'Simulator'". The app is
+  `/Applications/Xcode-beta.app/Contents/Applications/DeviceHub.app`, bundle id
+  `com.apple.dt.Devices` — note `Contents/Applications/`, not the old
+  `Contents/Developer/Applications/`. Front it with `open -a "Device Hub"`.
+  `xcrun simctl` is completely unaffected and works as before. Driving the
+  vanished "Simulator" app is the suspected cause of a long 2026-08-05
+  incident where every synthetic click and keystroke silently no-oped.
 - The iOS Simulator MCP reports "No booted simulator found" for every sim
   booted by beta `simctl` — any runtime version, not just betas. Skip the
   panel entirely: drive with `xcrun simctl` plus computer-use on the
-  Simulator.app window.
+  Device Hub window.
 - Start Metro plain: `EXPO_NO_TELEMETRY=1 npx expo start --port <port>`.
   `CI=1` disables file watching and silently serves a stale bundle.
 - Enter long text via clipboard paste — `printf '...' | pbcopy`, then send
@@ -42,7 +52,7 @@ this toolchain).
 ## 2. Boot, serve, connect
 
     xcrun simctl bootstatus <udid> -b
-    open -a Simulator
+    open -a "Device Hub"
     EXPO_NO_TELEMETRY=1 npx expo start --port 8082    # background, from the checkout under test
     xcrun simctl launch <udid> com.davidr.hmbworkout
     xcrun simctl openurl <udid> "hmbworkout://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8082"
@@ -58,13 +68,16 @@ dialog that needs a manual tap. Confirm the bundle loaded with
 
 ## 4. Tap and type
 
-Use the computer-use MCP on the Simulator window (`request_access` with
-"Simulator"; it grants full tier):
+Use the computer-use MCP on the **Device Hub** window (`request_access` with
+"Device Hub" — *not* "Simulator", which no longer exists; it grants full tier):
 
-- Re-front with `open_application` "Simulator" before every action batch —
+- Re-front with `open_application` "Device Hub" before every action batch —
   focus drifts back to the Claude app between tool calls, and clicks after a
   focus change vanish silently. Confirm effects from the screen, not from
   the click returning success.
+- If clicks and keystrokes are landing nowhere at all, check you are targeting
+  Device Hub before concluding the host or the simulator is broken. A grant
+  for "Simulator" now resolves to nothing.
 - `double_click` on a button delivers a genuine rapid double-tap
   (re-entrancy checks).
 - The dev-menu gear bubble floats over the top-right of the header; click
