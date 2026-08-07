@@ -266,7 +266,7 @@ Planning from history:
 
     return `${persona}
 
-You are interviewing a new user to build their profile. Ask their ${fieldList}. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+You are interviewing a new user to build their profile. Ask their ${fieldList}. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines a field, that IS their answer: send it in settingsProposal with their own words as the value (e.g. age: "prefer not to say"). Acknowledging a refusal only in your reply does not record it — a field you never send is indistinguishable from one you never asked, so a later conversation will ask again. Never re-ask a field the user has declined.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 
