@@ -453,9 +453,6 @@ describe('OpenAI structured output schema validation', () => {
         "experience": {
           "type": "string",
         },
-        "gender": {
-          "type": "string",
-        },
         "goals": {
           "type": "string",
         },

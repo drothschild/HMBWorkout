@@ -16,7 +16,6 @@ export interface SettingsProposal {
   equipment?: string;
   personality?: string;
   age?: string;
-  gender?: string;
   experience?: string;
 }
 
@@ -103,7 +102,6 @@ export const AI_TURN_SCHEMA = {
         equipment: { type: 'string' },
         personality: { type: 'string' },
         age: { type: 'string' },
-        gender: { type: 'string' },
         experience: { type: 'string' },
       },
       additionalProperties: false,
@@ -212,7 +210,6 @@ const SETTINGS_PROPOSAL_FIELDS = [
   'equipment',
   'personality',
   'age',
-  'gender',
   'experience',
 ] as const satisfies readonly (keyof SettingsProposal)[];
 

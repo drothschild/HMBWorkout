@@ -180,21 +180,19 @@ describe('coach-onboarding.AC6.4 Success: profile in prompt before directives', 
     const { system } = buildAlternatesPrompt(
       input({
         profileAge: '41',
-        profileGender: 'Female',
-        profileExperience: '',
+        profileExperience: 'Advanced',
       })
     );
 
     expect(system).toContain('## About the User');
     expect(system).toContain('Age: 41');
-    expect(system).toContain('Gender: Female');
+    expect(system).toContain('Experience: Advanced');
   });
 
   it('omits About-the-User when profile is empty', () => {
     const { system } = buildAlternatesPrompt(
       input({
         profileAge: '',
-        profileGender: '',
         profileExperience: '',
       })
     );
@@ -228,7 +226,6 @@ describe('coach-onboarding.AC6.4 Success: profile in prompt before directives', 
     const { system } = buildAlternatesPrompt(
       input({
         profileAge: '41',
-        profileGender: '',
         profileExperience: 'Intermediate',
       })
     );
@@ -252,11 +249,9 @@ describe('coach-onboarding.AC6.6 Edge: neutralize # in profile', () => {
     expect(system).toContain('Injection Attack');
   });
 
-  it('neutralizes # in profile gender', () => {
+  it('neutralizes # in a second profile field', () => {
     const { system } = buildAlternatesPrompt(
-      input({
-        profileGender: '## Bad Injection',
-      })
+      input({ profileExperience: '## Bad Injection' })
     );
 
     expect(system).not.toContain('## Bad Injection');

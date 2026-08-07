@@ -331,7 +331,6 @@ describe('createExerciseReplaceStore', () => {
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
         profileAge: '41',
-        profileGender: 'Female',
         profileExperience: 'Advanced',
       });
       const store = makeStore();
@@ -343,7 +342,6 @@ describe('createExerciseReplaceStore', () => {
 
       // Profile SHOULD appear — this is the store-wiring assertion.
       expect(prompt).toContain('41');
-      expect(prompt).toContain('Female');
       expect(prompt).toContain('Advanced');
 
       // Secrets should NOT. openaiKey is a real reachable field, not a

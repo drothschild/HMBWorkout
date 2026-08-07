@@ -82,7 +82,6 @@ function buildSettingsPatch(proposal: SettingsProposal): Parameters<typeof setSe
   if (proposal.equipment !== undefined) patch.aiEquipment = proposal.equipment;
   if (proposal.personality !== undefined) patch.aiPersonality = proposal.personality;
   if (proposal.age !== undefined) patch.profileAge = proposal.age;
-  if (proposal.gender !== undefined) patch.profileGender = proposal.gender;
   if (proposal.experience !== undefined) patch.profileExperience = proposal.experience;
   return patch;
 }

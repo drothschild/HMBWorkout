@@ -1604,7 +1604,6 @@ describe('aiChatStore', () => {
           equipment: 'Dumbbells',
           personality: 'Encouraging',
           age: '35',
-          gender: 'Male',
           experience: 'Advanced',
         },
       });
@@ -1617,7 +1616,6 @@ describe('aiChatStore', () => {
         aiEquipment: 'Dumbbells',
         aiPersonality: 'Encouraging',
         profileAge: '35',
-        profileGender: 'Male',
         profileExperience: 'Advanced',
       });
 
@@ -1656,7 +1654,6 @@ describe('aiChatStore', () => {
           equipment: 'Barbell',
           personality: 'No-nonsense',
           age: '28',
-          gender: 'Female',
           experience: 'Beginner',
         },
       });
@@ -1673,7 +1670,6 @@ describe('aiChatStore', () => {
         aiEquipment: 'Barbell',
         aiPersonality: 'No-nonsense',
         profileAge: '28',
-        profileGender: 'Female',
         profileExperience: 'Beginner',
       });
     });

@@ -446,7 +446,6 @@ describe('createRestCommentaryStore', () => {
         baseUrl: 'http://bridge.local:3000',
         aiPersonality: 'Encouraging but honest.',
         profileAge: '41',
-        profileGender: 'Female',
         profileExperience: 'Advanced',
       });
       const store = makeStore();
@@ -458,7 +457,6 @@ describe('createRestCommentaryStore', () => {
 
       // Profile values SHOULD appear
       expect(prompt).toContain('41');
-      expect(prompt).toContain('Female');
       expect(prompt).toContain('Advanced');
       expect(prompt).toContain('Encouraging but honest.');
 

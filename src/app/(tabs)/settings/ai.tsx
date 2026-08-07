@@ -16,7 +16,6 @@ type AiSettingsPatch = Partial<{
   aiEquipment: string;
   aiPersonality: string;
   profileAge: string;
-  profileGender: string;
   profileExperience: string;
 }>;
 
@@ -30,7 +29,6 @@ export default function AiCoachSettingsScreen() {
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
   const [aiPersonality, setAiPersonality] = useState(() => getSettings().aiPersonality);
   const [profileAge, setProfileAge] = useState(() => getSettings().profileAge);
-  const [profileGender, setProfileGender] = useState(() => getSettings().profileGender);
   const [profileExperience, setProfileExperience] = useState(() => getSettings().profileExperience);
 
   const pendingRef = useRef<AiSettingsPatch>({});
@@ -72,7 +70,6 @@ export default function AiCoachSettingsScreen() {
       setAiEquipment(settings.aiEquipment);
       setAiPersonality(settings.aiPersonality);
       setProfileAge(settings.profileAge);
-      setProfileGender(settings.profileGender);
       setProfileExperience(settings.profileExperience);
     }, [flush])
   );
@@ -218,24 +215,6 @@ export default function AiCoachSettingsScreen() {
               onChangeText={(value) => {
                 setProfileAge(value);
                 queueSave({ profileAge: value });
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </ThemedView>
-
-          <ThemedView style={styles.formGroup}>
-            <ThemedText type="default" style={styles.label}>
-              Gender
-            </ThemedText>
-            <TextInput
-              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
-              placeholder="e.g. Male, Female, or prefer not to say"
-              placeholderTextColor={placeholderColor}
-              value={profileGender}
-              onChangeText={(value) => {
-                setProfileGender(value);
-                queueSave({ profileGender: value });
               }}
               autoCapitalize="none"
               autoCorrect={false}

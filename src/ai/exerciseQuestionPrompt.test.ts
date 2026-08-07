@@ -131,20 +131,18 @@ describe('buildExerciseQuestionPrompt', () => {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: 'Bench Press', kind: 'strength', description: null },
         profileAge: '41',
-        profileGender: 'Female',
-        profileExperience: '',
+        profileExperience: 'Advanced',
       });
 
       expect(prompt.system).toContain('## About the User');
       expect(prompt.system).toContain('Age: 41');
-      expect(prompt.system).toContain('Gender: Female');
+      expect(prompt.system).toContain('Experience: Advanced');
     });
 
     it('omits About-the-User when profile is empty', () => {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: 'Bench Press', kind: 'strength', description: null },
         profileAge: '',
-        profileGender: '',
         profileExperience: '',
       });
 
@@ -178,7 +176,6 @@ describe('buildExerciseQuestionPrompt', () => {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: 'Bench Press', kind: 'strength', description: null },
         profileAge: '41',
-        profileGender: '',
         profileExperience: 'Intermediate',
       });
 
@@ -200,10 +197,10 @@ describe('buildExerciseQuestionPrompt', () => {
       expect(prompt.system).toContain('Injection Attack');
     });
 
-    it('neutralizes # in profile gender', () => {
+    it('neutralizes # in a second profile field', () => {
       const prompt = buildExerciseQuestionPrompt({
         exercise: { title: 'Bench Press', kind: 'strength', description: null },
-        profileGender: '## Bad Injection',
+        profileExperience: '## Bad Injection',
       });
 
       expect(prompt.system).not.toContain('## Bad Injection');

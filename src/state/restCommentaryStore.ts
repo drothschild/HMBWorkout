@@ -190,7 +190,6 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         // the user-controlled coaching-style text above it.
         directives: IMMUTABLE_DIRECTIVES,
         profileAge: settings.profileAge,
-        profileGender: settings.profileGender,
         profileExperience: settings.profileExperience,
       });
 

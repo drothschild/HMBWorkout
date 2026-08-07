@@ -33,7 +33,7 @@ export type AiCoachMode =
  * No "name" field exists — users may volunteer names in conversation,
  * but the coach never solicits or persists them.
  */
-export const ONBOARDING_PROFILE_FIELDS = ['goals', 'equipment', 'personality', 'age', 'gender', 'experience'] as const;
+export const ONBOARDING_PROFILE_FIELDS = ['goals', 'equipment', 'personality', 'age', 'experience'] as const;
 
 /**
  * The interview's field list as the persona states it, joined with an Oxford
@@ -233,7 +233,7 @@ Exercise schema (inside draft.exercises):
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
 
-The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age, Gender and Experience lines under "About the User" — its "goals", "equipment", "personality", "age", "gender", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, gender, or experience — a workout question is not such a request.`;
+The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age and Experience lines under "About the User" — its "goals", "equipment", "personality", "age", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, or experience — a workout question is not such a request.`;
 
   // Only add approval sentence in non-onboarding modes
   const settingsApprovalText = mode.kind === 'onboarding' ? '' : ` The user must approve a settings proposal before it takes effect, so quote the wording you are proposing in your reply and ask for confirmation rather than describing the change as already made.`;
@@ -241,8 +241,8 @@ The "settingsProposal" field proposes new values for the "User Goals", "Availabl
   const persona = `${basePersona}${settingsApprovalText}
 
 Settings proposal constraints:
-- A settings proposal must include at least one of "goals", "equipment", "personality", "age", "gender", or "experience"
-- goals, equipment, personality, age, gender, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
+- A settings proposal must include at least one of "goals", "equipment", "personality", "age", or "experience"
+- goals, equipment, personality, age, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters
 - Each field is a full replacement for the user's current value, not an addition to it, so carry over any part of the current wording that should survive the change
 - Omit the field you are not changing rather than repeating its current value
 
@@ -266,7 +266,7 @@ Planning from history:
 
     return `${persona}
 
-You are interviewing a new user to build their profile. Ask their ${fieldList} in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+You are interviewing a new user to build their profile. Ask their ${fieldList}. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 
@@ -335,8 +335,6 @@ function aboutTheUserSection(): string {
 
   const parts: string[] = [];
   if (settings.profileAge?.trim()) parts.push(`Age: ${neutralizeNotesForPrompt(settings.profileAge)}`);
-  if (settings.profileGender?.trim())
-    parts.push(`Gender: ${neutralizeNotesForPrompt(settings.profileGender)}`);
   if (settings.profileExperience?.trim())
     parts.push(`Experience: ${neutralizeNotesForPrompt(settings.profileExperience)}`);
 
