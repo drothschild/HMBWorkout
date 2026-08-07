@@ -431,7 +431,6 @@ describe('Settings Persistence', () => {
   test('coach-onboarding.AC1.1 Success: The three profile* fields and onboardingState save and survive an app restart', async () => {
     setSettings({
       profileAge: '41',
-      profileGender: 'male',
       profileExperience: 'intermediate, weak shoulders',
       onboardingState: 'completed',
     });
@@ -440,7 +439,6 @@ describe('Settings Persistence', () => {
     expect(fakeStorage).toHaveProperty('bridge_settings');
     const stored = JSON.parse(fakeStorage.bridge_settings);
     expect(stored.profileAge).toBe('41');
-    expect(stored.profileGender).toBe('male');
     expect(stored.profileExperience).toBe('intermediate, weak shoulders');
     expect(stored.onboardingState).toBe('completed');
 
@@ -451,7 +449,6 @@ describe('Settings Persistence', () => {
     await loadSettings();
     const reloaded = getSettings();
     expect(reloaded.profileAge).toBe('41');
-    expect(reloaded.profileGender).toBe('male');
     expect(reloaded.profileExperience).toBe('intermediate, weak shoulders');
     expect(reloaded.onboardingState).toBe('completed');
   });
@@ -482,7 +479,6 @@ describe('Settings Persistence', () => {
     expect(settings.aiPersonality).toBe('upbeat');
     // New fields default to empty strings and 'unseen'
     expect(settings.profileAge).toBe('');
-    expect(settings.profileGender).toBe('');
     expect(settings.profileExperience).toBe('');
     expect(settings.onboardingState).toBe('unseen');
   });
@@ -492,29 +488,24 @@ describe('Settings Persistence', () => {
     // invariant, so all three are guarded. The failure this catches does not
     // exist yet: it is a future normaliser that blanks a refusal back to '',
     // reintroducing the sentinel the design deliberately avoids. Guarding only
-    // profileAge would let such a normaliser land on gender or experience
+    // profileAge would let such a normaliser land on experience
     // unnoticed.
-    setSettings({ profileAge: '', profileGender: '', profileExperience: '' });
     const empty = getSettings();
     expect(empty.profileAge).toBe('');
-    expect(empty.profileGender).toBe('');
     expect(empty.profileExperience).toBe('');
 
     setSettings({
       profileAge: 'prefer not to say',
-      profileGender: 'prefer not to say',
       profileExperience: 'rather not answer',
     });
     const refused = getSettings();
     expect(refused.profileAge).toBe('prefer not to say');
-    expect(refused.profileGender).toBe('prefer not to say');
     expect(refused.profileExperience).toBe('rather not answer');
   });
 
   test('coach-onboarding.AC1.4 Edge: All three profile fields may be empty; the settings module behaves normally with none of them set', async () => {
     setSettings({
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'unseen',
     });
@@ -522,13 +513,11 @@ describe('Settings Persistence', () => {
 
     const stored = JSON.parse(fakeStorage.bridge_settings);
     expect(stored.profileAge).toBe('');
-    expect(stored.profileGender).toBe('');
     expect(stored.profileExperience).toBe('');
     expect(stored.onboardingState).toBe('unseen');
 
     const settings = getSettings();
     expect(settings.profileAge).toBe('');
-    expect(settings.profileGender).toBe('');
     expect(settings.profileExperience).toBe('');
     expect(settings.onboardingState).toBe('unseen');
   });

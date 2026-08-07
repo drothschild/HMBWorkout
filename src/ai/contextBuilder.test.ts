@@ -117,11 +117,11 @@ describe('buildSystem: AI Coach context builder', () => {
     it('maps the proposal fields to the prompt sections they replace', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      // Age/Gender/Experience are labelled lines inside one "About the User"
+      // Age/Experience are labelled lines inside one "About the User"
       // section, not sections of their own — the prose must not promise the
       // model a structure the prompt does not contain.
       expect(prompt).toContain(
-        'proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age, Gender and Experience lines under "About the User"'
+        'proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age and Experience lines under "About the User"'
       );
     }, 30000);
 
@@ -129,7 +129,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'A settings proposal must include at least one of "goals", "equipment", "personality", "age", "gender", or "experience"'
+        'A settings proposal must include at least one of "goals", "equipment", "personality", "age", or "experience"'
       );
     }, 30000);
 
@@ -137,7 +137,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        `goals, equipment, personality, age, gender, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
+        `goals, equipment, personality, age, experience: when present, must be non-empty strings of at most ${SETTINGS_FIELD_MAX_LENGTH} characters`
       );
     }, 30000);
 
@@ -153,7 +153,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, gender, or experience'
+        'Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, or experience'
       );
     }, 30000);
 
@@ -1831,11 +1831,11 @@ describe('buildSystem: AI Coach context builder', () => {
     it('coach-onboarding.AC3.1 Success: persona includes interview instructions', async () => {
       const prompt = await buildSystem(database, { kind: 'onboarding' });
       expect(prompt).toContain('You are interviewing a new user to build their profile');
-      // The WHOLE list, terminated by "in natural batches". A prefix match here
-      // ('Ask their goals, equipment, personality') let a seventh field be
+      // The WHOLE list plus the cap, in one literal. A prefix match here
+      // ('Ask their goals, equipment, personality') let an extra field be
       // appended to the sentence with the entire suite green — verified.
-      expect(prompt).toContain('Ask their goals, equipment, personality, age, gender, and experience in natural batches');
-      expect(prompt).toContain('Age and gender are sensitive; ask them last');
+      expect(prompt).toContain('Ask their goals, equipment, personality, age, and experience. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last.');
+      expect(prompt).toContain('Age is sensitive; ask it last');
       expect(prompt).toContain('If the user declines to answer, record their refusal verbatim');
       expect(prompt).toContain('Every field you record must be grounded in something the user actually said');
     }, 30000);
@@ -1931,7 +1931,6 @@ describe('buildSystem: AI Coach context builder', () => {
     it('coach-onboarding.AC3.4 Success: already-recorded profile values appear in prompt', async () => {
       setSettings({
         profileAge: '35',
-        profileGender: 'male',
         profileExperience: 'intermediate',
       });
 
@@ -1939,7 +1938,6 @@ describe('buildSystem: AI Coach context builder', () => {
 
       // Assert label pairs to ensure values aren't mislabeled
       expect(prompt).toContain('Age: 35');
-      expect(prompt).toContain('Gender: male');
       expect(prompt).toContain('Experience: intermediate');
     }, 30000);
 
@@ -1949,17 +1947,15 @@ describe('buildSystem: AI Coach context builder', () => {
       // only in onboarding mode let a guard restricting the section to that mode
       // pass 1632/1632, which would silently strip the profile from ordinary
       // coaching while the create-mode persona still promises the model "the
-      // Age, Gender and Experience lines under 'About the User'".
+      // Age and Experience lines under 'About the User'".
       setSettings({
         profileAge: '35',
-        profileGender: 'male',
         profileExperience: 'intermediate',
       });
 
       for (const mode of [{ kind: 'create' } as const, { kind: 'edit', routineId: 'routine-1' } as const]) {
         const prompt = await buildSystem(database, mode);
         expect(prompt).toContain('Age: 35');
-        expect(prompt).toContain('Gender: male');
         expect(prompt).toContain('Experience: intermediate');
       }
     }, 30000);
@@ -1967,7 +1963,6 @@ describe('buildSystem: AI Coach context builder', () => {
     it('coach-onboarding.AC6.6 Edge: profile field values are neutralized (markdown-safe)', async () => {
       setSettings({
         profileAge: '## Secret Heading',
-        profileGender: '## Another Heading',
         profileExperience: '#### Deep Heading',
       });
 
@@ -1975,11 +1970,9 @@ describe('buildSystem: AI Coach context builder', () => {
 
       // Values starting with ## should not render as markdown headings
       expect(prompt).not.toContain('## Secret Heading');
-      expect(prompt).not.toContain('## Another Heading');
       expect(prompt).not.toContain('#### Deep Heading');
       // Instead, they should be neutralized (leading hashes stripped)
       expect(prompt).toContain('Secret Heading');
-      expect(prompt).toContain('Another Heading');
       expect(prompt).toContain('Deep Heading');
     }, 30000);
   });
@@ -2001,7 +1994,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const { onboardingFieldList } = await import('./contextBuilder');
       const prompt = await buildSystem(database, { kind: 'onboarding' });
 
-      expect(prompt).toContain(`Ask their ${onboardingFieldList()} in natural batches`);
+      expect(prompt).toContain(`Ask their ${onboardingFieldList()}. Ask AT MOST TWO of them`);
       expect(onboardingFieldList()).not.toContain('name');
     }, 30000);
 
@@ -2012,7 +2005,6 @@ describe('buildSystem: AI Coach context builder', () => {
         'equipment',
         'personality',
         'age',
-        'gender',
         'experience',
       ]);
     }, 30000);
@@ -2057,7 +2049,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const block = (end === -1 ? rest : rest.slice(0, end)).trim();
 
       expect(block).toBe(
-        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, gender, and experience in natural batches—not one question per turn. Age and gender are sensitive; ask them last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
+        `You are interviewing a new user to build their profile. Ask their goals, equipment, personality, age, and experience. Ask AT MOST TWO of them in any single message — never three or more, however naturally they group. Age is sensitive; ask it last. If the user declines to answer, record their refusal verbatim (e.g. "prefer not to say") and do not re-ask it in later turns.
 
 Every field you record must be grounded in something the user actually said. Do not infer or guess.
 
@@ -2088,7 +2080,6 @@ At the end of the interview, offer to draft a first routine based on what you've
     it('coach-onboarding.AC6.1 Success: buildSystem renders profile before immutable directives', async () => {
       setSettings({
         profileAge: '40',
-        profileGender: 'female',
       });
 
       const prompt = await buildSystem(database, { kind: 'onboarding' });
@@ -2103,7 +2094,6 @@ At the end of the interview, offer to draft a first routine based on what you've
     it('coach-onboarding.AC6.1 Success: omits About-the-User section when profile is empty', async () => {
       setSettings({
         profileAge: '',
-        profileGender: '',
         profileExperience: '',
       });
 

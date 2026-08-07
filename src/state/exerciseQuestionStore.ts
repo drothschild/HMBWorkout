@@ -155,7 +155,6 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
         // coaching-style text above it.
         directives: IMMUTABLE_DIRECTIVES,
         profileAge: settings.profileAge,
-        profileGender: settings.profileGender,
         profileExperience: settings.profileExperience,
       });
 

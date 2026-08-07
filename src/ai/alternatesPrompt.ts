@@ -44,8 +44,6 @@ export interface AlternatesPromptInput {
   directives?: string;
   /** `profileAge` from settings. */
   profileAge?: string;
-  /** `profileGender` from settings. */
-  profileGender?: string;
   /** `profileExperience` from settings. */
   profileExperience?: string;
 }
@@ -115,7 +113,6 @@ Rules:
   // About-the-User section, before directives, only when profile has at least one field
   const profileParts: string[] = [];
   if (input.profileAge) profileParts.push(`Age: ${neutralizeForPrompt(input.profileAge)}`);
-  if (input.profileGender) profileParts.push(`Gender: ${neutralizeForPrompt(input.profileGender)}`);
   if (input.profileExperience) profileParts.push(`Experience: ${neutralizeForPrompt(input.profileExperience)}`);
 
   if (profileParts.length > 0) {

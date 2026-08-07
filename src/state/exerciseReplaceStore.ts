@@ -196,7 +196,6 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           // about substituting one movement for another.
           directives: IMMUTABLE_DIRECTIVES,
           profileAge: settings.profileAge,
-          profileGender: settings.profileGender,
           profileExperience: settings.profileExperience,
         });
 

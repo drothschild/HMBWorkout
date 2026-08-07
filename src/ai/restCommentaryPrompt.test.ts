@@ -248,17 +248,17 @@ describe('buildRestCommentaryPrompt', () => {
   describe('coach-onboarding.AC6.2 Success: profile in prompt before directives', () => {
     it('includes About-the-User when profile present', () => {
       const { system } = buildRestCommentaryPrompt(
-        promptInput({ profileAge: '41', profileGender: 'Female', profileExperience: '' })
+        promptInput({ profileAge: '41', profileExperience: 'Advanced' })
       );
 
       expect(system).toContain('## About the User');
       expect(system).toContain('Age: 41');
-      expect(system).toContain('Gender: Female');
+      expect(system).toContain('Experience: Advanced');
     });
 
     it('omits About-the-User when profile is empty', () => {
       const { system } = buildRestCommentaryPrompt(
-        promptInput({ profileAge: '', profileGender: '', profileExperience: '' })
+        promptInput({ profileAge: '', profileExperience: '' })
       );
 
       expect(system).not.toContain('## About the User');
@@ -288,11 +288,12 @@ describe('buildRestCommentaryPrompt', () => {
 
     it('includes only non-empty profile fields', () => {
       const { system } = buildRestCommentaryPrompt(
-        promptInput({ profileAge: '41', profileGender: '', profileExperience: 'Intermediate' })
+        promptInput({ profileAge: '41', profileExperience: 'Intermediate' })
       );
 
       expect(system).toContain('Age: 41');
       expect(system).toContain('Experience: Intermediate');
+      // The removed gender field must never reappear as a rendered line.
       expect(system).not.toContain('Gender:');
     });
   });
@@ -309,9 +310,9 @@ describe('buildRestCommentaryPrompt', () => {
       expect(system).toContain('Injection Attack');
     });
 
-    it('neutralizes # in profile gender', () => {
+    it('neutralizes # in a second profile field', () => {
       const { system } = buildRestCommentaryPrompt(
-        promptInput({ profileGender: '## Bad Injection' })
+        promptInput({ profileExperience: '## Bad Injection' })
       );
 
       expect(system).not.toContain('## Bad Injection');

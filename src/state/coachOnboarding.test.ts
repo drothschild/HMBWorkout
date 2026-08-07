@@ -26,7 +26,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       aiEquipment: '',
       aiPersonality: '',
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'unseen',
     };
@@ -42,7 +41,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       aiEquipment: '',
       aiPersonality: '',
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'dismissed',
     };
@@ -58,7 +56,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       aiEquipment: '',
       aiPersonality: '',
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'completed',
     };
@@ -74,7 +71,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       aiEquipment: '',
       aiPersonality: '',
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'unseen',
     };
@@ -90,7 +86,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
       aiEquipment: '',
       aiPersonality: '',
       profileAge: '',
-      profileGender: '',
       profileExperience: '',
       onboardingState: 'unseen',
     };

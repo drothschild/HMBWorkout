@@ -230,7 +230,6 @@ describe('draftSchema', () => {
           equipment: null,
           personality: null,
           age: null,
-          gender: null,
           experience: null,
         },
       });
@@ -249,7 +248,6 @@ describe('draftSchema', () => {
           equipment: null,
           personality: null,
           age: '41',
-          gender: null,
           experience: null,
         },
       });
@@ -409,12 +407,6 @@ describe('draftSchema', () => {
       expect(validateSettingsProposal(proposal)).toEqual(proposal);
     });
 
-    test('coach-onboarding.AC2.1 Success: gender-only proposal validates and round-trips', () => {
-      const proposal = { gender: 'Male' };
-
-      expect(validateSettingsProposal(proposal)).toEqual(proposal);
-    });
-
     test('coach-onboarding.AC2.1 Success: experience-only proposal validates and round-trips', () => {
       const proposal = { experience: '5 years of weight training' };
 
@@ -437,24 +429,6 @@ describe('draftSchema', () => {
       const age = 'a'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
 
       expect(() => validateSettingsProposal({ age })).toThrow(DraftValidationError);
-    });
-
-    test('coach-onboarding.AC2.3 Failure: gender with empty string is rejected', () => {
-      expect(() => validateSettingsProposal({ gender: '' })).toThrow(DraftValidationError);
-    });
-
-    test('coach-onboarding.AC2.3 Failure: gender with whitespace-only is rejected', () => {
-      expect(() => validateSettingsProposal({ gender: '   ' })).toThrow(DraftValidationError);
-    });
-
-    test('coach-onboarding.AC2.3 Failure: gender with non-string is rejected', () => {
-      expect(() => validateSettingsProposal({ gender: ['Male'] })).toThrow(DraftValidationError);
-    });
-
-    test('coach-onboarding.AC2.3 Failure: gender exceeding max length is rejected', () => {
-      const gender = 'g'.repeat(SETTINGS_FIELD_MAX_LENGTH + 1);
-
-      expect(() => validateSettingsProposal({ gender })).toThrow(DraftValidationError);
     });
 
     test('coach-onboarding.AC2.3 Failure: experience with empty string is rejected', () => {
@@ -482,7 +456,6 @@ describe('draftSchema', () => {
           equipment: undefined,
           personality: undefined,
           age: undefined,
-          gender: undefined,
           experience: undefined,
         })
       ).toThrow(DraftValidationError);
@@ -492,7 +465,6 @@ describe('draftSchema', () => {
           equipment: undefined,
           personality: undefined,
           age: undefined,
-          gender: undefined,
           experience: undefined,
         })
       ).toThrow('at least one field');
@@ -1007,16 +979,15 @@ describe('draftSchema', () => {
     });
 
     test('coach-onboarding.AC2.2 Success: expectStructuredOutputSafe passes with three new properties', () => {
-      // Verify that the widened schema with age, gender, experience carries no
+      // Verify that the widened schema with age and experience carries no
       // unsupported keywords that would cause the Anthropic structured-output
       // endpoint to reject the request with a 400.
       expectStructuredOutputSafe(AI_TURN_SCHEMA);
     });
 
-    test('declares age, gender, and experience as strings on settingsProposal', () => {
+    test('declares age and experience as strings on settingsProposal', () => {
       const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
       expect(proposalSchema.properties.age?.type).toBe('string');
-      expect(proposalSchema.properties.gender?.type).toBe('string');
       expect(proposalSchema.properties.experience?.type).toBe('string');
     });
   });
