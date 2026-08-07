@@ -285,7 +285,7 @@ describe('draftSchema', () => {
       });
 
       expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
-      expect(() => parseAiTurn(json)).toThrow('must be a non-empty string');
+      expect(() => parseAiTurn(json)).toThrow('goals, when present, must be a non-empty string');
     });
 
     test('issue-191: pins empty array settingsProposal silently dropped (treated as empty proposal)', () => {
@@ -1025,30 +1025,41 @@ describe('draftSchema', () => {
       // so that adding new fields breaks the test before hitting the runtime failure.
       //
       // Recursively count optional fields at all levels of the schema tree.
+      // Traverses `properties` and `items` only; does not descend into `anyOf`,
+      // `allOf`, `oneOf`, `$defs`, `definitions`, `not`, `contains`, `propertyNames`,
+      // `additionalProperties`, `patternProperties`, or `prefixItems`. Extend if
+      // AI_TURN_SCHEMA ever uses those keywords.
       type SchemaNode = {
         properties?: Record<string, SchemaNode>;
         items?: SchemaNode;
         required?: readonly string[];
       };
 
-      function countOptional(node: SchemaNode, required: readonly string[] = []): number {
+      function countOptional(node: SchemaNode): number {
         if (!node || typeof node !== 'object') return 0;
         let count = 0;
+        const required = node.required ?? [];
         for (const [name, child] of Object.entries(node.properties ?? {})) {
           if (!required.includes(name)) count++;
-          count += countOptional(child, child.required ?? []);
+          count += countOptional(child);
         }
-        if (node.items) count += countOptional(node.items, node.items.required ?? []);
+        if (node.items) count += countOptional(node.items);
         return count;
       }
 
-      const optionalCount = countOptional(AI_TURN_SCHEMA as unknown as SchemaNode, AI_TURN_SCHEMA.required ?? []);
+      const optionalCount = countOptional(AI_TURN_SCHEMA as SchemaNode);
 
       // Bump this deliberately when AI_TURN_SCHEMA legitimately grows — if this assertion moves,
       // also re-check the <20 ceiling below still gives comfortable headroom before Anthropic's
       // ~24-optional-property structured-output limit.
       expect(optionalCount).toBe(16);
       expect(optionalCount).toBeLessThan(20);
+
+      // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded
+      // walk of AI_TURN_SCHEMA's current known paths (which would also happen to return 16 above —
+      // see PR #199 review history). A hardcoded walk would get these wrong.
+      expect(countOptional({ properties: { a: { properties: { b: {}, c: {} } } } })).toBe(3);
+      expect(countOptional({ properties: { xs: { items: { properties: { y: {} } } } } })).toBe(2);
     });
   });
 });
