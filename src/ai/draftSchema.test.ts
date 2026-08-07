@@ -274,6 +274,34 @@ describe('draftSchema', () => {
       expect(result.settingsProposal?.equipment).toBeUndefined();
       expect(result.settingsProposal?.personality).toBeUndefined();
     });
+
+    test('issue-191: pins empty string in goals throws from parseAiTurn, not silently dropped', () => {
+      // { goals: '' } should throw from parseAiTurn because validateSettingsProposal
+      // rejects empty/whitespace-only strings. This guards against the behavior
+      // flipping to silently drop it as if goals were undefined.
+      const json = JSON.stringify({
+        reply: 'reply',
+        settingsProposal: { goals: '' },
+      });
+
+      expect(() => parseAiTurn(json)).toThrow(DraftValidationError);
+      expect(() => parseAiTurn(json)).toThrow('goals, when present, must be a non-empty string');
+    });
+
+    test('issue-191: pins empty array settingsProposal silently dropped (treated as empty proposal)', () => {
+      // An empty array [] for settingsProposal is treated as if it has no fields
+      // and is silently dropped, keeping the reply. This guards against the behavior
+      // flipping to either throw or treat the array as a valid proposal.
+      const json = JSON.stringify({
+        reply: 'reply',
+        settingsProposal: [],
+      });
+
+      const result = parseAiTurn(json);
+
+      expect(result.reply).toBe('reply');
+      expect(result.settingsProposal).toBeUndefined();
+    });
   });
 
   describe('validateSettingsProposal', () => {
@@ -989,6 +1017,49 @@ describe('draftSchema', () => {
       const proposalSchema = (AI_TURN_SCHEMA.properties as any).settingsProposal;
       expect(proposalSchema.properties.age?.type).toBe('string');
       expect(proposalSchema.properties.experience?.type).toBe('string');
+    });
+
+    test('issue-191: guards optional property count stays under 20 (structural grammar ceiling)', () => {
+      // The Anthropic structured-output endpoint hard-400s around 24 optional properties
+      // due to grammar complexity limits. This threshold of 20 gives early warning (~4 property headroom)
+      // so that adding new fields breaks the test before hitting the runtime failure.
+      //
+      // Recursively count optional fields at all levels of the schema tree.
+      // Traverses `properties` and `items` only; does not descend into `anyOf`,
+      // `allOf`, `oneOf`, `$defs`, `definitions`, `not`, `contains`, `propertyNames`,
+      // `additionalProperties`, `patternProperties`, or `prefixItems`. Extend if
+      // AI_TURN_SCHEMA ever uses those keywords.
+      type SchemaNode = {
+        properties?: Record<string, SchemaNode>;
+        items?: SchemaNode;
+        required?: readonly string[];
+      };
+
+      function countOptional(node: SchemaNode): number {
+        if (!node || typeof node !== 'object') return 0;
+        let count = 0;
+        const required = node.required ?? [];
+        for (const [name, child] of Object.entries(node.properties ?? {})) {
+          if (!required.includes(name)) count++;
+          count += countOptional(child);
+        }
+        if (node.items) count += countOptional(node.items);
+        return count;
+      }
+
+      const optionalCount = countOptional(AI_TURN_SCHEMA as SchemaNode);
+
+      // Bump this deliberately when AI_TURN_SCHEMA legitimately grows — if this assertion moves,
+      // also re-check the <20 ceiling below still gives comfortable headroom before Anthropic's
+      // ~24-optional-property structured-output limit.
+      expect(optionalCount).toBe(16);
+      expect(optionalCount).toBeLessThan(20);
+
+      // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded
+      // walk of AI_TURN_SCHEMA's current known paths (which would also happen to return 16 above —
+      // see PR #199 review history). A hardcoded walk would get these wrong.
+      expect(countOptional({ properties: { a: { properties: { b: {}, c: {} } } } })).toBe(3);
+      expect(countOptional({ properties: { xs: { items: { properties: { y: {} } } } } })).toBe(2);
     });
   });
 });
