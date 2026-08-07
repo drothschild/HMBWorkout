@@ -5,7 +5,8 @@ description: Use when running, launching, or driving HMBWorkout in the iOS Simul
 
 # Running HMBWorkout in the iOS Simulator
 
-Last verified: 2026-07-30 (Xcode-beta 27, Expo SDK 57, dev client `com.davidr.hmbworkout`)
+Last verified: 2026-08-06 (Xcode 27.0 beta build 27A5228h, Expo SDK 57, dev
+client `com.davidr.hmbworkout`)
 
 WatermelonDB is native, so the app runs only as a dev-client build plus Metro.
 This Mac runs the Xcode-beta toolchain, which changes the standard tooling in
@@ -13,15 +14,29 @@ specific ways; every rule below was hit in practice.
 
 ## Constraints that cost an hour if ignored
 
+- **`Simulator.app` no longer exists. Xcode 27 replaced it with *Device Hub*.**
+  `open -a Simulator` fails outright with "Unable to find application named
+  'Simulator'". The app is
+  `/Applications/Xcode-beta.app/Contents/Applications/DeviceHub.app`, bundle id
+  `com.apple.dt.Devices` — note `Contents/Applications/`, not the old
+  `Contents/Developer/Applications/`. Front it with `open -a "Device Hub"`.
+  `xcrun simctl` is completely unaffected and works as before. Driving the
+  vanished "Simulator" app is the suspected cause of a long 2026-08-05
+  incident where every synthetic click and keystroke silently no-oped.
 - The iOS Simulator MCP reports "No booted simulator found" for every sim
   booted by beta `simctl` — any runtime version, not just betas. Skip the
   panel entirely: drive with `xcrun simctl` plus computer-use on the
-  Simulator.app window.
+  Device Hub window.
 - Start Metro plain: `EXPO_NO_TELEMETRY=1 npx expo start --port <port>`.
   `CI=1` disables file watching and silently serves a stale bundle.
-- Enter long text via clipboard paste — `printf '...' | pbcopy`, then send
-  `cmd+v` (Simulator forwards Mac paste). Synthetic per-key typing triggers
-  iOS's press-and-hold accent picker and garbles the field.
+- **All text entry must go through the clipboard. `type` does not work at
+  all** (measured 2026-08-06 against Device Hub, iOS 26.5): with the field
+  focused and demonstrably editable, `type` lands *nothing* — not garbled
+  text, nothing. Toggling Device Hub's **Capture Keyboard** button does not
+  help. But `cmd+v` lands reliably and immediately, with no iOS Paste
+  callout to click. So: `write_clipboard` (or `pbcopy`) → click the field →
+  `cmd+v`. Control that proves it: pasting into a field where `type` had
+  just silently failed appended correctly on the first try.
 - Run your own Metro on a free port (8082+) from the checkout under test and
   connect the dev client to it explicitly (step 2). A Metro already on 8081
   may be serving a different checkout.
@@ -42,7 +57,7 @@ this toolchain).
 ## 2. Boot, serve, connect
 
     xcrun simctl bootstatus <udid> -b
-    open -a Simulator
+    open -a "Device Hub"
     EXPO_NO_TELEMETRY=1 npx expo start --port 8082    # background, from the checkout under test
     xcrun simctl launch <udid> com.davidr.hmbworkout
     xcrun simctl openurl <udid> "hmbworkout://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8082"
@@ -58,13 +73,26 @@ dialog that needs a manual tap. Confirm the bundle loaded with
 
 ## 4. Tap and type
 
-Use the computer-use MCP on the Simulator window (`request_access` with
-"Simulator"; it grants full tier):
+Use the computer-use MCP on the **Device Hub** window (`request_access` with
+"Device Hub" — *not* "Simulator", which no longer exists; it grants full tier):
 
-- Re-front with `open_application` "Simulator" before every action batch —
+- Re-front with `open_application` "Device Hub" before every action batch —
   focus drifts back to the Claude app between tool calls, and clicks after a
   focus change vanish silently. Confirm effects from the screen, not from
   the click returning success.
+- If clicks and keystrokes are landing nowhere at all, check you are targeting
+  Device Hub before concluding the host or the simulator is broken. A grant
+  for "Simulator" now resolves to nothing.
+- **Device Hub renders the device screen *inside* its own window, and its
+  bottom toolbar OVERLAYS the device's dock and home-indicator strip.** A
+  click aimed at the dock lands on a Device Hub control instead — aiming at
+  the Settings search field hit Device Hub's Home button and bounced the
+  device to SpringBoard. Target anything in the bottom ~15pt of the device
+  screen by scrolling it upward first, or drive it with a deep link.
+- Pick the device in the left sidebar; the screen only appears once it is
+  selected. The toolbar's four magnifiers are fixed zoom levels — go to the
+  largest before doing coordinate work, the default is small enough to make
+  taps unreliable.
 - `double_click` on a button delivers a genuine rapid double-tap
   (re-entrancy checks).
 - The dev-menu gear bubble floats over the top-right of the header; click
