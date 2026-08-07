@@ -101,11 +101,57 @@ Distribution certs. **Use `33ZKM6VFS4`.** `N4W9M926BS` looks correct for a debug
 build and fails with `No Account for Team "N4W9M926BS"` plus `No profiles for
 'com.davidr.hmbworkout' were found`.
 
+**Physical device for REAL-WORLD use (gym, travel) — the Debug recipe above is
+the wrong one.** A Debug build loads its JS from Metro over the network, so it
+is useless the moment the phone leaves the Mac. Build **Release** instead: the
+Xcode *Bundle React Native code and images* phase embeds `main.jsbundle` into
+the `.app`, and nothing else changes about signing.
+
+    xcodebuild -workspace ios/HMBWorkout.xcworkspace -scheme HMBWorkout \
+      -configuration Release -destination 'id=<DEVICE-UDID>' \
+      -derivedDataPath /tmp/hmb-release \
+      -allowProvisioningUpdates DEVELOPMENT_TEAM=33ZKM6VFS4 build
+    xcrun devicectl device install app --device <DEVICE-UDID> \
+      /tmp/hmb-release/Build/Products/Release-iphoneos/HMBWorkout.app
+
+The explicit `-derivedDataPath` sidesteps the mtime hazard below. Verified
+2026-08-07 on an iPhone 15 Pro.
+
+**Prove it before trusting it, in this order** — a Release build that silently
+fell back to Metro looks identical until it is offline:
+
+1. `ls -la <App>.app/main.jsbundle` — must exist (~4.6MB). No bundle, no gym.
+2. Kill Metro entirely, then `xcrun devicectl device process launch --device
+   <UDID> com.davidr.hmbworkout`.
+3. `xcrun devicectl device info processes --device <UDID> | grep HMBWorkout` —
+   the PID must still be there seconds later. `Launched application` is printed
+   even when the app crashes immediately on launch, so step 3 is the real test,
+   not step 2.
+
+**Three things about the Release build that are not what you would guess:**
+
+- **`get-task-allow` stays `true`**, so `xcrun devicectl device copy from
+  --device <UDID> --domain-type appDataContainer --domain-identifier
+  com.davidr.hmbworkout --source Documents --destination <dir>` still works.
+  Going Release does **not** cost you on-device DB inspection. Use it to back up
+  `hmbworkout.db` *before* replacing an existing install.
+- **The Team Provisioning Profile runs ~11 months** (expires 2027-07-08), not
+  the 7 days a free account gives. Read it with `security cms -D -i
+  <App>.app/embedded.mobileprovision`.
+- **The bundle is frozen at build time.** Later JS changes need a full rebuild
+  and reinstall — the opposite of the Metro-served Debug build. Keep the Debug
+  build for iteration; Release is for taking the phone away from the Mac.
+
 **Verifying a native module actually linked — do not read `Frameworks/`.** Expo
 module pods build as **static** libraries, so `ExpoAudio.framework` is legitimately
-absent from a correct build. The evidence is in the dylib:
+absent from a correct build. The evidence is in the binary, but **the target
+differs by configuration** — a Release build has no `.debug.dylib` at all, so the
+documented Debug path silently finds nothing and reads as "not linked":
 
-    strings <App>.app/HMBWorkout.debug.dylib | grep -c ExpoAudio   # 38 when linked
+    strings <App>.app/HMBWorkout.debug.dylib | grep -c ExpoAudio   # Debug:   38 when linked
+    strings <App>.app/HMBWorkout | grep -c ExpoAudio               # Release: 31 when linked
+
+Any non-zero count means linked; the exact numbers are just what was observed.
 
 **In DerivedData, mtime does not imply completeness.** Several `HMBWorkout-*`
 directories accumulate, and the newest by mtime can be an *empty* `.app` from an
