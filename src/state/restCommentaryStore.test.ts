@@ -458,7 +458,6 @@ describe('createRestCommentaryStore', () => {
       // Profile values SHOULD appear
       expect(prompt).toContain('41');
       expect(prompt).toContain('Advanced');
-      expect(prompt).toContain('Advanced');
       expect(prompt).toContain('Encouraging but honest.');
 
       // Secrets should NOT appear

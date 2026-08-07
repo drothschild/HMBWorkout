@@ -343,7 +343,6 @@ describe('createExerciseReplaceStore', () => {
       // Profile SHOULD appear — this is the store-wiring assertion.
       expect(prompt).toContain('41');
       expect(prompt).toContain('Advanced');
-      expect(prompt).toContain('Advanced');
 
       // Secrets should NOT. openaiKey is a real reachable field, not a
       // hypothetical key name — an openai client exists.

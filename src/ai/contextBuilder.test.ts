@@ -1939,6 +1939,11 @@ describe('buildSystem: AI Coach context builder', () => {
       // Assert label pairs to ensure values aren't mislabeled
       expect(prompt).toContain('Age: 35');
       expect(prompt).toContain('Experience: intermediate');
+      // ...and that the removed gender field never renders a line here. This
+      // assertion must live in a test that POPULATES the profile: the AC3.7
+      // guard runs against an empty profile, so About-the-User is absent there
+      // and a re-added `Gender:` line slips past it — verified.
+      expect(prompt).not.toMatch(/gender/i);
     }, 30000);
 
     it('coach-onboarding.AC3.4 Success: the profile reaches every mode, not just onboarding', async () => {
@@ -1957,6 +1962,7 @@ describe('buildSystem: AI Coach context builder', () => {
         const prompt = await buildSystem(database, mode);
         expect(prompt).toContain('Age: 35');
         expect(prompt).toContain('Experience: intermediate');
+        expect(prompt).not.toMatch(/gender/i);
       }
     }, 30000);
 
@@ -2073,6 +2079,17 @@ At the end of the interview, offer to draft a first routine based on what you've
       // reply") gets weakened by whoever hits it next. The `name\s+is` branch
       // was also dead: ordered alternation always matched `name` first.
       expect(prompt).not.toMatch(/\b(their|your)\s+name\b/i);
+
+      // Same complement for gender, which was removed from the contract entirely.
+      // The block pin above cannot see outside the block, and review proved the
+      // gap with two green mutations: a `Gender:` line re-added to
+      // aboutTheUserSection, and "Find out the user's gender" added to the base
+      // persona — both passed 1662/1662. Unlike name, gender may not appear
+      // anywhere in this prompt at all, so the assertion can be absolute rather
+      // than phrase-scoped. The three one-shot builders already carry their own
+      // `not.toContain('Gender:')`; this is the primary builder finally matching
+      // them.
+      expect(prompt).not.toMatch(/gender/i);
     }, 30000);
   });
 

@@ -428,7 +428,7 @@ describe('Settings Persistence', () => {
   });
 
   // Coach onboarding Phase 1 tests
-  test('coach-onboarding.AC1.1 Success: The three profile* fields and onboardingState save and survive an app restart', async () => {
+  test('coach-onboarding.AC1.1 Success: The two profile* fields and onboardingState save and survive an app restart', async () => {
     setSettings({
       profileAge: '41',
       profileExperience: 'intermediate, weak shoulders',
@@ -484,12 +484,16 @@ describe('Settings Persistence', () => {
   });
 
   test('coach-onboarding.AC1.3 Success: A refusal is stored as its own text, so empty still means never asked and the two are distinguishable by reading the value alone', () => {
-    // All three fields carry the same "declining is data, not absence"
-    // invariant, so all three are guarded. The failure this catches does not
-    // exist yet: it is a future normaliser that blanks a refusal back to '',
-    // reintroducing the sentinel the design deliberately avoids. Guarding only
-    // profileAge would let such a normaliser land on experience
-    // unnoticed.
+    // Both fields carry the same "declining is data, not absence" invariant, so
+    // both are guarded. The failure this catches does not exist yet: it is a
+    // future normaliser that blanks a refusal back to '', reintroducing the
+    // sentinel the design deliberately avoids. Guarding only profileAge would
+    // let such a normaliser land on experience unnoticed.
+    //
+    // The empties are written explicitly rather than inherited from
+    // resetForTesting(): a normaliser that rewrites an explicit '' is a
+    // different mutation from one that only affects defaults.
+    setSettings({ profileAge: '', profileExperience: '' });
     const empty = getSettings();
     expect(empty.profileAge).toBe('');
     expect(empty.profileExperience).toBe('');
@@ -503,7 +507,7 @@ describe('Settings Persistence', () => {
     expect(refused.profileExperience).toBe('rather not answer');
   });
 
-  test('coach-onboarding.AC1.4 Edge: All three profile fields may be empty; the settings module behaves normally with none of them set', async () => {
+  test('coach-onboarding.AC1.4 Edge: Both profile fields may be empty; the settings module behaves normally with none of them set', async () => {
     setSettings({
       profileAge: '',
       profileExperience: '',

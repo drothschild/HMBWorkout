@@ -200,7 +200,8 @@ export default function AiCoachScreen() {
         currentGoals={settings.aiGoals}
         currentEquipment={settings.aiEquipment}
         currentPersonality={settings.aiPersonality}
-        currentAge={settings.profileAge}        currentExperience={settings.profileExperience}
+        currentAge={settings.profileAge}
+        currentExperience={settings.profileExperience}
         onApprove={handleApproveSettings}
         onDecline={handleDeclineSettings}
       />
@@ -487,7 +488,8 @@ interface SettingsProposalCardProps {
   currentGoals: string;
   currentEquipment: string;
   currentPersonality: string;
-  currentAge: string;  currentExperience: string;
+  currentAge: string;
+  currentExperience: string;
   onApprove: () => void;
   onDecline: () => void;
 }
@@ -497,7 +499,8 @@ function SettingsProposalCard({
   currentGoals,
   currentEquipment,
   currentPersonality,
-  currentAge,  currentExperience,
+  currentAge,
+  currentExperience,
   onApprove,
   onDecline,
 }: SettingsProposalCardProps) {
