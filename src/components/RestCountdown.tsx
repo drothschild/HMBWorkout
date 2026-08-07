@@ -176,8 +176,7 @@ const styles = StyleSheet.create({
     // 108 is 5.06pt under LINE_HEIGHT_FLOOR × 96 (113.06), and that is
     // deliberate rather than an oversight. This renders `tabular-nums` digits
     // and a colon only — no descenders — so the shortfall lands in the unused
-    // descent band, making it a sound element-specific exemption. At this size,
-    // there is ~24pt of headroom between cap height and ascent. Same reasoning
+    // descent band, making it a sound element-specific exemption. Same reasoning
     // that exempts a no-descender glyph elsewhere; recorded here because a
     // ratio sweep will otherwise flag it every time. If this ever renders
     // arbitrary text, raise it to 114.
