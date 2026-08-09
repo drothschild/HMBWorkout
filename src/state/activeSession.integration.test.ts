@@ -25,7 +25,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
   it('AC6.1: FinishSession with non-throwing HealthKit calls saveWorkoutSample with correct start/end times from event.nowMs', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {});
 
     // Create injected HealthKit that does NOT throw
     const saveWorkoutSampleSpy = jest.fn(async (activityType: number, quantities: any[], startDate: Date, endDate: Date) => {
@@ -49,7 +48,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 
@@ -96,10 +94,9 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     expect(saveWorkoutSampleSpy).toHaveBeenCalled();
   });
 
-  it('AC6.2: HealthKit throwing does not prevent state transition to done (DB write + sync complete, HealthKit isolated)', async () => {
+  it('AC6.2: HealthKit throwing does not prevent state transition to done (DB write complete, HealthKit isolated)', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {});
 
     // Create injected HealthKit that THROWS
     const saveWorkoutSampleSpy = jest.fn(async () => {
@@ -121,7 +118,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 
@@ -177,9 +173,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       expect(session._raw.ended_at).toBeDefined();
       expect(session._raw.ended_at).toBeGreaterThan(0);
 
-      // Verify sync was called (fire-and-forget)
-      expect(syncSpy).toHaveBeenCalled();
-
       // Flush microtasks and timers again to catch any late-arriving promise rejections
       await flush();
 
@@ -191,12 +184,9 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     }
   });
 
-  it('AC6.2: sync failing does not prevent state transition to done (DB write completes)', async () => {
+  it('AC6.2: HealthKit write and DB write complete even when both are isolated', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {
-      throw new Error('Sync failed');
-    });
 
     const healthKitDeps: HealthKitDeps = {
       ensureAuthorized: jest.fn(async () => 'authorized'),
@@ -213,7 +203,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 

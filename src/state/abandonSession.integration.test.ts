@@ -59,14 +59,12 @@ function makeHealthKitDeps() {
 
 describe('abandoning an in-progress workout', () => {
   let database: Database;
-  let syncSpy: jest.Mock;
   let healthKitDeps: HealthKitDeps;
   let store: ReturnType<typeof createActiveSessionStore>;
 
   beforeEach(async () => {
     database = createTestDatabase();
     await seedRoutine(database);
-    syncSpy = jest.fn(async () => {});
     healthKitDeps = makeHealthKitDeps();
     store = createActiveSessionStore(
       database,
@@ -75,7 +73,6 @@ describe('abandoning an in-progress workout', () => {
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 
@@ -123,11 +120,10 @@ describe('abandoning an in-progress workout', () => {
     expect(store.getState().lastError).toBeNull();
   });
 
-  it('never syncs and never exports to HealthKit', async () => {
+  it('never exports to HealthKit when abandoned', async () => {
     await store.getState().dispatch({ tag: 'AbandonSession' });
     await flush();
 
-    expect(syncSpy).not.toHaveBeenCalled();
     expect((healthKitDeps as any).saveWorkoutSample).not.toHaveBeenCalled();
     expect((healthKitDeps as any).ensureAuthorized).not.toHaveBeenCalled();
   });
