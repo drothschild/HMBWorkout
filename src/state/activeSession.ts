@@ -46,7 +46,6 @@ export type HealthKitDeps = HealthKitSaveDeps;
  *
  * @param database The database instance
  * @param overrideExecutors Optional executor overrides for testing
- * @param syncFn Optional injectable sync function for testing; if provided, used instead of real sync logic in onCompleteSession
  * @param healthKitDeps Optional injectable HealthKit dependencies for testing; if provided, used instead of real HealthKit imports in onCompleteSession
  * @param openDebriefChat Optional injectable debrief navigator for testing; if provided, used instead of the real expo-router navigation in onCompleteSession
  * @returns The Zustand store with dispatch, getState
@@ -54,7 +53,6 @@ export type HealthKitDeps = HealthKitSaveDeps;
 export function createActiveSessionStore(
   database: Database,
   overrideExecutors?: Partial<EffectExecutors>,
-  syncFn?: () => Promise<void>,
   healthKitDeps?: HealthKitDeps,
   openDebriefChat?: (mode: DebriefMode) => void
 ) {
@@ -203,34 +201,6 @@ export function createActiveSessionStore(
           record._raw.engine_state = '';
         });
       });
-
-      // Attempt sync (fire-and-forget; sync failures must not affect session state)
-      // Enqueue by attempting sync immediately; if sync fails, session stays local
-      // and will be retried on next sync attempt
-      if (syncFn) {
-        // Use injected sync function (for testing)
-        syncFn().catch((error) => {
-          console.error('Sync failed after session completion:', error);
-        });
-      } else {
-        // Real sync logic
-        try {
-          const { createSyncService } = await import('@/sync/syncService');
-          const { createBridgeClient } = await import('@/sync/bridgeClient');
-
-          const settings = getSettings();
-          const bridgeClient = createBridgeClient(settings);
-          const syncService = createSyncService(database, bridgeClient);
-
-          // Fire-and-forget: don't await or propagate errors
-          syncService.syncNow().catch((error) => {
-            console.error('Sync failed after session completion:', error);
-          });
-        } catch (error) {
-          // Ignore import or initialization errors
-          console.error('Failed to initialize sync:', error);
-        }
-      }
 
       // Write to HealthKit (isolated; errors must not affect DB or sync)
       try {
