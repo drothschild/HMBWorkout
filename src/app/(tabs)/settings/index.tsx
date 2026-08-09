@@ -9,7 +9,7 @@ import { useTheme } from '@/hooks/use-theme';
 interface SectionRow {
   title: string;
   description: string;
-  href: '/settings/ai' | '/settings/bridge';
+  href: '/settings/ai';
 }
 
 const SECTIONS: SectionRow[] = [
@@ -17,11 +17,6 @@ const SECTIONS: SectionRow[] = [
     title: 'AI Coach',
     description: 'Anthropic API key, goals, equipment',
     href: '/settings/ai',
-  },
-  {
-    title: 'Bridge & Sync',
-    description: 'Bridge connection, import, session sync',
-    href: '/settings/bridge',
   },
 ];
 
