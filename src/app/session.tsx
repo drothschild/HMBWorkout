@@ -451,7 +451,7 @@ export default function SessionScreen() {
     );
   };
 
-  // Irreversible (kicks off sync, the HealthKit export, and the debrief), so
+  // Irreversible (kicks off the HealthKit export and the debrief), so
   // finishing always confirms. Not destructive — data is saved, not deleted —
   // hence no destructive button style; that stays unique to Abandon.
   const confirmFinish = () => {

@@ -32,7 +32,7 @@ export const ActionButtonColor = {
  * Passes WCAG AA (4.5:1) against white (light mode) and black (dark mode).
  *
  * - danger: two roles. (a) Text color on the base background — error text on
- *   Today / Routines / routine + exercise detail,
+ *   Today / routine + exercise detail,
  *   ReplaceExercise, and session.tsx's abandonText; these are what replaced
  *   #FF6B6B and #ff4444. (b) A solid fill carrying white text — session.tsx's
  *   errorBanner, which predates that replacement. contrastRatio is symmetric,
