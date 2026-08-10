@@ -439,7 +439,7 @@ export function createSessionPresenter(
       dispatch({
         tag: 'LogSet',
         reps: values.reps,
-        // The input carries display lbs; the engine, DB, and vault stay kg
+        // The input carries display lbs; the engine and DB stay kg
         weightKg: values.weightLbs !== undefined ? lbsToKg(values.weightLbs) : undefined,
         rpe: values.rpe,
         durationSeconds: values.durationSeconds,
