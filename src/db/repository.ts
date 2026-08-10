@@ -255,12 +255,9 @@ export async function discardInProgressSession(
 /**
  * Delete a session and all of its logged sets.
  *
- * Local-only: this removes the on-device rows only. A session already synced
- * to the vault keeps its markdown copy there — deleting here never touches
- * the bridge or the vault (HealthKit export also survives, written at session
- * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
- * by querying the sessions table directly, removing the row here also removes
- * it from the sync queue's candidate set.
+ * Local-only: this removes the on-device rows only. The session's vault copy,
+ * if any, remains untouched. HealthKit export also survives if it was already
+ * written at session completion.
  *
  * Refuses to delete a session that is still in progress (no endedAt set) —
  * the active session must go through the session-flow "abandon" path
@@ -1250,15 +1247,11 @@ export async function upsertRoutine(
  * Exercises are never touched: they are global and shared across routines
  * and logged history (AGENTS.md).
  *
- * Sync safety guard: refuses to delete a routine while any session that
- * references it (including one still in progress) has sync_status='local'.
- * syncNow() (src/sync/syncService.ts) resolves each session's routine at
- * post time via database.get('routines').find(session.routineId); if the
- * routine is gone, that lookup throws and the per-session catch swallows
- * the failure and continues, so the session would never sync again. A
- * session that is already 'synced' does not block deletion — its vault
- * copy was already posted and stays untouched, and the history screen's
- * presenter falls back to the raw routine id when the routine is missing.
+ * History guard: only allows deletion if no session that references this
+ * routine still has sync_status='local'. A session that is already 'synced'
+ * does not block deletion — its vault copy was already posted and stays
+ * untouched, and the history screen's presenter falls back to the raw
+ * routine id when the routine is missing.
  *
  * Atomicity: check-and-delete is one critical section — guards and the
  * single-row destroy happen inside one writer transaction via database.batch.
