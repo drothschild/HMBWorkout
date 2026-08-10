@@ -172,8 +172,6 @@ describe('Settings Persistence', () => {
   test('AI Coach: legacy blob without aiPersonality loads with empty default', async () => {
     // Pre-seed storage with a blob written before the personality field existed
     fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'http://mac.local:3000',
-      token: 'tok',
       anthropicKey: 'sk-test',
       aiGoals: 'get strong',
       aiEquipment: 'dumbbells',
@@ -439,7 +437,8 @@ describe('Settings Persistence', () => {
     expect(settings.aiGoals).toBe('get stronger');
     expect(settings.profileAge).toBe('35');
     // Note: we do NOT assert on baseUrl/token since they no longer exist in the type.
-    // The merge at loadSettings line 98 preserves unknown keys, but they are dead code.
+    // loadSettings' merge deliberately preserves unknown keys, so the stale ones
+    // survive in the blob as inert data that no read site reaches.
   });
 
   test('coach-onboarding.AC1.3 Success: A refusal is stored as its own text, so empty still means never asked and the two are distinguishable by reading the value alone', () => {
