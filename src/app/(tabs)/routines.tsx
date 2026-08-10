@@ -8,7 +8,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
-import { deleteRoutine, RoutineHasUnsyncedSessionsError } from '@/db/repository';
+import { deleteRoutine } from '@/db/repository';
 import { routineListPresenter, RoutineListItem } from '@/state/routineListPresenter';
 
 interface EntryPointButtonsProps {
@@ -71,18 +71,11 @@ export default function RoutinesScreen() {
               await deleteRoutine(database, routine.id);
               await loadRoutines();
             } catch (error) {
-              if (error instanceof RoutineHasUnsyncedSessionsError) {
-                Alert.alert(
-                  'Cannot delete routine',
-                  'This routine has a workout that hasn\'t synced to your vault yet. Sync first, then delete.'
-                );
-              } else {
-                console.error('Failed to delete routine:', error);
-                Alert.alert(
-                  'Could not delete routine',
-                  'Please try again.'
-                );
-              }
+              console.error('Failed to delete routine:', error);
+              Alert.alert(
+                'Could not delete routine',
+                'Please try again.'
+              );
             }
           },
         },
