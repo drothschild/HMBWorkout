@@ -5,7 +5,7 @@
 
 ## Execution status — PARTIALLY RUN, 2026-08-09
 
-Device Hub access was granted on a second attempt and **6 of 13 criteria were executed and passed**,
+Device Hub access was granted on a second attempt and **9 of 13 criteria were executed and passed**,
 including the highest-risk one. The rest remain blocked: synthetic clicks reach neither the device screen
 nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-loops on attach.
 
@@ -17,7 +17,23 @@ nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-
 | **H3** | AC2.3 — Routines tab | ✅ **PASS.** AI Coach button renders; no Import Routines button. |
 | **H9** | **AC1.1 — completing a session issues no bridge request** | ✅ **PASS, with positive evidence.** A full session was completed on the migrated v4 database (2 sets, `ended_at` set after `started_at`, `engine_state` cleared, `sync_status` NULL — the undeclared column was never written). **The proof is Metro's on-demand bundling, not the absence of an error string.** App logs demonstrably stream to Metro (the SQLite migration lines below are app output). At the moment of completion Metro bundled exactly `src/health/saveWorkout.ts`, `src/health/healthkit.ts` and the HealthKit native module — `onCompleteSession`'s surviving dynamic imports — and did **not** bundle `src/sync/syncService` or `src/sync/bridgeClient`. Had the sync block survived, Metro would have logged those modules at that instant, exactly as it logged the HealthKit ones. Zero errors in the console. |
 | **H8** | AC3.3 — session write on the upgraded DB | ✅ **PASS (upgraded-DB half).** The session above was created *and* completed on the v3→v4 upgraded database, so the leftover physical `sync_status` column does not break inserts. This is the empirical confirmation of the refuted NOT NULL objection. The fresh-reinstall half was not run. |
-| H6, H4, H5, H10–H13 | AC2.4–AC2.7, AC6.4, AC6.5, AC5.x read-through | ⛔ **NOT RUN** — all require further screen taps. |
+| **H10** | AC6.4 — full happy path | ✅ **PASS.** History shows "Push Day · Aug 9, 2026 · 2 logged sets", matching the database exactly. Start → log → complete → History confirmed end to end with a clean console. |
+| **H12** | AC2.7 — no user-visible vault/sync/bridge string | ✅ **PASS.** Every one of ~60 grep hits across `src/app` and `src/components` read individually: all are `async`/`await`, "synchronous", Expo API names (`setAudioModeAsync`, `hideAsync`, `openBrowserAsync`, `playAsync`), or code comments (`// Re-sync from settings on focus`). **Zero rendered strings.** |
+| **H13** | AC5.1–AC5.8 — AGENTS.md read-through | ✅ **PASS.** All eight gates return their expected counts (`Two-repo split`, `## Sync`, `src/sync/`, `workout-bridge`, `redundant by construction`, `importRoutines`, `defaultTargetSetsForDurationLine`, `vault sync` → 0; `keep both layers` → 1; Last verified → 2026-08-09). Section list carries no Sync or Two-repo heading. Every cross-reference resolves to a section that exists — including the two added during the fix rounds ("Parse context and validation strictness" → line 409; "see AI Coach below" → line 480). The AC5.3 passage names `exportService.ts`, mandates both layers, and does not name `syncService.ts`. |
+| H4, H5, H6, H11 | AC2.5, AC2.6, AC2.4, AC6.5 | ⛔ **NOT RUN** — require screen taps. See "Fastest way to finish" below. |
+
+### Fastest way to finish the remaining four
+
+**One action closes two of them.** "Push Day" currently has a completed session attached, which is exactly
+AC2.4's premise. From the **Routines** tab, tap the trash icon next to Push Day and confirm:
+
+- **H6/AC2.4** — it should delete with **no error alert** (the old build threw `RoutineHasUnsyncedSessionsError`
+  here), and the completed session should still appear in History afterwards.
+- **H5/AC2.6** — deleting the only routine leaves Today empty, which renders the rewritten empty state. Screenshot it.
+
+**H4/AC2.5** needs a fresh session started and then Abandoned, to read the confirmation dialog.
+**H11/AC6.5** needs a real API key pasted into Settings → AI, and should be done **last** — after it, session
+completions bill a debrief call.
 
 **Runtime migration evidence (Metro console, app output):**
 
