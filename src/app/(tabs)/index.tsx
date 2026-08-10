@@ -163,8 +163,7 @@ export default function TodayScreen() {
         return (
           <View style={styles.centered}>
             <ThemedText type="default" style={styles.placeholder}>
-              No routines yet. Build one with the AI Coach, or import your routines from
-              the vault.
+              No routines yet. Build one with the AI Coach to get started.
             </ThemedText>
             <View style={styles.buttonRow}>
               <Pressable
