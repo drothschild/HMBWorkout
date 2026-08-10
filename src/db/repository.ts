@@ -253,12 +253,8 @@ export async function discardInProgressSession(
 /**
  * Delete a session and all of its logged sets.
  *
- * Local-only: this removes the on-device rows only. A session already synced
- * to the vault keeps its markdown copy there — deleting here never touches
- * the bridge or the vault (HealthKit export also survives, written at session
- * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
- * by querying the sessions table directly, removing the row here also removes
- * it from the sync queue's candidate set.
+ * Removes on-device rows only. The HealthKit export written at completion is
+ * unaffected.
  *
  * Refuses to delete a session that is still in progress (no endedAt set) —
  * the active session must go through the session-flow "abandon" path
@@ -266,7 +262,7 @@ export async function discardInProgressSession(
  *
  * Atomicity: check-and-delete is one critical section — guards and deletion
  * happen in a single writer transaction via database.batch so an app kill
- * mid-loop cannot leave a truncated session with sync_status='local'.
+ * mid-loop cannot leave a truncated session.
  *
  * @param database The database instance
  * @param sessionId The session ID to delete
@@ -1152,12 +1148,12 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
-      // Defense-in-depth: default targetSets to 1 for entries that would otherwise
-      // be zero-total (no warmupSets and no targetSets). This catches any zero-total
-      // entries that make it through without being defaulted upstream (sync-layer or
-      // AI accept-path), ensuring the engine always has at least one set to visit.
-      // The condition matches layer 1 (sync/syncService.ts): key on "no warmup + no target"
-      // regardless of whether targetDurationSeconds is set or not.
+      // Default targetSets to 1 for entries that would otherwise be zero-total
+      // (no warmupSets and no targetSets). This ensures the engine always has at
+      // least one set to visit. Fires only when targetSets is absent, never on an
+      // explicit 0 (validateRoutineDraft rejects that upstream). The condition keys
+      // on "no warmup + no target" regardless of whether targetDurationSeconds is
+      // set or not.
       const defaultedTargetSets =
         exerciseEntry.targetSets ??
         ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
