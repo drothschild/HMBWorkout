@@ -325,8 +325,6 @@ describe('createExerciseReplaceStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
         aiGoals: 'Bigger bench',
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
@@ -348,8 +346,6 @@ describe('createExerciseReplaceStore', () => {
       // hypothetical key name — an openai client exists.
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-openai-secret-key');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('http://bridge.local:3000');
       // The key travels in the header, where it belongs.
       expect(mockFetch.mock.calls[0][1].headers['x-api-key']).toBe('sk-ant-test-secret');
     });

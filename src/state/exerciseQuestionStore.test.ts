@@ -440,8 +440,6 @@ describe('createExerciseQuestionStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
         aiPersonality: 'Encouraging but honest.',
         profileAge: '41',
         profileExperience: 'Advanced',
@@ -462,8 +460,6 @@ describe('createExerciseQuestionStore', () => {
       // hypothetical key name — an openai client exists.
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-openai-secret-key');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('bridge.local');
     });
   });
 });

@@ -10,7 +10,7 @@
  *
  * Like `contextBuilder` and `restCommentaryPrompt`, this prompt carries data
  * and never secrets: it is handed a personality string and an exercise
- * description, and has no access to `anthropicKey`/`token`/`baseUrl`. A
+ * description, and has no access to `anthropicKey`. A
  * regression test in `src/state/exerciseQuestionStore.test.ts` asserts that
  * at the wire, the same way `restCommentaryStore.test.ts` does for the rest
  * screen.
