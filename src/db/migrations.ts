@@ -41,5 +41,28 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 4,
+      // v3 -> v4: sessions.sync_status is undeclared, not dropped. It tracked
+      // whether a finished session had been posted to the Obsidian vault; the
+      // bridge that consumed it is gone.
+      //
+      // The steps array is deliberately empty. WatermelonDB 0.28 ships no
+      // column-removal step (destroyColumn is an upstream TODO), and official
+      // guidance is to leave the unused column in the database and omit it from
+      // the schema, which the adapters then ignore on read and write. The
+      // generated DDL carries no type or NOT NULL constraint on it
+      // (adapters/sqlite/encodeSchema emits bare `"col"`), so the leftover
+      // column simply takes NULL on every subsequent insert.
+      //
+      // unsafeExecuteSql('ALTER TABLE ... DROP COLUMN') was considered and
+      // rejected: raw-SQL transaction semantics in migrations are undocumented,
+      // and the LokiJS adapter -- which backs both adapter.web.ts and every
+      // test -- ignores SQL steps outright, so the platforms would diverge.
+      //
+      // The entry exists at all so `version` stays honest with the declaration
+      // and the migration list has no gap, which schemaMigrations enforces.
+      steps: [],
+    },
   ],
 });
