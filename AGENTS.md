@@ -424,7 +424,7 @@ Zero sets (`0x10`) is rejected unconditionally in both contexts, since
 `serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
 Zero reps rejection is routine-only: `parseRoutine` passes `context: 'routine'` to
 `parseDoc`, while `parseSession` passes `context: 'session'`, so `1x0` is valid in
-logged sessions but `3x0` is rejected in routine targets and vault import.
+logged sessions but `3x0` is rejected in routine targets.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by
@@ -679,7 +679,7 @@ in Phase 2.
 - `src/engine/` — pure Rill core + host dispatch/effect mapping (`rules/*.lv`)
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
-- `src/interop/` — vault markdown serializer/parser (the shared contract)
+- `src/interop/` — vault markdown serializer/parser
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
 - `src/health/` — HealthKit write-only export
@@ -720,7 +720,7 @@ in Phase 2.
   null. `appendSet` stamps every new set from the engine entry (the value
   `onPersistSet` already verified), and every identity reader —
   `getExerciseWorkingSetHistory`, `getSessionExerciseLog`,
-  `getRecentSessionSummaries`, the vault export — resolves stamp-first,
+  `getRecentSessionSummaries`, the markdown export — resolves stamp-first,
   join-fallback. `updateRoutineExerciseExerciseId` is the ONLY path allowed to
   re-point a row, and the same layer-2 defense binds it and `upsertRoutine`'s
   drop branch — the only other path that invalidates the join: inside the same
@@ -767,9 +767,9 @@ in Phase 2.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no
   exercises at all — a routine can have exercises yet still have nothing for
-  `h.next_active_landing` to land on (every cardio/stretch entry from a vault
-  import validly carries no `target_sets`, since `parseWorkoutLine` rejects
-  sets×reps for those kinds). `hasActiveExercise` carries that sum-based check
+  `h.next_active_landing` to land on (cardio/stretch entries validly carry no
+  `target_sets`, since `parseWorkoutLine` rejects sets×reps for those kinds).
+  `hasActiveExercise` carries that sum-based check
   through `routineListPresenter` and `routineDetailPresenter` into
   `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start
   button, so a routine that can't actually be started never renders as
