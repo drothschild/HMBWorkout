@@ -70,8 +70,8 @@ export function createActiveSessionStore(
   // PersistSet and CompleteSession in the same transition, and rill invokes
   // executors fire-and-forget — so completion must wait for the persist. The
   // debrief prompt and history reads consume the session's sets, and in
-  // onDiscardSession the session row must be closed with its sets on disk
-  // before the delete.
+  // onDiscardSession an in-flight persist must land before the delete, or
+  // it orphans a session_sets row for a session that no longer exists.
   const pendingPersistPromises: Promise<unknown>[] = [];
 
   async function drainPendingPersists(): Promise<void> {

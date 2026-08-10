@@ -58,7 +58,7 @@ export interface SessionPresenterOutput {
   routineNotes: string | undefined;
 
   // Copy for the finish-confirmation dialog. Finishing is irreversible (it
-  // triggers vault sync, the HealthKit export, and the debrief), so the screen
+  // triggers the HealthKit export and the debrief), so the screen
   // always confirms; the message carries how much planned work remains so an
   // early finish reads as an informed choice. Derived here to stay jest-covered.
   finishConfirmation: { title: string; message: string };

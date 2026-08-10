@@ -183,5 +183,4 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       consoleSpy.mockRestore();
     }
   });
-
 });
