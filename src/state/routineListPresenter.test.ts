@@ -69,8 +69,8 @@ describe('routineListPresenter', () => {
   });
 
   it('reports hasActiveExercise: false when every exercise plans zero total sets', async () => {
-    // Reachable via vault import, where cardio/stretch entries validly carry
-    // no target_sets at all (AGENTS.md's zero-planned-set Boundaries rule) —
+    // Cardio/stretch entries (which parseWorkoutLine rejects sets×reps for)
+    // validly carry no target_sets at all (AGENTS.md's zero-planned-set Boundaries rule) —
     // distinct from having no exercises at all, which exerciseCount already
     // covers.
     const db = await createTestDatabase();

@@ -7,8 +7,8 @@ interface SeedRoutine {
   name: string;
   exerciseCount: number;
   createdAt: number;
-  /** Seeds every exercise with target_sets: 0 instead of 3 — the vault-import
-   *  shape for cardio/stretch entries (AGENTS.md's zero-planned-set rule). */
+  /** Seeds every exercise with target_sets: 0 instead of 3 — the shape of
+   *  cardio/stretch entries from parseWorkoutLine (AGENTS.md's zero-planned-set rule). */
   allZeroSets?: boolean;
 }
 
