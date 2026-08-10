@@ -7,8 +7,8 @@ import { createAdapter as createWebAdapter } from './adapter.web';
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 3 for the session_sets.exercise_id column', () => {
-    expect(databaseSchema.version).toBe(3);
+  it('has bumped the schema version to 4 for the sessions.sync_status undeclaration', () => {
+    expect(databaseSchema.version).toBe(4);
   });
 
   it('declares exercises.description as an optional string column in the current schema', () => {
@@ -84,6 +84,24 @@ describe('Database schema migrations', () => {
     expect(step.columns).toEqual([
       { name: 'exercise_id', type: 'string', isOptional: true, isIndexed: true },
     ]);
+  });
+
+  it('has an empty v3 to v4 migration that adds no steps, because sync_status is undeclared rather than dropped', () => {
+    // AC3.2: The v3→v4 migration returns an empty steps array. This is
+    // deliberate: WatermelonDB 0.28 ships no column-removal step, and official
+    // guidance is to leave the physical column in place and omit it from the
+    // schema. The entry exists to keep the version sequence gapless.
+    const steps = stepsForMigration({ migrations, fromVersion: 3, toVersion: 4 });
+    expect(steps).toEqual([]);
+
+    // AC3.6: The v3→v4 upgrade path does not throw. Note this test runs on
+    // LokiJS via createTestDatabase(), so a real SQLite v3→v4 open is only
+    // verified by the simulator pass in Task 7 (Phase 3).
+  });
+
+  it('declares no sync_status column on the sessions table in the current schema', () => {
+    // AC3.1: The undeclared sync_status must not appear in the schema.
+    expect(databaseSchema.tables['sessions'].columns['sync_status']).toBeUndefined();
   });
 
   it('pins that the web adapter carries the exact migrations object exported by migrations.ts', () => {

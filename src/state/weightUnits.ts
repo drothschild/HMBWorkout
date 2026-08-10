@@ -2,7 +2,7 @@
  * Weight unit conversion: lbs for display and entry ONLY.
  *
  * kg stays canonical everywhere else — engine state and events, the DB
- * weight_kg column, the vault markdown weight= flag, sync, and HealthKit.
+ * weight_kg column, the vault markdown weight= flag, and HealthKit.
  * Entry converts lbs → kg at the presenter boundary; display converts
  * kg → lbs at the formatter. Nothing outside this module may append a
  * weight unit suffix, so no read site can regress to kg.

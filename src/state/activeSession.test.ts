@@ -1007,106 +1007,6 @@ describe('activeSession store', () => {
     });
   });
 
-describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
-    it('handles sync rejection: session state set, dispatch resolves, no unhandled rejection', async () => {
-      // Phase 7 compliance: test the REAL onCompleteSession executor (no override)
-      // with an injected syncFn that rejects, verifying:
-      // (a) session ended_at is set AND engine state cleared
-      // (b) store.dispatch(...) RESOLVES without throwing
-      // (c) no unhandled promise rejection escapes
-
-      let unhandledRejection: any = null;
-      const unhandledRejectionHandler = (event: PromiseRejectionEvent) => {
-        unhandledRejection = event.reason;
-      };
-
-      // Install unhandledRejection listener
-      process.on('unhandledRejection', unhandledRejectionHandler);
-
-      try {
-        // Create a sync function that rejects
-        const syncFnThatRejects = jest.fn(async () => {
-          throw new Error('Sync failed intentionally for testing');
-        });
-
-        // Create store with REAL onCompleteSession executor (no override),
-        // but inject a failing syncFn
-        const store = createActiveSessionStore(database, {
-          onScheduleRest: jest.fn(),
-          onCancelRest: jest.fn(),
-          onNotify: jest.fn(),
-          // NOTE: NOT overriding onCompleteSession — using the real executor
-        }, syncFnThatRejects);
-
-        const routine = {
-          id: 'routine-test-phase7',
-          name: 'Test Routine Phase 7',
-          entries: [
-            {
-              exerciseId: 'ex-phase7',
-              kind: 'strength' as const,
-              warmupSets: 0,
-              targetSets: 1,
-              targetReps: 8,
-              targetDurationSeconds: 0,
-              restSeconds: 0, // No rest to reach done immediately
-              supersetGroup: '',
-            },
-          ],
-        };
-
-        const sessionId = crypto.randomUUID?.() || 'test-session-phase7';
-
-        // StartSession
-        await store.getState().dispatch({
-          tag: 'StartSession',
-          sessionId,
-          nowMs: Date.now(),
-          routine,
-        });
-
-        // Verify session was created
-        const sessionAfterStart = await database.get('sessions').find(sessionId);
-        expect(sessionAfterStart).toBeDefined();
-        expect((sessionAfterStart as any)._raw.ended_at).toBeNull();
-        expect((sessionAfterStart as any).engineState).toBeTruthy();
-
-        // FinishSession triggers CompleteSession effect → onCompleteSession executor runs
-        // The injected syncFn will reject, but this must be caught
-        const dispatchResult = await store.getState().dispatch({
-          tag: 'FinishSession',
-          nowMs: Date.now(),
-        });
-
-        // (b) Verify dispatch RESOLVED (didn't throw)
-        expect(dispatchResult).toBeDefined();
-        expect(dispatchResult?.phase).toBe('done');
-
-        // (c) Flush microtasks and timers to allow any unhandled rejections to surface
-        await flush();
-
-        // Verify no unhandled rejection was caught
-        expect(unhandledRejection).toBeNull();
-
-        // (a) Verify session ended_at is set AND engine state cleared
-        // Need to reload the session to get fresh data from database
-        const sessionAfterCompletion = await database.get('sessions').find(sessionId);
-        expect(sessionAfterCompletion).toBeDefined();
-        expect((sessionAfterCompletion as any)._raw.ended_at).toBeTruthy(); // ended_at is set
-
-        // (a.ii) Verify engine state is cleared (empty string means cleared for text field)
-        const engineStateValue = (sessionAfterCompletion as any)._raw.engine_state;
-        expect(engineStateValue).toBe(''); // engine state cleared to empty string
-
-        // Verify the injected syncFn was called (to prove the real executor ran)
-        expect(syncFnThatRejects).toHaveBeenCalled();
-      } finally {
-        // Clean up the unhandledRejection listener
-        process.removeListener('unhandledRejection', unhandledRejectionHandler);
-      }
-    });
-  });
-
   describe('one-tap completion: final persist lands before the session closes', () => {
     function tick(): Promise<void> {
       return flush();
@@ -1115,7 +1015,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
     it('onCompleteSession waits for the pending set persist before writing ended_at', async () => {
       // The merged LogSet transition emits [PersistSet, CompleteSession] in one
       // dispatch, and rill executors are fire-and-forget — completion must not
-      // outrun the final set's write or the synced markdown misses it.
+      // outrun the final set's write or the debrief prompt and history miss it.
       let releasePersist!: () => void;
       const persistGate = new Promise<void>((resolve) => {
         releasePersist = resolve;
@@ -1123,7 +1023,11 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       const persistDone = jest.fn();
       const onPersistSet = jest.fn(() => persistGate.then(persistDone));
 
-      const syncFn = jest.fn(async () => {});
+      const healthKitDeps = {
+        ensureAuthorized: jest.fn(async () => 'authorized' as const),
+        requestAuthorization: jest.fn(async () => true),
+        saveWorkoutSample: jest.fn(async () => undefined),
+      };
       const store = createActiveSessionStore(
         database,
         {
@@ -1132,12 +1036,7 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
           onNotify: jest.fn(),
           onPersistSet,
         },
-        syncFn,
-        {
-          ensureAuthorized: jest.fn(async () => 'authorized' as const),
-          requestAuthorization: jest.fn(async () => true),
-          saveWorkoutSample: jest.fn(async () => undefined),
-        }
+        healthKitDeps
       );
 
       const sessionId = 'session-persist-drain';
@@ -1178,7 +1077,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       for (let i = 0; i < 10; i++) await tick();
       let session = (await database.get('sessions').find(sessionId)) as any;
       expect(session._raw.ended_at).toBeNull();
-      expect(syncFn).not.toHaveBeenCalled();
 
       // Let the persist land; completion may now proceed
       releasePersist();
@@ -1188,9 +1086,8 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
         await tick();
       }
       expect(session._raw.ended_at).toBeTruthy();
-      expect(syncFn).toHaveBeenCalled();
       expect(persistDone.mock.invocationCallOrder[0]).toBeLessThan(
-        syncFn.mock.invocationCallOrder[0]
+        healthKitDeps.saveWorkoutSample.mock.invocationCallOrder[0]
       );
     });
   });
@@ -1295,10 +1192,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       injectSettingsStorage(fakeStorageBackend);
     });
 
-    function makeSyncFn() {
-      return jest.fn(async () => {});
-    }
-
     function makeHealthKitDeps() {
       return {
         ensureAuthorized: jest.fn(async () => 'authorized' as const),
@@ -1371,7 +1264,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
-        makeSyncFn(),
         healthKitDeps,
         openDebriefChat
       );
@@ -1392,7 +1284,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
-        makeSyncFn(),
         healthKitDeps,
         openDebriefChat
       );
@@ -1402,16 +1293,14 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       expect(openDebriefChat).not.toHaveBeenCalled();
     });
 
-    it('opens the debrief only once persistence, sync and the Health write are under way', async () => {
+    it('opens the debrief only once persistence and the Health write are under way', async () => {
       setSettings({ anthropicKey: 'sk-test' });
       const openDebriefChat = jest.fn();
-      const syncFn = makeSyncFn();
       const healthKitDeps = makeHealthKitDeps();
 
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
-        syncFn,
         healthKitDeps,
         openDebriefChat
       );
@@ -1420,9 +1309,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
 
       const session = (await database.get('sessions').find(sessionId)) as any;
       expect(session._raw.ended_at).toBeTruthy();
-      expect(openDebriefChat.mock.invocationCallOrder[0]).toBeGreaterThan(
-        syncFn.mock.invocationCallOrder[0]
-      );
       expect(openDebriefChat.mock.invocationCallOrder[0]).toBeGreaterThan(
         healthKitDeps.saveWorkoutSample.mock.invocationCallOrder[0]
       );
@@ -1438,7 +1324,6 @@ describe('Phase 7: onCompleteSession real executor with sync rejection', () => {
       const store = createActiveSessionStore(
         database,
         { onScheduleRest: jest.fn(), onCancelRest: jest.fn(), onNotify: jest.fn() },
-        makeSyncFn(),
         healthKitDeps,
         openDebriefChat
       );

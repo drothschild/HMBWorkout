@@ -3,7 +3,7 @@
  *
  * Deliberately unlike a "delete a finished workout" operation: it must work on a
  * session that is still running (no ended_at, engine_state still populated), and
- * it must take the logged sets with it so nothing is left to sync or display.
+ * it must take the logged sets with it so nothing is left to display.
  */
 
 import { Database } from '@nozbe/watermelondb';

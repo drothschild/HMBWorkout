@@ -19,8 +19,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
 
   test('shouldShowOnboardingCard: true when onboardingState is unseen and key present', () => {
     const settings: BridgeSettings = {
-      baseUrl: '',
-      token: '',
       anthropicKey: 'sk-ant-test',
       aiGoals: '',
       aiEquipment: '',
@@ -34,8 +32,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
 
   test('shouldShowOnboardingCard: false when onboardingState is dismissed', () => {
     const settings: BridgeSettings = {
-      baseUrl: '',
-      token: '',
       anthropicKey: 'sk-ant-test',
       aiGoals: '',
       aiEquipment: '',
@@ -49,8 +45,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
 
   test('shouldShowOnboardingCard: false when onboardingState is completed', () => {
     const settings: BridgeSettings = {
-      baseUrl: '',
-      token: '',
       anthropicKey: 'sk-ant-test',
       aiGoals: '',
       aiEquipment: '',
@@ -64,8 +58,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
 
   test('shouldShowOnboardingCard: false when no key present', () => {
     const settings: BridgeSettings = {
-      baseUrl: '',
-      token: '',
       anthropicKey: '',
       aiGoals: '',
       aiEquipment: '',
@@ -79,8 +71,6 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
 
   test('shouldShowOnboardingCard: false when key is whitespace only', () => {
     const settings: BridgeSettings = {
-      baseUrl: '',
-      token: '',
       anthropicKey: '   ',
       aiGoals: '',
       aiEquipment: '',

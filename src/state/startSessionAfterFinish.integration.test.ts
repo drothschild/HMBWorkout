@@ -63,12 +63,10 @@ describe('Integration: StartSession from Done phase (C1)', () => {
       ]
     );
 
-    // Stub the two unmanaged external systems (sync + HealthKit); the store,
-    // engine, and DB stay real.
+    // Stub the HealthKit external system; the store, engine, and DB stay real.
     const store = createActiveSessionStore(
       database,
       undefined,
-      async () => {},
       {
         ensureAuthorized: jest.fn(async () => 'authorized' as const),
         requestAuthorization: jest.fn(async () => true),

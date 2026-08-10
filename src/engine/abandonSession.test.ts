@@ -1,8 +1,8 @@
 /**
  * AbandonSession: the engine-side decision to throw an in-progress workout away.
  *
- * Abandon is not completion. It must never emit CompleteSession (which is what
- * drives the vault sync and the HealthKit export); it emits DiscardSession so the
+ * Abandon is not completion. It must never emit CompleteSession (which drives
+ * the HealthKit export); it emits DiscardSession so the
  * shell can delete the session and its sets outright, and it returns the engine
  * to a clean Idle state so a new session can start immediately afterwards.
  */
@@ -106,8 +106,8 @@ describe('AbandonSession — accepted from every in-progress phase', () => {
 
     await engine.dispatch(ABANDON);
 
-    // CompleteSession is the effect that triggers vault sync and the HealthKit
-    // export. Abandon firing it would silently publish a discarded workout.
+    // CompleteSession is the effect that triggers the HealthKit export. Abandon
+    // firing it would silently publish a discarded workout.
     expect(onCompleteSession).not.toHaveBeenCalled();
     expect(onNotify).not.toHaveBeenCalled();
   });
@@ -195,7 +195,7 @@ describe('AbandonSession — phases that reject it', () => {
     const engine = createEngine(makeExecutors({ onDiscardSession }));
     engine.setState(makeInProgressState({ phase: 'done' }));
 
-    // A done session is already written, synced and exported; removing it is a
+    // A done session is already written and exported; removing it is a
     // different operation from abandoning one in progress.
     await expect(engine.dispatch(ABANDON)).rejects.toThrow(
       'invalid event AbandonSession in phase done'

@@ -55,8 +55,8 @@ export default function TodayScreen() {
   }, []);
 
   // Reload on focus rather than once on mount: routines arrive from the AI
-  // Coach, the vault import, and the Routines tab, all of which the user
-  // reaches and returns from without this screen unmounting.
+  // Coach and the Routines tab, both of which the user reaches and returns
+  // from without this screen unmounting.
   useFocusEffect(
     useCallback(() => {
       setStartError(null);
@@ -163,8 +163,7 @@ export default function TodayScreen() {
         return (
           <View style={styles.centered}>
             <ThemedText type="default" style={styles.placeholder}>
-              No routines yet. Build one with the AI Coach, or import your routines from
-              the vault.
+              No routines yet. Build one with the AI Coach to get started.
             </ThemedText>
             <View style={styles.buttonRow}>
               <Pressable

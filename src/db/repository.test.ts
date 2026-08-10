@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -29,17 +29,6 @@ describe('Repository: session and set helpers', () => {
       expect(session).toBeDefined();
       expect(session?.id).toBe(sessionId);
     }, 30000);
-
-    it('AC1.3: created session defaults syncStatus to "local"', async () => {
-      const sessionId = 'session-2';
-      const routineId = 'routine-2';
-      const startedAtMs = Date.now();
-
-      await createSession(database, { sessionId, routineId, startedAtMs });
-
-      const session = await getSession(database, sessionId);
-      expect((session as any).customSyncStatus).toBe('local');
-    }, 10000);
   });
 
   describe('appendSet', () => {
@@ -380,15 +369,6 @@ describe('Repository: session and set helpers', () => {
       });
     };
 
-    const markSessionSynced = async (sessionId: string) => {
-      await database.write(async () => {
-        const session = await database.get('sessions').find(sessionId);
-        await (session as any).update((record: any) => {
-          record._raw.sync_status = 'synced';
-        });
-      });
-    };
-
     it('deletes the routine but retains routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-1',
@@ -460,49 +440,7 @@ describe('Repository: session and set helpers', () => {
       expect(survivorRoutineExercises).toHaveLength(1);
     }, 15000);
 
-    it('leaves referencing sessions intact when deletion is allowed', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-4',
-        exerciseId: 'exercise-del-4',
-        routineExerciseId: 'routine-exercise-del-4',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-4',
-        routineId: 'routine-del-4',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-4');
-      await markSessionSynced('session-del-4');
-
-      await deleteRoutine(database, 'routine-del-4');
-
-      const survivorSession = await getSession(database, 'session-del-4');
-      expect(survivorSession).toBeDefined();
-      expect((survivorSession as any).customSyncStatus).toBe('synced');
-    }, 15000);
-
-    it('allows deletion when every referencing session is already synced', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-5',
-        exerciseId: 'exercise-del-5',
-        routineExerciseId: 'routine-exercise-del-5',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-5',
-        routineId: 'routine-del-5',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-5');
-      await markSessionSynced('session-del-5');
-
-      await deleteRoutine(database, 'routine-del-5');
-
-      await expect(database.get('routines').find('routine-del-5')).rejects.toThrow();
-    }, 15000);
-
-    it('blocks deletion when a local unsynced finished session references the routine, and deletes nothing', async () => {
+    it('deletes a routine referenced by a completed session, retaining routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-6',
         exerciseId: 'exercise-del-6',
@@ -515,26 +453,36 @@ describe('Repository: session and set helpers', () => {
         startedAtMs: Date.now() - 60000,
       });
       await endSession('session-del-6');
-      // customSyncStatus defaults to 'local' from createSession and is never flipped.
 
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        'cannot delete routine routine-del-6: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-6');
 
-      const routine = await database.get('routines').find('routine-del-6');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-6'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
 
+      // routine_exercises are retained as history carriers
       const routineExercises = await database
         .get('routine_exercises')
         .query(Q.where('routine_id', 'routine-del-6'))
         .fetch();
       expect(routineExercises).toHaveLength(1);
+
+      // The referencing session row itself survives. deleteRoutine destroys the
+      // routine row ONLY — it must never cascade into sessions, or the history
+      // the retained routine_exercises exist to carry would have nothing to
+      // point at. The history screen's presenter falls back to the raw routine
+      // id when the routine is missing, which is what makes this safe.
+      const referencingSessions = await database
+        .get('sessions')
+        .query(Q.where('routine_id', 'routine-del-6'))
+        .fetch();
+      expect(referencingSessions).toHaveLength(1);
     }, 15000);
 
-    it('blocks deletion when an in-progress session references the routine', async () => {
+    it('deletes a routine with an in-progress session, as the session carries its own entries in engine state', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-7',
         exerciseId: 'exercise-del-7',
@@ -546,17 +494,18 @@ describe('Repository: session and set helpers', () => {
         routineId: 'routine-del-7',
         startedAtMs: Date.now() - 60000,
       });
-      // Not ended: still in progress. sync_status defaults to 'local'.
+      // Not ended: still in progress. This is safe because a live session
+      // carries its own entries in engine state and never re-reads the routine row.
+      // See AGENTS.md engine convention 5.
 
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        'cannot delete routine routine-del-7: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-7');
 
-      const routine = await database.get('routines').find('routine-del-7');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-7'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
     }, 15000);
 
     it('throws when the routine does not exist', async () => {
@@ -586,9 +535,8 @@ describe('Repository: session and set helpers', () => {
         weightKg: 100,
       });
 
-      // End and sync the session
+      // End the session
       await endSession('session-history-test');
-      await markSessionSynced('session-history-test');
 
       // Get history before deletion to verify it exists
       const historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
@@ -1713,7 +1661,7 @@ describe('Repository: session and set helpers', () => {
       // Defense-in-depth: if a zero-total entry (targetSets undefined, warmupSets 0)
       // reaches upsertRoutine, it should default targetSets to 1 here — regardless of
       // whether targetDurationSeconds is set. This protects against zero-total entries
-      // being silently skipped by the engine, and catches cases where the sync-side or
+      // being silently skipped by the engine, and catches cases where the
       // AI-side defaulting was missed.
       const routineId = 'routine-defense-depth';
       await upsertExercise(database, 'plank', 'Plank', 'strength');
