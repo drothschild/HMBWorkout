@@ -5,7 +5,7 @@
 
 ## Execution status — PARTIALLY RUN, 2026-08-09
 
-Device Hub access was granted on a second attempt and **4 of 13 criteria were executed and passed**,
+Device Hub access was granted on a second attempt and **6 of 13 criteria were executed and passed**,
 including the highest-risk one. The rest remain blocked: synthetic clicks reach neither the device screen
 nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-loops on attach.
 
@@ -15,7 +15,22 @@ nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-
 | **H1** | AC2.1 — Settings has one row | ✅ **PASS.** Exactly one row, "AI Coach — Anthropic API key, goals, equipment". No Bridge & Sync. |
 | **H2** | AC2.2 — `/settings/bridge` unreachable | ✅ **PASS.** `hmbworkout://settings/bridge` → "Unmatched Route — Page could not be found." |
 | **H3** | AC2.3 — Routines tab | ✅ **PASS.** AI Coach button renders; no Import Routines button. |
-| H9, H6, H4, H5, H8, H10–H13 | AC1.1, AC2.4–2.7, AC3.3, AC6.4, AC6.5, AC5.x read-through | ⛔ **NOT RUN** — all require screen taps. |
+| **H9** | **AC1.1 — completing a session issues no bridge request** | ✅ **PASS, with positive evidence.** A full session was completed on the migrated v4 database (2 sets, `ended_at` set after `started_at`, `engine_state` cleared, `sync_status` NULL — the undeclared column was never written). **The proof is Metro's on-demand bundling, not the absence of an error string.** App logs demonstrably stream to Metro (the SQLite migration lines below are app output). At the moment of completion Metro bundled exactly `src/health/saveWorkout.ts`, `src/health/healthkit.ts` and the HealthKit native module — `onCompleteSession`'s surviving dynamic imports — and did **not** bundle `src/sync/syncService` or `src/sync/bridgeClient`. Had the sync block survived, Metro would have logged those modules at that instant, exactly as it logged the HealthKit ones. Zero errors in the console. |
+| **H8** | AC3.3 — session write on the upgraded DB | ✅ **PASS (upgraded-DB half).** The session above was created *and* completed on the v3→v4 upgraded database, so the leftover physical `sync_status` column does not break inserts. This is the empirical confirmation of the refuted NOT NULL objection. The fresh-reinstall half was not run. |
+| H6, H4, H5, H10–H13 | AC2.4–AC2.7, AC6.4, AC6.5, AC5.x read-through | ⛔ **NOT RUN** — all require further screen taps. |
+
+**Runtime migration evidence (Metro console, app output):**
+
+```
+LOG  [SQLite] Database needs migrations
+LOG  [SQLite] Migrating from version 3 to 4...
+LOG  [SQLite] Migration successful
+iOS Bundled  37ms src/health/saveWorkout.ts (1 module)
+iOS Bundled  12ms src/health/healthkit.ts (1 module)
+iOS Bundled 400ms @kingstinct/react-native-healthkit (685 modules)
+```
+
+The last three lines are the completion path bundling its dynamic imports. Nothing from `src/sync` appears.
 
 **Why the rest are blocked.** Clicks are injected successfully at the API level (the tool reports success) but
 land nowhere — verified by clicking Device Hub's *own* zoom toolbar button and its sidebar device rows, which
@@ -24,9 +39,13 @@ wedged simulator. Two documented workarounds were attempted and correctly refuse
 classifier: building a Swift `CGEvent` clicker, and a destructive SQL write to force the empty state. Neither
 was worked around.
 
-**What this means for the two high-risk items:** H7 — the data-migration path, and the one no test could
-reach — **is now verified**. H9/AC1.1 is still unproven and remains the weakest point in the change, for the
-reason given in its section below.
+**All three high-risk items are now resolved or reduced.** H7 (the data-migration path, unreachable by any
+test) and H9/AC1.1 (the dynamic import, invisible to both `tsc` and jest) are **both verified** — H9 with
+positive evidence rather than the absence of an error. H6/AC2.4 remains unrun, but its repository half is
+automated and only the UI half is outstanding, so it is the least exposed of the three.
+
+The nine remaining criteria are all user-visible copy, screenshots, and read-throughs. None guards a data
+path.
 
 Everything below is written to be executed cold by someone who was not present for the implementation.
 
