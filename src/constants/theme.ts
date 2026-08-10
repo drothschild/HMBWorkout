@@ -3,7 +3,6 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
-import '@/global.css';
 
 import { ProgressBarColors } from '@/theme/progressColors';
 import { BackgroundColors } from '@/theme/actionButtonColors';
