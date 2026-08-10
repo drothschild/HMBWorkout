@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -452,26 +452,7 @@ describe('Repository: session and set helpers', () => {
       expect(survivorRoutineExercises).toHaveLength(1);
     }, 15000);
 
-    it('allows deletion when every referencing session is already synced', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-5',
-        exerciseId: 'exercise-del-5',
-        routineExerciseId: 'routine-exercise-del-5',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-5',
-        routineId: 'routine-del-5',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-5');
-
-      await deleteRoutine(database, 'routine-del-5');
-
-      await expect(database.get('routines').find('routine-del-5')).rejects.toThrow();
-    }, 15000);
-
-    it('blocks deletion when a local unsynced finished session references the routine, and deletes nothing', async () => {
+    it('deletes a routine referenced by a completed session, retaining routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-6',
         exerciseId: 'exercise-del-6',
@@ -484,18 +465,17 @@ describe('Repository: session and set helpers', () => {
         startedAtMs: Date.now() - 60000,
       });
       await endSession('session-del-6');
-      // customSyncStatus defaults to 'local' from createSession and is never flipped.
 
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        'cannot delete routine routine-del-6: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-6');
 
-      const routine = await database.get('routines').find('routine-del-6');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-6'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
 
+      // routine_exercises are retained as history carriers
       const routineExercises = await database
         .get('routine_exercises')
         .query(Q.where('routine_id', 'routine-del-6'))
@@ -503,7 +483,7 @@ describe('Repository: session and set helpers', () => {
       expect(routineExercises).toHaveLength(1);
     }, 15000);
 
-    it('blocks deletion when an in-progress session references the routine', async () => {
+    it('deletes a routine with an in-progress session, as the session carries its own entries in engine state', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-7',
         exerciseId: 'exercise-del-7',
@@ -515,17 +495,18 @@ describe('Repository: session and set helpers', () => {
         routineId: 'routine-del-7',
         startedAtMs: Date.now() - 60000,
       });
-      // Not ended: still in progress. sync_status defaults to 'local'.
+      // Not ended: still in progress. This is safe because a live session
+      // carries its own entries in engine state and never re-reads the routine row.
+      // See AGENTS.md engine convention 5.
 
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        'cannot delete routine routine-del-7: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-7');
 
-      const routine = await database.get('routines').find('routine-del-7');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-7'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
     }, 15000);
 
     it('throws when the routine does not exist', async () => {
