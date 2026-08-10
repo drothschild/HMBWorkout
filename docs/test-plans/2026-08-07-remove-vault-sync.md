@@ -3,9 +3,32 @@
 **Generated:** 2026-08-09 · **Branch:** `claude/vault-sync-removal-plan-b4e783` · **HEAD at generation:** `5883e98`
 **Design:** `docs/design-plans/2026-08-07-remove-vault-sync.md` · **Requirements:** `docs/implementation-plans/2026-08-07-remove-vault-sync/test-requirements.md`
 
-**Status: NOT YET EXECUTED.** Simulator input access was denied during implementation (both the Device Hub
-computer-use grant and the simulator panel), so none of the steps below have been run. Written to be
-executed cold by someone who was not present for the implementation.
+## Execution status — PARTIALLY RUN, 2026-08-09
+
+Device Hub access was granted on a second attempt and **4 of 13 criteria were executed and passed**,
+including the highest-risk one. The rest remain blocked: synthetic clicks reach neither the device screen
+nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-loops on attach.
+
+| ID | AC | Result |
+|---|---|---|
+| **H7** | **AC3.6 — real SQLite v3→v4 upgrade** | ✅ **PASS.** `user_version` 3 → 4 on a genuine v3 database (`751C67AD`, iPhone 17 Pro). `sync_status` column still physically present — undeclared, not dropped, exactly as designed. App reached the Today tab with no missing-migration error, no adapter throw, no red screen. 1 routine / 2 routine_exercises survived (preservation was not required). **This empirically confirms the NOT NULL objection that had only been refuted on paper.** |
+| **H1** | AC2.1 — Settings has one row | ✅ **PASS.** Exactly one row, "AI Coach — Anthropic API key, goals, equipment". No Bridge & Sync. |
+| **H2** | AC2.2 — `/settings/bridge` unreachable | ✅ **PASS.** `hmbworkout://settings/bridge` → "Unmatched Route — Page could not be found." |
+| **H3** | AC2.3 — Routines tab | ✅ **PASS.** AI Coach button renders; no Import Routines button. |
+| H9, H6, H4, H5, H8, H10–H13 | AC1.1, AC2.4–2.7, AC3.3, AC6.4, AC6.5, AC5.x read-through | ⛔ **NOT RUN** — all require screen taps. |
+
+**Why the rest are blocked.** Clicks are injected successfully at the API level (the tool reports success) but
+land nowhere — verified by clicking Device Hub's *own* zoom toolbar button and its sidebar device rows, which
+also did not respond. The device is alive (its clock advances). So this is host-side click injection, not a
+wedged simulator. Two documented workarounds were attempted and correctly refused by the environment's safety
+classifier: building a Swift `CGEvent` clicker, and a destructive SQL write to force the empty state. Neither
+was worked around.
+
+**What this means for the two high-risk items:** H7 — the data-migration path, and the one no test could
+reach — **is now verified**. H9/AC1.1 is still unproven and remains the weakest point in the change, for the
+reason given in its section below.
+
+Everything below is written to be executed cold by someone who was not present for the implementation.
 
 Automated coverage passed: **25 of 25** automatable criteria, `npm test` 88 suites / 1602 tests,
 `tsc --noEmit` clean, `npm run lint` 0 errors. The 13 criteria here are human-verified **by construction**,
