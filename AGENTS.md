@@ -450,38 +450,20 @@ column, so every optional field read off a DB row — `reps`, `weightKg`, `dista
 A regression here means `src/export`'s `exportService.ts`, the only remaining caller that maps rows to the
 serializer, writes a `<flag>=null` line into whatever the export produces.
 
-`importRoutines` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
-default a duration-based entry's `targetSets` to 1 when it is undefined/null and `warmupSets`
-is 0 (or undefined), so it doesn't reach the engine as zero-total. Both layers share the same
-condition — `importRoutines`'s own default is redundant by construction given `upsertRoutine`
-sees every write either layer produces, so only the direct unit tests on
-`defaultTargetSetsForDurationLine` (not the import integration tests) prove it does anything
-on its own. This is necessary because the vault contract permits strength exercises to use
-`duration=` in place of sets×reps (`parse.ts`), not just cardio/stretch, and the presence of
-duration alone signals a potential zero-total entry. The default does **not** gate on
-`targetDurationSeconds` being set — an entry with `targetSets` undefined and `warmupSets` 0 is
-zero-total whether it has duration or not (e.g., an AI-drafted strength exercise with only
-title and kind) — but it only fires when `targetSets` is *absent*, not an explicit `0`. An AI
-draft with `targetSets: 0` is already rejected before reaching here (`validateRoutineDraft`,
-`src/ai/draftSchema.ts`, enforces `targetSets >= 1` when present), and a malformed vault line like
-`0x10` no longer reaches this layer either: `parseWorkoutLine` (`src/interop/parse.ts`) throws
-`ContractError` on a sets×reps token whose sets count is literally `0` — unconditionally, in both
-routine and session parsing, since a set count of zero is never valid either way — the same way it
-already rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so
-`importRoutines` skips and logs that routine rather than silently importing a plan the author never
-wrote. **Zero reps are rejected too, but only for routine targets:** a vault line like `3x0` is
-rejected during routine parsing because "3 sets of 0 reps" is semantically empty in a plan — but a
-*logged* `1x0` is valid: when parsing a session (via `context: 'session'`), the `1x<reps>` slot
-carries a measured value, and zero repetitions performed is a real, valid outcome. The distinction
-is threaded through `parseWorkoutLine`'s context parameter: only `context === 'routine'` rejects
-zero reps; zero sets has no such gate.
-Both *authoring* paths — the AI draft validator and vault import's `parseWorkoutLine` —
-now reject an explicit zero instead of reinterpreting it; this default's job is
-only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
-and is never defaulted. This mirrors
-the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
-below) so a routine's origin — hand-authored in the vault vs. drafted by the coach — never
-changes whether every exercise in it actually gets performed.
+`upsertRoutine` defaults a duration-based entry's `targetSets` to 1 when it is undefined/null and
+`warmupSets` is 0 (or undefined), so it doesn't reach the engine as zero-total. This is the only
+enforcing layer. The default does **not** gate on `targetDurationSeconds` being set — an entry with
+`targetSets` undefined and `warmupSets` 0 is zero-total whether it has duration or not (e.g., an
+AI-drafted strength exercise with only title and kind) — but it fires only when `targetSets` is
+*absent*, never on an explicit `0`. An AI draft with `targetSets: 0` is rejected upstream by
+`validateRoutineDraft` (`src/ai/draftSchema.ts`), which enforces `targetSets >= 1` when present.
+An entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
+This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI
+Coach below), so a routine always has exercises that will actually be performed regardless of
+whether it was authored by hand or drafted by the coach. `parseWorkoutLine` (`src/interop/parse.ts`)
+rejects zero sets (0x10) unconditionally in both routine and session contexts, since that quantity
+is never valid — and it rejects zero reps (e.g., `3x0`) in routine targets only, not in logged
+sessions where `1x0` is a valid measurement of actual performance.
 
 ## HealthKit (`src/health`)
 
