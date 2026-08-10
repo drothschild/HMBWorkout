@@ -5,7 +5,7 @@
 
 ## Execution status — PARTIALLY RUN, 2026-08-09
 
-Device Hub access was granted on a second attempt and **9 of 13 criteria were executed and passed**,
+Device Hub access was granted on a second attempt and **11 of 13 criteria were executed and passed**,
 including the highest-risk one. The rest remain blocked: synthetic clicks reach neither the device screen
 nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-loops on attach.
 
@@ -20,20 +20,28 @@ nor Device Hub's own toolbar on this machine, and the simulator MCP panel crash-
 | **H10** | AC6.4 — full happy path | ✅ **PASS.** History shows "Push Day · Aug 9, 2026 · 2 logged sets", matching the database exactly. Start → log → complete → History confirmed end to end with a clean console. |
 | **H12** | AC2.7 — no user-visible vault/sync/bridge string | ✅ **PASS.** Every one of ~60 grep hits across `src/app` and `src/components` read individually: all are `async`/`await`, "synchronous", Expo API names (`setAudioModeAsync`, `hideAsync`, `openBrowserAsync`, `playAsync`), or code comments (`// Re-sync from settings on focus`). **Zero rendered strings.** |
 | **H13** | AC5.1–AC5.8 — AGENTS.md read-through | ✅ **PASS.** All eight gates return their expected counts (`Two-repo split`, `## Sync`, `src/sync/`, `workout-bridge`, `redundant by construction`, `importRoutines`, `defaultTargetSetsForDurationLine`, `vault sync` → 0; `keep both layers` → 1; Last verified → 2026-08-09). Section list carries no Sync or Two-repo heading. Every cross-reference resolves to a section that exists — including the two added during the fix rounds ("Parse context and validation strictness" → line 409; "see AI Coach below" → line 480). The AC5.3 passage names `exportService.ts`, mandates both layers, and does not name `syncService.ts`. |
-| H4, H5, H6, H11 | AC2.5, AC2.6, AC2.4, AC6.5 | ⛔ **NOT RUN** — require screen taps. See "Fastest way to finish" below. |
+| **H6** | **AC2.4 — delete a routine with a completed session** | ✅ **PASS.** Deleted with **no error alert** (the pre-change build threw `RoutineHasUnsyncedSessionsError` on exactly this case). `routines` → 0, so the row is genuinely gone rather than a silent no-op; `routine_exercises` → 2, retained as history carriers; the session row and its 2 sets survived with `ended_at` intact. Zero console errors. History still renders the session, now titled **`verify-routine`** — the raw routine id — which is precisely the documented presenter fallback for a missing routine. |
+| **H5** | AC2.6 — Today empty state | ✅ **PASS.** "No routines yet. Build one with the AI Coach to get started." Names the AI Coach as the only route; no import or vault mention. |
+| H4, H11 | AC2.5, AC6.5 | ⛔ **NOT RUN.** See below. |
 
-### Fastest way to finish the remaining four
+### The last two
 
-**One action closes two of them.** "Push Day" currently has a completed session attached, which is exactly
-AC2.4's premise. From the **Routines** tab, tap the trash icon next to Push Day and confirm:
+**H4/AC2.5 — the abandon-confirmation copy.** Blocked by a side effect of H6: deleting the only routine
+means there is nothing left to start a session from, and creating one needs the AI Coach (an API key, and
+spend). To run it, restore a fixture first — `cp ~/hmb-v3-fixtures/hmbworkout-v3-751C67AD.db` over the
+device's `Documents/hmbworkout.db` with the app terminated, which brings "Push Day" back and re-runs the
+v3→v4 migration on relaunch. Then start a session and tap **Abandon**. The dialog should convey permanence
+("permanently deleted. This cannot be undone.") and mention no vault or sync.
 
-- **H6/AC2.4** — it should delete with **no error alert** (the old build threw `RoutineHasUnsyncedSessionsError`
-  here), and the completed session should still appear in History afterwards.
-- **H5/AC2.6** — deleting the only routine leaves Today empty, which renders the rewritten empty state. Screenshot it.
+**H11/AC6.5 — the API key round-trip.** Needs a real Anthropic key pasted into Settings → AI, kept across a
+force-quit. Run it **last**: afterwards every session completion bills a debrief call. This is the direct
+proof that the `'bridge_settings'` storage key still resolves after Phase 2 narrowed `BridgeSettings` — the
+one silent-data-loss risk in the change, since a rename would surface only as every existing user losing
+their key.
 
-**H4/AC2.5** needs a fresh session started and then Abandoned, to read the confirmation dialog.
-**H11/AC6.5** needs a real API key pasted into Settings → AI, and should be done **last** — after it, session
-completions bill a debrief call.
+Both are lower-stakes than what is already proven: AC2.5's string was rewritten in Phase 4 Task 1 and
+survived three review rounds, and AC6.5's key was deliberately never renamed (`settings.ts:45`, with a
+docstring pinning it).
 
 **Runtime migration evidence (Metro console, app output):**
 
@@ -60,7 +68,7 @@ test) and H9/AC1.1 (the dynamic import, invisible to both `tsc` and jest) are **
 positive evidence rather than the absence of an error. H6/AC2.4 remains unrun, but its repository half is
 automated and only the UI half is outstanding, so it is the least exposed of the three.
 
-The four remaining criteria are user-visible copy and a settings round-trip. None guards a data path.
+The two remaining criteria are one user-visible string and a settings round-trip. Neither guards a data path.
 
 Everything below is written to be executed cold by someone who was not present for the implementation.
 
