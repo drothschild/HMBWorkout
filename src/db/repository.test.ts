@@ -29,18 +29,6 @@ describe('Repository: session and set helpers', () => {
       expect(session).toBeDefined();
       expect(session?.id).toBe(sessionId);
     }, 30000);
-
-    it('AC1.3: created session can be retrieved', async () => {
-      const sessionId = 'session-2';
-      const routineId = 'routine-2';
-      const startedAtMs = Date.now();
-
-      await createSession(database, { sessionId, routineId, startedAtMs });
-
-      const session = await getSession(database, sessionId);
-      expect(session).toBeDefined();
-      expect(session?.id).toBe(sessionId);
-    }, 10000);
   });
 
   describe('appendSet', () => {

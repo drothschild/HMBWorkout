@@ -1148,12 +1148,15 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
-      // Default targetSets to 1 for entries that would otherwise be zero-total
-      // (no warmupSets and no targetSets). This ensures the engine always has at
-      // least one set to visit. Fires only when targetSets is absent, never on an
-      // explicit 0 (validateRoutineDraft rejects that upstream). The condition keys
-      // on "no warmup + no target" regardless of whether targetDurationSeconds is
-      // set or not.
+      // upsertRoutine is the SOLE enforcer of the zero-total default — the
+      // sync-layer copy of this rule went with src/sync, so there is no second
+      // layer behind this line. Catches an entry that would otherwise be
+      // zero-total (no warmupSets and no targetSets), so the engine has a set to
+      // visit. Fires only when targetSets is ABSENT, never on an explicit 0:
+      // validateRoutineDraft (src/ai/draftSchema.ts), which every caller passes
+      // through, rejects an explicit 0 upstream — so an explicit 0 reaching here
+      // would still leave the entry zero-total. The condition keys on "no warmup
+      // + no target" regardless of whether targetDurationSeconds is set.
       const defaultedTargetSets =
         exerciseEntry.targetSets ??
         ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);

@@ -86,7 +86,7 @@ describe('Database schema migrations', () => {
     ]);
   });
 
-  it('has an empty v3 to v4 migration that undeclares sessions.sync_status', () => {
+  it('has an empty v3 to v4 migration that adds no steps, because sync_status is undeclared rather than dropped', () => {
     // AC3.2: The v3→v4 migration returns an empty steps array. This is
     // deliberate: WatermelonDB 0.28 ships no column-removal step, and official
     // guidance is to leave the physical column in place and omit it from the
