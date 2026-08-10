@@ -396,12 +396,13 @@ export default function SessionScreen() {
     routineDisplay
   );
 
-  // Destructive and unrecoverable: the workout and its logged sets are deleted
-  // and never reach the vault, so it takes an explicit confirmation.
+  // Destructive and unrecoverable: an abandoned session emits DiscardSession,
+  // so the session row and its sets are deleted rather than kept — which is
+  // exactly why the action needs confirming.
   const confirmAbandon = () => {
     Alert.alert(
       'Abandon workout?',
-      'This workout and every set you have logged will be deleted. It will not be saved to your vault.',
+      'This workout and every set you have logged will be permanently deleted. This cannot be undone.',
       [
         { text: 'Keep going', style: 'cancel' },
         {
