@@ -63,10 +63,10 @@ wedged simulator. Two documented workarounds were attempted and correctly refuse
 classifier: building a Swift `CGEvent` clicker, and a destructive SQL write to force the empty state. Neither
 was worked around.
 
-**All three high-risk items are now resolved or reduced.** H7 (the data-migration path, unreachable by any
-test) and H9/AC1.1 (the dynamic import, invisible to both `tsc` and jest) are **both verified** — H9 with
-positive evidence rather than the absence of an error. H6/AC2.4 remains unrun, but its repository half is
-automated and only the UI half is outstanding, so it is the least exposed of the three.
+**All three high-risk items are verified.** H7 (the data-migration path, unreachable by any test), H9/AC1.1
+(the dynamic import, invisible to both `tsc` and jest — proven positively, via what Metro bundled rather
+than by the absence of an error), and H6/AC2.4 (the inverted delete guard, confirmed in the database and in
+History's raw-routine-id fallback).
 
 The two remaining criteria are one user-visible string and a settings round-trip. Neither guards a data path.
 
