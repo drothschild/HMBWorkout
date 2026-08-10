@@ -446,11 +446,9 @@ the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
 column, so every optional field read off a DB row — `reps`, `weightKg`, `distanceM`,
 `durationSeconds`, `rpe` on `SessionSet`; `targetSets`, `targetReps`,
 `targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is subject to it.
-`syncService.ts`'s row-to-serializer mapping normalizes the same hazard at the shell
-boundary (`?? undefined`, matching its pre-existing `exerciseId` handling); keep both
-layers. A regression here is not a rejected sync — the bridge's `validateSessionDoc`
-never runs `parseFlags`, so a bad guard writes a `<flag>=null` line straight into the
-vault and the session still flips to `synced`.
+`buildSessionSetLine`'s `!= null` guards are now the sole normalization layer, so a bad guard has no backstop.
+A regression here means `src/export`'s `exportService.ts`, the only remaining caller that maps rows to the
+serializer, writes a `<flag>=null` line into whatever the export produces.
 
 `importRoutines` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
 default a duration-based entry's `targetSets` to 1 when it is undefined/null and `warmupSets`
