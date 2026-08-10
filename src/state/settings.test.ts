@@ -32,85 +32,27 @@ describe('Settings Persistence', () => {
     injectSettingsStorage(fakeStorageBackend);
   });
 
-  test('getSettings returns default empty baseUrl and empty token on first access', () => {
-    const settings = getSettings();
-    expect(settings.baseUrl).toBe('');
-    expect(settings.token).toBe('');
-  });
-
-  test('setSettings updates cached values immediately', () => {
-    setSettings({ baseUrl: 'http://example.com:8000', token: 'abc123' });
-
-    const settings = getSettings();
-    expect(settings.baseUrl).toBe('http://example.com:8000');
-    expect(settings.token).toBe('abc123');
-  });
-
-  test('setSettings persists baseUrl to storage', async () => {
-    setSettings({ baseUrl: 'http://example.com:8000' });
-    await new Promise(resolve => setTimeout(resolve, 10)); // Allow async write
-
-    expect(fakeStorage).toHaveProperty('bridge_settings');
-    const stored = JSON.parse(fakeStorage.bridge_settings);
-    expect(stored.baseUrl).toBe('http://example.com:8000');
-  });
-
-  test('setSettings persists token to storage', async () => {
-    setSettings({ token: 'secret-token' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    expect(fakeStorage).toHaveProperty('bridge_settings');
-    const stored = JSON.parse(fakeStorage.bridge_settings);
-    expect(stored.token).toBe('secret-token');
-  });
 
   test('setSettings persists partial updates', async () => {
-    setSettings({ baseUrl: 'http://example.com', token: 'token1' });
+    setSettings({ anthropicKey: 'sk-test-1', onboardingState: 'dismissed' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    setSettings({ token: 'token2' });
+    setSettings({ onboardingState: 'completed' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
     const stored = JSON.parse(fakeStorage.bridge_settings);
-    expect(stored.baseUrl).toBe('http://example.com');
-    expect(stored.token).toBe('token2');
-  });
-
-  test('loadSettings hydrates cache from storage', async () => {
-    // Pre-populate storage
-    fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'http://mac.local:3000',
-      token: 'stored-token',
-    });
-
-    // Clear the cache by simulating a fresh app start
-    // This is implicit - we just call loadSettings
-    await loadSettings();
-
-    const settings = getSettings();
-    expect(settings.baseUrl).toBe('http://mac.local:3000');
-    expect(settings.token).toBe('stored-token');
+    expect(stored.anthropicKey).toBe('sk-test-1');
+    expect(stored.onboardingState).toBe('completed');
   });
 
   test('loadSettings returns early if storage is empty', async () => {
     const initialSettings = getSettings();
-    expect(initialSettings.baseUrl).toBe('');
-    expect(initialSettings.token).toBe('');
+    expect(initialSettings.onboardingState).toBe('unseen');
 
     await loadSettings();
 
     const afterSettings = getSettings();
-    expect(afterSettings.baseUrl).toBe('');
-    expect(afterSettings.token).toBe('');
-  });
-
-  test('multiple setSettings calls accumulate', () => {
-    setSettings({ baseUrl: 'http://example.com' });
-    setSettings({ token: 'token123' });
-
-    const settings = getSettings();
-    expect(settings.baseUrl).toBe('http://example.com');
-    expect(settings.token).toBe('token123');
+    expect(afterSettings.onboardingState).toBe('unseen');
   });
 
   // AI Coach settings tests (AC1.1, AC1.2, AC1.3, AC1.4)
@@ -138,8 +80,7 @@ describe('Settings Persistence', () => {
   test('AI Coach: legacy blob without AI fields loads with empty defaults', async () => {
     // Pre-seed storage with legacy blob (no AI fields)
     fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'http://mac.local:3000',
-      token: 'tok',
+      anthropicKey: 'sk-old',
     });
 
     resetForTesting();
@@ -148,39 +89,37 @@ describe('Settings Persistence', () => {
     await loadSettings();
 
     const settings = getSettings();
-    expect(settings.baseUrl).toBe('http://mac.local:3000');
-    expect(settings.token).toBe('tok');
-    expect(settings.anthropicKey).toBe('');
+    expect(settings.anthropicKey).toBe('sk-old');
     expect(settings.aiGoals).toBe('');
     expect(settings.aiEquipment).toBe('');
   });
 
-  test('AI Coach: setting AI fields does not affect bridge settings', async () => {
-    // First set bridge settings
-    setSettings({ baseUrl: 'http://example.com', token: 'bridge-token' });
+  test('AI Coach: setting AI fields does not affect other settings', async () => {
+    // First set some settings
+    setSettings({ anthropicKey: 'sk-initial', onboardingState: 'dismissed' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    // Then set only AI fields
-    setSettings({ anthropicKey: 'sk-x' });
+    // Then set only AI goals
+    setSettings({ aiGoals: 'get strong' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
     const settings = getSettings();
-    expect(settings.baseUrl).toBe('http://example.com');
-    expect(settings.token).toBe('bridge-token');
-    expect(settings.anthropicKey).toBe('sk-x');
+    expect(settings.anthropicKey).toBe('sk-initial');
+    expect(settings.onboardingState).toBe('dismissed');
+    expect(settings.aiGoals).toBe('get strong');
   });
 
-  test('AI Coach: setting bridge fields does not affect AI fields', async () => {
+  test('AI Coach: setting some settings does not affect AI fields', async () => {
     // First set AI fields
     setSettings({ anthropicKey: 'sk-y', aiGoals: 'goals', aiEquipment: 'equipment' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    // Then update bridge settings
-    setSettings({ baseUrl: 'http://new' });
+    // Then update onboarding state
+    setSettings({ onboardingState: 'completed' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
     const stored = JSON.parse(fakeStorage.bridge_settings);
-    expect(stored.baseUrl).toBe('http://new');
+    expect(stored.onboardingState).toBe('completed');
     expect(stored.anthropicKey).toBe('sk-y');
     expect(stored.aiGoals).toBe('goals');
     expect(stored.aiEquipment).toBe('equipment');
@@ -233,8 +172,6 @@ describe('Settings Persistence', () => {
   test('AI Coach: legacy blob without aiPersonality loads with empty default', async () => {
     // Pre-seed storage with a blob written before the personality field existed
     fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'http://mac.local:3000',
-      token: 'tok',
       anthropicKey: 'sk-test',
       aiGoals: 'get strong',
       aiEquipment: 'dumbbells',
@@ -266,10 +203,8 @@ describe('Settings Persistence', () => {
 
   // Multi-provider support: backward compatibility and migration
   test('existing anthropic-only install keeps working untouched', async () => {
-    // Simulate legacy storage with only old fields (no openaiKey, aiProvider, aiModel)
+    // Simulate legacy storage with anthropic fields
     fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'https://sync.example.com',
-      token: 'old-token',
       anthropicKey: 'sk-ant-xxxxx',
       aiGoals: 'Build strength',
       aiEquipment: 'Dumbbell',
@@ -391,8 +326,6 @@ describe('Settings Persistence', () => {
   test('migration from anthropic to openai works seamlessly', async () => {
     // Start with anthropic-only setup
     const anthropicOnly = {
-      baseUrl: 'https://sync.example.com',
-      token: 'token',
       anthropicKey: 'sk-ant-xxxxx',
       aiGoals: 'Build strength',
       aiEquipment: 'Dumbbell',
@@ -456,8 +389,6 @@ describe('Settings Persistence', () => {
   test('coach-onboarding.AC1.2 Success: A stored blob written before this feature loads without error; the new fields default to empty and onboardingState to unseen', async () => {
     // Pre-seed storage with legacy blob (no profile or onboarding fields)
     fakeStorage.bridge_settings = JSON.stringify({
-      baseUrl: 'http://mac.local:3000',
-      token: 'tok',
       anthropicKey: 'sk-test',
       aiGoals: 'get strong',
       aiEquipment: 'dumbbells',
@@ -471,8 +402,6 @@ describe('Settings Persistence', () => {
 
     const settings = getSettings();
     // Old fields intact
-    expect(settings.baseUrl).toBe('http://mac.local:3000');
-    expect(settings.token).toBe('tok');
     expect(settings.anthropicKey).toBe('sk-test');
     expect(settings.aiGoals).toBe('get strong');
     expect(settings.aiEquipment).toBe('dumbbells');
@@ -481,6 +410,39 @@ describe('Settings Persistence', () => {
     expect(settings.profileAge).toBe('');
     expect(settings.profileExperience).toBe('');
     expect(settings.onboardingState).toBe('unseen');
+  });
+
+  test('remove-vault-sync.AC1.4 Edge: Legacy blob with now-deleted baseUrl/token loads without error', async () => {
+    // Pre-seed storage with a blob that has baseUrl/token (now-deleted fields)
+    // alongside valid current fields, simulating a blob written before this phase.
+    // The two stale values deliberately avoid the old bridge host/token strings.
+    // The vault-sync removal's exit criteria grep all of src for them to prove
+    // no fixture reintroduces a bridge credential, so a legacy-blob fixture
+    // reusing them would turn that check into a permanent false positive.
+    fakeStorage.bridge_settings = JSON.stringify({
+      baseUrl: 'http://legacy-host.example:3000',
+      token: 'legacy-token-abc123',
+      anthropicKey: 'sk-test-key',
+      onboardingState: 'completed',
+      aiGoals: 'get stronger',
+      profileAge: '35',
+    });
+
+    resetForTesting();
+    injectSettingsStorage(fakeStorageBackend);
+
+    // Should load without throwing
+    await loadSettings();
+
+    const settings = getSettings();
+    // Surviving fields should have loaded correctly
+    expect(settings.anthropicKey).toBe('sk-test-key');
+    expect(settings.onboardingState).toBe('completed');
+    expect(settings.aiGoals).toBe('get stronger');
+    expect(settings.profileAge).toBe('35');
+    // Note: we do NOT assert on baseUrl/token since they no longer exist in the type.
+    // loadSettings' merge deliberately preserves unknown keys, so the stale ones
+    // survive in the blob as inert data that no read site reaches.
   });
 
   test('coach-onboarding.AC1.3 Success: A refusal is stored as its own text, so empty still means never asked and the two are distinguishable by reading the value alone', () => {

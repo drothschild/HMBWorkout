@@ -55,7 +55,6 @@ interface UpsertRoutineExerciseOptions {
 
 /**
  * Create a new session with the given id, routine id, and start time.
- * The session is created with syncStatus = 'local' by default.
  *
  * @param database The database instance
  * @param options Session creation options
@@ -72,7 +71,6 @@ export async function createSession(
       session._raw.id = sessionId;
       session.routineId = routineId;
       session._raw.started_at = startedAtMs;
-      session.customSyncStatus = 'local';
       session._raw.created_at = Date.now();
     });
 
@@ -255,12 +253,8 @@ export async function discardInProgressSession(
 /**
  * Delete a session and all of its logged sets.
  *
- * Local-only: this removes the on-device rows only. A session already synced
- * to the vault keeps its markdown copy there — deleting here never touches
- * the bridge or the vault (HealthKit export also survives, written at session
- * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
- * by querying the sessions table directly, removing the row here also removes
- * it from the sync queue's candidate set.
+ * Removes on-device rows only. The HealthKit export written at completion is
+ * unaffected.
  *
  * Refuses to delete a session that is still in progress (no endedAt set) —
  * the active session must go through the session-flow "abandon" path
@@ -268,7 +262,7 @@ export async function discardInProgressSession(
  *
  * Atomicity: check-and-delete is one critical section — guards and deletion
  * happen in a single writer transaction via database.batch so an app kill
- * mid-loop cannot leave a truncated session with sync_status='local'.
+ * mid-loop cannot leave a truncated session.
  *
  * @param database The database instance
  * @param sessionId The session ID to delete
@@ -1154,12 +1148,16 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
-      // Defense-in-depth: default targetSets to 1 for entries that would otherwise
-      // be zero-total (no warmupSets and no targetSets). This catches any zero-total
-      // entries that make it through without being defaulted upstream (sync-layer or
-      // AI accept-path), ensuring the engine always has at least one set to visit.
-      // The condition matches layer 1 (sync/syncService.ts): key on "no warmup + no target"
-      // regardless of whether targetDurationSeconds is set or not.
+      // upsertRoutine is the SOLE enforcer of the zero-total default — the
+      // duplicate copy of this rule that lived in src/sync went with it, so
+      // there is no second layer behind this line. Catches an entry that would
+      // otherwise be zero-total (no warmupSets and no targetSets), so the
+      // engine has a set to visit. Fires only when targetSets is ABSENT, never
+      // on an explicit 0: validateRoutineDraft (src/ai/draftSchema.ts) rejects
+      // an explicit 0 upstream, and the production accept path (acceptDraft)
+      // runs it before every call here — so an explicit 0 reaching this line
+      // would still leave the entry zero-total. The condition keys on "no
+      // warmup + no target" regardless of whether targetDurationSeconds is set.
       const defaultedTargetSets =
         exerciseEntry.targetSets ??
         ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
@@ -1250,26 +1248,11 @@ export async function upsertRoutine(
  * Exercises are never touched: they are global and shared across routines
  * and logged history (AGENTS.md).
  *
- * Sync safety guard: refuses to delete a routine while any session that
- * references it (including one still in progress) has sync_status='local'.
- * syncNow() (src/sync/syncService.ts) resolves each session's routine at
- * post time via database.get('routines').find(session.routineId); if the
- * routine is gone, that lookup throws and the per-session catch swallows
- * the failure and continues, so the session would never sync again. A
- * session that is already 'synced' does not block deletion — its vault
- * copy was already posted and stays untouched, and the history screen's
- * presenter falls back to the raw routine id when the routine is missing.
- *
- * Atomicity: check-and-delete is one critical section — guards and the
- * single-row destroy happen inside one writer transaction via database.batch.
- *
- * The routine's vault markdown also survives (local-first, matching
- * deleteSession): tapping "Import Routines" later will re-create the routine
- * from the vault and re-adopt the retained routine_exercise rows.
+ * Atomicity: check-and-delete is one critical section — the single-row
+ * destroy happens inside one writer transaction via database.batch.
  *
  * @param database The database instance
  * @param routineId The routine ID to delete
- * @throws RoutineHasUnsyncedSessionsError if an unsynced session references it
  * @throws Error if the routine does not exist
  */
 export async function deleteRoutine(
@@ -1287,33 +1270,8 @@ export async function deleteRoutine(
       throw new Error(`cannot delete routine ${routineId}: not found`);
     }
 
-    const referencingSessions = (await database
-      .get('sessions')
-      .query(Q.where('routine_id', routineId))
-      .fetch()) as Session[];
-
-    const hasUnsyncedSession = referencingSessions.some(
-      (session) => session.customSyncStatus === 'local'
-    );
-    if (hasUnsyncedSession) {
-      throw new RoutineHasUnsyncedSessionsError(
-        `cannot delete routine ${routineId}: unsynced sessions reference it`
-      );
-    }
-
     // Delete ONLY the routine row. Retain routine_exercises as history carriers
     // so that session_sets remain queryable via getExerciseWorkingSetHistory.
     await database.batch(routine.prepareDestroyPermanently());
   });
-}
-
-/**
- * Thrown when attempting to delete a routine that has unsynced sessions.
- * Discriminable from other errors for user-friendly messaging.
- */
-export class RoutineHasUnsyncedSessionsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'RoutineHasUnsyncedSessionsError';
-  }
 }

@@ -29,7 +29,7 @@ export interface HealthKitSaveDeps {
 
 /**
  * Save workout to Apple Health.
- * All errors are logged and swallowed — HealthKit failures must not affect DB or sync state.
+ * All errors are logged and swallowed — HealthKit failures must not affect DB state.
  */
 export async function saveWorkout(summary: SessionCompleteSummary, deps: HealthKitSaveDeps): Promise<void> {
   try {

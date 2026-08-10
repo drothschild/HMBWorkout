@@ -1,9 +1,8 @@
 # HMB Workout
 
 A local-first iOS workout logger. Sessions are driven by a pure functional
-state machine, data lives on-device, and an Obsidian vault is the sync target
-via a Mac-side bridge. Routines can also be authored conversationally with an
-AI coach backed by the Anthropic API (bring your own key).
+state machine with data on-device. Routines can be authored conversationally
+with an AI coach backed by the Anthropic API (bring your own key).
 
 ## Technologies
 
@@ -29,8 +28,7 @@ AI coach backed by the Anthropic API (bring your own key).
   architectural invariant.
 - **[Zustand](https://zustand.docs.pmnd.rs/) 5** — imperative-shell stores:
   the active workout session and the ephemeral AI chat conversation.
-- **expo-secure-store** — settings blob (bridge credentials + AI key/goals/
-  equipment) in the iOS Keychain.
+- **expo-secure-store** — settings blob (AI key/goals/equipment) in the iOS Keychain.
 
 ### Integrations
 
@@ -40,11 +38,6 @@ AI coach backed by the Anthropic API (bring your own key).
   stay React Native/Hermes-safe and injectable for tests. The user supplies
   their own API key; requests go directly to the API and conversations are
   never persisted.
-- **Obsidian vault sync** — workout sessions serialize to a markdown grammar
-  (`src/interop/`) and post to a companion Mac-side HTTP bridge
-  (`../workout-bridge`, Node) over Tailscale. Offline-first: sessions queue
-  locally and sync when the bridge is reachable. The markdown contract is
-  copied into both repos and must be changed in lockstep.
 - **[@kingstinct/react-native-healthkit](https://github.com/kingstinct/react-native-healthkit)** —
   write-only workout export to Apple Health; Health failures never affect app
   state.
@@ -52,8 +45,8 @@ AI coach backed by the Anthropic API (bring your own key).
 ### Tooling
 
 - **Jest + ts-jest** — a single node test project covering the pure TS
-  domains (engine, db, interop, state, sync, health, helpers, ai). Screens
-  have no RN-environment tests by design.
+  domains (engine, db, interop, state, health, helpers, ai, theme, watch,
+  components, export). Screens have no RN-environment tests by design.
 - **ESLint 9 (expo flat config)** — `npm run lint`.
 
 ## Get started
@@ -84,9 +77,8 @@ AI coach backed by the Anthropic API (bring your own key).
 
 - `src/engine/` — pure Rill session core + host dispatch/effect mapping
 - `src/db/` — WatermelonDB schema, models, repository
-- `src/interop/` — vault markdown serializer/parser (shared contract)
+- `src/interop/` — vault markdown serializer/parser
 - `src/state/` — Zustand stores, presenters, settings
-- `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: draft schema/validators, Anthropic client,
   system-prompt builder, accept path

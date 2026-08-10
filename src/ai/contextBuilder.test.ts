@@ -1123,21 +1123,17 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('The user has just finished the routine');
     }, 30000);
 
-    it('does not leak the anthropic key, openai key, or bridge credentials', async () => {
+    it('does not leak the anthropic key or openai key', async () => {
       await seedFinishedWorkout();
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-proj-openai-test-secret',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
       });
 
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-proj-openai-test-secret');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('bridge.local');
     }, 30000);
 
     it('handles a debrief when the routine no longer exists and no sets logged', async () => {
@@ -1670,12 +1666,10 @@ describe('buildSystem: AI Coach context builder', () => {
   });
 
   describe('Security: secrets regression guard', () => {
-    it('does not leak anthropic key, openai key, bridge token, or baseUrl in prompt', async () => {
+    it('does not leak anthropic key or openai key in prompt', async () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-proj-openai-test-secret',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
         aiGoals: 'Build strength',
         aiEquipment: 'Dumbbells',
       });
@@ -1684,8 +1678,6 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-proj-openai-test-secret');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('bridge.local');
     }, 30000);
   });
 

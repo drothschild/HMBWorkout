@@ -193,7 +193,7 @@ match event {
       -- Record, then advance from the recorded state: one tap both logs the
       -- set and moves the position, so the entry caps at warmupSets +
       -- targetSets logs and the final set completes the workout. PersistSet
-      -- must precede the advancement effects (CompleteSession drives sync).
+      -- must precede the advancement effects (CompleteSession drives the HealthKit export).
       let recorded = { state |
         loggedSets: append(state.loggedSets, [theSet]),
         lastLoggedSet: Some(theSet)
@@ -357,7 +357,7 @@ match event {
   AbandonSession if state.phase != Idle && state.phase != Done -> (
       -- Throw the workout away. DiscardSession tells the host to delete the
       -- session and its sets; deliberately no CompleteSession, so nothing is
-      -- synced to the vault or exported to HealthKit. A rest timer armed for
+      -- exported to HealthKit. A rest timer armed for
       -- the discarded workout has to be cancelled or it fires for a session
       -- that no longer exists. (Paused mid-rest already cancelled it, which is
       -- why this keys off restDeadlineMs rather than the phase.)
@@ -386,7 +386,7 @@ match event {
         effects: effects
       })
     ),
-  -- Idle has no workout to abandon; Done is already written, synced and
-  -- exported, so removing it is a different operation from abandoning one.
+  -- Idle has no workout to abandon; Done is already written and exported, so
+  -- removing it is a different operation from abandoning one.
   AbandonSession -> Err("invalid event AbandonSession in phase " ++ h.phase_to_string(state.phase))
 })

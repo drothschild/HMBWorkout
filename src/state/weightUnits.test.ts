@@ -4,7 +4,7 @@ import { LBS_PER_KG, formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
  * Test: weight unit conversion (item 1)
  *
  * lbs is a display/entry concern only — kg stays canonical in the engine, DB,
- * vault markdown, sync, and HealthKit. Entry converts lbs → kg (2 dp, keeps
+ * vault markdown and HealthKit. Entry converts lbs → kg (2 dp, keeps
  * vault files readable); display converts kg → lbs rounded to the nearest
  * 0.5 lb so entered values echo back exactly.
  */

@@ -180,6 +180,5 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
     // Verify session row has correct data
     const session = await database.get('sessions').find(sessionId) as any;
     expect((session as any).routineId).toBe(routineId);
-    expect((session as any).customSyncStatus).toBe('local');
   }, 30000);
 });

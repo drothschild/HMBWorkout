@@ -157,7 +157,7 @@ describe('buildAlternatesPrompt: neutralization', () => {
 });
 
 describe('buildAlternatesPrompt: the prompt carries data, never secrets', () => {
-  it('has no channel for the anthropic key, bridge token, or baseUrl', () => {
+  it('has no channel for the anthropic key', () => {
     const { system, message } = buildAlternatesPrompt(
       input({
         goals: 'Build a bigger squat',
@@ -170,7 +170,6 @@ describe('buildAlternatesPrompt: the prompt carries data, never secrets', () => 
     const prompt = `${system}\n${message}`;
     expect(prompt).not.toMatch(/sk-ant-/);
     expect(prompt.toLowerCase()).not.toContain('anthropickey');
-    expect(prompt.toLowerCase()).not.toContain('baseurl');
     expect(prompt.toLowerCase()).not.toContain('api key');
   });
 });
