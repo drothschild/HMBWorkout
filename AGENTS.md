@@ -465,9 +465,11 @@ AI-drafted strength exercise with only title and kind) — but it fires only whe
 An entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
 This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI
 Coach below), so a routine always has exercises that will actually be performed regardless of
-whether it was authored by hand or drafted by the coach. A malformed `0x10` or `3x0` line never
-reaches this layer at all — `parseWorkoutLine` rejects both at parse time, under the
-context-dependent rules described in "Parse context and validation strictness" above.
+whether it was authored by hand or drafted by the coach. A malformed `0x10` or `3x0` line would
+never reach this layer anyway — `parseWorkoutLine` rejects both at parse time, under the
+context-dependent rules in "Parse context and validation strictness" above — though that is
+parser-layer behavior with no current production producer, since nothing outside tests calls
+`parseRoutine`/`parseSession` now.
 
 ## HealthKit (`src/health`)
 
@@ -778,8 +780,12 @@ renaming the *key* is forbidden.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no
   exercises at all — a routine can have exercises yet still have nothing for
-  `h.next_active_landing` to land on (cardio/stretch entries validly carry no
-  `target_sets`, since `parseWorkoutLine` rejects sets×reps for those kinds).
+  `h.next_active_landing` to land on. **The live source of such rows is history,
+  not any current write path:** routines imported before `upsertRoutine` learned
+  the zero-total default were left with `target_sets` null or 0, and with vault
+  import gone there is no re-import to heal them. A stored `exerciseIndex` can
+  also come back through `hydrate` pointing at such an entry (convention 5). Do
+  not read these guards as dead just because no code still *creates* the shape.
   `hasActiveExercise` carries that sum-based check
   through `routineListPresenter` and `routineDetailPresenter` into
   `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start

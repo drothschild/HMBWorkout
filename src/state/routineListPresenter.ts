@@ -8,9 +8,10 @@ export interface RoutineListItem {
    * True if at least one exercise plans a nonzero total (warmupSets +
    * targetSets) — matching the engine's own definition of "active"
    * (h.next_active_landing / h.next_active_idx, transition.lv). A routine
-   * can have exercises yet still be unstartable if every one is like
-   * cardio/stretch entries (which parseWorkoutLine rejects sets×reps for),
-   * which validly carry no target_sets at all (AGENTS.md's zero-planned-set Boundaries rule).
+   * can have exercises yet still be unstartable if every one carries no
+   * target_sets. Those rows are historical — imported before upsertRoutine's
+   * zero-total default existed, and now unhealable since vault import is gone
+   * (AGENTS.md's zero-planned-set Boundaries rule).
    */
   hasActiveExercise: boolean;
 }
