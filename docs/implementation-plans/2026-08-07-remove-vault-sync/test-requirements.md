@@ -60,28 +60,30 @@ All eight are **static verification** — greps over `AGENTS.md`, `jest.config.j
 |---|---|---|
 | **AC5.1** | `grep -n "Two-repo split\|## Sync\|src/sync/" AGENTS.md` | no output |
 | **AC5.2** | `grep -n "workout-bridge" AGENTS.md` | no output |
-| **AC5.3** | ~~`grep -n "keep both layers" AGENTS.md` → no output~~ **CORRECTED — see note below** | `buildSessionSetLine` still present; passage no longer names `syncService.ts` |
-
-> **AC5.3 correction (2026-08-09, found in Phase 4 review).** This criterion was written
-> on a false investigation finding: that deleting `src/sync` left `buildSessionSetLine`'s
-> `!= null` guards as the *sole* null-normalization layer. It did not.
-> `src/export/exportService.ts` performs the same `?? undefined` shell-boundary mapping
-> `syncService.ts` used to — verified side by side — and a **superset** of it, also
-> covering `targetSets`/`targetReps`/`targetDurationSeconds` where the old layer passed
-> those raw. The second layer moved; it did not disappear.
->
-> So `grep "keep both layers"` MUST still return a hit, and AGENTS.md must NOT describe
-> `buildSessionSetLine` as the sole layer — doing so deletes a standing defense-in-depth
-> mandate and invites the next person editing `exportService`'s row mapping to drop the
-> `?? undefined`, making a `<flag>=null` line reachable for the first time.
->
-> The criterion's *intent* — stop naming the deleted `syncService.ts` — is satisfied.
-> Do not "fix" AGENTS.md back to the original wording.
+| **AC5.3** | ⚠ **CORRECTED — see the note below this table.** `grep -c "keep both layers" AGENTS.md` | `1`, NOT `0`. The passage must no longer name `syncService.ts`, but must still mandate both layers |
 | **AC5.4** | `grep -n "redundant by construction\|importRoutines\|defaultTargetSetsForDurationLine" AGENTS.md` | no output |
 | **AC5.5** | `grep -n "vault sync" AGENTS.md` | no output. Also `src/engine/rules/types.lv` and `transition.lv` — the source of record AGENTS.md documents (Phase 4 Task 6b) |
 | **AC5.6** | `sed -n '12p' jest.config.js \| grep -c "sync"` | `0`. ⚠ A bare grep on the file still hits **line 42**, the commented-out `rn` project, which is intentional future work and stays |
 | **AC5.7** | `grep -n "syncNow\|sync_status\|vault\|bridge\|sync-layer\|layer 1\|Defense-in-depth" src/db/repository.ts` | no output. The last three patterns matter: the `upsertRoutine` comment described the dead layer without using any of the obvious words |
 | **AC5.8** | `grep -n "Last verified" AGENTS.md` | today's date |
+
+> **AC5.3 correction (2026-08-09, found in Phase 4's review).** This criterion was
+> written on a false investigation finding: that deleting `src/sync` left
+> `buildSessionSetLine`'s `!= null` guards as the *sole* null-normalization layer.
+> It did not. `src/export/exportService.ts` performs the same `?? undefined`
+> shell-boundary mapping `syncService.ts` used to — verified side by side — and a
+> **superset** of it, also normalizing `targetSets`/`targetReps`/
+> `targetDurationSeconds`, which the old layer passed raw. The second layer moved;
+> it did not disappear.
+>
+> So `grep "keep both layers" AGENTS.md` MUST still return a hit, and AGENTS.md must
+> NOT describe `buildSessionSetLine` as the sole layer. Doing so deletes a standing
+> defense-in-depth mandate and invites the next person editing `exportService`'s row
+> mapping to drop the `?? undefined`, making a `<flag>=null` line reachable for the
+> first time.
+>
+> The criterion's *intent* — stop naming the deleted `syncService.ts` — is satisfied.
+> **Do not "fix" AGENTS.md back to the original wording.**
 
 ### remove-vault-sync.AC6 — Cross-cutting
 
