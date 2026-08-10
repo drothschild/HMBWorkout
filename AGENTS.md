@@ -159,19 +159,6 @@ interrupted build — no binary, no `Info.plist`. Sorting by mtime and taking th
 top hit reports "no build exists" while a working one sits one entry down. Check
 for the binary itself.
 
-## Two-repo split
-
-- **This repo** = the iOS app.
-- **`../workout-bridge`** = Mac-side HTTP bridge (Node/vitest) that reads/writes the
-  vault's `_sync/` folder over Tailscale. Its own README documents endpoints.
-- The markdown contract is shared code, **copied** into both repos
-  (`src/interop/format.ts` here → `src/contract.ts` there). There is no shared
-  package, but the bridge copy is document-level only (frontmatter/block
-  structure, plus `parseDuration` and `ContractError`): change those shared
-  pieces in **both** repos or the bridge will reject valid sessions. Line-level
-  flag grammar (rest, warmup, set_type, …) lives solely in this repo's
-  `parseFlags` and needs no bridge mirror.
-
 ## Architecture: Functional Core / Imperative Shell (FCIS)
 
 This is the load-bearing invariant. All session-flow logic lives in the pure core;
@@ -465,19 +452,6 @@ layers. A regression here is not a rejected sync — the bridge's `validateSessi
 never runs `parseFlags`, so a bad guard writes a `<flag>=null` line straight into the
 vault and the session still flips to `synced`.
 
-## Sync (`src/sync`)
-
-Offline-first queue. Sessions are written locally with `sync_status='local'` and flip
-to `'synced'` only after a successful POST; `health()` gates all posting (unreachable
-bridge = no-op, not an error). Posting is idempotent by session id. Network vs HTTP
-failures are distinct types (`BridgeUnreachable` vs `BridgeHttpError`).
-
-`syncNow` must hand `serializeSession` an exercise record for every identity its sets
-carry, not just the ones the routine names today: it fetches the routine's exercises by
-`find()` and then the sets' *stamped* ids by `Q.oneOf` query. The query is deliberate —
-a stamped id with no surviving row must not take the whole session's sync down — and so
-is the union: drop it and every swapped or dropped-row set throws instead of exporting.
-
 `importRoutines` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
 default a duration-based entry's `targetSets` to 1 when it is undefined/null and `warmupSets`
 is 0 (or undefined), so it doesn't reach the engine as zero-total. Both layers share the same
@@ -510,19 +484,6 @@ and is never defaulted. This mirrors
 the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
 below) so a routine's origin — hand-authored in the vault vs. drafted by the coach — never
 changes whether every exercise in it actually gets performed.
-
-**Note:** routines already imported before this fix were left with `target_sets = null`
-for their zero-total exercises. A manual re-import will heal them via the update branch
-of `upsertRoutine`, which recalculates the default on every routine edit. A routine
-imported with an explicit `target_sets = 0` (from a `0x10`-style line, before
-`parseWorkoutLine`'s parse-time rejection existed) is not healed the same way: re-import
-re-parses the same malformed line and now throws, so that routine is skipped rather than
-updated. The row stays at `target_sets = 0` until its vault source is corrected to a valid
-sets count and re-imported successfully. The same applies to a legacy routine with
-`target_reps = 0` (from an old `3x0` line): re-import catches the `ContractError` during
-routine parsing and skips that routine on every future import, since the zero-reps guard now
-fires at parse time. A manual correction of the vault source to a valid reps count must
-precede any future successful re-import.
 
 ## HealthKit (`src/health`)
 
@@ -740,7 +701,6 @@ is now a misnomer — AI settings are in there too.
 - `src/interop/` — vault markdown serializer/parser (the shared contract)
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
-- `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
   system-prompt builder, coach directives, draft→repository accept path, plus the
@@ -768,10 +728,6 @@ is now a misnomer — AI settings are in there too.
 
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
-- Markdown grammar changes to the shared pieces — document-level structure,
-  `parseDuration`, `ContractError` — must be mirrored in
-  `../workout-bridge/src/contract.ts`; line-level flag changes (`parseFlags`) are
-  app-only
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
