@@ -1661,7 +1661,7 @@ describe('Repository: session and set helpers', () => {
       // Defense-in-depth: if a zero-total entry (targetSets undefined, warmupSets 0)
       // reaches upsertRoutine, it should default targetSets to 1 here — regardless of
       // whether targetDurationSeconds is set. This protects against zero-total entries
-      // being silently skipped by the engine, and catches cases where the sync-side or
+      // being silently skipped by the engine, and catches cases where the
       // AI-side defaulting was missed.
       const routineId = 'routine-defense-depth';
       await upsertExercise(database, 'plank', 'Plank', 'strength');

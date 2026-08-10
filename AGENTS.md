@@ -4,9 +4,8 @@ Last verified: 2026-08-09
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
-machine. Routines can
-also be authored conversationally against the Anthropic API with a user-supplied
-key (`src/ai`).
+machine. Routines can also be authored conversationally against the Anthropic API
+with a user-supplied key (`src/ai`).
 
 ## Expo version discipline
 
@@ -430,12 +429,12 @@ logged sessions but `3x0` is rejected in routine targets.
 or the call throws. That is stronger than it sounds, because the function is driven by
 `routineExercises` and a set's row can be missing entirely — `upsertRoutine`'s drop
 branch destroys the row when an exercise leaves a routine, while a finished session
-still queued for sync keeps its sets. Those orphaned groups are emitted from the
+keeps its sets. Those orphaned groups are emitted from the
 `session_sets.exercise_id` stamp and appended after the row-ordered lines (no row means
 no `order` to interleave by), without the row-supplied plan flags `superset`/`rest`,
 which died with it. A set with neither a stamp nor a surviving row is genuinely
-unidentifiable and throws — the session stays `'local'` with its data on-device, rather
-than the vault copy being written permanently short and marked `'synced'`. Do not
+unidentifiable and throws — the export fails loudly with the data intact on-device,
+rather than silently producing a short document that looks complete. Do not
 restore a `continue` on the unresolved-exercise path: silently skipping a set is the
 data-loss bug itself.
 
@@ -445,9 +444,12 @@ the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
 column, so every optional field read off a DB row — `reps`, `weightKg`, `distanceM`,
 `durationSeconds`, `rpe` on `SessionSet`; `targetSets`, `targetReps`,
 `targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is subject to it.
-`buildSessionSetLine`'s `!= null` guards are now the sole normalization layer, so a bad guard has no backstop.
-A regression here means `src/export`'s `exportService.ts`, the only remaining caller that maps rows to the
-serializer, writes a `<flag>=null` line into whatever the export produces.
+`exportService.ts`'s row-to-serializer mapping normalizes the same hazard a second time
+at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` handling,
+and covering the `RoutineExercise` plan flags as well); **keep both layers.** A bad
+guard is therefore only reachable if that mapping ever stops normalizing — at which
+point it writes a `<flag>=null` line straight into the exported document, and nothing
+downstream rejects it.
 
 `upsertRoutine` defaults a duration-based entry's `targetSets` to 1 when it is undefined/null and
 `warmupSets` is 0 (or undefined), so it doesn't reach the engine as zero-total. This is the only
@@ -459,26 +461,27 @@ AI-drafted strength exercise with only title and kind) — but it fires only whe
 An entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
 This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI
 Coach below), so a routine always has exercises that will actually be performed regardless of
-whether it was authored by hand or drafted by the coach. `parseWorkoutLine` (`src/interop/parse.ts`)
-rejects zero sets (0x10) unconditionally in both routine and session contexts, since that quantity
-is never valid — and it rejects zero reps (e.g., `3x0`) in routine targets only, not in logged
-sessions where `1x0` is a valid measurement of actual performance.
+whether it was authored by hand or drafted by the coach. A malformed `0x10` or `3x0` line never
+reaches this layer at all — `parseWorkoutLine` rejects both at parse time, under the
+context-dependent rules described in "Parse context and validation strictness" above.
 
 ## HealthKit (`src/health`)
 
 Write-only. All HealthKit errors are logged and swallowed — a Health failure must
-never affect DB or sync state. Dependencies are injected (`HealthKitSaveDeps`) so the
+never affect DB state. Dependencies are injected (`HealthKitSaveDeps`) so the
 save path is testable in the node jest project.
 
 ## AI Coach (`src/ai`)
 
 Conversational routine authoring. The user brings their own Anthropic key; requests go
-straight to the API (never via the bridge) and the chat is never persisted. The four
+straight from the device to the Anthropic API, and the chat is never persisted. The AI
 settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) are
-persisted under the storage key `'bridge_settings'` — do not rename this key, as it
-holds every user's API key and onboarding state, and renaming it orphans existing users.
-`BridgeSettings` in `src/state/settings.ts` is now a misnomer if the type was not renamed
-in Phase 2.
+persisted under the storage key `'bridge_settings'`, alongside the profile and
+onboarding fields — do not rename this key, as it holds every user's API key and
+onboarding state, and renaming it orphans existing users. `BridgeSettings` in
+`src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onboarding
+settings, and no bridge settings at all — kept because renaming the *type* is churn and
+renaming the *key* is forbidden.
 
 - **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
   `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
@@ -680,6 +683,8 @@ in Phase 2.
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
 - `src/interop/` — vault markdown serializer/parser
+- `src/export/` — the only consumer of `src/interop`; maps DB rows to the
+  serializer, normalizing WatermelonDB's `null` to `undefined` at the boundary
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
 - `src/health/` — HealthKit write-only export

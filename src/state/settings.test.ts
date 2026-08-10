@@ -415,11 +415,10 @@ describe('Settings Persistence', () => {
   test('remove-vault-sync.AC1.4 Edge: Legacy blob with now-deleted baseUrl/token loads without error', async () => {
     // Pre-seed storage with a blob that has baseUrl/token (now-deleted fields)
     // alongside valid current fields, simulating a blob written before this phase.
-    // The two stale values deliberately avoid the host and token sentinels the
-    // secret-leak fixtures use (see contextBuilder.test.ts). The phase sweep
-    // greps all of src for those exact strings to prove no prompt can leak a
-    // credential, so a legacy-blob fixture reusing them would turn that
-    // tripwire into a permanent false positive.
+    // The two stale values deliberately avoid the old bridge host/token strings.
+    // The vault-sync removal's exit criteria grep all of src for them to prove
+    // no fixture reintroduces a bridge credential, so a legacy-blob fixture
+    // reusing them would turn that check into a permanent false positive.
     fakeStorage.bridge_settings = JSON.stringify({
       baseUrl: 'http://legacy-host.example:3000',
       token: 'legacy-token-abc123',

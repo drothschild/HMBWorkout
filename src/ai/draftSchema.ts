@@ -274,8 +274,6 @@ function isEmptyProposal(value: unknown): boolean {
  * This normaliser converts those nulls to undefined so downstream validators only
  * need to handle one representation of absence.
  *
- * Pattern: match `undefined` separately so we only have to handle one representation of absence.
- *
  * INVARIANT: No field in `AI_TURN_SCHEMA` carries `null` as a distinct value
  * separate from absence. A field that ever does must not go through this
  * normaliser — it would lose the distinction.
