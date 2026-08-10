@@ -1015,7 +1015,7 @@ describe('activeSession store', () => {
     it('onCompleteSession waits for the pending set persist before writing ended_at', async () => {
       // The merged LogSet transition emits [PersistSet, CompleteSession] in one
       // dispatch, and rill executors are fire-and-forget — completion must not
-      // outrun the final set's write or the synced markdown misses it.
+      // outrun the final set's write or the debrief prompt and history miss it.
       let releasePersist!: () => void;
       const persistGate = new Promise<void>((resolve) => {
         releasePersist = resolve;

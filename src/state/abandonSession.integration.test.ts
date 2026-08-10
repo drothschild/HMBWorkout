@@ -3,7 +3,7 @@
  *
  * The point of the feature is that the abandoned workout leaves no trace: no
  * session row, no sets, nothing for restart recovery to rehydrate, and — because
- * abandon never emits CompleteSession — no sync attempt and no HealthKit export.
+ * abandon never emits CompleteSession — no HealthKit export.
  */
 
 import { Database } from '@nozbe/watermelondb';

@@ -68,9 +68,10 @@ export function createActiveSessionStore(
 
   // Queue of pending set persists. One-tap logging emits the final set's
   // PersistSet and CompleteSession in the same transition, and rill invokes
-  // executors fire-and-forget — so completion must wait for the persist or
-  // syncNow() can serialize the session without its last set (posting is
-  // idempotent by session id, so the missing set would never re-sync).
+  // executors fire-and-forget — so completion must wait for the persist. The
+  // debrief prompt and history reads consume the session's sets, and in
+  // onDiscardSession the session row must be closed with its sets on disk
+  // before the delete.
   const pendingPersistPromises: Promise<unknown>[] = [];
 
   async function drainPendingPersists(): Promise<void> {
@@ -118,7 +119,7 @@ export function createActiveSessionStore(
       }
 
       // Query routine_exercises by (routine_id, order: currentEntry.idx)
-      // CRITICAL: idx uses canonical 0-based order (matches routine_exercises.order from syncService import).
+      // CRITICAL: idx uses canonical 0-based order (matches routine_exercises.order).
       // This is resilient to repeated exercises and superset structures where many exercises share exerciseId.
       const routine_exercises = await database.get('routine_exercises').query().fetch();
       const routineExercise = (routine_exercises as any[]).find(
@@ -153,8 +154,8 @@ export function createActiveSessionStore(
     },
 
     onDiscardSession(sessionId: string) {
-      // Abandon: delete the session and its sets outright. Sync and HealthKit
-      // are untouched here by construction — both hang off onCompleteSession,
+      // Abandon: delete the session and its sets outright. HealthKit is
+      // untouched here by construction — it hangs off onCompleteSession,
       // which an abandoned workout never emits. An in-flight LogSet persist
       // must land before the delete (mirroring onCompleteSession's drain), or
       // it would land afterwards and orphan a session_sets row for a session
@@ -188,8 +189,8 @@ export function createActiveSessionStore(
       const finishedRoutineId = currentSessionState.routineId;
 
       // The final set's persist was dispatched in the same transition as this
-      // completion; it must be on disk before the session closes and sync
-      // serializes the sets.
+      // completion; it must be on disk before the session closes and the
+      // debrief prompt and history readers access the sets.
       await drainPendingPersists();
 
       // Set ended_at and clear engine_state on the session in a single transaction
@@ -202,7 +203,7 @@ export function createActiveSessionStore(
         });
       });
 
-      // Write to HealthKit (isolated; errors must not affect DB or sync)
+      // Write to HealthKit (isolated; errors must not affect DB state)
       try {
         const { saveWorkout } = await import('@/health/saveWorkout');
 
@@ -228,7 +229,7 @@ export function createActiveSessionStore(
       }
 
       // Aftermath, deliberately last: the session record is already closed and
-      // sync and the Health write are under way, so nothing about finishing a
+      // the HealthKit write is under way, so nothing about finishing a
       // workout depends on the chat opening — or on it working.
       try {
         const debrief = planPostWorkoutDebrief(
