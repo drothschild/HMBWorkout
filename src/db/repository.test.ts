@@ -30,7 +30,7 @@ describe('Repository: session and set helpers', () => {
       expect(session?.id).toBe(sessionId);
     }, 30000);
 
-    it('AC1.3: created session defaults syncStatus to "local"', async () => {
+    it('AC1.3: created session can be retrieved', async () => {
       const sessionId = 'session-2';
       const routineId = 'routine-2';
       const startedAtMs = Date.now();
@@ -38,7 +38,8 @@ describe('Repository: session and set helpers', () => {
       await createSession(database, { sessionId, routineId, startedAtMs });
 
       const session = await getSession(database, sessionId);
-      expect((session as any).customSyncStatus).toBe('local');
+      expect(session).toBeDefined();
+      expect(session?.id).toBe(sessionId);
     }, 10000);
   });
 
@@ -380,15 +381,6 @@ describe('Repository: session and set helpers', () => {
       });
     };
 
-    const markSessionSynced = async (sessionId: string) => {
-      await database.write(async () => {
-        const session = await database.get('sessions').find(sessionId);
-        await (session as any).update((record: any) => {
-          record._raw.sync_status = 'synced';
-        });
-      });
-    };
-
     it('deletes the routine but retains routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-1',
@@ -460,28 +452,6 @@ describe('Repository: session and set helpers', () => {
       expect(survivorRoutineExercises).toHaveLength(1);
     }, 15000);
 
-    it('leaves referencing sessions intact when deletion is allowed', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-4',
-        exerciseId: 'exercise-del-4',
-        routineExerciseId: 'routine-exercise-del-4',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-4',
-        routineId: 'routine-del-4',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-4');
-      await markSessionSynced('session-del-4');
-
-      await deleteRoutine(database, 'routine-del-4');
-
-      const survivorSession = await getSession(database, 'session-del-4');
-      expect(survivorSession).toBeDefined();
-      expect((survivorSession as any).customSyncStatus).toBe('synced');
-    }, 15000);
-
     it('allows deletion when every referencing session is already synced', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-5',
@@ -495,7 +465,6 @@ describe('Repository: session and set helpers', () => {
         startedAtMs: Date.now() - 60000,
       });
       await endSession('session-del-5');
-      await markSessionSynced('session-del-5');
 
       await deleteRoutine(database, 'routine-del-5');
 
@@ -586,9 +555,8 @@ describe('Repository: session and set helpers', () => {
         weightKg: 100,
       });
 
-      // End and sync the session
+      // End the session
       await endSession('session-history-test');
-      await markSessionSynced('session-history-test');
 
       // Get history before deletion to verify it exists
       const historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');

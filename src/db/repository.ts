@@ -55,7 +55,6 @@ interface UpsertRoutineExerciseOptions {
 
 /**
  * Create a new session with the given id, routine id, and start time.
- * The session is created with syncStatus = 'local' by default.
  *
  * @param database The database instance
  * @param options Session creation options
@@ -72,7 +71,6 @@ export async function createSession(
       session._raw.id = sessionId;
       session.routineId = routineId;
       session._raw.started_at = startedAtMs;
-      session.customSyncStatus = 'local';
       session._raw.created_at = Date.now();
     });
 

@@ -142,7 +142,9 @@ export async function exportSessionHistory(db: Database): Promise<string> {
           startedAt: (session as any).startedAt,
           endedAt: (session as any).endedAt,
           createdAt: (session as any).createdAt,
-          customSyncStatus: (session as any).customSyncStatus,
+          // serializeSession still declares this field but never reads it; the model
+          // dropped it at schema v4. Supplied as a literal to satisfy the type.
+          customSyncStatus: 'local',
         },
         (sets as any[]).map((s) => ({
           routineExerciseId: (s as any).routineExerciseId,
