@@ -1,10 +1,10 @@
 # HMB Workout
 
-Last verified: 2026-08-04
+Last verified: 2026-08-09
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
-(WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
-session flow is driven by a pure functional Rill-lang state machine. Routines can
+(WatermelonDB). The session flow is driven by a pure functional Rill-lang state
+machine. Routines can
 also be authored conversationally against the Anthropic API with a user-supplied
 key (`src/ai`).
 
@@ -194,9 +194,8 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    to `types.lv` **and** `engine/types.ts`, plus a case in `rillExecutors` — there is
    no shared record shape left to widen. `DiscardSession` is its own variant rather
    than a case of `CompleteSession` on purpose: `CompleteSession` is what drives
-   vault sync and the HealthKit export, so an abandoned session (`AbandonSession`)
-   must emit `DiscardSession` so the session is deleted instead of synced or
-   exported.
+   the HealthKit export, so an abandoned session (`AbandonSession`) must emit
+   `DiscardSession` so the session is deleted instead of exported.
 
 2. **`transition.lv` appends to `loggedSets` itself.** Rill does have a list-append
    builtin, and the `LogSet` rule uses it: `loggedSets: append(state.loggedSets,
@@ -475,16 +474,18 @@ save path is testable in the node jest project.
 
 Conversational routine authoring. The user brings their own Anthropic key; requests go
 straight to the API (never via the bridge) and the chat is never persisted. The four
-settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) live in
-the existing `bridge_settings` blob, so `BridgeSettings` in `src/state/settings.ts`
-is now a misnomer — AI settings are in there too.
+settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) are
+persisted under the storage key `'bridge_settings'` — do not rename this key, as it
+holds every user's API key and onboarding state, and renaming it orphans existing users.
+`BridgeSettings` in `src/state/settings.ts` is now a misnomer if the type was not renamed
+in Phase 2.
 
 - **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
   `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
   `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
   the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
   jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
-  `AnthropicHttpError`), matching the sync convention. The cost: no SDK means nothing
+  `AnthropicHttpError`). The cost: no SDK means nothing
   strips a `json_schema` of keywords the structured-output endpoint's subset doesn't
   support (array/string/number bounds) — one in `ALTERNATES_SCHEMA` made the Replace
   button 400 on every tap until it was caught (PR #71). Every schema handed to
@@ -540,8 +541,8 @@ is now a misnomer — AI settings are in there too.
   because the Messages API needs a user turn before a reply. The opening turn is
   flagged hidden and suppressed in the UI while staying byte-identical on the wire,
   so the user sees the coach's greeting as the first message. The hook is the *last*
-  thing `onCompleteSession` does — after the session record is closed and sync and the
-  HealthKit write are under way — and every failure there is swallowed: finishing a
+  thing `onCompleteSession` does — after the session record is closed and the HealthKit
+  write is under way — and every failure there is swallowed: finishing a
   workout must never depend on the chat. Effect executors are fire-and-forget, so a
   resolved `dispatch` does not mean the debrief has opened; tests must wait for it.
   `planPostWorkoutDebrief` (no key = no chat) and the route-param encoding live in
@@ -602,7 +603,7 @@ is now a misnomer — AI settings are in there too.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai/theme` — all pure TS, no
+  `testMatch` covers `engine/db/interop/state/health/helpers/ai/theme/watch/components/export` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
