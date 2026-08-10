@@ -481,6 +481,17 @@ describe('Repository: session and set helpers', () => {
         .query(Q.where('routine_id', 'routine-del-6'))
         .fetch();
       expect(routineExercises).toHaveLength(1);
+
+      // The referencing session row itself survives. deleteRoutine destroys the
+      // routine row ONLY — it must never cascade into sessions, or the history
+      // the retained routine_exercises exist to carry would have nothing to
+      // point at. The history screen's presenter falls back to the raw routine
+      // id when the routine is missing, which is what makes this safe.
+      const referencingSessions = await database
+        .get('sessions')
+        .query(Q.where('routine_id', 'routine-del-6'))
+        .fetch();
+      expect(referencingSessions).toHaveLength(1);
     }, 15000);
 
     it('deletes a routine with an in-progress session, as the session carries its own entries in engine state', async () => {
