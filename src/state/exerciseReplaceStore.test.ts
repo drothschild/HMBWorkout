@@ -16,6 +16,7 @@
 import { createExerciseAlternatesClient } from '@/ai/alternatesClient';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import type { SessionState, RoutineEntry } from '@/engine/types';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import { getSettings, injectSettingsStorage, resetForTesting, setSettings } from '@/state/settings';
 import {
   canOfferReplace,
@@ -145,13 +146,18 @@ describe('replaceExerciseTarget', () => {
 });
 
 describe('canOfferReplace', () => {
-  it('is false without an Anthropic key — the button is hidden, not disabled', () => {
+  it('is false without an API key (Anthropic or OpenAI) — the button is hidden, not disabled', () => {
     expect(canOfferReplace(makeState(), { anthropicKey: '' })).toBe(false);
     expect(canOfferReplace(makeState(), { anthropicKey: '   ' })).toBe(false);
+    expect(canOfferReplace(makeState(), { anthropicKey: '', openaiKey: '' })).toBe(false);
   });
 
-  it('is true with a key and an untouched current entry', () => {
+  it('is true with an Anthropic key and an untouched current entry', () => {
     expect(canOfferReplace(makeState(), { anthropicKey: 'sk-ant-test' })).toBe(true);
+  });
+
+  it('is true with an OpenAI key and an untouched current entry', () => {
+    expect(canOfferReplace(makeState(), { openaiKey: 'sk-openai-test' })).toBe(true);
   });
 
   it('is false once a set has been recorded, key or not', () => {
@@ -178,10 +184,30 @@ describe('createExerciseReplaceStore', () => {
   };
 
   function makeStore() {
+    const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      const client = createExerciseAlternatesClient(
+        { apiKey: config.anthropicKey || 'test-key' },
+        mockFetch as unknown as typeof fetch
+      );
+      return {
+        async chat() {
+          throw new Error('chat not used in test');
+        },
+        async comment() {
+          throw new Error('comment not used in test');
+        },
+        async suggest(request) {
+          return client.suggest(request);
+        },
+        async ask() {
+          throw new Error('ask not used in test');
+        },
+      };
+    };
+
     return createExerciseReplaceStore({
       getSettings,
-      createClient: (config) =>
-        createExerciseAlternatesClient(config, mockFetch as unknown as typeof fetch),
+      createClient: createUnifiedClient,
       dispatch,
       ensureExercise,
       applyToRoutine,

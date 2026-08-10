@@ -28,13 +28,14 @@
  */
 
 import { create } from 'zustand';
-import { createExerciseQuestionClient } from '@/ai/exerciseQuestionClient';
 import { buildExerciseQuestionPrompt, normalizeExerciseAnswerText } from '@/ai/exerciseQuestionPrompt';
 import { loadExerciseDescription } from '@/ai/exerciseQuestionContext';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase } from '@/state/sessionPresenter';
+import { createAiClient } from '@/ai/provider/factory';
 import type { ExerciseKind, SessionState } from '@/engine/types';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /** The exercise the athlete tapped the question button on, plus the ids that scope the cache. */
 export interface ExerciseQuestionTarget {
@@ -49,7 +50,7 @@ export interface ExerciseQuestionTarget {
 export interface ExerciseQuestionDeps {
   getSettings: typeof getSettings;
   loadDescription: (exerciseId: string) => Promise<string | null>;
-  createClient: typeof createExerciseQuestionClient;
+  createClient: (config: ProviderConfig) => AiClient;
   logError?: (message: string, error: unknown) => void;
 }
 
@@ -66,9 +67,11 @@ interface ExerciseQuestionState {
   collapse(): void;
 }
 
-/** True when a usable Anthropic key is configured — the "hidden without a key" gate. */
-export function hasAnthropicKey(settings: { anthropicKey: string }): boolean {
-  return Boolean(settings.anthropicKey?.trim());
+/** True when a usable API key is configured (either Anthropic or OpenAI) — the "hidden without a key" gate. */
+export function hasAnthropicKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
+  const hasAnthropicKeyTrimmed = settings.anthropicKey?.trim();
+  const hasOpenaiKeyTrimmed = settings.openaiKey?.trim();
+  return Boolean(hasAnthropicKeyTrimmed || hasOpenaiKeyTrimmed);
 }
 
 /**
@@ -123,9 +126,11 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
   let currentKey: string | null = null;
   let generation = 0;
 
-  function apiKey(): string | null {
-    const key = deps.getSettings().anthropicKey?.trim();
-    return key ? key : null;
+  function hasApiKey(): boolean {
+    const settings = deps.getSettings();
+    const hasAnthropicKey = settings.anthropicKey?.trim();
+    const hasOpenaiKey = settings.openaiKey?.trim();
+    return Boolean(hasAnthropicKey || hasOpenaiKey);
   }
 
   async function requestAnswer(key: string, target: ExerciseQuestionTarget): Promise<string | null> {
@@ -140,10 +145,11 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
 
     const request = (async () => {
       const settings = deps.getSettings();
-      const trimmedKey = settings.anthropicKey?.trim();
+      const hasAnthropicKey = settings.anthropicKey?.trim();
+      const hasOpenaiKey = settings.openaiKey?.trim();
       // Checked in `toggle` too; re-checked here so no caller can reach the
       // API without a key.
-      if (!trimmedKey) return null;
+      if (!hasAnthropicKey && !hasOpenaiKey) return null;
 
       const description = await deps.loadDescription(target.exerciseId);
       const prompt = buildExerciseQuestionPrompt({
@@ -158,7 +164,13 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
         profileExperience: settings.profileExperience,
       });
 
-      const rawAnswer = await deps.createClient({ apiKey: trimmedKey }).ask(prompt);
+      const providerConfig: ProviderConfig = {
+        anthropicKey: settings.anthropicKey,
+        openaiKey: settings.openaiKey,
+        aiProvider: settings.aiProvider,
+      };
+      const client = deps.createClient(providerConfig);
+      const rawAnswer = await client.ask(prompt);
       const answer = normalizeExerciseAnswerText(rawAnswer);
 
       // Cached even if nobody is looking any more: the call is already paid
@@ -223,7 +235,7 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
 
       // No key configured: never expand, never call. Defense-in-depth — the
       // screen already hides the button in this case.
-      if (!apiKey()) {
+      if (!hasApiKey()) {
         currentKey = null;
         set({ expandedKey: null, text: null, pending: false });
         return;
@@ -268,5 +280,5 @@ export const exerciseQuestionStore = createExerciseQuestionStore({
     const { database } = require('@/db');
     return loadExerciseDescription(database, exerciseId);
   },
-  createClient: createExerciseQuestionClient,
+  createClient: createAiClient,
 });

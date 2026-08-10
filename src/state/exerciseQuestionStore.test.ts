@@ -19,6 +19,7 @@ import {
   setSettings,
   getSettings,
 } from '@/state/settings';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import type { SessionState, RoutineEntry } from '@/engine/types';
 import {
   createExerciseQuestionStore,
@@ -70,10 +71,31 @@ describe('createExerciseQuestionStore', () => {
   };
 
   function makeStore() {
+    const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      const client = createExerciseQuestionClient(
+        { apiKey: config.anthropicKey || 'test-key' },
+        mockFetch as unknown as typeof fetch
+      );
+      return {
+        async chat() {
+          throw new Error('chat not used in test');
+        },
+        async comment() {
+          throw new Error('comment not used in test');
+        },
+        async suggest() {
+          throw new Error('suggest not used in test');
+        },
+        async ask(request) {
+          return client.ask(request);
+        },
+      };
+    };
+
     return createExerciseQuestionStore({
       getSettings,
       loadDescription,
-      createClient: (config) => createExerciseQuestionClient(config, mockFetch as unknown as typeof fetch),
+      createClient: createUnifiedClient,
       logError,
     });
   }

@@ -8,16 +8,12 @@ import {
   validateSettingsProposal,
 } from '@/ai/draftSchema';
 import { acceptDraft as acceptDraftFn } from '@/ai/acceptDraft';
-import {
-  AnthropicHttpError,
-  AnthropicUnreachable,
-  createAnthropicClient,
-  AiChatMessage,
-} from '@/ai/anthropicClient';
 import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
 import { getSettings, setSettings } from '@/state/settings';
 import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from '@/state/coachOnboarding';
+import { createAiClient } from '@/ai/provider/factory';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
@@ -53,7 +49,7 @@ interface AiChatState {
 
 export interface AiChatDeps {
   db: Database;
-  createClient: typeof createAnthropicClient;
+  createClient: (config: ProviderConfig) => AiClient;
   buildSystem: typeof buildSystemFn;
   accept: typeof acceptDraftFn;
   getSettings: typeof getSettings;
@@ -61,19 +57,34 @@ export interface AiChatDeps {
 }
 
 function mapError(error: unknown): AiChatError {
-  if (error instanceof AnthropicHttpError) {
-    if (error.status === 401) {
+  // Anthropic errors
+  if (
+    error?.constructor?.name === 'AnthropicHttpError' ||
+    error?.constructor?.name === 'OpenaiHttpError'
+  ) {
+    const httpError = error as { status?: number };
+    if (httpError.status === 401) {
       return { kind: 'unauthorized' };
-    } else {
-      return { kind: 'http', status: error.status };
+    } else if (httpError.status) {
+      return { kind: 'http', status: httpError.status };
     }
-  } else if (error instanceof AnthropicUnreachable) {
-    return { kind: 'network' };
-  } else if (error instanceof DraftValidationError) {
-    return { kind: 'parse' };
-  } else {
-    return { kind: 'unknown' };
   }
+
+  // Network errors
+  if (
+    error?.constructor?.name === 'AnthropicUnreachable' ||
+    error?.constructor?.name === 'OpenaiUnreachable'
+  ) {
+    return { kind: 'network' };
+  }
+
+  // Parse errors
+  if (error instanceof DraftValidationError) {
+    return { kind: 'parse' };
+  }
+
+  // Unknown
+  return { kind: 'unknown' };
 }
 
 function buildSettingsPatch(proposal: SettingsProposal): Parameters<typeof setSettings>[0] {
@@ -106,7 +117,7 @@ export function createAiChatStore(deps: AiChatDeps) {
   // screen's render-snapshot guard, so the store must refuse re-entry itself
   let acceptInFlight = false;
 
-  async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string, gen: number): Promise<AiTurn> {
+  async function performRequest(messages: AiDisplayMessage[], mode: AiCoachMode, gen: number): Promise<AiTurn> {
     let system = cachedSystem;
     if (system === null) {
       const epoch = systemEpoch;
@@ -120,24 +131,31 @@ export function createAiChatStore(deps: AiChatDeps) {
     // If generation changed during buildSystem, abort before creating billable client.
     if (generation !== gen) throw new Error('conversation reset');
 
-    const client = deps.createClient({ apiKey: apiKey.trim() });
+    const settings = deps.getSettings();
+    const providerConfig: ProviderConfig = {
+      anthropicKey: settings.anthropicKey,
+      openaiKey: settings.openaiKey,
+      aiProvider: settings.aiProvider,
+    };
 
-    const wireMessages: AiChatMessage[] = messages.map((msg) => ({
-      role: msg.role,
+    const client = deps.createClient(providerConfig);
+
+    const wireMessages = messages.map((msg) => ({
+      role: msg.role as 'user' | 'assistant',
       content: msg.content,
     }));
 
-    return await client.chat({
+    return (await client.chat({
       system,
       messages: wireMessages,
-    });
+    })) as AiTurn;
   }
 
   return create<AiChatState>((set, get) => {
     // Shared turn execution with generation guard and unified error handling
-    async function runTurn(gen: number, messages: AiDisplayMessage[], mode: AiCoachMode, apiKey: string) {
+    async function runTurn(gen: number, messages: AiDisplayMessage[], mode: AiCoachMode) {
       try {
-        const turn = await performRequest(messages, mode, apiKey, gen);
+        const turn = await performRequest(messages, mode, gen);
         if (generation !== gen) return;
 
         // Auto-apply settings proposal ONLY in onboarding mode
@@ -219,7 +237,12 @@ export function createAiChatStore(deps: AiChatDeps) {
     // openDebrief, send, and retry to avoid drifting copies.
     async function startTurn(newMessages: AiDisplayMessage[], mode: AiCoachMode) {
       const settings = deps.getSettings();
-      if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+      // Check if any key is configured
+      const hasAnthropicKey = settings.anthropicKey?.trim();
+      const hasOpenaiKey = settings.openaiKey?.trim();
+      const hasExplicitProvider = settings.aiProvider && (hasAnthropicKey || hasOpenaiKey);
+
+      if (!hasAnthropicKey && !hasOpenaiKey && !hasExplicitProvider) {
         set({
           status: 'error',
           error: { kind: 'missing_key' },
@@ -234,7 +257,7 @@ export function createAiChatStore(deps: AiChatDeps) {
         error: null,
       });
 
-      await runTurn(gen, newMessages, mode, settings.anthropicKey);
+      await runTurn(gen, newMessages, mode);
     }
 
     return {
@@ -378,7 +401,7 @@ export function getAiChatStore() {
   if (!globalStore) {
     globalStore = createAiChatStore({
       db: getDatabase(),
-      createClient: createAnthropicClient,
+      createClient: createAiClient,
       buildSystem: buildSystemFn,
       accept: acceptDraftFn,
       getSettings,

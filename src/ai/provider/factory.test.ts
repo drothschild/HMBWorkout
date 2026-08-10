@@ -69,24 +69,42 @@ describe('createAiClient factory', () => {
 
     it('passes openaiKey to the OpenAI client', async () => {
       jest.resetModules();
-      const openaiSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
-      jest.doMock('../openaiClient', () => ({ createOpenaiClient: openaiSpy }));
+      const openaiChatSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      jest.doMock('../openaiClient', () => ({
+        createOpenaiClient: openaiChatSpy,
+        createRestCommentaryClient: jest.fn(() => ({ comment: async () => 'ok' })),
+      }));
+      jest.doMock('../openaiAlternatesClient', () => ({
+        createOpenaiAlternatesClient: jest.fn(() => ({ suggest: async () => ({ alternates: [] }) })),
+      }));
+      jest.doMock('../openaiExerciseQuestionClient', () => ({
+        createOpenaiExerciseQuestionClient: jest.fn(() => ({ ask: async () => 'ok' })),
+      }));
 
       const { createAiClient: freshFactory } = await import('./factory');
       freshFactory({ openaiKey: 'the-openai-key', aiProvider: 'openai' });
 
-      expect(openaiSpy).toHaveBeenCalledWith({ apiKey: 'the-openai-key' });
+      expect(openaiChatSpy).toHaveBeenCalledWith({ apiKey: 'the-openai-key' });
     });
 
     it('passes anthropicKey to the Anthropic client', async () => {
       jest.resetModules();
-      const anthropicSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
-      jest.doMock('../anthropicClient', () => ({ createAnthropicClient: anthropicSpy }));
+      const anthropicChatSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      jest.doMock('../anthropicClient', () => ({
+        createAnthropicClient: anthropicChatSpy,
+        createRestCommentaryClient: jest.fn(() => ({ comment: async () => 'ok' })),
+      }));
+      jest.doMock('../alternatesClient', () => ({
+        createExerciseAlternatesClient: jest.fn(() => ({ suggest: async () => ({ alternates: [] }) })),
+      }));
+      jest.doMock('../exerciseQuestionClient', () => ({
+        createExerciseQuestionClient: jest.fn(() => ({ ask: async () => 'ok' })),
+      }));
 
       const { createAiClient: freshFactory } = await import('./factory');
       freshFactory({ anthropicKey: 'the-anthropic-key', aiProvider: 'anthropic' });
 
-      expect(anthropicSpy).toHaveBeenCalledWith({ apiKey: 'the-anthropic-key' });
+      expect(anthropicChatSpy).toHaveBeenCalledWith({ apiKey: 'the-anthropic-key' });
     });
   });
 
