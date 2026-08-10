@@ -60,8 +60,7 @@ test) and H9/AC1.1 (the dynamic import, invisible to both `tsc` and jest) are **
 positive evidence rather than the absence of an error. H6/AC2.4 remains unrun, but its repository half is
 automated and only the UI half is outstanding, so it is the least exposed of the three.
 
-The nine remaining criteria are all user-visible copy, screenshots, and read-throughs. None guards a data
-path.
+The four remaining criteria are user-visible copy and a settings round-trip. None guards a data path.
 
 Everything below is written to be executed cold by someone who was not present for the implementation.
 
