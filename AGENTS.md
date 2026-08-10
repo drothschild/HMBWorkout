@@ -433,8 +433,12 @@ keeps its sets. Those orphaned groups are emitted from the
 `session_sets.exercise_id` stamp and appended after the row-ordered lines (no row means
 no `order` to interleave by), without the row-supplied plan flags `superset`/`rest`,
 which died with it. A set with neither a stamp nor a surviving row is genuinely
-unidentifiable and throws — the export fails loudly with the data intact on-device,
-rather than silently producing a short document that looks complete. Do not
+unidentifiable and throws, so no partial session document is ever produced and the
+data stays intact on-device. Note where that guarantee currently stops: the only
+caller, `exportService.exportSessionHistory`, wraps each session in a `catch` that
+skips it and continues, so the *aggregate* export is silently short at session
+granularity — the very failure this rule prevents at set granularity. Wiring an
+export UI means surfacing that swallow, not relying on it. Do not
 restore a `continue` on the unresolved-exercise path: silently skipping a set is the
 data-loss bug itself.
 
@@ -447,7 +451,7 @@ column, so every optional field read off a DB row — `reps`, `weightKg`, `dista
 `exportService.ts`'s row-to-serializer mapping normalizes the same hazard a second time
 at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` handling,
 and covering the `RoutineExercise` plan flags as well); **keep both layers.** A bad
-guard is therefore only reachable if that mapping ever stops normalizing — at which
+guard would therefore only become reachable if that mapping ever stopped normalizing — at which
 point it writes a `<flag>=null` line straight into the exported document, and nothing
 downstream rejects it.
 
@@ -683,8 +687,10 @@ renaming the *key* is forbidden.
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
 - `src/interop/` — vault markdown serializer/parser
-- `src/export/` — the only consumer of `src/interop`; maps DB rows to the
-  serializer, normalizing WatermelonDB's `null` to `undefined` at the boundary
+- `src/export/` — the only production consumer of `src/interop/serialize` (nothing
+  outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
+  WatermelonDB's `null` to `undefined` at the boundary. **Not yet wired to any
+  screen** — it has no callers outside its own tests
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
 - `src/health/` — HealthKit write-only export
