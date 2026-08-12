@@ -282,6 +282,45 @@ describe('createExerciseReplaceStore', () => {
       expect(store.getState().alternates).toEqual([]);
     });
 
+    it('fetches alternates from an OpenAI-only settings blob and forwards openaiKey', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(store.getState().status).toBe('choosing');
+      expect(store.getState().alternates).toHaveLength(3);
+      // Verify the config was forwarded with the OpenAI key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]).toEqual({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+    });
+
+    it('does nothing from a no-key settings blob', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().alternates).toEqual([]);
+      // No config should be captured if hasApiKey() returns false
+      expect(capturedConfigs).toHaveLength(0);
+    });
+
     it('swallows a failed request, surfacing an error instead of throwing', async () => {
       mockFetch.mockRejectedValueOnce(new TypeError('Network request failed'));
       const { store } = makeStore();

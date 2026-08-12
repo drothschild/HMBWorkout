@@ -395,6 +395,47 @@ describe('createRestCommentaryStore', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it('surfaces the coach comment from an OpenAI-only settings blob and forwards openaiKey', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      expect(store.getState().text).toBe('Same weight, one more rep.');
+      expect(store.getState().pending).toBe(false);
+      // Verify the config was forwarded with the OpenAI key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]).toEqual({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+    });
+
+    it('makes no call from a no-key settings blob', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(loadHistory).not.toHaveBeenCalled();
+      expect(store.getState().text).toBeNull();
+      expect(store.getState().pending).toBe(false);
+      expect(store.getState().attempted).toBe(false);
+      // No config should be captured if hasApiKey() returns false
+      expect(capturedConfigs).toHaveLength(0);
+    });
+
     it('swallows and logs a network failure', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
       const { store } = makeStore();

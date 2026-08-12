@@ -373,6 +373,46 @@ describe('createExerciseQuestionStore', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it('drives the surface from an OpenAI-only settings blob and forwards openaiKey', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(store.getState().text).toBe('Setup: grip just outside shoulder width.');
+      expect(store.getState().pending).toBe(false);
+      // Verify the config was forwarded with the OpenAI key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]).toEqual({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+    });
+
+    it('does not fire from a no-key settings blob', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(store.getState().text).toBeNull();
+      expect(store.getState().expandedKey).toBeNull();
+      expect(store.getState().pending).toBe(false);
+      // No config should be captured if hasApiKey() returns false
+      expect(capturedConfigs).toHaveLength(0);
+    });
+
     it('swallows and logs a network failure, quietly reverting to collapsed', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
       const { store } = makeStore();
