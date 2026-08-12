@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg, getSessionExerciseLog } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -620,6 +620,88 @@ describe('Repository: session and set helpers', () => {
       expect((group[1] as any).supersetGroup).toBe(supersetGroup);
     }, 10000);
 
+    it('upsertRoutineExercise updates only the queried routine\'s row when two routines share an exercise (cross-routine isolation, issue #223)', async () => {
+      // upsertRoutineExercise's existing-row lookup is filtered by
+      // Q.and(Q.where('routine_id', routineId), Q.where('exercise_id', exerciseId))
+      // (repository.ts:797-804). Every other fixture for this function builds a
+      // single routine, so nothing distinguishes that filtered lookup from one
+      // that matches on exercise_id alone. Two routines sharing the same
+      // exercise is exactly the shape needed: an unfiltered-by-routine lookup
+      // would find the OTHER routine's row first and silently update it
+      // instead of the queried routine's own row.
+      const routine1 = 'routine-uris-1';
+      const routine2 = 'routine-uris-2';
+      const exerciseId = 'exercise-uris-shared';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine1;
+          r.name = 'Routine 1';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine2;
+          r.name = 'Routine 2';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Shared Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Both routines get a row for the SAME exercise. Routine 1's row is
+      // created first, so it would be the (wrong) match an unfiltered lookup
+      // returns for routine 2.
+      await upsertRoutineExercise(database, routine1, {
+        exerciseId,
+        order: 0,
+        targetSets: 3,
+        targetReps: 5,
+      });
+      await upsertRoutineExercise(database, routine2, {
+        exerciseId,
+        order: 0,
+        targetSets: 5,
+        targetReps: 8,
+      });
+
+      // Upsert again for routine 2 only, with new values. This must update
+      // routine 2's row, and must leave routine 1's row untouched.
+      await upsertRoutineExercise(database, routine2, {
+        exerciseId,
+        order: 1,
+        targetSets: 10,
+        targetReps: 1,
+      });
+
+      const routine1Rows = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routine1))
+        .fetch()) as any[];
+      const routine2Rows = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routine2))
+        .fetch()) as any[];
+
+      expect(routine1Rows).toHaveLength(1);
+      expect(routine1Rows[0].order).toBe(0);
+      expect(routine1Rows[0].targetSets).toBe(3);
+      expect(routine1Rows[0].targetReps).toBe(5);
+
+      expect(routine2Rows).toHaveLength(1);
+      expect(routine2Rows[0].order).toBe(1);
+      expect(routine2Rows[0].targetSets).toBe(10);
+      expect(routine2Rows[0].targetReps).toBe(1);
+    }, 10000);
+
     it('I2: getSupersetGroups returns standalone (null) exercises as singleton groups', async () => {
       const routineId = 'routine-standalone';
       const exerciseId1 = 'exercise-standalone-1';
@@ -1018,6 +1100,87 @@ describe('Repository: session and set helpers', () => {
       expect(updated[0].targetDurationSeconds).toBe(200);
       expect(updated[0].restSeconds).toBe(90);
     }, 15000);
+
+    it('getSupersetGroups isolates results to the queried routine when a second routine reuses the same order and superset label (cross-routine isolation, issue #223)', async () => {
+      // getSupersetGroups's read is filtered by Q.where('routine_id', routineId)
+      // (repository.ts:1013). AGENTS.md notes superset group labels are
+      // "contiguous, not routine-unique" — so an unfiltered read does not just
+      // return extra rows, it can silently MERGE two different routines'
+      // entries into a single superset group when their labels collide. This
+      // fixture builds two routines that share both an order value (1) and a
+      // superset label ('shared'), which is exactly the shape that would merge
+      // under the unfiltered mutant.
+      const routine1 = 'routine-sg-isolation-1';
+      const routine2 = 'routine-sg-isolation-2';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine1;
+          r.name = 'Routine 1';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine2;
+          r.name = 'Routine 2';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        for (const id of ['sg-iso-a1', 'sg-iso-b1', 'sg-iso-a2', 'sg-iso-b2']) {
+          await exercisesTable.create((e: any) => {
+            e._raw.id = id;
+            e.title = id;
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        }
+
+        const routineExercisesTable = database.get('routine_exercises');
+        // Routine 1: a1 standalone at order 0, b1 in group 'shared' at order 1.
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine1;
+          re._raw.exercise_id = 'sg-iso-a1';
+          re._raw.order = 0;
+        });
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine1;
+          re._raw.exercise_id = 'sg-iso-b1';
+          re._raw.order = 1;
+          re.supersetGroup = 'shared';
+        });
+        // Routine 2: b2 standalone at order 0 (same order as routine 1's a1),
+        // a2 in group 'shared' at order 1 (same order AND label as routine
+        // 1's b1) — colliding on both axes at once.
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine2;
+          re._raw.exercise_id = 'sg-iso-b2';
+          re._raw.order = 0;
+        });
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine2;
+          re._raw.exercise_id = 'sg-iso-a2';
+          re._raw.order = 1;
+          re.supersetGroup = 'shared';
+        });
+      });
+
+      const groups1 = await getSupersetGroups(database, routine1);
+
+      // Only routine 1's own two rows, never routine 2's.
+      const flatExerciseIds1 = groups1.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
+      expect(flatExerciseIds1).toHaveLength(2);
+      expect(flatExerciseIds1.sort()).toEqual(['sg-iso-a1', 'sg-iso-b1']);
+      expect(flatExerciseIds1).not.toContain('sg-iso-a2');
+      expect(flatExerciseIds1).not.toContain('sg-iso-b2');
+
+      const groups2 = await getSupersetGroups(database, routine2);
+      const flatExerciseIds2 = groups2.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
+      expect(flatExerciseIds2).toHaveLength(2);
+      expect(flatExerciseIds2.sort()).toEqual(['sg-iso-a2', 'sg-iso-b2']);
+    }, 10000);
   });
 
   describe('getExerciseWorkingSetHistory', () => {
@@ -2032,6 +2195,48 @@ describe('Repository: session and set helpers', () => {
       expect(weights.has(0)).toBe(false); // Zero weight must be omitted
       expect(weights.has(1)).toBe(true);
       expect(weights.get(1)).toBe(45);
+    }, 10000);
+  });
+
+  describe('getSessionExerciseLog', () => {
+    it('isolates results to the queried routine when a second routine shares its order values (cross-routine isolation, issue #223)', async () => {
+      // getSessionExerciseLog's routine_exercises read is filtered by
+      // Q.where('routine_id', routineId) (repository.ts:663). A single-routine
+      // fixture cannot distinguish that filtered read from a bare, unfiltered
+      // .query() — every existing fixture in this file builds exactly one
+      // routine, which is why issue #223 found this path unprotected. This
+      // fixture builds two routines whose entries collide on `order` (both use
+      // 0 and 1), so an unfiltered query would return four routine_exercises
+      // rows sorted by order with routine-2's rows interleaved among
+      // routine-1's, corrupting the session-detail view (AGENTS.md
+      // Boundaries: "A set's performed exercise...").
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+      await upsertExercise(database, 'incline-bench', 'Incline Bench', 'strength');
+
+      const routine1 = 'routine-log-isolation-1';
+      await upsertRoutine(database, routine1, 'Lower Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6 },
+      ]);
+
+      // Routine 2: same order positions (0, 1), different exercises entirely.
+      const routine2 = 'routine-log-isolation-2';
+      await upsertRoutine(database, routine2, 'Upper Day', [
+        { exerciseId: 'leg-press', order: 0, targetSets: 4, targetReps: 8 },
+        { exerciseId: 'incline-bench', order: 1, targetSets: 3, targetReps: 10 },
+      ]);
+
+      const sessionId = 'session-log-isolation-1';
+      await createSession(database, { sessionId, routineId: routine1, startedAtMs: Date.now() });
+
+      const log = await getSessionExerciseLog(database, sessionId, routine1);
+
+      // Only routine 1's two entries — never routine 2's leg-press/incline-bench.
+      expect(log).toHaveLength(2);
+      expect(log.map((entry) => entry.exerciseId).sort()).toEqual(['bench', 'squat']);
+      expect(log.every((entry) => entry.exerciseId !== 'leg-press' && entry.exerciseId !== 'incline-bench')).toBe(true);
     }, 10000);
   });
 
