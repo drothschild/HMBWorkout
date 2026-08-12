@@ -102,6 +102,24 @@ describe('buildSystem: AI Coach context builder', () => {
         'description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description'
       );
     }, 30000);
+
+    // coach-prescribed-weights.AC2.8: The bound is stated as an exact sentence
+    it('states the targetWeightLbs bound in the exercise schema', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5'
+      );
+    }, 30000);
+
+    // coach-prescribed-weights.AC2.9: Guidance line is reworded to allow half-pounds
+    it('updates the blanket integer guidance to allow targetWeightLbs half-steps', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'All numeric values must be integers, except targetWeightLbs, which may use 0.5 steps'
+      );
+    }, 30000);
   });
 
   // These sentences restate the bounds validateSettingsProposal enforces. They are
