@@ -7,6 +7,7 @@
  */
 
 import type { BridgeSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/exerciseReplaceStore';
 
 /**
  * The user's opening turn. The Messages API needs a user message before the
@@ -25,8 +26,7 @@ export const ONBOARDING_OPENING_MESSAGE = 'I want to tell you about myself so yo
  * open a conversation that immediately fails with missing_key.
  */
 export function shouldShowOnboardingCard(settings: BridgeSettings): boolean {
-  const hasKey = !!(settings.anthropicKey && settings.anthropicKey.trim().length > 0);
-  return hasKey && settings.onboardingState === 'unseen';
+  return hasAiKey(settings) && settings.onboardingState === 'unseen';
 }
 
 /**

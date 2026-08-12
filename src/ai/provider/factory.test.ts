@@ -175,4 +175,106 @@ describe('createAiClient factory', () => {
     // Uses explicit -sol (frontier tier) rather than the alias 'gpt-5.6'
     expect(captured.model).toBe('gpt-5.6-sol');
   });
+
+  describe('forwards payloads correctly to each surface on its own channel', () => {
+    afterEach(() => jest.resetModules());
+
+    // Security-relevant: system/message swap puts user free text where immutable
+    // directives belong. These sentinels must be distinct and non-empty so the
+    // swap is detectable.
+    const SYSTEM_SENTINEL = 'SYSTEM-IMMUTABLE-DIRECTIVES-CHANNEL';
+    const MESSAGE_SENTINEL = 'MESSAGE-USER-CONTENT-CHANNEL';
+
+    it('anthropic: each surface forwards system and message to its client with correct field positions', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(async () => ({ reply: 'ok' }));
+      const commentSpy = jest.fn(async () => 'ok');
+      const suggestSpy = jest.fn(async () => ({ alternates: [] }));
+      const askSpy = jest.fn(async () => 'ok');
+
+      jest.doMock('../anthropicClient', () => ({
+        createAnthropicClient: () => ({ chat: chatSpy }),
+        createRestCommentaryClient: () => ({ comment: commentSpy }),
+      }));
+      jest.doMock('../alternatesClient', () => ({
+        createExerciseAlternatesClient: () => ({ suggest: suggestSpy }),
+      }));
+      jest.doMock('../exerciseQuestionClient', () => ({
+        createExerciseQuestionClient: () => ({ ask: askSpy }),
+      }));
+
+      const { createAiClient: factory } = await import('./factory');
+      const client = factory({ anthropicKey: 'sk-ant-test' });
+
+      // Call each surface with distinct sentinels to detect field swaps
+      await client.chat({ system: SYSTEM_SENTINEL, messages: [{ role: 'user', content: MESSAGE_SENTINEL }] });
+      await client.comment({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.suggest({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.ask({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+
+      // CRITICAL: exact object match to catch system/message swap (F23/F24 mutant)
+      expect(chatSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        messages: [{ role: 'user', content: MESSAGE_SENTINEL }],
+      });
+      expect(commentSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(suggestSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(askSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+    });
+
+    it('openai: each surface forwards system and message to its client with correct field positions', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(async () => ({ reply: 'ok' }));
+      const commentSpy = jest.fn(async () => 'ok');
+      const suggestSpy = jest.fn(async () => ({ alternates: [] }));
+      const askSpy = jest.fn(async () => 'ok');
+
+      jest.doMock('../openaiClient', () => ({
+        createOpenaiClient: () => ({ chat: chatSpy }),
+        createRestCommentaryClient: () => ({ comment: commentSpy }),
+      }));
+      jest.doMock('../openaiAlternatesClient', () => ({
+        createOpenaiAlternatesClient: () => ({ suggest: suggestSpy }),
+      }));
+      jest.doMock('../openaiExerciseQuestionClient', () => ({
+        createOpenaiExerciseQuestionClient: () => ({ ask: askSpy }),
+      }));
+
+      const { createAiClient: factory } = await import('./factory');
+      const client = factory({ openaiKey: 'sk-openai-test', aiProvider: 'openai' });
+
+      // Same sentinel test on OpenAI path
+      await client.chat({ system: SYSTEM_SENTINEL, messages: [{ role: 'user', content: MESSAGE_SENTINEL }] });
+      await client.comment({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.suggest({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.ask({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+
+      // CRITICAL: exact object match to catch system/message swap
+      expect(chatSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        messages: [{ role: 'user', content: MESSAGE_SENTINEL }],
+      });
+      expect(commentSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(suggestSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(askSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+    });
+  });
 });
