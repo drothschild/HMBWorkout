@@ -858,8 +858,19 @@ export async function findRoutineExerciseIdByOrder(
  * The row keeps its id, and only `exercise_id` changes. That is the whole
  * point: `session_sets.routine_exercise_id` references this row, so deleting
  * and recreating the row would orphan every set ever logged against the entry.
- * The prescription (order, warmup/target/rest columns, superset group) belongs
- * to the plan and is left untouched — a substitute changes identity only.
+ * The plan's structure (order, warmup/target-set/target-rep/rest columns,
+ * superset group) belongs to the entry and is left untouched — a substitute
+ * inherits it.
+ *
+ * **`target_weight_kg` is the one exception, and it is cleared here.** Sets,
+ * reps and rest survive a substitution because they are near-dimensionless
+ * across movements; load is not — 185lb is a working squat and an impossible
+ * leg extension. And because a prescription *overrides* the history-derived
+ * prefill rather than deferring to it (computeSetPrefill, sessionPresenter.ts),
+ * a stale one does not quietly lose to the substitute's own correct numbers: it
+ * wins over them, and pre-types a dangerous load into the athlete's input. So
+ * the swap drops it, and the substitute falls back to plain history-derived
+ * prefill, which is right.
  *
  * **Past sets keep the identity they were recorded under; the row is then free
  * to re-point.** The row is permanent and shared by every session that ever
@@ -916,6 +927,8 @@ export async function updateRoutineExerciseExerciseId(
 
     await row.update((record: any) => {
       record.exerciseId = trimmed;
+      // See the docstring: a prescribed load does not survive a substitution.
+      record.targetWeightKg = null;
     });
 
     return row as RoutineExercise;

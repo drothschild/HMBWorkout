@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1839,6 +1839,66 @@ describe('Repository: session and set helpers', () => {
       // Other fields updated
       expect(benchAfter.targetSets).toBe(5);
       expect(benchAfter.targetReps).toBe(5);
+    }, 10000);
+  });
+
+  describe('updateRoutineExerciseExerciseId', () => {
+    it('clears target_weight_kg when re-pointing to a different exercise, leaving other plan fields untouched', async () => {
+      // AC1.6: updateRoutineExerciseExerciseId sets target_weight_kg to null in
+      // the same database.write in which it re-points exercise_id, and leaves
+      // target_sets/target_reps/rest_seconds/warmup_sets/superset_group untouched.
+      const routineId = 'routine-repoint-weight';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+
+      // Create a routine entry with multiple plan fields and a weight prescription
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        {
+          exerciseId: 'squat',
+          order: 0,
+          supersetGroup: 'leg-group',
+          warmupSets: 2,
+          targetSets: 4,
+          targetReps: 6,
+          restSeconds: 120,
+          targetWeightKg: 185.97,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowId = squatRow.id;
+
+      // Verify initial state
+      expect(squatRow.exerciseId).toBe('squat');
+      expect(squatRow.targetWeightKg).toBe(185.97);
+      expect(squatRow.supersetGroup).toBe('leg-group');
+      expect(squatRow.warmupSets).toBe(2);
+      expect(squatRow.targetSets).toBe(4);
+      expect(squatRow.targetReps).toBe(6);
+      expect(squatRow.restSeconds).toBe(120);
+
+      // Re-point to leg press
+      await updateRoutineExerciseExerciseId(database, rowId, 'leg-press');
+
+      const [legPressRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id references still valid
+      expect(legPressRow.id).toBe(rowId);
+      // Exercise ID changed
+      expect(legPressRow.exerciseId).toBe('leg-press');
+      // Weight cleared (the exception)
+      expect(legPressRow.targetWeightKg).toBeNull();
+      // All other plan fields survive unchanged
+      expect(legPressRow.supersetGroup).toBe('leg-group');
+      expect(legPressRow.warmupSets).toBe(2);
+      expect(legPressRow.targetSets).toBe(4);
+      expect(legPressRow.targetReps).toBe(6);
+      expect(legPressRow.restSeconds).toBe(120);
     }, 10000);
   });
 
