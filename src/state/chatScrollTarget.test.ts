@@ -209,6 +209,21 @@ describe('didErrorSurfaceAppear (issue #215 review round 2, F1)', () => {
     expect(appeared).toBe(false);
   });
 
+  it('returns false when a present acceptError surface is unchanged across a re-render (issue #215 review round 3, M1)', () => {
+    // Mirrors the `error` case immediately above, for the `acceptError`
+    // arm specifically. Reachable: handleApproveSettings has no
+    // `status === 'sending'` guard (unlike handleAccept), so approving an
+    // invalid proposal while a reply is in flight leaves `acceptError` set
+    // when that reply lands — the effect re-runs with acceptError
+    // unchanged (still present), and must top-anchor on the new reply
+    // rather than re-scrolling to the end.
+    const appeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: true },
+      { hasError: false, hasAcceptError: true }
+    );
+    expect(appeared).toBe(false);
+  });
+
   it('returns false when neither surface is present in either render', () => {
     const appeared = didErrorSurfaceAppear(
       { hasError: false, hasAcceptError: false },

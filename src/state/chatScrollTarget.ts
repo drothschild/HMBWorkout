@@ -123,11 +123,24 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
  * `targetsEqual`: that comparison is keyed on which *message* is being
  * anchored, and neither error surface changes `messages` at all, so
  * widening it to also react to error state risks reintroducing exactly the
- * over-eager re-scrolling C1 fixed. Comparing only *presence* (not content)
- * is sufficient because both surfaces are always cleared to `null`/`false`
- * before they can be set again — `error` by `startTurn` at the beginning of
- * every send/retry, `acceptError` by the screen's own handlers — so an
- * absent -> present transition always means a genuinely new surface.
+ * over-eager re-scrolling C1 fixed.
+ *
+ * Comparing only *presence* (not content) is sufficient — but not because
+ * either surface is reliably cleared before being re-set; it usually isn't
+ * observable as a distinct step even when it happens. `previous`/`current`
+ * here are ref-tracked snapshots taken once per actual run of the caller's
+ * effect, not once per render, so what matters is only whether presence
+ * differs between one effect run and the next — an intermediate render the
+ * effect never fired on (or a same-tick clear-and-set React batches into a
+ * single commit, e.g. the synchronous throw path in the screen's
+ * handleApproveSettings) is invisible to it either way, and doesn't need to
+ * be observed for the comparison to be correct. The one path that sets
+ * `error` without clearing it first — `startTurn`'s missing-key branch in
+ * `aiChatStore.ts`, which returns before reaching its own `error: null`
+ * clear a few lines down — only ever re-asserts the same fixed
+ * `{ kind: 'missing_key' }` shape, so a presence-unchanged re-render there
+ * is correctly read as nothing new: the content genuinely didn't change,
+ * not just the check being unable to tell.
  */
 export function didErrorSurfaceAppear(
   previous: { hasError: boolean; hasAcceptError: boolean },
