@@ -356,9 +356,23 @@ describe('createRestCommentaryStore', () => {
   });
 
   describe('rest never depends on the AI', () => {
+    it('forwards the configured API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The double records configs, so we verify the key value was actually forwarded.
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      expect(mockFetch).toHaveBeenCalled();
+      // E06 mutant: blanking config.anthropicKey in the double.
+      // Without this assertion, the mutant survives because mockFetch resolves anyway.
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].anthropicKey).toBe('sk-ant-test'); // Must be non-empty
+    });
+
     it('makes no call and shows nothing when no API key is configured', async () => {
       setSettings({ anthropicKey: '' });
-      const { store } = makeStore();
+      const { store, capturedConfigs } = makeStore();
 
       await store.getState().show(target());
 
@@ -368,6 +382,8 @@ describe('createRestCommentaryStore', () => {
       expect(store.getState().pending).toBe(false);
       // The byte-identical guarantee: with no key, no slot is ever reserved.
       expect(store.getState().attempted).toBe(false);
+      // Verify the config was recorded but with empty key
+      expect(capturedConfigs).toHaveLength(0); // No config recorded if no API call
     });
 
     it('treats a whitespace-only key as no key', async () => {
