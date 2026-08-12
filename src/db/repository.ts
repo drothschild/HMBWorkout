@@ -42,6 +42,15 @@ interface AppendSetOptions {
 /**
  * Routine exercise options for upsertRoutineExercise
  */
+/**
+ * Options for upserting a routine exercise. Note: this function is test-only surface
+ * (zero production callers). The update branch is untested and diverges from Phase 1's
+ * upsertRoutine contract: it preserves-on-absent (if a field is undefined, the column
+ * keeps its existing value), while upsertRoutine clears-on-absent (mapping undefined
+ * to null). This divergence is intentional for the test helper's behavior, but if Phase 5
+ * wires upsertRoutineExercise into production flow, reconcile the contracts or add tests
+ * for the update path.
+ */
 interface UpsertRoutineExerciseOptions {
   exerciseId: string;
   order: number;
@@ -51,11 +60,11 @@ interface UpsertRoutineExerciseOptions {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  targetWeightKg?: number;
 }
 
 /**
  * Create a new session with the given id, routine id, and start time.
- * The session is created with syncStatus = 'local' by default.
  *
  * @param database The database instance
  * @param options Session creation options
@@ -72,7 +81,6 @@ export async function createSession(
       session._raw.id = sessionId;
       session.routineId = routineId;
       session._raw.started_at = startedAtMs;
-      session.customSyncStatus = 'local';
       session._raw.created_at = Date.now();
     });
 
@@ -255,12 +263,8 @@ export async function discardInProgressSession(
 /**
  * Delete a session and all of its logged sets.
  *
- * Local-only: this removes the on-device rows only. A session already synced
- * to the vault keeps its markdown copy there — deleting here never touches
- * the bridge or the vault (HealthKit export also survives, written at session
- * completion). Because syncNow() (src/sync/syncService.ts) selects candidates
- * by querying the sessions table directly, removing the row here also removes
- * it from the sync queue's candidate set.
+ * Removes on-device rows only. The HealthKit export written at completion is
+ * unaffected.
  *
  * Refuses to delete a session that is still in progress (no endedAt set) —
  * the active session must go through the session-flow "abandon" path
@@ -268,7 +272,7 @@ export async function discardInProgressSession(
  *
  * Atomicity: check-and-delete is one critical section — guards and deletion
  * happen in a single writer transaction via database.batch so an app kill
- * mid-loop cannot leave a truncated session with sync_status='local'.
+ * mid-loop cannot leave a truncated session.
  *
  * @param database The database instance
  * @param sessionId The session ID to delete
@@ -783,6 +787,7 @@ export async function upsertRoutineExercise(
     targetReps,
     targetDurationSeconds,
     restSeconds,
+    targetWeightKg,
   } = options;
 
   return await database.write(async () => {
@@ -810,6 +815,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           record.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) record.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) record.targetWeightKg = targetWeightKg;
       });
       return re;
     } else {
@@ -825,6 +831,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           re.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) re.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) re.targetWeightKg = targetWeightKg;
       });
       return created as RoutineExercise;
     }
@@ -864,8 +871,19 @@ export async function findRoutineExerciseIdByOrder(
  * The row keeps its id, and only `exercise_id` changes. That is the whole
  * point: `session_sets.routine_exercise_id` references this row, so deleting
  * and recreating the row would orphan every set ever logged against the entry.
- * The prescription (order, warmup/target/rest columns, superset group) belongs
- * to the plan and is left untouched — a substitute changes identity only.
+ * The plan's structure (order, warmup/target-set/target-rep/rest columns,
+ * superset group) belongs to the entry and is left untouched — a substitute
+ * inherits it.
+ *
+ * **`target_weight_kg` is the one exception, and it is cleared here.** Sets,
+ * reps and rest survive a substitution because they are near-dimensionless
+ * across movements; load is not — 185lb is a working squat and an impossible
+ * leg extension. And because a prescription *overrides* the history-derived
+ * prefill rather than deferring to it (computeSetPrefill, sessionPresenter.ts),
+ * a stale one does not quietly lose to the substitute's own correct numbers: it
+ * wins over them, and pre-types a dangerous load into the athlete's input. So
+ * the swap drops it, and the substitute falls back to plain history-derived
+ * prefill, which is right.
  *
  * **Past sets keep the identity they were recorded under; the row is then free
  * to re-point.** The row is permanent and shared by every session that ever
@@ -922,10 +940,56 @@ export async function updateRoutineExerciseExerciseId(
 
     await row.update((record: any) => {
       record.exerciseId = trimmed;
+      // See the docstring: a prescribed load does not survive a substitution.
+      record.targetWeightKg = null;
     });
 
     return row as RoutineExercise;
   });
+}
+
+/**
+ * A routine's coach-prescribed target loads, keyed by entry position.
+ *
+ * The key is the row's `order`, which is the same 0-based number the engine
+ * carries as `RoutineEntry.idx` — `startSessionFromRoutine` sets `idx:
+ * re._raw.order` deliberately ("Use DB order directly, NOT loop counter"), so a
+ * caller holding an engine entry can look its prescription up directly without
+ * resolving a row id. Keying on `exercise_id` would be wrong: a routine may
+ * list the same exercise twice with different prescriptions.
+ *
+ * Rows with no prescription are **omitted entirely**, never mapped to `null` or
+ * `0`. WatermelonDB returns `null` for an unset optional column, and
+ * `computeSetPrefill` treats a non-positive weight as absent — a `0` in this map
+ * would be a value the reader silently discards.
+ *
+ * @param database The database instance
+ * @param routineId The routine whose entries to read
+ * @returns order → prescribed weight in kg, for prescribed entries only
+ */
+export async function getRoutineTargetWeightsKg(
+  database: Database,
+  routineId: string
+): Promise<Map<number, number>> {
+  const rows = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  const weights = new Map<number, number>();
+  for (const row of rows) {
+    const raw = (row as any)._raw;
+    const kg = raw.target_weight_kg;
+    // `!= null` on purpose: WatermelonDB gives null, not undefined, for an
+    // unset optional column (AGENTS.md). The `> 0` guard keeps a stored 0 —
+    // which the draft validator rejects but a hand-edited database could
+    // hold — out of the map, so no consumer has to re-derive absence.
+    if (kg != null && kg > 0) {
+      weights.set(raw.order as number, kg as number);
+    }
+  }
+
+  return weights;
 }
 
 /**
@@ -1101,6 +1165,13 @@ export interface RoutineExerciseEntry {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  /**
+   * Coach-prescribed target load in canonical kg. Storage is always in kg.
+   * The lbs → kg conversion happens at the AI draft accept boundary (Phase 2);
+   * below that boundary, nothing sees lbs. Absent means "no prescription",
+   * which leaves the SetLogger's history-derived prefill untouched.
+   */
+  targetWeightKg?: number;
   notes?: string;
 }
 
@@ -1154,12 +1225,16 @@ export async function upsertRoutine(
     }
 
     for (const exerciseEntry of exercises) {
-      // Defense-in-depth: default targetSets to 1 for entries that would otherwise
-      // be zero-total (no warmupSets and no targetSets). This catches any zero-total
-      // entries that make it through without being defaulted upstream (sync-layer or
-      // AI accept-path), ensuring the engine always has at least one set to visit.
-      // The condition matches layer 1 (sync/syncService.ts): key on "no warmup + no target"
-      // regardless of whether targetDurationSeconds is set or not.
+      // upsertRoutine is the SOLE enforcer of the zero-total default — the
+      // duplicate copy of this rule that lived in src/sync went with it, so
+      // there is no second layer behind this line. Catches an entry that would
+      // otherwise be zero-total (no warmupSets and no targetSets), so the
+      // engine has a set to visit. Fires only when targetSets is ABSENT, never
+      // on an explicit 0: validateRoutineDraft (src/ai/draftSchema.ts) rejects
+      // an explicit 0 upstream, and the production accept path (acceptDraft)
+      // runs it before every call here — so an explicit 0 reaching this line
+      // would still leave the entry zero-total. The condition keys on "no
+      // warmup + no target" regardless of whether targetDurationSeconds is set.
       const defaultedTargetSets =
         exerciseEntry.targetSets ??
         ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
@@ -1174,6 +1249,7 @@ export async function upsertRoutine(
           re.targetReps = exerciseEntry.targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
+          re.targetWeightKg = exerciseEntry.targetWeightKg ?? null;
           re.notes = exerciseEntry.notes ?? null;
         });
       } else {
@@ -1188,6 +1264,7 @@ export async function upsertRoutine(
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
           if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
+          if (exerciseEntry.targetWeightKg !== undefined) re.targetWeightKg = exerciseEntry.targetWeightKg;
           if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
         });
       }
@@ -1250,26 +1327,11 @@ export async function upsertRoutine(
  * Exercises are never touched: they are global and shared across routines
  * and logged history (AGENTS.md).
  *
- * Sync safety guard: refuses to delete a routine while any session that
- * references it (including one still in progress) has sync_status='local'.
- * syncNow() (src/sync/syncService.ts) resolves each session's routine at
- * post time via database.get('routines').find(session.routineId); if the
- * routine is gone, that lookup throws and the per-session catch swallows
- * the failure and continues, so the session would never sync again. A
- * session that is already 'synced' does not block deletion — its vault
- * copy was already posted and stays untouched, and the history screen's
- * presenter falls back to the raw routine id when the routine is missing.
- *
- * Atomicity: check-and-delete is one critical section — guards and the
- * single-row destroy happen inside one writer transaction via database.batch.
- *
- * The routine's vault markdown also survives (local-first, matching
- * deleteSession): tapping "Import Routines" later will re-create the routine
- * from the vault and re-adopt the retained routine_exercise rows.
+ * Atomicity: check-and-delete is one critical section — the single-row
+ * destroy happens inside one writer transaction via database.batch.
  *
  * @param database The database instance
  * @param routineId The routine ID to delete
- * @throws RoutineHasUnsyncedSessionsError if an unsynced session references it
  * @throws Error if the routine does not exist
  */
 export async function deleteRoutine(
@@ -1287,33 +1349,8 @@ export async function deleteRoutine(
       throw new Error(`cannot delete routine ${routineId}: not found`);
     }
 
-    const referencingSessions = (await database
-      .get('sessions')
-      .query(Q.where('routine_id', routineId))
-      .fetch()) as Session[];
-
-    const hasUnsyncedSession = referencingSessions.some(
-      (session) => session.customSyncStatus === 'local'
-    );
-    if (hasUnsyncedSession) {
-      throw new RoutineHasUnsyncedSessionsError(
-        `cannot delete routine ${routineId}: unsynced sessions reference it`
-      );
-    }
-
     // Delete ONLY the routine row. Retain routine_exercises as history carriers
     // so that session_sets remain queryable via getExerciseWorkingSetHistory.
     await database.batch(routine.prepareDestroyPermanently());
   });
-}
-
-/**
- * Thrown when attempting to delete a routine that has unsynced sessions.
- * Discriminable from other errors for user-friendly messaging.
- */
-export class RoutineHasUnsyncedSessionsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'RoutineHasUnsyncedSessionsError';
-  }
 }

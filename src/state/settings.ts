@@ -1,14 +1,13 @@
 /**
- * Settings store for bridge configuration with persistent storage.
- * Holds bridge URL, API token, and multi-provider AI configuration in-memory,
- * backed by secure storage.
+ * In-memory settings store backed by secure storage.
+ * Holds multi-provider AI configuration and onboarding/profile state.
+ * The storage key is the legacy string 'bridge_settings' and must not be renamed,
+ * because the blob holds every user's API key and onboarding state.
  */
 
 import type { AiModelConfig, AiProvider } from '@/ai/provider/types';
 
 export interface BridgeSettings {
-  baseUrl: string;
-  token: string;
   anthropicKey: string;
   aiGoals: string;
   aiEquipment: string;
@@ -46,8 +45,6 @@ interface StorageBackend {
 const SETTINGS_KEY = 'bridge_settings';
 
 const DEFAULT_SETTINGS: BridgeSettings = {
-  baseUrl: '',
-  token: '',
   anthropicKey: '',
   aiGoals: '',
   aiEquipment: '',

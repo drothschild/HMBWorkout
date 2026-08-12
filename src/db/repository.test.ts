@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, RoutineHasUnsyncedSessionsError } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg, getSessionExerciseLog } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -29,17 +29,6 @@ describe('Repository: session and set helpers', () => {
       expect(session).toBeDefined();
       expect(session?.id).toBe(sessionId);
     }, 30000);
-
-    it('AC1.3: created session defaults syncStatus to "local"', async () => {
-      const sessionId = 'session-2';
-      const routineId = 'routine-2';
-      const startedAtMs = Date.now();
-
-      await createSession(database, { sessionId, routineId, startedAtMs });
-
-      const session = await getSession(database, sessionId);
-      expect((session as any).customSyncStatus).toBe('local');
-    }, 10000);
   });
 
   describe('appendSet', () => {
@@ -380,15 +369,6 @@ describe('Repository: session and set helpers', () => {
       });
     };
 
-    const markSessionSynced = async (sessionId: string) => {
-      await database.write(async () => {
-        const session = await database.get('sessions').find(sessionId);
-        await (session as any).update((record: any) => {
-          record._raw.sync_status = 'synced';
-        });
-      });
-    };
-
     it('deletes the routine but retains routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-1',
@@ -460,49 +440,7 @@ describe('Repository: session and set helpers', () => {
       expect(survivorRoutineExercises).toHaveLength(1);
     }, 15000);
 
-    it('leaves referencing sessions intact when deletion is allowed', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-4',
-        exerciseId: 'exercise-del-4',
-        routineExerciseId: 'routine-exercise-del-4',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-4',
-        routineId: 'routine-del-4',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-4');
-      await markSessionSynced('session-del-4');
-
-      await deleteRoutine(database, 'routine-del-4');
-
-      const survivorSession = await getSession(database, 'session-del-4');
-      expect(survivorSession).toBeDefined();
-      expect((survivorSession as any).customSyncStatus).toBe('synced');
-    }, 15000);
-
-    it('allows deletion when every referencing session is already synced', async () => {
-      await setupRoutineWithExercise({
-        routineId: 'routine-del-5',
-        exerciseId: 'exercise-del-5',
-        routineExerciseId: 'routine-exercise-del-5',
-      });
-
-      await createSession(database, {
-        sessionId: 'session-del-5',
-        routineId: 'routine-del-5',
-        startedAtMs: Date.now() - 60000,
-      });
-      await endSession('session-del-5');
-      await markSessionSynced('session-del-5');
-
-      await deleteRoutine(database, 'routine-del-5');
-
-      await expect(database.get('routines').find('routine-del-5')).rejects.toThrow();
-    }, 15000);
-
-    it('blocks deletion when a local unsynced finished session references the routine, and deletes nothing', async () => {
+    it('deletes a routine referenced by a completed session, retaining routine_exercises as history carriers', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-6',
         exerciseId: 'exercise-del-6',
@@ -515,26 +453,36 @@ describe('Repository: session and set helpers', () => {
         startedAtMs: Date.now() - 60000,
       });
       await endSession('session-del-6');
-      // customSyncStatus defaults to 'local' from createSession and is never flipped.
 
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-6')).rejects.toThrow(
-        'cannot delete routine routine-del-6: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-6');
 
-      const routine = await database.get('routines').find('routine-del-6');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-6'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
 
+      // routine_exercises are retained as history carriers
       const routineExercises = await database
         .get('routine_exercises')
         .query(Q.where('routine_id', 'routine-del-6'))
         .fetch();
       expect(routineExercises).toHaveLength(1);
+
+      // The referencing session row itself survives. deleteRoutine destroys the
+      // routine row ONLY — it must never cascade into sessions, or the history
+      // the retained routine_exercises exist to carry would have nothing to
+      // point at. The history screen's presenter falls back to the raw routine
+      // id when the routine is missing, which is what makes this safe.
+      const referencingSessions = await database
+        .get('sessions')
+        .query(Q.where('routine_id', 'routine-del-6'))
+        .fetch();
+      expect(referencingSessions).toHaveLength(1);
     }, 15000);
 
-    it('blocks deletion when an in-progress session references the routine', async () => {
+    it('deletes a routine with an in-progress session, as the session carries its own entries in engine state', async () => {
       await setupRoutineWithExercise({
         routineId: 'routine-del-7',
         exerciseId: 'exercise-del-7',
@@ -546,17 +494,18 @@ describe('Repository: session and set helpers', () => {
         routineId: 'routine-del-7',
         startedAtMs: Date.now() - 60000,
       });
-      // Not ended: still in progress. sync_status defaults to 'local'.
+      // Not ended: still in progress. This is safe because a live session
+      // carries its own entries in engine state and never re-reads the routine row.
+      // See AGENTS.md engine convention 5.
 
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        RoutineHasUnsyncedSessionsError
-      );
-      await expect(deleteRoutine(database, 'routine-del-7')).rejects.toThrow(
-        'cannot delete routine routine-del-7: unsynced sessions reference it'
-      );
+      await deleteRoutine(database, 'routine-del-7');
 
-      const routine = await database.get('routines').find('routine-del-7');
-      expect(routine).toBeDefined();
+      // Routine row is deleted
+      const remainingRoutines = await database
+        .get('routines')
+        .query(Q.where('id', 'routine-del-7'))
+        .fetch();
+      expect(remainingRoutines).toHaveLength(0);
     }, 15000);
 
     it('throws when the routine does not exist', async () => {
@@ -586,9 +535,8 @@ describe('Repository: session and set helpers', () => {
         weightKg: 100,
       });
 
-      // End and sync the session
+      // End the session
       await endSession('session-history-test');
-      await markSessionSynced('session-history-test');
 
       // Get history before deletion to verify it exists
       const historyBefore = await getExerciseWorkingSetHistory(database, 'exercise-history-test');
@@ -670,6 +618,88 @@ describe('Repository: session and set helpers', () => {
       expect((group[1] as any).order).toBe(2);
       expect((group[0] as any).supersetGroup).toBe(supersetGroup);
       expect((group[1] as any).supersetGroup).toBe(supersetGroup);
+    }, 10000);
+
+    it('upsertRoutineExercise updates only the queried routine\'s row when two routines share an exercise (cross-routine isolation, issue #223)', async () => {
+      // upsertRoutineExercise's existing-row lookup is filtered by
+      // Q.and(Q.where('routine_id', routineId), Q.where('exercise_id', exerciseId))
+      // (repository.ts:797-804). Every other fixture for this function builds a
+      // single routine, so nothing distinguishes that filtered lookup from one
+      // that matches on exercise_id alone. Two routines sharing the same
+      // exercise is exactly the shape needed: an unfiltered-by-routine lookup
+      // would find the OTHER routine's row first and silently update it
+      // instead of the queried routine's own row.
+      const routine1 = 'routine-uris-1';
+      const routine2 = 'routine-uris-2';
+      const exerciseId = 'exercise-uris-shared';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine1;
+          r.name = 'Routine 1';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine2;
+          r.name = 'Routine 2';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = exerciseId;
+          e.title = 'Shared Exercise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Both routines get a row for the SAME exercise. Routine 1's row is
+      // created first, so it would be the (wrong) match an unfiltered lookup
+      // returns for routine 2.
+      await upsertRoutineExercise(database, routine1, {
+        exerciseId,
+        order: 0,
+        targetSets: 3,
+        targetReps: 5,
+      });
+      await upsertRoutineExercise(database, routine2, {
+        exerciseId,
+        order: 0,
+        targetSets: 5,
+        targetReps: 8,
+      });
+
+      // Upsert again for routine 2 only, with new values. This must update
+      // routine 2's row, and must leave routine 1's row untouched.
+      await upsertRoutineExercise(database, routine2, {
+        exerciseId,
+        order: 1,
+        targetSets: 10,
+        targetReps: 1,
+      });
+
+      const routine1Rows = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routine1))
+        .fetch()) as any[];
+      const routine2Rows = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routine2))
+        .fetch()) as any[];
+
+      expect(routine1Rows).toHaveLength(1);
+      expect(routine1Rows[0].order).toBe(0);
+      expect(routine1Rows[0].targetSets).toBe(3);
+      expect(routine1Rows[0].targetReps).toBe(5);
+
+      expect(routine2Rows).toHaveLength(1);
+      expect(routine2Rows[0].order).toBe(1);
+      expect(routine2Rows[0].targetSets).toBe(10);
+      expect(routine2Rows[0].targetReps).toBe(1);
     }, 10000);
 
     it('I2: getSupersetGroups returns standalone (null) exercises as singleton groups', async () => {
@@ -1070,6 +1100,87 @@ describe('Repository: session and set helpers', () => {
       expect(updated[0].targetDurationSeconds).toBe(200);
       expect(updated[0].restSeconds).toBe(90);
     }, 15000);
+
+    it('getSupersetGroups isolates results to the queried routine when a second routine reuses the same order and superset label (cross-routine isolation, issue #223)', async () => {
+      // getSupersetGroups's read is filtered by Q.where('routine_id', routineId)
+      // (repository.ts:1013). AGENTS.md notes superset group labels are
+      // "contiguous, not routine-unique" — so an unfiltered read does not just
+      // return extra rows, it can silently MERGE two different routines'
+      // entries into a single superset group when their labels collide. This
+      // fixture builds two routines that share both an order value (1) and a
+      // superset label ('shared'), which is exactly the shape that would merge
+      // under the unfiltered mutant.
+      const routine1 = 'routine-sg-isolation-1';
+      const routine2 = 'routine-sg-isolation-2';
+
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine1;
+          r.name = 'Routine 1';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await routinesTable.create((r: any) => {
+          r._raw.id = routine2;
+          r.name = 'Routine 2';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        for (const id of ['sg-iso-a1', 'sg-iso-b1', 'sg-iso-a2', 'sg-iso-b2']) {
+          await exercisesTable.create((e: any) => {
+            e._raw.id = id;
+            e.title = id;
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        }
+
+        const routineExercisesTable = database.get('routine_exercises');
+        // Routine 1: a1 standalone at order 0, b1 in group 'shared' at order 1.
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine1;
+          re._raw.exercise_id = 'sg-iso-a1';
+          re._raw.order = 0;
+        });
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine1;
+          re._raw.exercise_id = 'sg-iso-b1';
+          re._raw.order = 1;
+          re.supersetGroup = 'shared';
+        });
+        // Routine 2: b2 standalone at order 0 (same order as routine 1's a1),
+        // a2 in group 'shared' at order 1 (same order AND label as routine
+        // 1's b1) — colliding on both axes at once.
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine2;
+          re._raw.exercise_id = 'sg-iso-b2';
+          re._raw.order = 0;
+        });
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routine2;
+          re._raw.exercise_id = 'sg-iso-a2';
+          re._raw.order = 1;
+          re.supersetGroup = 'shared';
+        });
+      });
+
+      const groups1 = await getSupersetGroups(database, routine1);
+
+      // Only routine 1's own two rows, never routine 2's.
+      const flatExerciseIds1 = groups1.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
+      expect(flatExerciseIds1).toHaveLength(2);
+      expect(flatExerciseIds1.sort()).toEqual(['sg-iso-a1', 'sg-iso-b1']);
+      expect(flatExerciseIds1).not.toContain('sg-iso-a2');
+      expect(flatExerciseIds1).not.toContain('sg-iso-b2');
+
+      const groups2 = await getSupersetGroups(database, routine2);
+      const flatExerciseIds2 = groups2.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
+      expect(flatExerciseIds2).toHaveLength(2);
+      expect(flatExerciseIds2.sort()).toEqual(['sg-iso-a2', 'sg-iso-b2']);
+    }, 10000);
   });
 
   describe('getExerciseWorkingSetHistory', () => {
@@ -1713,7 +1824,7 @@ describe('Repository: session and set helpers', () => {
       // Defense-in-depth: if a zero-total entry (targetSets undefined, warmupSets 0)
       // reaches upsertRoutine, it should default targetSets to 1 here — regardless of
       // whether targetDurationSeconds is set. This protects against zero-total entries
-      // being silently skipped by the engine, and catches cases where the sync-side or
+      // being silently skipped by the engine, and catches cases where the
       // AI-side defaulting was missed.
       const routineId = 'routine-defense-depth';
       await upsertExercise(database, 'plank', 'Plank', 'strength');
@@ -1825,6 +1936,307 @@ describe('Repository: session and set helpers', () => {
       // Should have defaulted to 1, not reverted to null
       expect(walkRow.targetSets).toBe(1);
       expect(walkRow.warmupSets).toBe(0);
+    }, 10000);
+
+    it('stores targetWeightKg when creating a new routine_exercise row', async () => {
+      // AC1.3: upsertRoutine creating a new row from an entry with
+      // targetWeightKg: 83.91 stores 83.91 and reads it back.
+      const routineId = 'routine-weight-create';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 83.91 },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      expect(squatRow.targetWeightKg).toBe(83.91);
+    }, 10000);
+
+    it('clears targetWeightKg when updating a routine_exercise row and the entry omits it', async () => {
+      // AC1.4: upsertRoutine updating an existing row from an entry with
+      // targetWeightKg absent sets the column to null, and the row keeps its id.
+      const routineId = 'routine-weight-clear';
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+
+      // First upsert: create with weight
+      await upsertRoutine(database, routineId, 'Chest Day', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetWeightKg: 95.25,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [benchBefore] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowIdBefore = benchBefore.id;
+      expect(benchBefore.targetWeightKg).toBe(95.25);
+
+      // Second upsert: update with weight omitted — should clear it
+      await upsertRoutine(database, routineId, 'Chest Day (edited)', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 5,
+          targetReps: 5,
+          // targetWeightKg is omitted
+        },
+      ]);
+
+      const [benchAfter] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id still resolves
+      expect(benchAfter.id).toBe(rowIdBefore);
+      // Weight cleared
+      expect(benchAfter.targetWeightKg).toBeNull();
+      // Other fields updated
+      expect(benchAfter.targetSets).toBe(5);
+      expect(benchAfter.targetReps).toBe(5);
+    }, 10000);
+  });
+
+  describe('updateRoutineExerciseExerciseId', () => {
+    it('clears target_weight_kg when re-pointing to a different exercise, leaving other plan fields untouched', async () => {
+      // AC1.6: updateRoutineExerciseExerciseId sets target_weight_kg to null in
+      // the same database.write in which it re-points exercise_id, and leaves
+      // target_sets/target_reps/rest_seconds/warmup_sets/superset_group untouched.
+      const routineId = 'routine-repoint-weight';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+
+      // Create a routine entry with multiple plan fields and a weight prescription
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        {
+          exerciseId: 'squat',
+          order: 0,
+          supersetGroup: 'leg-group',
+          warmupSets: 2,
+          targetSets: 4,
+          targetReps: 6,
+          restSeconds: 120,
+          targetWeightKg: 185.97,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowId = squatRow.id;
+
+      // Verify initial state
+      expect(squatRow.exerciseId).toBe('squat');
+      expect(squatRow.targetWeightKg).toBe(185.97);
+      expect(squatRow.supersetGroup).toBe('leg-group');
+      expect(squatRow.warmupSets).toBe(2);
+      expect(squatRow.targetSets).toBe(4);
+      expect(squatRow.targetReps).toBe(6);
+      expect(squatRow.restSeconds).toBe(120);
+
+      // Re-point to leg press
+      await updateRoutineExerciseExerciseId(database, rowId, 'leg-press');
+
+      const [legPressRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id references still valid
+      expect(legPressRow.id).toBe(rowId);
+      // Exercise ID changed
+      expect(legPressRow.exerciseId).toBe('leg-press');
+      // Weight cleared (the exception)
+      expect(legPressRow.targetWeightKg).toBeNull();
+      // All other plan fields survive unchanged
+      expect(legPressRow.supersetGroup).toBe('leg-group');
+      expect(legPressRow.warmupSets).toBe(2);
+      expect(legPressRow.targetSets).toBe(4);
+      expect(legPressRow.targetReps).toBe(6);
+      expect(legPressRow.restSeconds).toBe(120);
+    }, 10000);
+  });
+
+  describe('getRoutineTargetWeightsKg', () => {
+    it('returns a map of order → kg for entries with prescriptions (AC1.5)', async () => {
+      // AC1.5: getRoutineTargetWeightsKg returns a Map<number, number> of
+      // order → kg containing an entry only for rows whose column is non-null.
+      const routineId = 'routine-weights-read';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'deadlift', 'Deadlift', 'strength');
+
+      await upsertRoutine(database, routineId, 'Main Lifts', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185.97 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6 }, // no weight
+        { exerciseId: 'deadlift', order: 2, targetSets: 3, targetReps: 1, targetWeightKg: 275.58 },
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Should have exactly two entries
+      expect(weights.size).toBe(2);
+      expect(weights.get(0)).toBe(185.97);
+      expect(weights.get(1)).toBeUndefined(); // No entry for unset weight
+      expect(weights.get(2)).toBe(275.58);
+    }, 10000);
+
+    it('isolates results to the queried routine when multiple routines have overlapping order values (cross-routine isolation)', async () => {
+      // F1: Cross-routine isolation. The map is keyed on order (0-based integer),
+      // not row id. Two different routines could have entries at the same order
+      // positions. The filter MUST isolate by routine_id, or a second routine's
+      // entries will collide with and overwrite the first routine's prescriptions
+      // in the returned map — a dangerous-load failure at exercise-swap time.
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+      await upsertExercise(database, 'incline-bench', 'Incline Bench', 'strength');
+
+      // Routine 1: squat at order 0 (185kg), bench at order 1 (95kg)
+      const routine1 = 'routine-isolation-1';
+      await upsertRoutine(database, routine1, 'Lower Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6, targetWeightKg: 95 },
+      ]);
+
+      // Routine 2: leg-press at order 0 (150kg), incline at order 1 (75kg)
+      // Same order positions, but DIFFERENT exercises and DIFFERENT weights
+      const routine2 = 'routine-isolation-2';
+      await upsertRoutine(database, routine2, 'Upper Day', [
+        { exerciseId: 'leg-press', order: 0, targetSets: 4, targetReps: 8, targetWeightKg: 150 },
+        { exerciseId: 'incline-bench', order: 1, targetSets: 3, targetReps: 10, targetWeightKg: 75 },
+      ]);
+
+      // Query routine 1 — should get its weights, not routine 2's
+      const weights1 = await getRoutineTargetWeightsKg(database, routine1);
+      expect(weights1.size).toBe(2);
+      expect(weights1.get(0)).toBe(185); // Routine 1's squat weight
+      expect(weights1.get(1)).toBe(95); // Routine 1's bench weight
+
+      // Query routine 2 — should get ITS weights, not routine 1's
+      const weights2 = await getRoutineTargetWeightsKg(database, routine2);
+      expect(weights2.size).toBe(2);
+      expect(weights2.get(0)).toBe(150); // Routine 2's leg-press weight (NOT 185)
+      expect(weights2.get(1)).toBe(75); // Routine 2's incline weight (NOT 95)
+    }, 10000);
+
+    it('omits entries with null weight (AC1.7 — null case)', async () => {
+      // AC1.7: A row whose target_weight_kg is null produces no key in
+      // getRoutineTargetWeightsKg's map.
+      const routineId = 'routine-weights-omit-null';
+      await upsertExercise(database, 'curl', 'Bicep Curl', 'strength');
+      await upsertExercise(database, 'press', 'Overhead Press', 'strength');
+
+      await upsertRoutine(database, routineId, 'Arms', [
+        { exerciseId: 'curl', order: 0, targetSets: 3, targetReps: 8, targetWeightKg: 20 },
+        { exerciseId: 'press', order: 1, targetSets: 3, targetReps: 5 }, // no weight
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only curl should be in the map
+      expect(weights.has(0)).toBe(true);
+      expect(weights.has(1)).toBe(false); // Not stored as null
+      expect(weights.get(1)).toBeUndefined();
+    }, 10000);
+
+    it('omits entries with zero weight (AC1.7 — zero case)', async () => {
+      // AC1.7: A row whose target_weight_kg is 0 produces no key in the map.
+      // This tests the `> 0` guard that keeps stored zeros out of the map.
+      const routineId = 'routine-weights-omit-zero';
+      await upsertExercise(database, 'row', 'Barbell Row', 'strength');
+      await upsertExercise(database, 'pull', 'Pull-up', 'strength');
+
+      // Manually insert a row with explicit zero weight to test the guard
+      // (upsertRoutine never creates a zero weight, but hand-edited DBs could)
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'row';
+          re._raw.order = 0;
+          re.warmupSets = 2;
+          re.targetSets = 4;
+          re.targetReps = 6;
+          re.targetWeightKg = 0; // Explicit zero
+        });
+
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'pull';
+          re._raw.order = 1;
+          re.warmupSets = 0;
+          re.targetSets = 5;
+          re.targetReps = 3;
+          re.targetWeightKg = 45; // Normal weight
+        });
+      });
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only the 45kg entry should be in the map
+      expect(weights.size).toBe(1);
+      expect(weights.has(0)).toBe(false); // Zero weight must be omitted
+      expect(weights.has(1)).toBe(true);
+      expect(weights.get(1)).toBe(45);
+    }, 10000);
+  });
+
+  describe('getSessionExerciseLog', () => {
+    it('isolates results to the queried routine when a second routine shares its order values (cross-routine isolation, issue #223)', async () => {
+      // getSessionExerciseLog's routine_exercises read is filtered by
+      // Q.where('routine_id', routineId) (repository.ts:663). A single-routine
+      // fixture cannot distinguish that filtered read from a bare, unfiltered
+      // .query() — every existing fixture in this file builds exactly one
+      // routine, which is why issue #223 found this path unprotected. This
+      // fixture builds two routines whose entries collide on `order` (both use
+      // 0 and 1), so an unfiltered query would return four routine_exercises
+      // rows sorted by order with routine-2's rows interleaved among
+      // routine-1's, corrupting the session-detail view (AGENTS.md
+      // Boundaries: "A set's performed exercise...").
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+      await upsertExercise(database, 'incline-bench', 'Incline Bench', 'strength');
+
+      const routine1 = 'routine-log-isolation-1';
+      await upsertRoutine(database, routine1, 'Lower Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6 },
+      ]);
+
+      // Routine 2: same order positions (0, 1), different exercises entirely.
+      const routine2 = 'routine-log-isolation-2';
+      await upsertRoutine(database, routine2, 'Upper Day', [
+        { exerciseId: 'leg-press', order: 0, targetSets: 4, targetReps: 8 },
+        { exerciseId: 'incline-bench', order: 1, targetSets: 3, targetReps: 10 },
+      ]);
+
+      const sessionId = 'session-log-isolation-1';
+      await createSession(database, { sessionId, routineId: routine1, startedAtMs: Date.now() });
+
+      const log = await getSessionExerciseLog(database, sessionId, routine1);
+
+      // Only routine 1's two entries — never routine 2's leg-press/incline-bench.
+      expect(log).toHaveLength(2);
+      expect(log.map((entry) => entry.exerciseId).sort()).toEqual(['bench', 'squat']);
+      expect(log.every((entry) => entry.exerciseId !== 'leg-press' && entry.exerciseId !== 'incline-bench')).toBe(true);
     }, 10000);
   });
 

@@ -1,12 +1,11 @@
 # HMB Workout
 
-Last verified: 2026-08-04
+Last verified: 2026-08-11
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
-(WatermelonDB); the Obsidian vault is the sync target via a Mac-side bridge. The
-session flow is driven by a pure functional Rill-lang state machine. Routines can
-also be authored conversationally against the Anthropic API with a user-supplied
-key (`src/ai`).
+(WatermelonDB). The session flow is driven by a pure functional Rill-lang state
+machine. Routines can also be authored conversationally against the Anthropic API
+with a user-supplied key (`src/ai`).
 
 ## Expo version discipline
 
@@ -159,19 +158,6 @@ interrupted build — no binary, no `Info.plist`. Sorting by mtime and taking th
 top hit reports "no build exists" while a working one sits one entry down. Check
 for the binary itself.
 
-## Two-repo split
-
-- **This repo** = the iOS app.
-- **`../workout-bridge`** = Mac-side HTTP bridge (Node/vitest) that reads/writes the
-  vault's `_sync/` folder over Tailscale. Its own README documents endpoints.
-- The markdown contract is shared code, **copied** into both repos
-  (`src/interop/format.ts` here → `src/contract.ts` there). There is no shared
-  package, but the bridge copy is document-level only (frontmatter/block
-  structure, plus `parseDuration` and `ContractError`): change those shared
-  pieces in **both** repos or the bridge will reject valid sessions. Line-level
-  flag grammar (rest, warmup, set_type, …) lives solely in this repo's
-  `parseFlags` and needs no bridge mirror.
-
 ## Architecture: Functional Core / Imperative Shell (FCIS)
 
 This is the load-bearing invariant. All session-flow logic lives in the pure core;
@@ -207,9 +193,8 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    to `types.lv` **and** `engine/types.ts`, plus a case in `rillExecutors` — there is
    no shared record shape left to widen. `DiscardSession` is its own variant rather
    than a case of `CompleteSession` on purpose: `CompleteSession` is what drives
-   vault sync and the HealthKit export, so an abandoned session (`AbandonSession`)
-   must emit `DiscardSession` so the session is deleted instead of synced or
-   exported.
+   the HealthKit export, so an abandoned session (`AbandonSession`) must emit
+   `DiscardSession` so the session is deleted instead of exported.
 
 2. **`transition.lv` appends to `loggedSets` itself.** Rill does have a list-append
    builtin, and the `LogSet` rule uses it: `loggedSets: append(state.loggedSets,
@@ -304,6 +289,10 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    shell-side against the DB: `getExerciseTitles` (`src/db/repository.ts`) feeds the
    optional `exerciseTitles` map on `createSessionPresenter`, which exposes
    `currentExerciseTitle` and falls back to the raw id when an exercise is missing.
+   The coach-prescribed weight is a per-entry plan datum that deliberately does **not**
+   cross into `RoutineEntry` — no rule branches on load, and the Rill record is closed.
+   It reaches `computeSetPrefill` as a caller-resolved argument, the same way
+   `exerciseTitles` and `historyFallback` do.
 
 7. **`ReplaceExercise` swaps a running entry's identity, under engine guards.** The
    event carries `{ idx, exerciseId }`; the rule requires `idx == exerciseIndex`
@@ -438,18 +427,22 @@ Zero sets (`0x10`) is rejected unconditionally in both contexts, since
 `serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
 Zero reps rejection is routine-only: `parseRoutine` passes `context: 'routine'` to
 `parseDoc`, while `parseSession` passes `context: 'session'`, so `1x0` is valid in
-logged sessions but `3x0` is rejected in routine targets and vault import.
+logged sessions but `3x0` is rejected in routine targets.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by
 `routineExercises` and a set's row can be missing entirely — `upsertRoutine`'s drop
 branch destroys the row when an exercise leaves a routine, while a finished session
-still queued for sync keeps its sets. Those orphaned groups are emitted from the
+keeps its sets. Those orphaned groups are emitted from the
 `session_sets.exercise_id` stamp and appended after the row-ordered lines (no row means
 no `order` to interleave by), without the row-supplied plan flags `superset`/`rest`,
 which died with it. A set with neither a stamp nor a surviving row is genuinely
-unidentifiable and throws — the session stays `'local'` with its data on-device, rather
-than the vault copy being written permanently short and marked `'synced'`. Do not
+unidentifiable and throws, so no partial session document is ever produced and the
+data stays intact on-device. Note where that guarantee currently stops: the only
+caller, `exportService.exportSessionHistory`, wraps each session in a `catch` that
+skips it and continues, so the *aggregate* export is silently short at session
+granularity — the very failure this rule prevents at set granularity. Wiring an
+export UI means surfacing that swallow, not relying on it. Do not
 restore a `continue` on the unresolved-exercise path: silently skipping a set is the
 data-loss bug itself.
 
@@ -459,91 +452,62 @@ the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
 column, so every optional field read off a DB row — `reps`, `weightKg`, `distanceM`,
 `durationSeconds`, `rpe` on `SessionSet`; `targetSets`, `targetReps`,
 `targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is subject to it.
-`syncService.ts`'s row-to-serializer mapping normalizes the same hazard at the shell
-boundary (`?? undefined`, matching its pre-existing `exerciseId` handling); keep both
-layers. A regression here is not a rejected sync — the bridge's `validateSessionDoc`
-never runs `parseFlags`, so a bad guard writes a `<flag>=null` line straight into the
-vault and the session still flips to `synced`.
+`exportService.ts`'s row-to-serializer mapping normalizes the same hazard a second time
+at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` handling,
+and covering the `RoutineExercise` plan flags as well); **keep both layers.** A bad
+guard would therefore only become reachable if that mapping ever stopped normalizing — at which
+point it writes a `<flag>=null` line straight into the exported document, and nothing
+downstream rejects it.
 
-## Sync (`src/sync`)
+`upsertRoutine` defaults a duration-based entry's `targetSets` to 1 when it is undefined/null and
+`warmupSets` is 0 (or undefined), so it doesn't reach the engine as zero-total. This is the only
+enforcing layer. The default does **not** gate on `targetDurationSeconds` being set — an entry with
+`targetSets` undefined and `warmupSets` 0 is zero-total whether it has duration or not (e.g., an
+AI-drafted strength exercise with only title and kind) — but it fires only when `targetSets` is
+*absent*, never on an explicit `0`. An AI draft with `targetSets: 0` is rejected upstream by
+`validateRoutineDraft` (`src/ai/draftSchema.ts`), which enforces `targetSets >= 1` when present.
+An entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
+This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI
+Coach below), so a routine always has exercises that will actually be performed regardless of
+whether it was authored by hand or drafted by the coach. A malformed `0x10` or `3x0` line would
+never reach this layer anyway — `parseWorkoutLine` rejects both at parse time, under the
+context-dependent rules in "Parse context and validation strictness" above — though that is
+parser-layer behavior with no current production producer, since nothing outside tests calls
+`parseRoutine`/`parseSession` now.
 
-Offline-first queue. Sessions are written locally with `sync_status='local'` and flip
-to `'synced'` only after a successful POST; `health()` gates all posting (unreachable
-bridge = no-op, not an error). Posting is idempotent by session id. Network vs HTTP
-failures are distinct types (`BridgeUnreachable` vs `BridgeHttpError`).
-
-`syncNow` must hand `serializeSession` an exercise record for every identity its sets
-carry, not just the ones the routine names today: it fetches the routine's exercises by
-`find()` and then the sets' *stamped* ids by `Q.oneOf` query. The query is deliberate —
-a stamped id with no surviving row must not take the whole session's sync down — and so
-is the union: drop it and every swapped or dropped-row set throws instead of exporting.
-
-`importRoutines` (vault import) and `upsertRoutine` (both vault import and AI accept paths)
-default a duration-based entry's `targetSets` to 1 when it is undefined/null and `warmupSets`
-is 0 (or undefined), so it doesn't reach the engine as zero-total. Both layers share the same
-condition — `importRoutines`'s own default is redundant by construction given `upsertRoutine`
-sees every write either layer produces, so only the direct unit tests on
-`defaultTargetSetsForDurationLine` (not the import integration tests) prove it does anything
-on its own. This is necessary because the vault contract permits strength exercises to use
-`duration=` in place of sets×reps (`parse.ts`), not just cardio/stretch, and the presence of
-duration alone signals a potential zero-total entry. The default does **not** gate on
-`targetDurationSeconds` being set — an entry with `targetSets` undefined and `warmupSets` 0 is
-zero-total whether it has duration or not (e.g., an AI-drafted strength exercise with only
-title and kind) — but it only fires when `targetSets` is *absent*, not an explicit `0`. An AI
-draft with `targetSets: 0` is already rejected before reaching here (`validateRoutineDraft`,
-`src/ai/draftSchema.ts`, enforces `targetSets >= 1` when present), and a malformed vault line like
-`0x10` no longer reaches this layer either: `parseWorkoutLine` (`src/interop/parse.ts`) throws
-`ContractError` on a sets×reps token whose sets count is literally `0` — unconditionally, in both
-routine and session parsing, since a set count of zero is never valid either way — the same way it
-already rejects cardio/stretch with sets×reps or a strength line missing sets×reps — so
-`importRoutines` skips and logs that routine rather than silently importing a plan the author never
-wrote. **Zero reps are rejected too, but only for routine targets:** a vault line like `3x0` is
-rejected during routine parsing because "3 sets of 0 reps" is semantically empty in a plan — but a
-*logged* `1x0` is valid: when parsing a session (via `context: 'session'`), the `1x<reps>` slot
-carries a measured value, and zero repetitions performed is a real, valid outcome. The distinction
-is threaded through `parseWorkoutLine`'s context parameter: only `context === 'routine'` rejects
-zero reps; zero sets has no such gate.
-Both *authoring* paths — the AI draft validator and vault import's `parseWorkoutLine` —
-now reject an explicit zero instead of reinterpreting it; this default's job is
-only ever the *absent* case. An entry with explicit `warmup=2` and no target sets still totals 2
-and is never defaulted. This mirrors
-the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI Coach
-below) so a routine's origin — hand-authored in the vault vs. drafted by the coach — never
-changes whether every exercise in it actually gets performed.
-
-**Note:** routines already imported before this fix were left with `target_sets = null`
-for their zero-total exercises. A manual re-import will heal them via the update branch
-of `upsertRoutine`, which recalculates the default on every routine edit. A routine
-imported with an explicit `target_sets = 0` (from a `0x10`-style line, before
-`parseWorkoutLine`'s parse-time rejection existed) is not healed the same way: re-import
-re-parses the same malformed line and now throws, so that routine is skipped rather than
-updated. The row stays at `target_sets = 0` until its vault source is corrected to a valid
-sets count and re-imported successfully. The same applies to a legacy routine with
-`target_reps = 0` (from an old `3x0` line): re-import catches the `ContractError` during
-routine parsing and skips that routine on every future import, since the zero-reps guard now
-fires at parse time. A manual correction of the vault source to a valid reps count must
-precede any future successful re-import.
+`serializeRoutine` **does not** emit `target_weight_kg` and the grammar was deliberately
+not extended, because `serializeRoutine`, `exportRoutine` and all of `parse.ts` have no
+production caller. Wiring an export path to a screen means adding a **distinct** flag key —
+not reusing `weight=`, which already means logged kg on a session line. Related finding:
+the "session sets only" restriction on `weight=` is a comment, not a rule. `parseFlags`
+keeps one global `knownFlags` allowlist for both contexts (`format.ts:247`), `parse.ts`
+consults its `context` parameter exactly once (line 171, the zero-reps rule), and a
+routine line carrying `weight=60` parses cleanly today.
 
 ## HealthKit (`src/health`)
 
 Write-only. All HealthKit errors are logged and swallowed — a Health failure must
-never affect DB or sync state. Dependencies are injected (`HealthKitSaveDeps`) so the
+never affect DB state. Dependencies are injected (`HealthKitSaveDeps`) so the
 save path is testable in the node jest project.
 
 ## AI Coach (`src/ai`)
 
 Conversational routine authoring. The user brings their own Anthropic key; requests go
-straight to the API (never via the bridge) and the chat is never persisted. The four
-settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) live in
-the existing `bridge_settings` blob, so `BridgeSettings` in `src/state/settings.ts`
-is now a misnomer — AI settings are in there too.
+straight from the device to the Anthropic API, and the chat is never persisted. The AI
+settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) are
+persisted under the storage key `'bridge_settings'`, alongside the profile and
+onboarding fields — do not rename this key, as it holds every user's API key and
+onboarding state, and renaming it orphans existing users. `BridgeSettings` in
+`src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onboarding
+settings, and no bridge settings at all — kept because renaming the *type* is churn and
+renaming the *key* is forbidden.
 
 - **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
   `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
   `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
   the client must stay RN-bundle-safe and `fetchFn`-injectable so it tests in the node
   jest project. Network vs HTTP failures are distinct types (`AnthropicUnreachable` vs
-  `AnthropicHttpError`), matching the sync convention. The cost: no SDK means nothing
+  `AnthropicHttpError`). The cost: no SDK means nothing
   strips a `json_schema` of keywords the structured-output endpoint's subset doesn't
   support (array/string/number bounds) — one in `ALTERNATES_SCHEMA` made the Replace
   button 400 on every tap until it was caught (PR #71). Every schema handed to
@@ -599,8 +563,8 @@ is now a misnomer — AI settings are in there too.
   because the Messages API needs a user turn before a reply. The opening turn is
   flagged hidden and suppressed in the UI while staying byte-identical on the wire,
   so the user sees the coach's greeting as the first message. The hook is the *last*
-  thing `onCompleteSession` does — after the session record is closed and sync and the
-  HealthKit write are under way — and every failure there is swallowed: finishing a
+  thing `onCompleteSession` does — after the session record is closed and the HealthKit
+  write is under way — and every failure there is swallowed: finishing a
   workout must never depend on the chat. Effect executors are fire-and-forget, so a
   resolved `dispatch` does not mean the debrief has opened; tests must wait for it.
   `planPostWorkoutDebrief` (no key = no chat) and the route-param encoding live in
@@ -661,7 +625,7 @@ is now a misnomer — AI settings are in there too.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/sync/health/helpers/ai/theme` — all pure TS, no
+  `testMatch` covers `engine/db/interop/state/health/helpers/ai/theme/watch/components/export` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
@@ -737,10 +701,13 @@ is now a misnomer — AI settings are in there too.
 - `src/engine/` — pure Rill core + host dispatch/effect mapping (`rules/*.lv`)
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
-- `src/interop/` — vault markdown serializer/parser (the shared contract)
+- `src/interop/` — vault markdown serializer/parser
+- `src/export/` — the only production consumer of `src/interop/serialize` (nothing
+  outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
+  WatermelonDB's `null` to `undefined` at the boundary. **Not yet wired to any
+  screen** — it has no callers outside its own tests
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
-- `src/sync/` — bridge HTTP client + offline sync queue
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
   system-prompt builder, coach directives, draft→repository accept path, plus the
@@ -768,10 +735,6 @@ is now a misnomer — AI settings are in there too.
 
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
-- Markdown grammar changes to the shared pieces — document-level structure,
-  `parseDuration`, `ContractError` — must be mirrored in
-  `../workout-bridge/src/contract.ts`; line-level flag changes (`parseFlags`) are
-  app-only
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
@@ -783,7 +746,7 @@ is now a misnomer — AI settings are in there too.
   null. `appendSet` stamps every new set from the engine entry (the value
   `onPersistSet` already verified), and every identity reader —
   `getExerciseWorkingSetHistory`, `getSessionExerciseLog`,
-  `getRecentSessionSummaries`, the vault export — resolves stamp-first,
+  `getRecentSessionSummaries`, the markdown export — resolves stamp-first,
   join-fallback. `updateRoutineExerciseExerciseId` is the ONLY path allowed to
   re-point a row, and the same layer-2 defense binds it and `upsertRoutine`'s
   drop branch — the only other path that invalidates the join: inside the same
@@ -800,6 +763,41 @@ is now a misnomer — AI settings are in there too.
   `routine_exercises` still loses sets whose row was destroyed —
   `upsertRoutine`'s drop branch is the only `destroyPermanently` on that table.
   Iterate the sets, or reconcile the leftovers, as `serializeSession` does
+- `routine_exercises.target_weight_kg` is a coach-prescribed target load, nullable,
+  added at schema v5. **It is stored in kg and the coach speaks lbs.** There is
+  exactly one write-side conversion, `lbsToKg` in `acceptDraft`, and the read edges
+  are `computeSetPrefill` (`kgToLbs`) and `formatExerciseLine` (`formatWeightLbs`).
+  A second conversion site is how a value gets converted twice. The bound is a
+  **positive multiple of 0.5 lbs**, enforced in `validateRoutineDraft` and stated
+  in `personaSection()`. It is the first non-integer field in the draft contract,
+  which is why the persona's numeric guidance carries an explicit exception.
+  `AI_TURN_SCHEMA` declares it as `number` with **no** bound keyword — `minimum`
+  and `multipleOf` are both on `UNSUPPORTED_SCHEMA_KEYWORDS`. A prescription
+  **overrides** the history-derived prefill and is **outranked** by the exercise's
+  own last set this session. It is scoped to the weight field: reps still come from
+  history. `updateRoutineExerciseExerciseId` must also clear `target_weight_kg`,
+  because sets/reps/rest are near-dimensionless across substitutes while load is
+  not, and because a prescription overrides history rather than deferring to it, a
+  stale one wins over the substitute's own correct numbers instead of quietly
+  losing to them. Clearing the column is only half of it: the session screen's
+  prefill effect and `applyAlternateToRoutine`'s write are independent async paths
+  off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`
+  is bumped **after** the write and the prefill effect depends on it. The contract
+  has two halves: bump strictly after `applyToRoutine` resolves, and never on a
+  rejected swap or a thrown write. **The store mechanism is pinned by AC6.7 tests in
+  `src/state/exerciseReplaceStore.test.ts`. The screen's consumption of it —
+  `session.tsx:303` depending on `routineRevision` — has zero automated cover: no
+  test suite can load the screen, and deleting the dependency array entry passes all
+  tests. AC6.9 is the only safeguard: a structural read verifying the entry is
+  present.** Its scope is explicit and load-bearing: it bumps
+  on exercise swaps only. `upsertRoutine` is the other writer of `target_weight_kg`,
+  so a coach revising a routine through `acceptDraft` can change or clear a
+  prescription and bump nothing — a session screen that stays mounted across such an
+  edit keeps the stale value until it remounts. That is not a live defect (editing a
+  routine mid-session is not a supported flow, and nothing outside the session
+  screen's own prefill reads a prescription), and the name is deliberately about the
+  *routine* so an `acceptDraft` bump can join the same counter later without a
+  rename. Do not assume routine edits are covered today.
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)
@@ -830,9 +828,13 @@ is now a misnomer — AI settings are in there too.
   `startSessionFromRoutine` refuses a routine where *every* entry has
   `warmupSets + targetSets === 0`, the same as it already refused one with no
   exercises at all — a routine can have exercises yet still have nothing for
-  `h.next_active_landing` to land on (every cardio/stretch entry from a vault
-  import validly carries no `target_sets`, since `parseWorkoutLine` rejects
-  sets×reps for those kinds). `hasActiveExercise` carries that sum-based check
+  `h.next_active_landing` to land on. **The live source of such rows is history,
+  not any current write path:** routines imported before `upsertRoutine` learned
+  the zero-total default were left with `target_sets` null or 0, and with vault
+  import gone there is no re-import to heal them. A stored `exerciseIndex` can
+  also come back through `hydrate` pointing at such an entry (convention 5). Do
+  not read these guards as dead just because no code still *creates* the shape.
+  `hasActiveExercise` carries that sum-based check
   through `routineListPresenter` and `routineDetailPresenter` into
   `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start
   button, so a routine that can't actually be started never renders as

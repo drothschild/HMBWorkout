@@ -12,6 +12,11 @@ export interface ExerciseDetail {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  /**
+   * Coach-prescribed target load in canonical kg, or absent. Rendered in lbs at
+   * the display edge (formatWeightLbs) — never carried in lbs.
+   */
+  targetWeightKg?: number;
   kind: string;
   description: string | null;
 }
@@ -88,6 +93,7 @@ export async function routineDetailPresenter(
         targetReps: re._raw.target_reps,
         targetDurationSeconds: re._raw.target_duration_seconds,
         restSeconds: re._raw.rest_seconds,
+        targetWeightKg: re._raw.target_weight_kg,
         kind: exerciseInfo?.kind || 'strength',
         description: exerciseInfo?.description ?? null,
       };

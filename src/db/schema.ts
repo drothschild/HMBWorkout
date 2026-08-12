@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 3,
+  version: 5,
   tables: [
     tableSchema({
       name: 'routines',
@@ -35,6 +35,12 @@ export const databaseSchema = appSchema({
         { name: 'target_reps', type: 'number', isOptional: true },
         { name: 'target_duration_seconds', type: 'number', isOptional: true },
         { name: 'rest_seconds', type: 'number', isOptional: true },
+        // A coach-prescribed target load for this entry, in canonical kg.
+        // Nullable and never backfilled: an absent prescription is the normal
+        // case and must leave the SetLogger's history-derived prefill exactly
+        // as it was. lbs exists only at the UI and prompt edges
+        // (src/state/weightUnits.ts).
+        { name: 'target_weight_kg', type: 'number', isOptional: true },
         { name: 'notes', type: 'string', isOptional: true },
       ],
     }),
@@ -45,7 +51,6 @@ export const databaseSchema = appSchema({
         { name: 'started_at', type: 'number' },
         { name: 'ended_at', type: 'number', isOptional: true },
         { name: 'engine_state', type: 'string', isOptional: true },
-        { name: 'sync_status', type: 'string' },
         { name: 'created_at', type: 'number' },
       ],
     }),

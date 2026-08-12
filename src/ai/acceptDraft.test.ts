@@ -544,4 +544,53 @@ describe('acceptDraft', () => {
       expect((exercises[0] as any).title).toBe('bench press');
     });
   });
+
+  describe('coach-prescribed-weights.AC2.10-11 (lbs to kg conversion)', () => {
+    // coach-prescribed-weights.AC2.10: Converts lbs to kg exactly once
+    test('coach-prescribed-weights.AC2.10: converts targetWeightLbs: 185 to targetWeightKg: 83.91', async () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185,
+          },
+        ],
+      };
+
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
+      expect(entries).toHaveLength(1);
+
+      const entry = entries[0] as any;
+      // Hard-code 83.91 rather than computing via lbsToKg to catch conversion bugs
+      expect(entry.targetWeightKg).toBe(83.91);
+      expect(typeof entry.targetWeightKg).toBe('number');
+    });
+
+    // coach-prescribed-weights.AC2.11: Edge case — omitting targetWeightLbs leaves column null
+    test('coach-prescribed-weights.AC2.11: exercise omitting targetWeightLbs stores null targetWeightKg', async () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+          },
+        ],
+      };
+
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
+      expect(entries).toHaveLength(1);
+
+      const entry = entries[0] as any;
+      expect(entry.targetWeightKg).toBeNull();
+    });
+  });
 });

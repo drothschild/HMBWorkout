@@ -9,7 +9,7 @@
  *
  * Like `contextBuilder`, this prompt carries data and never secrets: it is
  * handed a personality string and a history list, and has no access to
- * `anthropicKey`/`token`/`baseUrl`. A regression test in
+ * `anthropicKey`. A regression test in
  * `src/state/restCommentaryStore.test.ts` asserts that at the wire.
  */
 

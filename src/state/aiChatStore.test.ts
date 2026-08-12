@@ -1594,7 +1594,6 @@ describe('aiChatStore', () => {
       expect(imports.length).toBeGreaterThan(0);
       for (const line of imports) {
         expect(line).not.toMatch(/@\/engine/);
-        expect(line).not.toMatch(/@\/sync/);
         expect(line).not.toMatch(/activeSession/);
       }
     });

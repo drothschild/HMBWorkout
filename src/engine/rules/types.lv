@@ -21,8 +21,8 @@ alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, sets
 type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float), nowMs: Int }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | ReplaceExercise({ idx: Int, exerciseId: String }) | PauseSession({ nowMs: Int }) | Resume({ nowMs: Int }) | AppForegrounded({ nowMs: Int }) | FinishSession({ nowMs: Int }) | AbandonSession
 
 -- DiscardSession is the counterpart to CompleteSession, not a variant of it:
--- CompleteSession is what drives the vault sync and the HealthKit export, so an
--- abandoned workout must emit DiscardSession and never CompleteSession.
+-- CompleteSession is what drives the HealthKit export, so an abandoned workout
+-- must emit DiscardSession and never CompleteSession.
 type Effect = CreateSession({ sessionId: String, routineId: String, startedAtMs: Int }) | ScheduleRest({ deadlineMs: Int }) | CancelRest | Notify({ message: String }) | PersistSet({ set: LoggedSet }) | CompleteSession({ summary: SessionSummary }) | DiscardSession({ sessionId: String })
 
 -- restRemainingMs: rest time frozen while paused mid-rest; Some only in Paused phase

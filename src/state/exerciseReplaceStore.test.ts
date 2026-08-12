@@ -351,8 +351,6 @@ describe('createExerciseReplaceStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
         aiGoals: 'Bigger bench',
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
@@ -374,8 +372,6 @@ describe('createExerciseReplaceStore', () => {
       // hypothetical key name — an openai client exists.
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-openai-secret-key');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('http://bridge.local:3000');
       // The key travels in the header, where it belongs.
       expect(mockFetch.mock.calls[0][1].headers['x-api-key']).toBe('sk-ant-test-secret');
     });
@@ -490,6 +486,81 @@ describe('createExerciseReplaceStore', () => {
       expect(store.getState().status).toBe('idle');
       expect(store.getState().alternates).toEqual([]);
       expect(store.getState().error).toBeNull();
+    });
+  });
+
+  describe('routineRevision counter', () => {
+    // AC6.7: the counter is bumped after a successful swap, but not on rejection
+    // or write failure. The bump is observable only after the write completes.
+
+    async function opened() {
+      const store = makeStore();
+      await store.getState().open(makeTarget());
+      return store;
+    }
+
+    it('(a) bump: a successful choose() leaves routineRevision one higher', async () => {
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      await store.getState().choose(ALTERNATES.alternates[0]);
+
+      expect(store.getState().routineRevision).toBe(before + 1);
+    });
+
+    it('(b) ordering: the bump happens AFTER applyToRoutine resolves', async () => {
+      const recordedValues: number[] = [];
+      applyToRoutine.mockImplementation(async () => {
+        recordedValues.push(store.getState().routineRevision);
+      });
+
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      await store.getState().choose(ALTERNATES.alternates[0]);
+
+      // The value captured during applyToRoutine should be the pre-bump value
+      expect(recordedValues[0]).toBe(before);
+      // And the current value should be bumped
+      expect(store.getState().routineRevision).toBe(before + 1);
+    });
+
+    it('(c) rejection: an engine rejection leaves routineRevision unchanged', async () => {
+      dispatch.mockResolvedValueOnce(null);
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      await store.getState().choose(ALTERNATES.alternates[0]);
+
+      expect(store.getState().routineRevision).toBe(before);
+    });
+
+    it('(d) write failure: a thrown applyToRoutine leaves routineRevision unchanged', async () => {
+      applyToRoutine.mockRejectedValueOnce(new Error('disk full'));
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      await store.getState().choose(ALTERNATES.alternates[0]);
+
+      expect(store.getState().routineRevision).toBe(before);
+    });
+
+    it('(e) cancelled mid-write: routineRevision is bumped even if the sheet is cancelled while writing', async () => {
+      let release: (value: void) => void = () => {};
+      applyToRoutine.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
+
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      const choosePromise = store.getState().choose(ALTERNATES.alternates[0]);
+      // Cancel while the write is in flight
+      store.getState().cancel();
+      // Release the promise
+      release();
+      await choosePromise;
+
+      // The write committed, so the bump should have happened
+      expect(store.getState().routineRevision).toBe(before + 1);
     });
   });
 });

@@ -5,6 +5,7 @@ import {
   currentExerciseId,
   formatLoggedSetLine,
   historyPrefillStillApplies,
+  historyToSetInputValues,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
@@ -17,6 +18,15 @@ import type { LoggedSet, SessionState } from '@/engine/types';
  */
 
 describe('createSessionPresenter', () => {
+  const workingSet = (exerciseId: string, reps: number, weightKg: number): LoggedSet => ({
+    exerciseId,
+    setType: 'working',
+    reps,
+    weightKg,
+    durationSeconds: null,
+    rpe: null,
+  });
+
   const createMockState = (): SessionState => ({
     sessionId: 'session-1',
     routineId: 'routine-1',
@@ -442,15 +452,6 @@ describe('createSessionPresenter', () => {
   });
 
   describe('set input prefill', () => {
-    const workingSet = (exerciseId: string, reps: number, weightKg: number): LoggedSet => ({
-      exerciseId,
-      setType: 'working',
-      reps,
-      weightKg,
-      durationSeconds: null,
-      rpe: null,
-    });
-
     test('prefers the last in-session set of the current exercise over the history fallback', () => {
       const state = createMockState();
       state.loggedSets = [workingSet('ex-1', 8, 40), workingSet('ex-1', 6, 45)];
@@ -579,6 +580,182 @@ describe('createSessionPresenter', () => {
       const presenter = createSessionPresenter(createMockState(), jest.fn(async () => null));
 
       expect(presenter).not.toHaveProperty('setPrefill');
+    });
+  });
+
+  describe('computeSetPrefill — coach-prescribed weight', () => {
+    // Conversion pairs for testing: lbsToKg(185) = 83.91, kgToLbs(83.91) = 185
+    // kgToLbs(79.38) = 175
+
+    test('AC4.1: prescription overrides history — weight field', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill?.weightLbs).toBe(185);
+    });
+
+    test('AC4.2: prescription overrides history but reps still come from history (same invocation)', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
+    });
+
+    test('AC4.3: in-session logged set wins over prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [workingSet('ex-1', 6, 79.38)]; // 175 lbs
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill?.weightLbs).toBe(175);
+    });
+
+    test('AC4.3b: in-session set with weight only (no reps) wins over prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: 79.38, durationSeconds: null, rpe: null },
+      ];
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill?.weightLbs).toBe(175);
+      expect(prefill).not.toHaveProperty('reps');
+    });
+
+    test('AC4.4(a): prescription only, no history, with targetReps', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 5;
+
+      const prefill = computeSetPrefill(state, undefined, 83.91);
+
+      expect(prefill).toEqual({ weightLbs: 185, reps: 5 });
+    });
+
+    test('AC4.4(b): prescription only with targetReps = 0 returns weight only, and no prescription still returns undefined', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 0;
+
+      const withPrescription = computeSetPrefill(state, undefined, 83.91);
+      const withoutPrescription = computeSetPrefill(state, undefined);
+
+      expect(withPrescription).toEqual({ weightLbs: 185 });
+      expect(withoutPrescription).toBeUndefined();
+    });
+
+    test('AC4.5(a): duration-based entry with no logged set and prescription → durationSeconds only', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.entries[0].targetDurationSeconds = 50;
+      state.loggedSets = [];
+
+      const prefill = computeSetPrefill(state, undefined, 83.91);
+
+      expect(prefill).toEqual({ durationSeconds: 50 });
+      expect(prefill).not.toHaveProperty('weightLbs');
+    });
+
+    test('AC4.5(b): duration-based entry with in-session duration set → returns duration only, no weight added', () => {
+      const state = createMockState();
+      state.entries[0].kind = 'stretch';
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: 45, rpe: null },
+      ];
+
+      const prefill = computeSetPrefill(state, undefined, 83.91);
+
+      expect(prefill).toEqual({ durationSeconds: 45 });
+    });
+
+    test('AC4.6: prescription undefined leaves chain byte-identical', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const withUndefined = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, undefined);
+      const withoutParam = computeSetPrefill(state, { reps: 8, weightLbs: 175 });
+
+      expect(withUndefined).toEqual(withoutParam);
+    });
+
+    test('AC4.6: prescription 0 leaves chain byte-identical', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const withZero = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 0);
+      const withoutParam = computeSetPrefill(state, { reps: 8, weightLbs: 175 });
+
+      expect(withZero).toEqual(withoutParam);
+    });
+
+    test('AC4.7: prescription is converted from kg to lbs (not raw kg)', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+
+      const prefill = computeSetPrefill(state, undefined, 83.91);
+
+      expect(prefill?.weightLbs).toBe(185);
+      expect(prefill?.weightLbs).not.toBe(83.91);
+    });
+
+    test('AC4.8: empty in-session set falls through to history + prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: 0, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
+    });
+
+    test('AC4.9: empty history fallback falls through to target + prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 5;
+
+      const prefill = computeSetPrefill(state, { reps: 0 }, 83.91);
+
+      expect(prefill).toEqual({ weightLbs: 185, reps: 5 });
+    });
+
+    test('AC4.9b: history with reps only (no weight) plus prescription → reps from history, not targetReps', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 5;
+
+      const prefill = computeSetPrefill(state, { reps: 8 }, 83.91);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
+    });
+
+    test('AC4.10: history with weight but no reps, plus prescription → prescribed weight only (no reps)', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 5;
+
+      const withPrescription = computeSetPrefill(state, { weightLbs: 175 }, 83.91);
+      const withoutPrescription = computeSetPrefill(state, { weightLbs: 175 });
+
+      expect(withPrescription).toEqual({ weightLbs: 185 });
+      expect(withoutPrescription).toEqual({ weightLbs: 175 });
+      expect(withPrescription).not.toHaveProperty('reps');
+      expect(withoutPrescription).not.toHaveProperty('reps');
+    });
+
+    test('AC4.12: in-session set with reps but no weight, plus prescription → reps from set, weight from prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: 8, weightKg: null, durationSeconds: null, rpe: null },
+      ];
+
+      const prefill = computeSetPrefill(state, undefined, 83.91);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
   });
 
@@ -1224,5 +1401,78 @@ describe('formatLoggedSetLine', () => {
         rpe: undefined,
       })
     ).toBe('—');
+  });
+});
+
+describe('historyToSetInputValues', () => {
+  // AC4.12 + Important 3: history→SetInputValues transformation must be testable
+  // and survive mutations: kg→lbs conversion, reps+weight combination, nulls
+
+  test('converts reps + weight to SetInputValues with kg→lbs conversion', () => {
+    // Mutation killer: dropping kgToLbs would put raw kg (83.91) in lbs field
+    const result = historyToSetInputValues({
+      reps: 6,
+      weightKg: 83.91,
+    });
+
+    expect(result).toEqual({
+      reps: 6,
+      weightLbs: 185, // Hard-coded, not kgToLbs(83.91)
+    });
+  });
+
+  test('includes reps only when weight is absent/null', () => {
+    expect(historyToSetInputValues({ reps: 8, weightKg: null })).toEqual({
+      reps: 8,
+    });
+
+    expect(historyToSetInputValues({ reps: 10, weightKg: undefined })).toEqual({
+      reps: 10,
+    });
+  });
+
+  test('includes weight only when reps are absent/null', () => {
+    // Another mutation killer: the conversion must happen when reps are missing
+    // kgToLbs rounds to nearest 0.5, so 79.38 kg → 175 lbs, 60 kg → 132.5 lbs
+    expect(historyToSetInputValues({ reps: null, weightKg: 79.38 })).toEqual({
+      weightLbs: 175,
+    });
+
+    expect(historyToSetInputValues({ reps: undefined, weightKg: 60 })).toEqual({
+      weightLbs: 132.5,
+    });
+  });
+
+  test('returns undefined when both reps and weight are absent/null', () => {
+    // Mutation killer: always-return-undefined mutation would fail here
+    expect(historyToSetInputValues({ reps: null, weightKg: null })).toBeUndefined();
+
+    expect(historyToSetInputValues({ reps: undefined, weightKg: undefined })).toBeUndefined();
+  });
+
+  test('handles WatermelonDB null (not undefined) correctly', () => {
+    // AGENTS.md rule: every optional field read off a DB row must check != null
+    // WatermelonDB returns null, not undefined, for unset columns
+    const result = historyToSetInputValues({
+      reps: 5,
+      weightKg: null, // WatermelonDB null, not undefined
+    });
+
+    expect(result).toEqual({
+      reps: 5,
+    });
+  });
+
+  test('zero reps is a valid logged value (not absence)', () => {
+    // From AGENTS.md: a set logged with zero reps is a real, valid action
+    const result = historyToSetInputValues({
+      reps: 0,
+      weightKg: 100,
+    });
+
+    expect(result).toEqual({
+      reps: 0,
+      weightLbs: 220.5, // kgToLbs rounds to nearest 0.5
+    });
   });
 });

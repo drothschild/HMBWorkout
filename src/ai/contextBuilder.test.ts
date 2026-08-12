@@ -102,6 +102,26 @@ describe('buildSystem: AI Coach context builder', () => {
         'description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description'
       );
     }, 30000);
+
+    // coach-prescribed-weights.AC2.8: The bound is stated as an exact sentence (full sentence, not prefix)
+    // This pins the full statement including the "Omit it when..." guidance that Phase 4's
+    // history-fallback depends on. The plan prescribed prefix-only; this closes the gap.
+    it('states the complete targetWeightLbs bound and omit guidance in the exercise schema', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete\'s own recent history to fill the field'
+      );
+    }, 30000);
+
+    // coach-prescribed-weights.AC2.9: Guidance line is reworded to allow half-pounds
+    it('updates the blanket integer guidance to allow targetWeightLbs half-steps', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'All numeric values must be integers, except targetWeightLbs, which may use 0.5 steps'
+      );
+    }, 30000);
   });
 
   // These sentences restate the bounds validateSettingsProposal enforces. They are
@@ -411,6 +431,89 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(inclineIdx).toBeGreaterThan(-1);
       expect(barbellIdx).toBeLessThan(dumbellIdx);
       expect(dumbellIdx).toBeLessThan(inclineIdx);
+    }, 30000);
+
+    it('includes coach-prescribed weight in lbs when set on an entry, and omits it when absent or zero (AC3.2, AC3.3)', async () => {
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-mixed-prescription';
+          r.name = 'Mixed Loads';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-squat';
+          e.title = 'Back Squat';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-bench';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-zero';
+          e.title = 'Zero Squat';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // Prescribed entry
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-squat',
+        order: 0,
+        targetSets: 3,
+        targetReps: 5,
+        targetWeightKg: 83.91,
+      });
+
+      // Unprescribed entry (absent)
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-bench',
+        order: 1,
+        targetSets: 3,
+        targetReps: 8,
+        restSeconds: 120,
+      });
+
+      // Zero-prescribed entry — kills the !== undefined and != null mutants
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-zero',
+        order: 2,
+        targetSets: 3,
+        targetReps: 5,
+        targetWeightKg: 0,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      // Extract routine section to scope assertions
+      const routineStart = prompt.indexOf('## Existing Routines');
+      const historyStart = prompt.indexOf('## Recent Workouts');
+      const routineSection = prompt.substring(routineStart, historyStart);
+
+      // AC3.2: Prescribed entry renders weight in lbs in correct position
+      // Position: immediately after sets×reps, before rest segment (cosmetic but pinned)
+      expect(routineSection).toContain('Back Squat (strength) | 3x5 | @ 185lbs');
+      // Assert the rendered lbs string, not the kg value — this proves
+      // the conversion happened at the display edge. kgToLbs(83.91) = 185.
+      expect(routineSection).toContain('@ 185lbs');
+
+      // AC3.3: Unprescribed entries (absent and zero) don't render weight segment
+      expect(routineSection).toContain('Bench Press');
+      expect(routineSection).toContain('Zero Squat');
+      expect(routineSection).toContain('3x8');
+      expect(routineSection).toContain('rest 120s');
+
+      // Ensure exactly one weight segment: only the prescribed squat's 185lbs, not zero or absent
+      const weightMatches = routineSection.match(/@ \d+(\.\d+)?lbs/g);
+      expect(weightMatches).toHaveLength(1); // Only the squat's 185lbs
     }, 30000);
 
     it('returns a non-empty prompt when database is empty', async () => {
@@ -1123,21 +1226,17 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).not.toContain('The user has just finished the routine');
     }, 30000);
 
-    it('does not leak the anthropic key, openai key, or bridge credentials', async () => {
+    it('does not leak the anthropic key or openai key', async () => {
       await seedFinishedWorkout();
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-proj-openai-test-secret',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
       });
 
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-proj-openai-test-secret');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('bridge.local');
     }, 30000);
 
     it('handles a debrief when the routine no longer exists and no sets logged', async () => {
@@ -1670,12 +1769,10 @@ describe('buildSystem: AI Coach context builder', () => {
   });
 
   describe('Security: secrets regression guard', () => {
-    it('does not leak anthropic key, openai key, bridge token, or baseUrl in prompt', async () => {
+    it('does not leak anthropic key or openai key in prompt', async () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-proj-openai-test-secret',
-        token: 'bridge-token-12345',
-        baseUrl: 'http://bridge.local:3000',
         aiGoals: 'Build strength',
         aiEquipment: 'Dumbbells',
       });
@@ -1684,8 +1781,6 @@ describe('buildSystem: AI Coach context builder', () => {
 
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-proj-openai-test-secret');
-      expect(prompt).not.toContain('bridge-token-12345');
-      expect(prompt).not.toContain('bridge.local');
     }, 30000);
   });
 

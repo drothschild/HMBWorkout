@@ -58,7 +58,7 @@ export interface SessionPresenterOutput {
   routineNotes: string | undefined;
 
   // Copy for the finish-confirmation dialog. Finishing is irreversible (it
-  // triggers vault sync, the HealthKit export, and the debrief), so the screen
+  // triggers the HealthKit export and the debrief), so the screen
   // always confirms; the message carries how much planned work remains so an
   // early finish reads as an informed choice. Derived here to stay jest-covered.
   finishConfirmation: { title: string; message: string };
@@ -241,24 +241,80 @@ export function historyPrefillStillApplies(
 /**
  * Default input values for the next set of the current exercise.
  *
- * Precedence: the exercise's own last in-session set (matched by exerciseId —
- * the engine's LoggedSet carries no entry row id, and duplicate entries of the
- * same movement sharing a prefill is the desired behavior), then the caller's
- * cross-session history fallback (strength only), then the routine targets.
+ * Precedence, highest first:
+ *   1. the exercise's own last set **this session** (matched by exerciseId — the
+ *      engine's LoggedSet carries no entry row id, and duplicate entries of the
+ *      same movement sharing a prefill is the desired behavior)
+ *   2. the coach's prescribed load, `prescribedWeightKg` — **weight only**
+ *   3. the caller's cross-session history fallback (strength only)
+ *   4. the routine targets
+ *
+ * The prescription outranking history is the point of the feature: a coach that
+ * programs 185 must not be silently overruled by last week's 175, because the
+ * case where they differ is the only case that matters. It does **not** outrank
+ * a set logged minutes ago in this same session — that is the athlete actively
+ * correcting the plan, and re-offering the prescribed load on the next set would
+ * fight them.
+ *
+ * It is scoped to the weight field alone. With a prescription of 185 and a
+ * history set of 8 x 175, the right prefill is 8 reps at 185: the coach
+ * programmed the load, and the reps still come from what the athlete does.
+ *
+ * The prescription arrives in canonical kg and is resolved shell-side by the
+ * caller, not carried in engine state — the Rill RoutineEntry is a closed record
+ * that silently drops unknown fields, and no rule branches on load (engine
+ * convention 6). Same reason `exerciseTitles` and `historyFallback` are
+ * parameters.
+ *
  * RPE is never prefilled: it is per-set perceived effort, and the -1 sentinel
  * must not leak into an input. Zero/absent metrics are omitted rather than
- * prefilled — the host maps 0 values to "not logged" on dispatch, so a
- * prefilled 0 would silently vanish from the logged set.
+ * prefilled — the host maps 0 values to "not logged" on dispatch, so a prefilled
+ * 0 would silently vanish from the logged set. A `prescribedWeightKg` of 0 is
+ * therefore read as *no prescription*, not as a prescribed zero.
  */
+
+/**
+ * Convert a SessionSet from history into SetInputValues for prefilling.
+ * Pure transformation: maps null/undefined columns to the display format (kg→lbs)
+ * and returns undefined if neither reps nor weight are available.
+ * Testable: no DB, no side effects, only data transformation.
+ */
+export function historyToSetInputValues(historySet: {
+  reps?: number | null | undefined;
+  weightKg?: number | null | undefined;
+}): SetInputValues | undefined {
+  const values: SetInputValues = {};
+  if (historySet.reps != null) {
+    values.reps = historySet.reps;
+  }
+  if (historySet.weightKg != null) {
+    values.weightLbs = kgToLbs(historySet.weightKg);
+  }
+  if (values.reps !== undefined || values.weightLbs !== undefined) {
+    return values;
+  }
+  return undefined;
+}
+
 export function computeSetPrefill(
   sessionState: SessionState,
-  historyFallback?: SetInputValues
+  historyFallback?: SetInputValues,
+  prescribedWeightKg?: number
 ): SetInputValues | undefined {
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return undefined;
 
   const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
+
+  // The prescribed load, converted to display lbs once, here. Absent for a
+  // duration-based entry (there is no weight input to fill) and for any
+  // non-positive value (0 means "no prescription", matching the > 0 absence
+  // convention every other metric in this function uses).
+  const prescribedLbs =
+    !isDurationBased && prescribedWeightKg != null && prescribedWeightKg > 0
+      ? kgToLbs(prescribedWeightKg)
+      : undefined;
 
   let lastMatch: LoggedSet | undefined;
   for (let i = sets.length - 1; i >= 0; i--) {
@@ -269,40 +325,78 @@ export function computeSetPrefill(
   }
 
   const prefill: SetInputValues = {};
+
+  // ---- R2: this session's own last set for this exercise ----------------
   if (lastMatch) {
+    // `contributed` is computed from the LOGGED SET ALONE, never from
+    // `prefill`'s key count. See "The bug class" below: a return gated on
+    // "prefill is non-empty" is wrong the moment the prescription can populate
+    // prefill, and this function has produced that defect twice.
+    let contributed = false;
+
     if (isDurationBased) {
       if (lastMatch.durationSeconds != null && lastMatch.durationSeconds > 0) {
         prefill.durationSeconds = lastMatch.durationSeconds;
+        contributed = true;
       }
     } else {
-      if (lastMatch.reps != null && lastMatch.reps > 0) prefill.reps = lastMatch.reps;
+      if (lastMatch.reps != null && lastMatch.reps > 0) {
+        prefill.reps = lastMatch.reps;
+        contributed = true;
+      }
       if (lastMatch.weightKg != null && lastMatch.weightKg > 0) {
         prefill.weightLbs = kgToLbs(lastMatch.weightKg);
+        contributed = true;
       }
     }
-    if (Object.keys(prefill).length > 0) return prefill;
-    // A fully-empty logged set contributed nothing; fall through to the
-    // fallbacks below rather than returning an all-undefined prefill.
+
+    if (contributed) {
+      // The set the athlete just did outranks the plan, so the prescription only
+      // fills a weight this session has not already established (e.g. a logged
+      // set that recorded reps but no load). `prescribedLbs` is already
+      // undefined for a duration-based entry, so no extra guard is needed here —
+      // that decision lives at its single site above.
+      if (prefill.weightLbs === undefined && prescribedLbs !== undefined) {
+        prefill.weightLbs = prescribedLbs;
+      }
+      return prefill;
+    }
+    // A fully-empty logged set contributed nothing; `prefill` is still empty.
+    // Fall through to the fallbacks below.
   }
 
-  // No usable in-session set for this exercise.
+  // ---- R3: duration entries have no weight and no cross-session history --
   if (isDurationBased) {
-    // Cross-session history is structurally unavailable here (the history
-    // query returns working-type sets only), so targets are the only fallback.
+    // The history query returns working-type sets only, so targets are the only
+    // fallback here.
     return entry.targetDurationSeconds > 0
       ? { durationSeconds: entry.targetDurationSeconds }
       : undefined;
   }
+
+  // ---- The override: the prescription claims the weight field ahead of
+  // ---- history. Reps are untouched and still come from history below.
+  if (prescribedLbs !== undefined) prefill.weightLbs = prescribedLbs;
+
+  // ---- R4: cross-session history ----------------------------------------
   if (historyFallback) {
-    if (historyFallback.reps != null && historyFallback.reps > 0) {
-      prefill.reps = historyFallback.reps;
-    }
-    if (historyFallback.weightLbs != null && historyFallback.weightLbs > 0) {
+    // Both predicates read `historyFallback` alone, never `prefill`. That is
+    // what keeps R4's firing independent of whether a prescription exists.
+    const historyHasReps = historyFallback.reps != null && historyFallback.reps > 0;
+    const historyHasWeight =
+      historyFallback.weightLbs != null && historyFallback.weightLbs > 0;
+
+    if (historyHasReps) prefill.reps = historyFallback.reps;
+    if (prefill.weightLbs === undefined && historyHasWeight) {
       prefill.weightLbs = historyFallback.weightLbs;
     }
-    if (Object.keys(prefill).length > 0) return prefill;
+
+    if (historyHasReps || historyHasWeight) return prefill;
   }
-  return entry.targetReps > 0 ? { reps: entry.targetReps } : undefined;
+
+  // ---- R5: routine targets (terminal) ------------------------------------
+  if (entry.targetReps > 0) prefill.reps = entry.targetReps;
+  return Object.keys(prefill).length > 0 ? prefill : undefined;
 }
 
 /**
@@ -439,7 +533,7 @@ export function createSessionPresenter(
       dispatch({
         tag: 'LogSet',
         reps: values.reps,
-        // The input carries display lbs; the engine, DB, and vault stay kg
+        // The input carries display lbs; the engine and DB stay kg
         weightKg: values.weightLbs !== undefined ? lbsToKg(values.weightLbs) : undefined,
         rpe: values.rpe,
         durationSeconds: values.durationSeconds,

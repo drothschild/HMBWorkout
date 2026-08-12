@@ -8,7 +8,7 @@ import { Database } from '@nozbe/watermelondb';
 /**
  * Integration tests for session store with real DB and injected dependencies.
  * AC6.1: Completing a session calls saveWorkoutSample with correct summary args (deterministic times from event.nowMs)
- * AC6.2: HealthKit errors don't prevent session state transition to done (DB write + sync complete before HealthKit isolation)
+ * AC6.2: HealthKit errors don't prevent session state transition to done (DB write complete before HealthKit isolation)
  */
 
 describe('activeSession store — HealthKit isolation and real DB integration', () => {
@@ -25,7 +25,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
   it('AC6.1: FinishSession with non-throwing HealthKit calls saveWorkoutSample with correct start/end times from event.nowMs', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {});
 
     // Create injected HealthKit that does NOT throw
     const saveWorkoutSampleSpy = jest.fn(async (activityType: number, quantities: any[], startDate: Date, endDate: Date) => {
@@ -49,7 +48,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 
@@ -96,10 +94,9 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     expect(saveWorkoutSampleSpy).toHaveBeenCalled();
   });
 
-  it('AC6.2: HealthKit throwing does not prevent state transition to done (DB write + sync complete, HealthKit isolated)', async () => {
+  it('AC6.2: HealthKit throwing does not prevent state transition to done (DB write complete, HealthKit isolated)', async () => {
     const testStartMs = 1000;
     const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {});
 
     // Create injected HealthKit that THROWS
     const saveWorkoutSampleSpy = jest.fn(async () => {
@@ -121,7 +118,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
         onCancelRest: jest.fn(),
         onNotify: jest.fn(),
       },
-      syncSpy,
       healthKitDeps
     );
 
@@ -177,9 +173,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       expect(session._raw.ended_at).toBeDefined();
       expect(session._raw.ended_at).toBeGreaterThan(0);
 
-      // Verify sync was called (fire-and-forget)
-      expect(syncSpy).toHaveBeenCalled();
-
       // Flush microtasks and timers again to catch any late-arriving promise rejections
       await flush();
 
@@ -187,74 +180,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       expect(unhandledRejections).toHaveLength(0);
     } finally {
       process.removeListener('unhandledRejection', rejectionHandler);
-      consoleSpy.mockRestore();
-    }
-  });
-
-  it('AC6.2: sync failing does not prevent state transition to done (DB write completes)', async () => {
-    const testStartMs = 1000;
-    const testEndMs = 10000;
-    const syncSpy = jest.fn(async () => {
-      throw new Error('Sync failed');
-    });
-
-    const healthKitDeps: HealthKitDeps = {
-      ensureAuthorized: jest.fn(async () => 'authorized'),
-      requestAuthorization: jest.fn(async () => true),
-      saveWorkoutSample: jest.fn(async () => {}),
-    } as any;
-
-    const store = createActiveSessionStore(
-      database,
-      {
-        onCreateSession: jest.fn(),
-        onPersistSet: jest.fn(),
-        onScheduleRest: jest.fn(),
-        onCancelRest: jest.fn(),
-        onNotify: jest.fn(),
-      },
-      syncSpy,
-      healthKitDeps
-    );
-
-    // Create session in DB
-    const sessionId = 'session-ac6-2-sync';
-    await createSession(database, {
-      sessionId,
-      routineId: 'routine-3',
-      startedAtMs: testStartMs,
-    });
-
-    const initialState: SessionState = {
-      sessionId,
-      routineId: 'routine-3',
-      phase: 'working',
-      exerciseIndex: 0,
-      setIndex: 0,
-      supersetPosition: 0,
-      loggedSets: [],
-      startedAtMs: testStartMs,
-      entries: [],
-      lastLoggedSet: undefined,
-      prePausePhase: '',
-    };
-
-    store.getState().hydrate(initialState);
-
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-
-    try {
-      // Should not throw despite sync error
-      const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
-
-      // State should still transition to done
-      expect(result?.phase).toBe('done');
-
-      // Verify DB write happened
-      const session = await database.get('sessions').find(sessionId) as any;
-      expect(session._raw.ended_at).toBeDefined();
-      expect(session._raw.ended_at).toBeGreaterThan(0);
-    } finally {
       consoleSpy.mockRestore();
     }
   });

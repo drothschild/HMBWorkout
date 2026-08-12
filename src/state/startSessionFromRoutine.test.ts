@@ -145,8 +145,8 @@ describe('startSessionFromRoutine', () => {
         // Persona guidance (contextBuilder.ts): duration-based exercises get
         // targetSets: 1 ("a timed hold is still one planned set in the
         // session flow") — this fixture mirrors an AI-authored draft, not
-        // the vault-import path, where target_sets is validly absent instead
-        // (see AGENTS.md's zero-planned-set Boundaries rule).
+        // cardio/stretch entries from parseWorkoutLine, where target_sets is
+        // validly absent instead (see AGENTS.md's zero-planned-set Boundaries rule).
         re._raw.target_sets = 1;
         re._raw.target_duration_seconds = 300;
       });

@@ -8,7 +8,7 @@
  *
  * Like the rest of `src/ai` it carries data and never secrets — it is handed
  * goals, equipment and a personality string, and has no access to
- * `anthropicKey`/`token`/`baseUrl`. A regression test in
+ * `anthropicKey`. A regression test in
  * `src/state/exerciseReplaceStore.test.ts` asserts that at the wire.
  */
 
