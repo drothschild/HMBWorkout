@@ -257,10 +257,11 @@ the PR or a **human-QA** step.
   `initialProviderSelection`, which defaults to `'anthropic'`. AC4.8 is what forbids that.*
 - **AC4.9 Structural:** `src/app/ai-coach.tsx` calls `aiChatErrorMessage(error)` and holds no error
   copy of its own — `grep -n "API key\|Couldn't reach\|unreadable" src/app/ai-coach.tsx` returns
-  exactly two matches: (1) the `aiChatErrorMessage(error)` call site at ~line 247, and (2) the
-  no-key empty-state message at ~line 346 (`Add your API key in Settings`). Any **additional**
-  matches — particularly the four `errorMessage = …` assignments from the removed switch
-  (`:729`, `:733`, `:737`, `:745`) — indicate the wrong implementation and fail this criterion.
+  exactly one match: the no-key empty-state message at ~line 346 (`Add your API key in Settings`).
+  Any **additional** matches — particularly the four `errorMessage = …` assignments from the
+  removed switch (`:729`, `:733`, `:737`, `:745`) — indicate the wrong implementation and fail
+  this criterion. As a separate check: `grep -n "aiChatErrorMessage" src/app/ai-coach.tsx` must
+  show the function is still called (to verify the error messages are delegated, not duplicated).
 - **AC4.10 Success:** `src/ai/contextBuilder.test.ts` is unmodified — `git diff origin/main...HEAD --
   src/ai/contextBuilder.test.ts` returns nothing. The prompt secret-leak regression tests stay green
   untouched; they are about the prompt, not about error copy, and are not in this phase's scope.
