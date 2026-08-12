@@ -79,6 +79,7 @@ import {
   initialProviderSelection,
   keyPlaceholder,
   providerSwitchPlan,
+  storedKeyFor,
 } from '@/state/aiProviderSettings';
 import { getSettings, setSettings } from '@/state/settings';
 
@@ -89,7 +90,7 @@ export default function AiProviderSettingsScreen() {
   // predate this screen have aiProvider undefined and resolve implicitly in
   // factory.ts. See AC3.2.
   const [provider, setProvider] = useState(() => initialProviderSelection(getSettings()));
-  const [keyText, setKeyText] = useState(() => currentKeyFor(getSettings(), provider));
+  const [keyText, setKeyText] = useState(() => storedKeyFor(getSettings(), provider));
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const pendingRef = useRef<Partial<BridgeSettings>>({});
@@ -227,7 +228,38 @@ Provider first: you need a key before the coach settings mean anything.
 
 ---
 
-### Task 4 — Structural reads (record all five in the PR)
+### Task 4 — Fix `src/app/ai-coach.tsx`: no-key screen routes and provider hardcoding
+
+**File:** `src/app/ai-coach.tsx`
+
+The no-key state at `:341-352` (`title: 'API Key Required'`, button text `Add your Anthropic API key
+in Settings`) and the Settings link in `ErrorBubble` at `:777` both push to `/settings/ai`, which after
+this phase no longer has a key field. This lands in a dead end for users.
+
+**Issue 1 — Route destination:** Both `:348` (no-key button) and `:777` (ErrorBubble Settings link)
+push `/settings/ai`. Change both to push `/settings/ai-provider` so the user lands on the key field.
+
+**Issue 2 — Hardcoded "Anthropic":** The no-key screen at `:346` says `Add your Anthropic API key in
+Settings`. After Phase 3, OpenAI users see "Anthropic" and are sent to the Anthropic field, which is
+wrong. Either:
+
+  - *Option A (recommended):* Make it generic — `Add your API key in Settings` — so it works for
+    either provider.
+  - *Option B:* Read `settings.aiProvider ?? 'anthropic'` and name the correct provider. This
+    requires `getSettings()` in `ai-coach.tsx`, same as the `no-key-error-banner` that already
+    calls it.
+
+**Choose one option, commit to it, and verify in the simulator (see Task 6, scenario 1).**
+
+**Simulator verification for this task:** Go through the "no-key" flow under an OpenAI selection
+(Settings → set `aiProvider` to OpenAI → close → open coach with no key → tap "Open Settings" →
+should land on the provider/key screen, not the AI Coach goals screen).
+
+**Covers:** AC4.9 (the only AC directly touched here; the router fix keeps the destination valid)
+
+---
+
+### Task 5 — Structural reads (record all five in the PR)
 
 ```
 # AC3.1 — no decision logic in the screen
@@ -264,18 +296,19 @@ and nothing user-visible differs. The structural read is the only cover. Do not 
 
 ---
 
-### Task 5 — Simulator verification (six scenarios)
+### Task 6 — Simulator verification (seven scenarios)
 
 Read the `running-in-simulator` skill first. Screenshots for each.
 
 | # | AC | Procedure | Why it discriminates |
 |---|---|---|---|
-| 1 | AC3.6 | **Fresh install.** Pick OpenAI → paste a key → **force-quit** → relaunch → reopen. OpenAI selected, key populated. | The relaunch is what proves persistence rather than in-memory cache. |
-| 2 | AC3.7 | With an Anthropic key configured: switch to OpenAI → confirm → **force-quit and relaunch** → switch back to Anthropic. The Anthropic field is **empty**. | ⚠ **The relaunch is the whole criterion.** Without it, "cleared on screen", "cleared in cache" and "cleared in storage" are indistinguishable — and the middle one is exactly the "user believes they removed a key and hasn't" failure. |
-| 3 | AC3.8 | With **no** Anthropic key stored, switch to OpenAI. **No dialog appears.** | A step run only with a key present cannot fail. This is the negative half of `needsConfirmation`. |
-| 4 | AC3.9 | Type a key, then switch provider **within 500 ms** — before the debounce fires. Wait 5s, force-quit, relaunch. The key is gone. | ⚠ **The timing is the test.** Switching after the debounce has flushed cannot fail: there is no pending patch left to resurrect the key. This is the only check on the `queueSave`-not-`setSettings` requirement. |
-| 5 | AC3.10 | An **upgraded** (not fresh) Anthropic-only install: open the new screen. Anthropic pre-selected, key intact, coach still works without touching anything. | ⚠ **Install over the existing app; do not uninstall first.** Uninstalling destroys the legacy blob and turns this into a fresh-install test, which cannot exercise the `aiProvider: undefined` path this criterion is about. |
-| 6 | AC3.11 | Tap the picker: exactly two options, current one marked. Dismiss without choosing → nothing changes (key intact, provider unchanged). | The dismiss half catches a modal that commits on open or on backdrop tap. |
+| 1 | Task 4 / AC4.9 | **No-key flow with OpenAI selected:** Settings → `aiProvider: 'openai'` → close → open Coach with no key → tap "Open Settings" → land on provider/key screen (not AI Coach goals). | Proves the routed link goes to the correct screen and the user can enter their key. |
+| 2 | AC3.6 | **Fresh install.** Pick OpenAI → paste a key → **force-quit** → relaunch → reopen. OpenAI selected, key populated. | The relaunch is what proves persistence rather than in-memory cache. |
+| 3 | AC3.7 | With an Anthropic key configured: switch to OpenAI → confirm → **force-quit and relaunch** → switch back to Anthropic. The Anthropic field is **empty**. | ⚠ **The relaunch is the whole criterion.** Without it, "cleared on screen", "cleared in cache" and "cleared in storage" are indistinguishable — and the middle one is exactly the "user believes they removed a key and hasn't" failure. |
+| 4 | AC3.8 | With **no** Anthropic key stored, switch to OpenAI. **No dialog appears.** | A step run only with a key present cannot fail. This is the negative half of `needsConfirmation`. |
+| 5 | AC3.9 | Type a key, then switch provider **within 500 ms** — before the debounce fires. Wait 5s, force-quit, relaunch. The key is gone. | ⚠ **The timing is the test.** Switching after the debounce has flushed cannot fail: there is no pending patch left to resurrect the key. This is the only check on the `queueSave`-not-`setSettings` requirement. |
+| 6 | AC3.10 | An **upgraded** (not fresh) Anthropic-only install: open the new screen. Anthropic pre-selected, key intact, coach still works without touching anything. | ⚠ **Install over the existing app; do not uninstall first.** Uninstalling destroys the legacy blob and turns this into a fresh-install test, which cannot exercise the `aiProvider: undefined` path this criterion is about. |
+| 7 | AC3.11 | Tap the picker: exactly two options, current one marked. Dismiss without choosing → nothing changes (key intact, provider unchanged). | The dismiss half catches a modal that commits on open or on backdrop tap. |
 
 ⚠ For scenario 5, back up the device/simulator DB and settings first if the install carries real data.
 

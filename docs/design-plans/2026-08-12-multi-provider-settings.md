@@ -147,6 +147,11 @@ All in `src/state/aiProviderSettings.ts`, pure, no storage access.
   outgoing `'   '` → **`false`**.
   *Discrimination: the whitespace-only case is the legal-adjacent value. Without it, "confirms when
   there is something to lose" and "confirms whenever the field is truthy" are indistinguishable.*
+  **Note:** A user who types a key and switches provider within 500 ms (before autosave) may lose
+  the unperisted key without a confirmation dialog. This is accepted as a consequence of reading
+  `getSettings()` — only *stored* keys trigger confirmation — with low user impact (the key was
+  typed seconds ago). The cost of detecting unpersisted pending changes would outweigh the benefit,
+  and Phase 3's AC3.9 simulator step deliberately constructs this case to verify the fix works.
 - **AC2.7 Edge:** `providerSwitchPlan(settings, currentProvider)` — re-selecting the provider already
   active — returns `needsConfirmation: false` and a patch that clears **no** key.
   *Discrimination: this is the only case that separates "clears the provider that is not `next`" from
@@ -211,10 +216,14 @@ the PR or a **human-QA** step.
   is precisely the "believes they removed it and hasn't" failure.*
 - **AC3.8 Human:** With **no** Anthropic key stored, switching to OpenAI shows **no** confirmation
   dialog. *(The screen half of AC2.6. A step run only with a key present cannot fail.)*
-- **AC3.9 Human:** Type a key, then switch provider **within 500 ms** — before the debounce fires.
-  Wait five seconds, force-quit, relaunch: the key is gone.
-  *Discrimination: a step that switches after waiting for the debounce cannot fail, because there is
-  no pending patch left to resurrect the key. The timing is the test.*
+- **AC3.9 Human:** With **no stored key for the current provider**, type a key, then switch provider
+  **within 500 ms** — before the debounce fires. Wait five seconds, force-quit, relaunch: the key is
+  gone. **Note:** To hit the 500 ms window by hand, temporarily raise `AUTOSAVE_DELAY_MS` to a larger
+  value (e.g., 2000 ms), run the test, then revert it. Include the temporary value in your evidence.
+  *Discrimination: The no-stored-key setup ensures no confirmation dialog appears, keeping the window
+  reachable. A step that switches after waiting for the debounce cannot fail, because there is no
+  pending patch left to resurrect the key. The timing is the test. If this proves unreachable in
+  practice, AC3.3 alone (the structural grep) stands as sufficient cover.*
 - **AC3.10 Human:** An **upgraded** (not fresh) Anthropic-only install opens the new screen: Anthropic
   is pre-selected, the key is intact, and the AI coach works without touching anything.
 - **AC3.11 Human:** Tapping the picker opens a list of exactly two options with the current one
@@ -258,6 +267,9 @@ the PR or a **human-QA** step.
   no model configuration produces byte-identical request bodies to today.
 - **AC5.2 Success:** `resolveModels('openai', undefined)` returns `gpt-5.6-sol` for both.
 - **AC5.3 Success:** A listed non-default id for the selected provider is returned as chosen.
+  *Workaround:* `AI_MODEL_CHOICES` ships from Phase 5 with one id per provider, so a non-default id
+  does not exist in the real list at first. Write this test against a temporary constant (same approach
+  as AC5.5); Phase 6 populates the list from a live API probe and supplies real non-default ids.
 - **AC5.4 Edge:** `resolveModels('anthropic', { chat: 'gpt-5.6-sol', oneShot: 'gpt-5.6-sol' })`
   returns the **Anthropic** defaults.
   *Discrimination: this is the "stored id the provider later rejects" criterion, and a cross-provider
@@ -939,13 +951,13 @@ the source and judge; **human** = run the app or carry out a manual procedure.
 | AC5.1 - AC5.9 | 5 | automated (jest: `src/ai`, `src/state`) |
 | AC5.10 | 5 | **structural read** |
 | AC5.11 | 5 | automated (three-dot `git diff`) |
-| AC6.1, AC6.2, AC6.6 | 6 | **structural reads** (`src/app`, `AGENTS.md`) |
-| AC6.7 | 6 | automated (`git diff` on `types.ts`) |
+| AC6.1, AC6.2 | 6 | **structural reads** (`src/app`) |
+| AC6.6, AC6.7 | 6 | **structural reads** (`types.ts`, `AGENTS.md`) |
 | AC6.3 - AC6.5, AC6.8 | 6 | **human - simulator** |
 | AC7.1 - AC7.3 | **gate on every phase** | automated (`tsc`, `jest`, `lint`) |
 
-**Totals: 65 criteria - 46 automated, 8 structural, 11 human.**
-Per group: AC1 9/0/1 - AC2 12/0/0 - AC3 2/3/6 - AC4 9/1/0 - AC5 10/1/0 - AC6 1/3/4 - AC7 3/0/0.
+**Totals: 65 criteria - 45 automated, 9 structural, 11 human.**
+Per group: AC1 9/0/1 - AC2 12/0/0 - AC3 2/3/6 - AC4 9/1/0 - AC5 10/1/0 - AC6 0/4/4 - AC7 3/0/0.
 
 The eight structural reads are counted apart from the eleven human ones because they are a different
 kind of evidence: a structural read is repeatable by a reviewer from the branch alone, where a
@@ -956,10 +968,6 @@ AC7.1–AC7.3, which are per-phase **gates** and appear in every phase's *Done w
 *Covers*. Recording them against one phase would be false: a phase that leaves `tsc` broken is not
 done, whichever phase it is. This is the same carve-out the coach-prescribed-weights plan made, and
 the same reason.
-
-The eight structural reads are counted separately from the nine human ones because they are a
-different kind of evidence: a structural read is deterministic and repeatable by a reviewer with
-`grep`, where a simulator step is not. Both are non-automated; only one is checkable from the branch.
 
 **Consequence sweep.** Five pieces of work are consequences of one phase but land in another phase's
 files, and each is assigned deliberately:

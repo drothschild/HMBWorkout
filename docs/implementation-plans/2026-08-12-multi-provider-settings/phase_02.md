@@ -99,6 +99,33 @@ export function keyPlaceholder(provider: AiProvider): string {
   return provider === 'anthropic' ? 'sk-ant-...' : 'sk-...';
 }
 
+/**
+ * Returns the stored key for a given provider.
+ * Used by Phase 3 to populate the key input's initial value.
+ */
+export function storedKeyFor(settings: BridgeSettings | Partial<BridgeSettings>, provider: AiProvider): string {
+  const raw = provider === 'anthropic' ? settings.anthropicKey : settings.openaiKey;
+  return raw ?? '';
+}
+
+/**
+ * DESIGN INTENT vs IMPLEMENTATION DECISION (for the implementor):
+ * The design states that `initialProviderSelection` should be built on top of
+ * `settings.ts:resolveAiProvider` to give that function its first production caller (from dead code).
+ * However, `resolveAiProvider` currently takes no arguments and reads `getSettings()` internally,
+ * while `initialProviderSelection` below takes `settings` as a parameter.
+ *
+ * Two options:
+ * 1. Parameterise `resolveAiProvider` to accept `settings` as an argument, then call it from
+ *    `initialProviderSelection` for arms 1-2 (explicit provider, then whichever key is present),
+ *    with `initialProviderSelection` adding arm 3 (default to 'anthropic').
+ * 2. Keep the current implementation (which reimplements arms 1-2 inline) and update the design
+ *    document to remove the claim that this function calls `resolveAiProvider`.
+ *
+ * Choose one and document the decision in the PR. This is a one-time stylistic choice that does
+ * not affect behavior — either way, `resolveAiProvider` remains dead code or gains a single caller.
+ */
+
 type ProviderKeySettings = Pick<BridgeSettings, 'anthropicKey'> &
   Partial<Pick<BridgeSettings, 'openaiKey' | 'aiProvider'>>;
 

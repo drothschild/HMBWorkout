@@ -41,8 +41,9 @@ A failure in any suite is yours.
 
 ## Investigation findings (done for you; re-check the ones marked ⚠)
 
-1. **The 17 survivors** are tabulated in #234. Read `gh issue view 234 --repo drothschild/HMBWorkout`
-   before starting; the table is the phase's definition of done.
+1. **The 17 survivors** are tabulated in #128's round-2 review comment. Read that comment before starting;
+   the mutant-ID table (`S01`, `S05–S07`, `E01`, `E03–E06`, `R02–R05`, `X02–X05`, `F19b–F24`) is the
+   phase's definition of done. #234 contains only a per-file survivor count, not the per-mutant IDs.
 2. **Three store test doubles carry `{ apiKey: config.anthropicKey || 'test-key' }`** —
    `restCommentaryStore.test.ts:85`, `exerciseQuestionStore.test.ts:76`,
    `exerciseReplaceStore.test.ts:189`. That fallback is *why* mutants `E06`/`R05` (blanking
@@ -119,6 +120,32 @@ blank key must reach the double, so a test asserting the key can fail.
 **Verify:** `npx jest src/state` — all existing tests still pass. If one now fails, it was relying on
 the fallback, which is the bug this task exists to expose. Fix the test by giving its fixture a real
 key, never by restoring the default.
+
+**AC1.2 — Explicit exact forwarded-key assertion.** After returning `capturedConfigs` from `makeStore()`,
+add a **third** test to at least one store (e.g. `restCommentaryStore.test.ts`) that verifies the exact
+key forwarding:
+
+```ts
+it('asserts the exact forwarded key, killing mutants E06 and R05', async () => {
+  getSettings.mockReturnValue({
+    anthropicKey: 'sk-ant-REAL',
+    openaiKey: '',
+    aiProvider: undefined,
+  });
+
+  const { store, capturedConfigs } = makeStore();
+  await store.getState().request(/* …surface entry… */);
+
+  expect(capturedConfigs[0]).toEqual({
+    anthropicKey: 'sk-ant-REAL',
+    openaiKey: '',
+    aiProvider: undefined,
+  });
+});
+```
+
+This assertion is what makes blanking the key observable and detectable. Without it, Task 1's removal
+of `|| 'test-key'` has nowhere to fail.
 
 **Covers:** AC1.2
 
@@ -376,13 +403,17 @@ Same two tests as Task 5 (OpenAI-only → a `DebriefMode`; no key → `null`), s
 **Files:** `src/state/exerciseQuestionStore.ts`, `src/state/exerciseQuestionStore.test.ts`,
 `src/app/session.tsx`
 
-`exerciseQuestionStore.ts:71` exports `hasAnthropicKey`, which since Phase 3 means "has any API key",
-and `src/app/session.tsx:24` imports it and `:407` calls it. The name is a live misnomer that the
-next phase makes actively misleading.
+`exerciseQuestionStore.ts:71` exports `hasAnthropicKey(settings)`, which since Phase 3 means "has any
+API key", and `src/app/session.tsx:24` imports it and `:407` calls it. The name is a live misnomer
+that the next phase makes actively misleading.
 
-⚠ There is already a **module-private** `hasApiKey()` at `exerciseQuestionStore.ts:129` with the same
-meaning. Collapse the two — export the existing one and delete the duplicate — rather than creating
-two exported names.
+There is also a **zero-arg closure** `hasApiKey()` at `exerciseQuestionStore.ts:129` inside
+`createExerciseQuestionStore`, which reads `deps.getSettings()`. The two cannot be simply collapsed
+because they have different signatures (one parameterized, one a closure).
+
+**Workable approach:** Rename the exported function at `:71` from `hasAnthropicKey(settings)` to
+`hasApiKey(settings)`, and have the closure at `:129` delegate to it by calling
+`hasApiKey(deps.getSettings())`. This makes the module use a single exported predicate name.
 
 ⚠ **`src/app/session.tsx` is in this phase's scope**, because the rename breaks it and no phase may
 leave `tsc` broken for a later one.
@@ -414,7 +445,8 @@ leave `tsc` broken for a later one.
 
 **Not a code task. This is the phase's exit condition.**
 
-For each of the 17 mutants in #234's table:
+For each of the 22 mutants (17 store mutants + 5 factory mutants: `E06`, `R05`, `S01`, `S05–S07`,
+`E01`, `E03–E04`, `R02–R03`, `X02–X03`, plus `F19b`, `F20`, `F21`, `F23`, `F24`):
 
 1. Apply the mutation by hand.
 2. Assert the file actually changed (`git diff --stat` non-empty) and the anchor was unique.
