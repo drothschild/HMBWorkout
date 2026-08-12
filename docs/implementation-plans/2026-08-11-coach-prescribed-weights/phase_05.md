@@ -131,6 +131,11 @@ The synchronous pass runs before the DB reads resolve, so a prescribed exercise 
   subscribes to other stores with the `store((s) => s.field)` hook form (lines 125-131). Adding one
   more selector is the established pattern here.
 - ✓ `src/state/exerciseReplaceStore.test.ts` exists (465 lines) and `src/state` is in `testMatch`.
+- ✓ **Value-pin sweep for this phase's surface:** `ExerciseReplaceState` gains a field, so the risk is
+  a test asserting the whole store state. `exerciseReplaceStore.test.ts` asserts field-by-field
+  (`status`, `alternates`, `error`) and never compares whole state, so **nothing breaks**. `src/app/`
+  has no tests at all. The command:
+  `grep -n "getState()).toEqual" src/state/exerciseReplaceStore.test.ts`.
 - ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
   Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
   earlier draft of this plan carved out.
@@ -141,11 +146,11 @@ The synchronous pass runs before the DB reads resolve, so a prescribed exercise 
 swap. That was an assumption stated as an analysis, and it is withdrawn.** Here is what the code
 actually does.
 
-`src/state/exerciseReplaceStore.ts` `replace()` writes in two deliberate steps:
+`src/state/exerciseReplaceStore.ts` `choose()` (declared at `:221` — there is no `replace()`) writes in two deliberate steps:
 
 ```ts
-:239   const newState = await deps.dispatch({ tag: 'ReplaceExercise', idx: current.idx, exerciseId });
-:245   if (!newState) { throw new Error('the engine rejected the replacement'); }
+:240   const newState = await deps.dispatch({ tag: 'ReplaceExercise', idx: current.idx, exerciseId });
+:246   if (!newState) { throw new Error('the engine rejected the replacement'); }
 :252   await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
 ```
 
@@ -196,7 +201,7 @@ run.
 
 **Files:**
 - Modify: `src/state/exerciseReplaceStore.ts` — the state interface, the `create<...>` initial state,
-  and `replace()`'s success path around line 252
+  and `choose()`'s success path around line 252
 - Test: `src/state/exerciseReplaceStore.test.ts` (unit)
 
 Read investigation finding 7 first. This task exists because clearing `target_weight_kg` (Phase 1)
@@ -213,7 +218,7 @@ In the store's state interface (alongside `status`, `alternates`, `error`), add:
    * session screen's prefill effect depends on this so it re-reads the routine's
    * prescribed loads *after* the write commits.
    *
-   * This exists because the two halves of a swap race. `replace()` dispatches to
+   * This exists because the two halves of a swap race. `choose()` dispatches to
    * the engine before it re-points the row (deliberately — a rejected swap must
    * not move the routine), but that same dispatch updates activeSessionStore,
    * which re-runs the prefill effect. The effect's read and
@@ -224,6 +229,16 @@ In the store's state interface (alongside `status`, `alternates`, `error`), add:
    *
    * Rather than trying to win that race, this guarantees one more effect run
    * strictly after the write. The extra run is idempotent.
+   *
+   * SCOPE: exercise swaps only. `upsertRoutine` is the other writer of
+   * target_weight_kg — a coach revising a routine through acceptDraft can change
+   * or clear a prescription and bumps nothing here, so a session screen that
+   * stays mounted across such an edit keeps the stale value until it remounts.
+   * That is not a live defect (nothing reads a prescription outside the session
+   * screen's own prefill, and editing a routine mid-session is not a supported
+   * flow), and the name is deliberately about the *routine* rather than the swap
+   * so that an acceptDraft bump can be added to this same counter later without
+   * a rename. Do not assume routine edits are covered today.
    */
   routineRevision: number;
 ```
@@ -233,7 +248,7 @@ beside `status: 'idle'`.
 
 **Step 2: Bump it after the write, and only after**
 
-In `replace()`, immediately after the existing `await deps.applyToRoutine(...)` call (line 252) and
+In `choose()`, immediately after the existing `await deps.applyToRoutine(...)` call (line 252) and
 before `target = null;`:
 
 ```ts
@@ -259,7 +274,7 @@ database and must be announced regardless.
 Add to `src/state/exerciseReplaceStore.test.ts`, reusing the existing `ExerciseReplaceDeps` fake-deps
 setup that file already uses (it injects `dispatch`, `ensureExercise` and `applyToRoutine`).
 
-- **AC6.7 (bump):** a successful `replace()` leaves `routineRevision` one higher than before.
+- **AC6.7 (bump):** a successful `choose()` leaves `routineRevision` one higher than before.
 - **AC6.7 (ordering):** make the injected `applyToRoutine` record `routineRevision` at the moment it
   is *called*, then assert that recorded value equals the pre-swap value — i.e. the bump had not yet
   happened when the write started. ⚠ This is the assertion that actually pins the contract. A test
@@ -503,11 +518,24 @@ This one does not.
 1. Ask the coach for a routine containing an exercise **you have never logged a set for** — a
    brand-new movement name, or a fresh simulator install. Give it a prescribed weight (e.g. 95).
    Accept the draft.
-2. Confirm there is genuinely no history before you judge the result:
+2. Confirm there is genuinely no history before you judge the result. **The obvious one-table query
+   is not enough** — `getExerciseWorkingSetHistory` (`src/db/repository.ts:386-425`) resolves identity
+   on *two* paths: the v3 `session_sets.exercise_id` stamp, and a legacy join through
+   `routine_exercises` for sets whose stamp is null. A query counting only the stamp can report `0`
+   while `history[0]` is non-empty, at which point this step silently becomes Step 2 and the bug it
+   exists to catch survives with the evidence looking clean. That matters here because Steps 3 and 3b
+   run on the *upgraded* install H1 and H2 mandate, which carries pre-existing data.
+
+   Mirror the reader instead:
    ```sql
-   select count(*) from session_sets where exercise_id = '<slug>';
+   select count(*) from session_sets s
+     left join routine_exercises re on s.routine_exercise_id = re.id
+    where s.set_type = 'working'
+      and (s.exercise_id = '<slug>' or (s.exercise_id is null and re.exercise_id = '<slug>'));
    ```
    Expect `0`. If it is non-zero, pick a different exercise — otherwise you are re-running Step 2.
+   (The `set_type = 'working'` filter matches the history query, which excludes warmups; without it a
+   warmup-only exercise reads as having history when the prefill path sees none.)
 3. Start the routine and arrive at that exercise.
 4. **Expected: the weight field opens at 95.** Empty means the async block still bails when history
    is absent, and the feature is broken for every new coach-authored routine — the most likely single
@@ -608,6 +636,15 @@ future edit could break: bump strictly after `applyToRoutine` resolves, and neve
 or a thrown write. Note that this is pinned by tests in `src/state/exerciseReplaceStore.test.ts`, so
 it is one of the few session-screen behaviours with automated cover.
 
+**State its scope explicitly, because the name is broader than the behaviour.** It bumps on exercise
+swaps only. `upsertRoutine` is the other writer of `target_weight_kg`, so a coach revising a routine
+through `acceptDraft` can change or clear a prescription and bump nothing — a session screen that
+stays mounted across such an edit keeps the stale value until it remounts. That is not a live defect
+(editing a routine mid-session is not a supported flow, and nothing outside the session screen's own
+prefill reads a prescription), and the name is deliberately about the *routine* so an `acceptDraft`
+bump can join the same counter later without a rename. Write that down; a reader who assumes routine
+edits are already covered will not find out otherwise from the code.
+
 **Step 4: Add the engine-convention note**
 
 Under engine convention 6 ("Engine state carries ids, never display data"), add the prescribed weight
@@ -681,6 +718,7 @@ under `src/components/`.**
 6. **Judging AC6.4 on the first frame.** The synchronous pass renders before the DB reads resolve; a value that changes to the prescribed number is correct.
 7. **Chasing a route-shaped `tsc` error.** Stale `.expo/types/router.d.ts`, documented in AGENTS.md. Regenerate, do not edit code.
 8. **Skipping the AGENTS.md read-through.** Seven passages change and cross-references do not grep.
-9. **Bumping `routineRevision` before `await deps.applyToRoutine(...)`, or in the `catch`.** Either announces a clear that has not happened, and the effect re-reads and re-applies the *old* prescription — worse than not bumping at all. AC6.7's ordering test is the one that catches it.
-10. **Adding `routineRevision` to the progression-hint effect's deps as well.** It does not read the prescription; widening its deps just refires a DB query on every swap.
-11. **Treating a green AC6.5 as proof the ordering is right.** Before Task 1 it passed or failed on a coin flip. The automated AC6.7 tests are the real evidence.
+9. **Assuming `routineRevision` covers routine edits.** It bumps on swaps only; an `acceptDraft` revision changes `target_weight_kg` and bumps nothing. Not a defect today — mid-session routine editing is not a supported flow — but the docblock and AGENTS.md must say so, or the next reader will assume otherwise.
+10. **Bumping `routineRevision` before `await deps.applyToRoutine(...)`, or in the `catch`.** Either announces a clear that has not happened, and the effect re-reads and re-applies the *old* prescription — worse than not bumping at all. AC6.7's ordering test is the one that catches it.
+11. **Adding `routineRevision` to the progression-hint effect's deps as well.** It does not read the prescription; widening its deps just refires a DB query on every swap.
+12. **Treating a green AC6.5 as proof the ordering is right.** Before Task 1 it passed or failed on a coin flip. The automated AC6.7 tests are the real evidence.

@@ -37,6 +37,17 @@ This phase implements and tests:
   (no positive reps, no positive weight) still falls through to the history fallback when a
   prescription is present — the prescription must not, by filling the weight field, make an empty
   in-session set look authoritative and suppress history's reps.
+- **coach-prescribed-weights.AC4.9 Edge:** A history fallback that is present but contributes nothing
+  usable (e.g. `{ reps: 0 }`) still falls through to the routine's `targetReps` when a prescription is
+  present — the prescription must not, by filling the weight field, make an empty history fallback
+  look authoritative and suppress the target-reps fallback.
+- **coach-prescribed-weights.AC4.10 Edge:** A history fallback carrying weight but no usable reps,
+  plus a prescription, yields the prescribed weight and **no** reps — exactly the reps behaviour the
+  same input produces with no prescription. The presence of a prescription never changes the reps
+  field.
+- **coach-prescribed-weights.AC4.11 Structural:** No non-terminal return in `computeSetPrefill` is
+  gated on `Object.keys(prefill).length`. Each non-terminal return's condition is computed from its
+  own source (the logged set, or `historyFallback`), never from the accumulating `prefill` object.
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
@@ -82,7 +93,11 @@ The design decided this deliberately. AC5.3 is the check that it stayed decided.
   this line persists into the fallback blocks.
 - **Line 303:** the same check after the history block.
 
-The restructure below preserves both, which is what makes AC4.6 provable by inspection as well as by test.
+Both are gated on `Object.keys(prefill).length > 0`, and **that is safe only in today's code**,
+where `prefill` is populated exclusively by the source each branch is about. The prescription breaks
+that equivalence — it writes into `prefill` from outside either branch — so both returns must be
+re-gated on predicates computed from their own source. Two rounds of review found the same defect
+here, one branch apart. Read Task 1 Step 3's table and bug-class note before touching either.
 
 ### 4. The `> 0` guards are the absence convention, and they are why 0 is not a prescription
 
@@ -97,6 +112,12 @@ Lines 274-281 and 297-302 all guard `!= null && > 0`. AGENTS.md explains why: th
 - ✓ `computeSetPrefill` has exactly one production caller, `src/app/session.tsx` (lines 204 and 241),
   which is wired in Phase 5. Adding an optional third parameter breaks neither call site.
 - ✓ `src/state/sessionPresenter.test.ts` exists and is in `testMatch`.
+- ✓ **Value-pin sweep for this phase's surface:** `computeSetPrefill` gains a *parameter*, not an
+  output field, so no `toEqual` on its result can break — the returned shape is unchanged when the
+  parameter is omitted. `sessionPresenter.test.ts`'s `toEqual` prefill assertions (`:473, :485, :492,
+  :511, :520, :521, :532, :542, :551, :559, :560`) are exactly what AC5.1 requires to pass
+  **unmodified**. No snapshot covers this module. **Nothing breaks** — and if something does, it means
+  AC4.6's byte-identity claim is false, which is a bug in your implementation, not a stale pin.
 - ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
   Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
   earlier draft of this plan carved out.
@@ -108,7 +129,7 @@ Lines 274-281 and 297-302 all guard `!= null && > 0`. AGENTS.md explains why: th
 <!-- START_TASK_1 -->
 ### Task 1: Restructure `computeSetPrefill`
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8` (tested in Task 2)
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11` (tested in Task 2)
 
 **Files:**
 - Modify: `src/state/sessionPresenter.ts:241-306` (the docblock and the whole function body)
@@ -188,87 +209,131 @@ export function computeSetPrefill(
   }
 
   const prefill: SetInputValues = {};
+
+  // ---- R2: this session's own last set for this exercise ----------------
   if (lastMatch) {
+    // `contributed` is computed from the LOGGED SET ALONE, never from
+    // `prefill`'s key count. See "The bug class" below: a return gated on
+    // "prefill is non-empty" is wrong the moment the prescription can populate
+    // prefill, and this function has produced that defect twice.
+    let contributed = false;
+
     if (isDurationBased) {
       if (lastMatch.durationSeconds != null && lastMatch.durationSeconds > 0) {
         prefill.durationSeconds = lastMatch.durationSeconds;
+        contributed = true;
       }
     } else {
-      if (lastMatch.reps != null && lastMatch.reps > 0) prefill.reps = lastMatch.reps;
+      if (lastMatch.reps != null && lastMatch.reps > 0) {
+        prefill.reps = lastMatch.reps;
+        contributed = true;
+      }
       if (lastMatch.weightKg != null && lastMatch.weightKg > 0) {
         prefill.weightLbs = kgToLbs(lastMatch.weightKg);
+        contributed = true;
       }
     }
 
-    // Whether the in-session set contributed anything, decided BEFORE the
-    // prescription is consulted. This ordering is load-bearing: a fully-empty
-    // logged set (zero/absent reps, no weight) must still fall through to the
-    // fallbacks below, exactly as it did before prescriptions existed. If the
-    // prescription were applied first it would populate weightLbs, make this
-    // check true, and return a weight-only prefill — silently dropping the
-    // history reps the fall-through exists to fetch.
-    const inSessionContributed = Object.keys(prefill).length > 0;
-
-    if (inSessionContributed) {
+    if (contributed) {
       // The set the athlete just did outranks the plan, so the prescription only
       // fills a weight this session has not already established (e.g. a logged
-      // set that recorded reps but no load).
-      if (!isDurationBased && prefill.weightLbs === undefined && prescribedLbs !== undefined) {
+      // set that recorded reps but no load). `prescribedLbs` is already
+      // undefined for a duration-based entry, so no extra guard is needed here —
+      // that decision lives at its single site above.
+      if (prefill.weightLbs === undefined && prescribedLbs !== undefined) {
         prefill.weightLbs = prescribedLbs;
       }
       return prefill;
     }
-    // A fully-empty logged set contributed nothing; fall through to the
-    // fallbacks below rather than returning an all-undefined prefill.
+    // A fully-empty logged set contributed nothing; `prefill` is still empty.
+    // Fall through to the fallbacks below.
   }
 
-  // No usable in-session set for this exercise.
+  // ---- R3: duration entries have no weight and no cross-session history --
   if (isDurationBased) {
-    // Cross-session history is structurally unavailable here (the history
-    // query returns working-type sets only), so targets are the only fallback.
+    // The history query returns working-type sets only, so targets are the only
+    // fallback here.
     return entry.targetDurationSeconds > 0
       ? { durationSeconds: entry.targetDurationSeconds }
       : undefined;
   }
 
-  // The override: the prescription claims the weight field before history is
-  // consulted. Reps are untouched and still come from history below.
+  // ---- The override: the prescription claims the weight field ahead of
+  // ---- history. Reps are untouched and still come from history below.
   if (prescribedLbs !== undefined) prefill.weightLbs = prescribedLbs;
 
+  // ---- R4: cross-session history ----------------------------------------
   if (historyFallback) {
-    if (historyFallback.reps != null && historyFallback.reps > 0) {
-      prefill.reps = historyFallback.reps;
-    }
-    if (
-      prefill.weightLbs === undefined &&
-      historyFallback.weightLbs != null &&
-      historyFallback.weightLbs > 0
-    ) {
+    // Both predicates read `historyFallback` alone, never `prefill`. That is
+    // what keeps R4's firing independent of whether a prescription exists.
+    const historyHasReps = historyFallback.reps != null && historyFallback.reps > 0;
+    const historyHasWeight =
+      historyFallback.weightLbs != null && historyFallback.weightLbs > 0;
+
+    if (historyHasReps) prefill.reps = historyFallback.reps;
+    if (prefill.weightLbs === undefined && historyHasWeight) {
       prefill.weightLbs = historyFallback.weightLbs;
     }
-    if (Object.keys(prefill).length > 0) return prefill;
+
+    if (historyHasReps || historyHasWeight) return prefill;
   }
 
+  // ---- R5: routine targets (terminal) ------------------------------------
   if (entry.targetReps > 0) prefill.reps = entry.targetReps;
   return Object.keys(prefill).length > 0 ? prefill : undefined;
 }
 ```
 
-**Step 3: Convince yourself AC4.6 holds by inspection before running anything**
+**Step 3: Walk every return path against this table before running anything**
+
+This function has now produced the *same* defect twice, in adjacent branches, and the second
+instance arrived inside the fix for the first. Do not spot-check the branch you were told about.
+Check every path against the table, then check the invariants under it.
+
+| # | Reached when | `weightLbs` | `reps` | `durationSeconds` |
+|---|---|---|---|---|
+| **R1** | no current entry | — | — | — (returns `undefined`) |
+| **R2** | this session's last set for this exercise contributed something | that set's weight if it had one, **else** the prescription, else absent | that set's reps if `> 0`, else absent — never history, never targets, because this set is authoritative | duration entries only: that set's duration |
+| **R3** | duration-based entry, no usable in-session set | never (no weight input exists) | never | `entry.targetDurationSeconds` if `> 0`, else the whole result is `undefined` |
+| **R4** | strength entry, history contributed reps and/or weight | the prescription if present, **else** history's weight if `> 0`, else absent | history's reps if `> 0`, else absent | never |
+| **R5** | strength entry, nothing above returned | the prescription if present, else absent | `entry.targetReps` if `> 0`, else absent | never |
+
+Three invariants hold across the whole table. If your code breaks any of them, it is wrong even if
+the tests pass:
+
+1. **The prescription only ever writes `weightLbs`.** `prescribedLbs` is assigned to exactly two
+   places, both `prefill.weightLbs` (inside R2's block, and just above R4). It never touches `reps`
+   or `durationSeconds`.
+2. **Whether a return fires is never decided by the prescription.** R2 gates on `contributed`,
+   computed from the logged set. R4 gates on `historyHasReps || historyHasWeight`, computed from
+   `historyFallback`. Neither reads `prefill`. This is the invariant both bugs violated.
+3. **`Object.keys(prefill)` appears exactly once, in R5.** R5 is terminal — there is nothing below
+   it to skip — so a key-count decision there is harmless. Anywhere else it is the bug.
+
+**The bug class, stated once so it is not rediscovered a third time:** *a non-terminal return gated
+on `prefill` being non-empty.* Before this feature, `prefill` was only ever populated by the source
+that branch was about, so "non-empty" and "this source contributed" were the same thing. The
+prescription broke that equivalence by writing into `prefill` from outside the branch. Both defects
+were exactly this, one branch apart. AC4.11 pins the class structurally; AC4.8 and AC4.9 pin the two
+known instances behaviourally.
+
+**Step 3b: Confirm AC4.6 (no-prescription byte-identity) holds by inspection**
 
 With `prescribedWeightKg` omitted, `prescribedLbs` is `undefined` and:
 
-- `inSessionContributed` is exactly the old `Object.keys(prefill).length > 0` check, evaluated at the
-  same point on the same object, and the new `if` inside it is a no-op — so the in-session block
-  returns and falls through identically;
-- the duration return is unchanged;
-- `if (prescribedLbs !== undefined)` is a no-op;
-- the history weight guard gains `prefill.weightLbs === undefined`, which is always true at that
-  point — the only way to reach it with a weight already set is via the prescription;
-- the final return changes shape from `entry.targetReps > 0 ? { reps } : undefined` to a build-and-check,
-  which is equivalent because `prefill` is provably empty there without a prescription.
+- `contributed` is true in exactly the cases the old `Object.keys(prefill).length > 0` was true —
+  each assignment that could add a key sets it — and the new `if` inside R2 is a no-op;
+- R3 is unchanged;
+- `if (prescribedLbs !== undefined)` is a no-op, so `prefill` is still empty entering R4;
+- `historyHasReps || historyHasWeight` is true in exactly the cases the old
+  `Object.keys(prefill).length > 0` was true there, because with an empty `prefill` the only keys
+  that block can add are the two those predicates describe — and the weight guard's added
+  `prefill.weightLbs === undefined` is always true when no prescription was applied;
+- R5's build-and-check is equivalent to `entry.targetReps > 0 ? { reps } : undefined`, because
+  `prefill` is provably empty there without a prescription.
 
-If you cannot follow that argument, stop and re-read rather than trusting the tests alone — AC5.1's whole job is to catch a mistake here, and a test suite that was edited to accommodate a regression catches nothing.
+If you cannot follow that argument, stop and re-read rather than trusting the tests alone — AC5.1's
+whole job is to catch a mistake here, and a suite edited to accommodate a regression catches nothing.
 
 **Step 4: Typecheck**
 
@@ -288,7 +353,7 @@ git commit -m "feat(state): prescribed weight overrides history in the set prefi
 <!-- START_TASK_2 -->
 ### Task 2: The precedence test matrix
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8`, `coach-prescribed-weights.AC5.1`
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11`, `coach-prescribed-weights.AC5.1`
 
 **Files:**
 - Test: `src/state/sessionPresenter.test.ts` (unit)
@@ -337,7 +402,33 @@ The kg↔lbs pairs to use: `lbsToKg(185) = 83.91` and `kgToLbs(83.91) = 185`; `k
   no-prescription path, and the extra case below uses a set that *does* have reps. A set logged with
   zero reps is a real action — `src/interop/parse.ts`'s context rules exist precisely because of it.
 
-**Step 3: Add one case that is not in the AC list**
+- **AC4.9:** no in-session set; `historyFallback = { reps: 0 }` (present but useless — this is what
+  `session.tsx` actually builds for a working set logged with zero reps and no weight, because its
+  builder gates on `!= null`, not `> 0`); prescription `83.91`; `entry.targetReps = 5`. Expect
+  `{ weightLbs: 185, reps: 5 }`.
+
+  ⚠ This is the second instance of the bug class. Without the `historyHasReps || historyHasWeight`
+  gate, R4 returns `{ weightLbs: 185 }` and the reps field opens **empty** where today it opens at
+  `targetReps` — an unintended behaviour change gated purely on the feature being present.
+
+- **AC4.10:** no in-session set; `historyFallback = { weightLbs: 175 }` (weight, no reps);
+  prescription `83.91`; `entry.targetReps = 5`. Expect `{ weightLbs: 185 }` — **and assert `reps` is
+  `undefined`.**
+
+  ⚠ Do not "improve" this to `{ weightLbs: 185, reps: 5 }`. Without a prescription this input returns
+  `{ weightLbs: 175 }` with no reps, and the whole design claim is that a prescription changes the
+  weight field and nothing else. Assert the same call with the prescription omitted also has no
+  `reps`, so the two are pinned together. This is also the case that distinguishes the correct fix
+  from a plausible wrong one: gating R4 on a *key-count delta* instead of on history's own predicates
+  would let `targetReps` leak in here.
+
+- **AC4.11:** a structural check, not a behavioural test. Read `computeSetPrefill` and confirm
+  `Object.keys(prefill)` appears exactly once, in the terminal R5 return. Record it as a one-line
+  assertion in the PR description rather than as a jest test — a test that greps its own source is
+  worse than a reviewer who reads it. Its value is that it names the *class*, so the third instance
+  is caught by reading rather than by a third round of review.
+
+**Step 3b: Add one case that is not in the AC list**
 
 A logged in-session set with **reps but no weight**, plus a prescription. Expect `reps` from the
 logged set and `weightLbs` from the prescription. This is the partial-fill path through the in-session
@@ -412,8 +503,8 @@ Expected: **no output** — this phase only *adds* lines to that file. Any delet
 
 1. **Adding `targetWeightKg` to `src/engine/types.ts`'s `RoutineEntry`.** It compiles, it looks right, and the value silently vanishes on the first `dispatch` because the Rill record is closed. AC5.3 exists to catch it.
 2. **Making the prescription override the in-session set too.** It re-offers a load the athlete just chose not to use. The chain is deliberate.
-3. **Applying the prescription before computing `inSessionContributed`.** This is the subtlest failure in the phase and it was caught in review, not in testing. An in-session set that logged nothing usable would stop falling through to history — the prescription fills `weightLbs`, the early-return check goes true, and the history reps vanish. It is a whole-object override by accident, in exactly one branch. AC4.8 is the only thing that catches it.
-4. **Making the override whole-object instead of field-scoped.** Returning `{ weightLbs: prescribed }` and dropping the history reps loses information for no reason.
+3. **Gating any non-terminal return on `prefill` being non-empty.** This is the phase's defect class and it has now been found twice, in adjacent branches, the second time *inside the fix for the first* — once in the in-session block (AC4.8) and once in the history block (AC4.9). Both times the prescription had already written `weightLbs`, making a "did this source contribute?" check true when the source contributed nothing, so the fall-through that should have fetched reps never ran. Gate each non-terminal return on its own source: `contributed` from the logged set, `historyHasReps || historyHasWeight` from `historyFallback`. AC4.11 pins the class; check it by reading, not by hoping a third test catches a third instance.
+4. **Making the override whole-object instead of field-scoped.** Returning `{ weightLbs: prescribed }` and dropping the history reps loses information for no reason. AC4.10 is the sharp end of this: a prescription must never cause a `reps` value to appear that would not have appeared without it, either.
 5. **Editing an existing test to make it pass.** AC5.1 is the guarantee that pre-v5 routines behave identically, and Task 3 Step 5 checks it mechanically with a diff, not by trust.
 6. **Treating a prescribed `0` as a prescription.** Every other metric here reads `> 0` as the absence convention; a 0 would be discarded downstream anyway.
 7. **Converting kg→lbs more than once.** `prescribedLbs` is computed once at the top. Do not call `kgToLbs` again further down.

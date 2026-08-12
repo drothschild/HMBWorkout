@@ -83,6 +83,15 @@ So `ExerciseDetail`'s `?: number` fields can actually hold `null` at runtime des
 - ✓ `src/state/routineDetailPresenter.test.ts` exists.
 - ✓ `src/ai/contextBuilder.test.ts:281-292` — the existing routine-section assertions
   (`toContain('3x8')`, `toContain('rest 120s')`, etc.), which are the pattern to follow.
+- ✓ **Value-pin sweep for this phase's surface (run it before you start, and re-run it if you edit
+  anything not listed here):** `ExerciseDetail` gains an optional field and `formatExerciseLine` gains
+  a segment, so the risk is a test asserting a whole object or a whole prompt.
+  `routineDetailPresenter.test.ts` uses `toMatchObject` (`:89, :99, :111, :153, :202, :206`) — subset
+  matching, unaffected — and has no `toEqual` on an `ExerciseDetail`. `contextBuilder.test.ts`'s
+  `toHaveLength(3)/(0)` at `:615/:618` count `getExerciseWorkingSetHistory` results, not prompt
+  segments. No snapshot covers the prompt. **Nothing breaks.** The commands:
+  `grep -rn "toMatchInlineSnapshot\|toMatchSnapshot" src` and
+  `grep -n "toEqual" src/state/routineDetailPresenter.test.ts`.
 - ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
   Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
   earlier draft of this plan carved out.

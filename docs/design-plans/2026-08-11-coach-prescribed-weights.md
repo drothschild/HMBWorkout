@@ -133,6 +133,16 @@ the whole entry); auto-progression without the coach.
   (no positive reps, no positive weight) still falls through to the history fallback when a
   prescription is present — the prescription must not, by filling the weight field, make an empty
   in-session set look authoritative and suppress history's reps.
+- **coach-prescribed-weights.AC4.9 Edge:** A history fallback that is present but contributes nothing
+  usable (e.g. `{ reps: 0 }`) still falls through to the routine's `targetReps` when a prescription is
+  present — the same failure as AC4.8, one branch further down.
+- **coach-prescribed-weights.AC4.10 Edge:** A history fallback carrying weight but no usable reps,
+  plus a prescription, yields the prescribed weight and **no** reps — exactly the reps behaviour the
+  same input produces with no prescription. The presence of a prescription never changes the reps
+  field.
+- **coach-prescribed-weights.AC4.11 Structural:** No non-terminal return in `computeSetPrefill` is
+  gated on `Object.keys(prefill).length`. Each non-terminal return's condition is computed from its
+  own source (the logged set, or `historyFallback`), never from the accumulating `prefill` object.
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
@@ -385,6 +395,15 @@ The residual risk is a user typing into the weight field in the milliseconds bet
 alternate and the write committing, whose entry the extra run would overwrite. They have just tapped
 a button in a modal; this is accepted.
 
+**The counter's scope is narrower than its name**, and the plan says so in both the docblock and
+AGENTS.md rather than relying on the name. It bumps on exercise swaps only. `upsertRoutine` is the
+other writer of `target_weight_kg`, so a coach revising a routine through `acceptDraft` can change or
+clear a prescription and bump nothing — a session screen that stays mounted across such an edit keeps
+the stale value until it remounts. That is not a live defect (editing a routine mid-session is not a
+supported flow, and nothing outside the session screen's own prefill reads a prescription). The name
+is deliberately about the *routine* rather than the swap so an `acceptDraft` bump can join the same
+counter later without a rename — but until it does, the scope is written down.
+
 ### The vault markdown grammar is not extended
 
 `src/interop`'s grammar already has a `weight=` flag. It is documented in three places as "logged
@@ -541,7 +560,7 @@ session's own set, and touches the weight field only.
 **Dependencies:** None technically (the parameter is optional and self-contained), but it is
 meaningless before Phase 1 supplies a value.
 
-**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8`,
+**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11`,
 `coach-prescribed-weights.AC5.1`, `coach-prescribed-weights.AC5.3`
 
 **Done when:** `npm test -- src/state/sessionPresenter.test.ts` passes with every pre-existing
@@ -586,7 +605,7 @@ scenarios in test-requirements.md pass with screenshots; AGENTS.md describes onl
 | AC1.1 – AC1.7 | 1 | yes (`src/db`) |
 | AC2.1 – AC2.11 | 2 | yes (`src/ai`) |
 | AC3.1 – AC3.3 | 3 | yes (`src/ai`, `src/state`) |
-| AC4.1 – AC4.8 | 4 | yes (`src/state`) |
+| AC4.1 – AC4.11 | 4 | yes (`src/state`; AC4.11 is a read-and-record check) |
 | AC5.1 | 4 | yes (`src/state`) |
 | AC5.2 | 5 | **no — simulator** |
 | AC5.3 | 4 | yes (`git diff` check) |
@@ -595,7 +614,7 @@ scenarios in test-requirements.md pass with screenshots; AGENTS.md describes onl
 | AC6.7 | 5 | yes (`src/state/exerciseReplaceStore.test.ts`) |
 | AC6.8 | 5 | **no — simulator** |
 
-**Totals: 40 criteria — 35 automated, 5 human.**
+**Totals: 43 criteria — 38 automated, 5 human.**
 
 Every AC belongs to exactly one phase's *Covers* list, with one deliberate exception: AC6.1–AC6.3 are
 per-phase **gates**, not deliverables of any single phase, so they appear in every phase's *Done
@@ -640,8 +659,10 @@ the kind of gate failure that makes an implementer doubt a correct change. A swe
 suite found nothing else — only two inline snapshots exist in the whole repo (`AI_TURN_SCHEMA` and
 `ALTERNATES_SCHEMA`, the latter untouched), no test asserts a `_raw` object by equality, and
 `sessionPresenter.test.ts`'s `toEqual` prefill assertions are unaffected because this change adds no
-new *output* field. Every phase's task list carries the same instruction: grep for value pins on
-anything it edits.
+new *output* field. **Every phase file states its own sweep result** under "Investigation findings",
+naming what was checked on that phase's surface and what it found — phases 1 and 2 name the
+assertions that break, phases 3 to 5 record that nothing on their surface is pinned and give the
+commands to re-check. A phase that widens a surface not covered by its own sweep must re-run it.
 
 **`main` is green.** Verified at `eb0afe0` — 86 suites, 1582 tests. An earlier draft of this plan
 carried a carve-out for 12 failures in `src/interop/migrate.test.ts`; #219/#220 deleted that
