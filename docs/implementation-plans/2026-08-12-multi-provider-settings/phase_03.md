@@ -241,15 +241,16 @@ push `/settings/ai`. Change both to push `/settings/ai-provider` so the user lan
 
 **Issue 2 — Hardcoded "Anthropic":** The no-key screen at `:346` says `Add your Anthropic API key in
 Settings`. After Phase 3, OpenAI users see "Anthropic" and are sent to the Anthropic field, which is
-wrong. Either:
+wrong.
 
-  - *Option A (recommended):* Make it generic — `Add your API key in Settings` — so it works for
-    either provider.
-  - *Option B:* Read `settings.aiProvider ?? 'anthropic'` and name the correct provider. This
-    requires `getSettings()` in `ai-coach.tsx`, same as the `no-key-error-banner` that already
-    calls it.
+**Decision:** Make it generic — `Add your API key in Settings` — so it works for either provider.
 
-**Choose one option, commit to it, and verify in the simulator (see Task 6, scenario 1).**
+**Rationale:**
+- The no-key screen's job is to route the user to Settings, where the provider *choice happens*. Naming a provider before that choice is exactly the bug we are fixing.
+- Option B (reading `settings.aiProvider ?? 'anthropic'`) reintroduces the defect in the default case: a user with unset `aiProvider` (legacy installs with only `anthropicKey`) would still be told "Anthropic" even if they later chose OpenAI, because the fallback runs before the choice.
+- Option B also adds logic (`getSettings()` call and conditional copy) to `ai-coach.tsx`, a file with **zero jest coverage**. Generic copy is correct in every state and requires no new logic in an untestable file.
+
+**Verification:** See Task 6, scenario 1.
 
 **Simulator verification for this task:** Go through the "no-key" flow under an OpenAI selection
 (Settings → set `aiProvider` to OpenAI → close → open coach with no key → tap "Open Settings" →

@@ -186,10 +186,10 @@ All in `src/state/aiProviderSettings.ts`, pure, no storage access.
 the PR or a **human-QA** step.
 
 - **AC3.1 Structural:** `src/app/(tabs)/settings/ai-provider.tsx` exists and holds no provider/key
-  decision logic. Concretely: `grep -n "sk-\|\.trim()\|aiProvider ===" ` on that file returns nothing
-  outside the rendering of which row is selected, and every decision comes from
-  `@/state/aiProviderSettings`.
-  *This is what stops the warning rule, the trim, and the placeholder from acquiring a second,
+  decision logic. Concretely: `grep -n "sk-\|\.trim()" ` on that file returns nothing,
+  and every decision comes from `@/state/aiProviderSettings`. (Provider selection logic is
+  separately gated by AC3.2.)
+  *This is what stops the warning rule and the trim logic from acquiring a second,
   divergent copy in an untestable file.*
 - **AC3.2 Structural:** The screen has **no** mount or focus effect that writes `aiProvider`.
   `aiProvider` appears in exactly one write, inside the picker's confirmed-selection handler.
@@ -255,7 +255,10 @@ the PR or a **human-QA** step.
   `initialProviderSelection`, which defaults to `'anthropic'`. AC4.8 is what forbids that.*
 - **AC4.9 Structural:** `src/app/ai-coach.tsx` calls `aiChatErrorMessage(error)` and holds no error
   copy of its own — `grep -n "API key\|Couldn't reach\|unreadable" src/app/ai-coach.tsx` returns
-  nothing but the call site.
+  exactly two matches: (1) the `aiChatErrorMessage(error)` call site at ~line 247, and (2) the
+  no-key empty-state message at ~line 346 (`Add your API key in Settings`). Any **additional**
+  matches — particularly the four `errorMessage = …` assignments from the removed switch
+  (`:729`, `:733`, `:737`, `:745`) — indicate the wrong implementation and fail this criterion.
 - **AC4.10 Success:** `src/ai/contextBuilder.test.ts` is unmodified — `git diff origin/main...HEAD --
   src/ai/contextBuilder.test.ts` returns nothing. The prompt secret-leak regression tests stay green
   untouched; they are about the prompt, not about error copy, and are not in this phase's scope.
