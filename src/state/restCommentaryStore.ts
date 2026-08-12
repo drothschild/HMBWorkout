@@ -32,6 +32,7 @@ import {
 import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
 import type { ExerciseKind, SessionState } from '@/engine/types';
@@ -148,13 +149,6 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
 
   const keyOf = (target: RestCommentaryTarget) => `${target.sessionId}#${target.entryIdx}`;
 
-  function hasApiKey(): boolean {
-    const settings = deps.getSettings();
-    const hasAnthropicKey = settings.anthropicKey?.trim();
-    const hasOpenaiKey = settings.openaiKey?.trim();
-    return Boolean(hasAnthropicKey || hasOpenaiKey);
-  }
-
   async function requestComment(key: string, target: RestCommentaryTarget): Promise<string | null> {
     const inFlight = pendingRequests.get(key);
     if (inFlight) return inFlight;
@@ -169,9 +163,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
     const request = (async () => {
       const settings = deps.getSettings();
       // Check if any key is configured
-      const hasAnthropicKey = settings.anthropicKey?.trim();
-      const hasOpenaiKey = settings.openaiKey?.trim();
-      if (!hasAnthropicKey && !hasOpenaiKey) return null;
+      if (!hasAiKey(settings)) return null;
 
       const history = await deps.loadHistory(target.exerciseId);
       const prompt = buildRestCommentaryPrompt({
@@ -264,7 +256,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
       }
 
       // No key configured: silence, and no reserved space either.
-      if (!hasApiKey()) {
+      if (!hasAiKey(deps.getSettings())) {
         set({ text: null, pending: false, attempted: false });
         return;
       }

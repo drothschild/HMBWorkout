@@ -84,7 +84,8 @@ describe('createRestCommentaryStore', () => {
 
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
       capturedConfigs.push(config);
-      const apiKey = config.aiProvider === 'openai'
+      const apiKey = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
         ? (config.openaiKey ?? '')
         : (config.anthropicKey ?? '');
       const client = createRestCommentaryClient(

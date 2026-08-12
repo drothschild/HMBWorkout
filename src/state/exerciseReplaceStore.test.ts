@@ -188,7 +188,8 @@ describe('createExerciseReplaceStore', () => {
 
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
       capturedConfigs.push(config);
-      const apiKey = config.aiProvider === 'openai'
+      const apiKey = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
         ? (config.openaiKey ?? '')
         : (config.anthropicKey ?? '');
       const client = createExerciseAlternatesClient(
@@ -439,6 +440,7 @@ describe('createExerciseReplaceStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
+        aiProvider: 'anthropic',
         aiGoals: 'Bigger bench',
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',

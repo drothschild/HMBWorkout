@@ -7,7 +7,7 @@
  */
 
 import type { AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
-import { hasAiKey } from '@/state/exerciseReplaceStore';
+import { hasAiKey } from '@/state/hasAiKey';
 
 export interface FinishedWorkout {
   routineId: string;

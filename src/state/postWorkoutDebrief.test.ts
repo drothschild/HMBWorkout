@@ -36,6 +36,21 @@ describe('planPostWorkoutDebrief', () => {
       planPostWorkoutDebrief({ routineId: 'routine-1', sessionId: '' }, { anthropicKey: 'sk-test' })
     ).toBeNull();
   });
+
+  it('C1.3: opens debrief with OpenAI-only key and valid workout', () => {
+    // Mutation test: if the gate checks only anthropicKey, this fails
+    const result = planPostWorkoutDebrief(finished, { openaiKey: 'sk-test' });
+    expect(result).toEqual({
+      kind: 'debrief',
+      routineId: 'routine-1',
+      sessionId: 'session-1',
+    });
+  });
+
+  it('C1.4: opens nothing when both keys are empty', () => {
+    // Mutation test: required negative case for no-key discrimination
+    expect(planPostWorkoutDebrief(finished, { anthropicKey: '', openaiKey: '' })).toBeNull();
+  });
 });
 
 describe('ai-coach route params', () => {

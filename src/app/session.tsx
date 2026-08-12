@@ -21,9 +21,10 @@ import {
 import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry } from '@/state/exerciseStopwatch';
 import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
-import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey, hasApiKey } from '@/state/exerciseQuestionStore';
+import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey } from '@/state/exerciseQuestionStore';
 import { exerciseReplaceStore } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -404,7 +405,7 @@ export default function SessionScreen() {
   // Non-reactive read: the button is hidden if no key is set at this moment, but
   // adding a key mid-session won't reveal it until an unrelated re-render happens.
   // This is accepted behavior — the primary flow is to configure the key before starting.
-  const canAskQuestion = questionTarget !== null && hasApiKey(getSettings());
+  const canAskQuestion = questionTarget !== null && hasAiKey(getSettings());
 
   useEffect(() => {
     return () => {

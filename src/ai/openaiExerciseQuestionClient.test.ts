@@ -274,8 +274,7 @@ describe('openaiExerciseQuestionClient', () => {
       // Verify correct Bearer token is sent
       const callArgs = mockFetch.mock.calls[0][1];
       expect(callArgs.headers.authorization).toBe('Bearer correct-key');
-      expect(callArgs.headers.authorization).not.toBe('Bearer WRONG');
-      expect.assertions(2);
+      expect.assertions(1);
     });
   });
 });

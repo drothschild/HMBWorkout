@@ -7,7 +7,7 @@
  */
 
 import type { BridgeSettings } from '@/state/settings';
-import { hasAiKey } from '@/state/exerciseReplaceStore';
+import { hasAiKey } from '@/state/hasAiKey';
 
 /**
  * The user's opening turn. The Messages API needs a user message before the

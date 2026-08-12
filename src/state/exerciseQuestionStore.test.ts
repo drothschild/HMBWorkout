@@ -19,12 +19,12 @@ import {
   setSettings,
   getSettings,
 } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import type { SessionState, RoutineEntry } from '@/engine/types';
 import {
   createExerciseQuestionStore,
   exerciseQuestionTarget,
-  hasApiKey,
   type ExerciseQuestionTarget,
 } from './exerciseQuestionStore';
 
@@ -75,7 +75,8 @@ describe('createExerciseQuestionStore', () => {
 
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
       capturedConfigs.push(config);
-      const apiKey = config.aiProvider === 'openai'
+      const apiKey = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
         ? (config.openaiKey ?? '')
         : (config.anthropicKey ?? '');
       const client = createExerciseQuestionClient(
@@ -568,21 +569,21 @@ describe('createExerciseQuestionStore', () => {
   });
 });
 
-describe('hasApiKey', () => {
+describe('hasAiKey', () => {
   it('is false when both keys are empty', () => {
-    expect(hasApiKey({ anthropicKey: '', openaiKey: '' })).toBe(false);
+    expect(hasAiKey({ anthropicKey: '', openaiKey: '' })).toBe(false);
   });
 
   it('is false when both keys are whitespace only', () => {
-    expect(hasApiKey({ anthropicKey: '   ', openaiKey: '   ' })).toBe(false);
+    expect(hasAiKey({ anthropicKey: '   ', openaiKey: '   ' })).toBe(false);
   });
 
   it('is true when an Anthropic key is configured', () => {
-    expect(hasApiKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
+    expect(hasAiKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
   });
 
   it('is true when an OpenAI key is configured', () => {
-    expect(hasApiKey({ openaiKey: 'sk-openai-test' })).toBe(true);
+    expect(hasAiKey({ openaiKey: 'sk-openai-test' })).toBe(true);
   });
 });
 
