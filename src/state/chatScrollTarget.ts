@@ -119,18 +119,23 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
 }
 
 /**
- * Detects when an error surface appears (or changes), triggering a deferred
- * scroll to reveal the Retry button. Used by ai-coach.tsx to decide whether
- * to execute a scroll on onContentSizeChange rather than inline in the effect
- * (issue #222).
+ * Detects when either error surface appears (store error or local acceptError),
+ * triggering a deferred scroll to reveal the Retry button or error message.
+ * Used by ai-coach.tsx to decide whether to execute a scroll on
+ * onContentSizeChange rather than inline in the effect (issue #222).
  *
+ * Works with any nullable error type (AiChatError | null or string | null).
  * Returns true when error transitions from null to non-null, or when the error
- * kind changes (indicating a new error replaces an old one, which also needs
- * the footer re-laid-out and scrolled into view).
+ * changes (indicating a new error replaces an old one, which needs the footer
+ * re-laid-out and scrolled into view).
+ *
+ * Must be called for BOTH error surfaces independently: store error and
+ * acceptError. A guard added to one surface only and tested only on that one
+ * is the bug this function fixes — don't fall into that trap.
  */
-export function shouldDeferScrollForError(
-  currentError: AiChatError | null,
-  previousError: AiChatError | null
+export function shouldDeferScrollForError<T>(
+  currentError: T | null,
+  previousError: T | null
 ): boolean {
   // No error now, no need to scroll
   if (currentError === null) {
@@ -139,8 +144,8 @@ export function shouldDeferScrollForError(
 
   // Error was already present, check if it's the same one
   if (previousError !== null) {
-    // Error kind changed (new error replaces old) — needs deferred scroll
-    return currentError.kind !== previousError.kind;
+    // Error changed (kind changed for AiChatError, or message changed for string)
+    return currentError !== previousError;
   }
 
   // Error transitioned from null to present

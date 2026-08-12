@@ -103,9 +103,11 @@ export default function AiCoachScreen() {
   const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
   // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
   const scrollRetryCountRef = useRef(0);
-  // Tracks the previous error state to detect when an error surface appears,
-  // triggering a deferred scroll to reveal the Retry button (issue #222).
+  // Tracks the previous state of both error surfaces to detect when either
+  // appears, triggering a deferred scroll to reveal the Retry button or error
+  // message (issue #222). Must track both: store error and acceptError.
   const previousErrorRef = useRef(error);
+  const previousAcceptErrorRef = useRef(acceptError);
   // Indicates a deferred scroll is pending, waiting for onContentSizeChange
   // to fire after FlatList measures the newly-grown footer.
   const pendingDeferredScrollRef = useRef(false);
@@ -126,24 +128,29 @@ export default function AiCoachScreen() {
   // its doc comment for why an unconditional scrollToEnd was wrong for long
   // coach replies (issue #215).
   //
-  // When an error surface appears (a failed send), the ListFooterComponent
-  // grows. scrollToEnd on the same commit scrolls to pre-growth height, leaving
-  // the Retry button below the fold (issue #222). The fix: detect error
-  // appearance and defer the scroll to onContentSizeChange, which fires after
-  // layout settles.
+  // When either error surface appears (a failed send, or local acceptError),
+  // the ListFooterComponent grows. scrollToEnd on the same commit scrolls to
+  // pre-growth height, leaving the error/Retry button below the fold
+  // (issue #222). The fix: detect error appearance on BOTH surfaces and defer
+  // the scroll to onContentSizeChange, which fires after layout settles.
   useEffect(() => {
     if (!flatListRef.current) {
       return;
     }
 
-    // Check if an error appeared and needs a deferred scroll to reveal the
-    // Retry button. Mark it pending and let onContentSizeChange execute it.
-    if (shouldDeferScrollForError(error, previousErrorRef.current)) {
+    // Check if EITHER error surface appeared (store error OR acceptError).
+    // Both must be checked independently to avoid the guard-one-surface bug.
+    const storeErrorAppeared = shouldDeferScrollForError(error, previousErrorRef.current);
+    const acceptErrorAppeared = shouldDeferScrollForError(acceptError, previousAcceptErrorRef.current);
+
+    if (storeErrorAppeared || acceptErrorAppeared) {
       previousErrorRef.current = error;
+      previousAcceptErrorRef.current = acceptError;
       pendingDeferredScrollRef.current = true;
       return;
     }
     previousErrorRef.current = error;
+    previousAcceptErrorRef.current = acceptError;
 
     const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
     if (target.kind === 'none') {
@@ -354,6 +361,10 @@ export default function AiCoachScreen() {
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}
             onContentSizeChange={() => {
+              // AC6.9: This handler is NOT jest-covered (src/app has zero coverage).
+              // Deleting this handler silently reverts issue #222 — the Retry button
+              // lands below the fold when an error appears. Before refactoring, verify
+              // the fix works in a simulator pass, not by test results.
               // When the content size changes (e.g., error footer appears),
               // execute any pending deferred scroll to reveal the error bubble
               // and Retry button (issue #222).
