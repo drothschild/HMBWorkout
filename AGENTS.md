@@ -784,9 +784,12 @@ renaming the *key* is forbidden.
   off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`
   is bumped **after** the write and the prefill effect depends on it. The contract
   has two halves: bump strictly after `applyToRoutine` resolves, and never on a
-  rejected swap or a thrown write. This is pinned by tests in
-  `src/state/exerciseReplaceStore.test.ts`, so it is one of the few session-screen
-  behaviours with automated cover. Its scope is explicit and load-bearing: it bumps
+  rejected swap or a thrown write. **The store mechanism is pinned by AC6.7 tests in
+  `src/state/exerciseReplaceStore.test.ts`. The screen's consumption of it —
+  `session.tsx:303` depending on `routineRevision` — has zero automated cover: no
+  test suite can load the screen, and deleting the dependency array entry passes all
+  tests. AC6.9 is the only safeguard: a structural read verifying the entry is
+  present.** Its scope is explicit and load-bearing: it bumps
   on exercise swaps only. `upsertRoutine` is the other writer of `target_weight_kg`,
   so a coach revising a routine through `acceptDraft` can change or clear a
   prescription and bump nothing — a session screen that stays mounted across such an

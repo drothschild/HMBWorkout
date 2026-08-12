@@ -15,6 +15,7 @@ import {
   createSessionPresenter,
   currentExerciseId,
   historyPrefillStillApplies,
+  historyToSetInputValues,
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
@@ -238,12 +239,20 @@ export default function SessionScreen() {
         // decision in the pure function stops two different predicates —
         // `kind === 'strength'` here and `isDurationBasedEntry` there — from
         // drifting apart.
-        const [prescriptions, history] = await Promise.all([
-          getRoutineTargetWeightsKg(db, sessionState.routineId),
-          entry.kind === 'strength'
-            ? getExerciseWorkingSetHistory(db, entry.exerciseId)
-            : Promise.resolve([] as Awaited<ReturnType<typeof getExerciseWorkingSetHistory>>),
-        ]);
+        //
+        // Both reads are independent and must not fail-fast together: if the
+        // prescription read fails, the history prefill (which worked on main)
+        // must still apply. Decoupled with .catch so either can fail without
+        // taking the other down.
+        const prescriptionsPromise = getRoutineTargetWeightsKg(db, sessionState.routineId)
+          .catch(() => new Map());
+
+        const historyPromise = (entry.kind === 'strength'
+          ? getExerciseWorkingSetHistory(db, entry.exerciseId)
+          : Promise.resolve([] as Awaited<ReturnType<typeof getExerciseWorkingSetHistory>>))
+          .catch(() => []);
+
+        const [prescriptions, history] = await Promise.all([prescriptionsPromise, historyPromise]);
         if (cancelled) return;
 
         // entry.idx IS the routine_exercises row's `order`
@@ -253,16 +262,7 @@ export default function SessionScreen() {
         const prescribedWeightKg = prescriptions.get(entry.idx);
 
         const latest = history[0];
-        let fallback: SetInputValues | undefined;
-        if (latest) {
-          const values: SetInputValues = {};
-          if (latest.reps != null) values.reps = latest.reps;
-          // Stored kg converts to display lbs on the way into the input
-          if (latest.weightKg != null) values.weightLbs = kgToLbs(latest.weightKg);
-          if (values.reps !== undefined || values.weightLbs !== undefined) {
-            fallback = values;
-          }
-        }
+        const fallback = latest ? historyToSetInputValues(latest) : undefined;
 
         // Neither source has anything to add; leave the synchronous prefill be.
         if (fallback === undefined && prescribedWeightKg === undefined) return;
