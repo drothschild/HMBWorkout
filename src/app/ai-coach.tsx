@@ -103,6 +103,16 @@ export default function AiCoachScreen() {
   const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
   // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
   const scrollRetryCountRef = useRef(0);
+  // Tracks the previous state to detect when error surfaces appear or change.
+  // Issue #222: must key on status transition to 'error', not error kind change,
+  // because retry() clears and re-sets the same error in one commit (intermediate
+  // null never observed). A turn that ends in error (status: sending → error)
+  // must scroll even if the error value didn't change.
+  const previousStatusRef = useRef(status);
+  // Flag to scroll when error bubble is measured via onLayout. Using onLayout
+  // instead of requestAnimationFrame because RAF fires before error bubble layout
+  // completes, causing scrollToEnd to land short (true Heisenbug via logs).
+  const pendingDeferredScrollRef = useRef(false);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -120,21 +130,35 @@ export default function AiCoachScreen() {
   // its doc comment for why an unconditional scrollToEnd was wrong for long
   // coach replies (issue #215).
   //
-  // An error surface appearing (a failed send, or the local acceptError
-  // bubble) growing ListFooterComponent is deliberately NOT handled here.
-  // An earlier version of this effect added a second, additive rule for it
-  // (issue #215 review round 2, F1), but a live simulator pass found it had
-  // no observable effect: scrollToEnd fires on the same commit that grows
-  // the footer, so FlatList scrolls to the pre-growth content height and
-  // the newly-revealed error bubble/Retry button stays below the fold
-  // regardless. That's a pre-existing timing bug in scrollToEnd itself, not
-  // something a rule that calls scrollToEnd can route around — tracked
-  // separately as issue #222. Don't re-add an error-surface rule here
-  // without first fixing #222, or it'll be exactly as inert as this one was.
+  // When either error surface appears (a failed send, or local acceptError),
+  // the ListFooterComponent grows. scrollToEnd on the same commit scrolls to
+  // pre-growth height, leaving the error/Retry button below the fold
+  // (issue #222). The fix: detect error appearance on BOTH surfaces and defer
+  // the scroll to onContentSizeChange, which fires after layout settles.
   useEffect(() => {
     if (!flatListRef.current) {
       return;
     }
+
+    // Detect when a turn just ended in error: status transitioned TO 'error'.
+    // Retry clears and re-sets error in the same commit (intermediate null never
+    // observed), so we can't detect error appearance by comparing error values.
+    // Instead, key on status: sending → error means the turn failed, scroll needed.
+    const turnJustEndedInError =
+      previousStatusRef.current !== 'error' &&
+      status === 'error' &&
+      (error !== null || acceptError !== null);
+
+    if (turnJustEndedInError) {
+      previousStatusRef.current = status;
+      // Set flag to scroll when error bubble is measured. requestAnimationFrame
+      // is not reliable because the error bubble view may not be laid out yet —
+      // onLayout fires exactly when *this specific view* is measured (issue #222).
+      pendingDeferredScrollRef.current = true;
+      return;
+    }
+    previousStatusRef.current = status;
+
     const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
     if (target.kind === 'none') {
       return;
@@ -148,7 +172,7 @@ export default function AiCoachScreen() {
       return;
     }
     flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
-  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError, error]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -275,7 +299,22 @@ export default function AiCoachScreen() {
   }
 
   if (error) {
-    footerItems.push(<ErrorBubble key="error" error={error} onRetry={handleRetry} />);
+    footerItems.push(
+      <ErrorBubble
+        key="error"
+        error={error}
+        onRetry={handleRetry}
+        onLayout={() => {
+          // AC6.9: This handler has zero jest coverage (src/app is untestable).
+          // Deleting this callback silently reverts issue #222 — error bubbles
+          // below the fold when they appear. Before refactoring, verify in simulator.
+          if (pendingDeferredScrollRef.current && flatListRef.current) {
+            pendingDeferredScrollRef.current = false;
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }}
+      />
+    );
   }
 
   const footer = footerItems.length > 0 ? <View style={styles.footerContent}>{footerItems}</View> : null;
@@ -674,9 +713,10 @@ function SettingsProposalCard({
 interface ErrorBubbleProps {
   error: AiChatError;
   onRetry: () => void;
+  onLayout?: () => void;
 }
 
-function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
+function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
   const router = useRouter();
   const isDark = useIsDark();
 
@@ -726,6 +766,7 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
         styles.errorBubble,
         { backgroundColor: errorBubbleBackgroundColor },
       ]}
+      onLayout={onLayout}
     >
       <ThemedText type="default" style={[styles.errorMessage, { color: errorTextColor }]}>
         {errorMessage}

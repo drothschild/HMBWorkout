@@ -1,5 +1,5 @@
 // pattern: Functional Core
-import { computeChatScrollTarget } from './chatScrollTarget';
+import { computeChatScrollTarget, shouldDeferScrollForError } from './chatScrollTarget';
 
 describe('computeChatScrollTarget', () => {
   it('returns none for an empty message list', () => {
@@ -158,6 +158,63 @@ describe('computeChatScrollTarget', () => {
       // change identity — see the review's M2), but nothing pinned it.
       const target = computeChatScrollTarget([{ role: 'user' }, { role: 'user' }], { kind: 'top', index: 1 });
       expect(target).toEqual({ kind: 'end', index: 1 });
+    });
+  });
+});
+
+describe('shouldDeferScrollForError', () => {
+  describe('store error surface (AiChatError)', () => {
+    it('returns false when no error is present', () => {
+      const error: { kind: 'network' } | null = null;
+      expect(shouldDeferScrollForError(error, null)).toBe(false);
+    });
+
+    it('returns false when error was already present (same kind)', () => {
+      const error = { kind: 'network' as const };
+      expect(shouldDeferScrollForError(error, error)).toBe(false);
+    });
+
+    it('returns true when error transitions from null to present', () => {
+      const error = { kind: 'unauthorized' as const };
+      expect(shouldDeferScrollForError(error, null)).toBe(true);
+    });
+
+    it('returns false when error transitions from present to null', () => {
+      const error = { kind: 'network' as const };
+      expect(shouldDeferScrollForError(null, error)).toBe(false);
+    });
+
+    it('returns true when error kind changes (new error replaces old one)', () => {
+      const oldError: { kind: string } = { kind: 'network' };
+      const newError: { kind: string } = { kind: 'unauthorized' };
+      expect(shouldDeferScrollForError(newError, oldError)).toBe(true);
+    });
+  });
+
+  describe('acceptError surface (string message)', () => {
+    it('returns false when no acceptError is present', () => {
+      expect(shouldDeferScrollForError<string | null>(null, null)).toBe(false);
+    });
+
+    it('returns false when acceptError was already present (same message)', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(message, message)).toBe(false);
+    });
+
+    it('returns true when acceptError transitions from null to present', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(message, null)).toBe(true);
+    });
+
+    it('returns false when acceptError transitions from present to null', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(null, message)).toBe(false);
+    });
+
+    it('returns true when acceptError message changes (new error replaces old)', () => {
+      const oldMessage = 'Failed to save routine. Try again.';
+      const newMessage = 'Could not apply those settings. Try again.';
+      expect(shouldDeferScrollForError(newMessage, oldMessage)).toBe(true);
     });
   });
 });

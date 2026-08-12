@@ -1,10 +1,19 @@
 // pattern: Functional Core
+import type { AiChatError } from './aiChatStore';
+
 /**
  * Decides where the AI Coach chat list should scroll after a render, so
  * `src/app/ai-coach.tsx` only needs to execute the result. Kept pure and out
  * of the screen because `src/app` carries zero jest coverage (see
  * jest.config.js testMatch) — the decision logic needs to live somewhere
  * jest can actually reach it.
+ *
+ * When an error surface appears (error bubble with Retry button), the
+ * ListFooterComponent grows. scrollToEnd fires on the same commit, scrolling
+ * to pre-growth height, leaving the Retry button below the fold (issue #222).
+ * The fix is to defer the scroll to after layout settles, using
+ * onContentSizeChange. Use shouldDeferScrollForError to detect when a deferred
+ * scroll is needed.
  *
  * Unconditionally calling `scrollToEnd()` (the prior behavior) lands the
  * user mid-sentence at the *end* of a long coach reply — worst case is the
@@ -107,4 +116,38 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
   // which is never 'none' either — so this line is unreachable, not a
   // meaningful "none equals none" case.
   return false;
+}
+
+/**
+ * Detects when either error surface appears (store error or local acceptError),
+ * triggering a deferred scroll to reveal the Retry button or error message.
+ * Used by ai-coach.tsx to decide whether to execute a scroll on
+ * onContentSizeChange rather than inline in the effect (issue #222).
+ *
+ * Works with any nullable error type (AiChatError | null or string | null).
+ * Returns true when error transitions from null to non-null, or when the error
+ * changes (indicating a new error replaces an old one, which needs the footer
+ * re-laid-out and scrolled into view).
+ *
+ * Must be called for BOTH error surfaces independently: store error and
+ * acceptError. A guard added to one surface only and tested only on that one
+ * is the bug this function fixes — don't fall into that trap.
+ */
+export function shouldDeferScrollForError<T>(
+  currentError: T | null,
+  previousError: T | null
+): boolean {
+  // No error now, no need to scroll
+  if (currentError === null) {
+    return false;
+  }
+
+  // Error was already present, check if it's the same one
+  if (previousError !== null) {
+    // Error changed (kind changed for AiChatError, or message changed for string)
+    return currentError !== previousError;
+  }
+
+  // Error transitioned from null to present
+  return true;
 }
