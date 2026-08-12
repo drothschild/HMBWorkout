@@ -205,6 +205,27 @@ describe('aiChatStore', () => {
       expect(store.getState().messages).toHaveLength(0);
     });
 
+    it('forwards the configured Anthropic API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The factory records configs, so we verify the key value was actually forwarded.
+      // Without this assertion, the mutant survives because fakeChat resolves anyway.
+      const { store, fakeChat, fakeCreateClient } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello back!' });
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hello');
+
+      // Verify the config was forwarded with the Anthropic key, not blanked
+      expect(fakeCreateClient).toHaveBeenCalledWith({
+        anthropicKey: 'sk-test',
+        openaiKey: undefined,
+        aiProvider: undefined,
+      });
+      expect(fakeChat).toHaveBeenCalled();
+      expect(store.getState().status).toBe('idle');
+    });
+
     it('sends request when OpenAI-only key is configured', async () => {
       const fakeGetSettings = jest.fn().mockReturnValue({
         anthropicKey: '',

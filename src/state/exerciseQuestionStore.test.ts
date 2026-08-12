@@ -373,6 +373,19 @@ describe('createExerciseQuestionStore', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it('forwards the configured Anthropic API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The factory records configs, so we verify the key value was actually forwarded.
+      // Without this assertion, the mutant survives because mockFetch resolves anyway.
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(mockFetch).toHaveBeenCalled();
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].anthropicKey).toBe('sk-ant-test'); // Must be non-empty
+    });
+
     it('drives the surface from an OpenAI-only settings blob and forwards openaiKey', async () => {
       setSettings({
         anthropicKey: '',
