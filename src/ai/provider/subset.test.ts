@@ -878,4 +878,154 @@ describe('OpenAI structured output schema validation', () => {
       expect(violations.some(v => v.includes('description is not in required'))).toBe(true);
     });
   });
+
+  /**
+   * Issue #123, assumption (2): `transformSchemaForOpenAI` strips/widens
+   * nullability wholesale (see the widening logic above). That is only safe
+   * if no `AI_TURN_SCHEMA` field ever carries `null` as a value meaningfully
+   * distinct from absence. Round 1 of PR #116 enumerated all 13 fields by
+   * hand and the docstring on `normalizeNullsToUndefined` (draftSchema.ts)
+   * asserts the invariant, but nothing enforced it — a field added later
+   * (nine have been, as of this writing) silently inherited the blanket
+   * strip with no check. This block is that check: it walks the schema
+   * itself rather than trusting a comment.
+   */
+  describe('AI_TURN_SCHEMA field-level null-type guard (issue #123, assumption 2)', () => {
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value);
+
+    /**
+     * Does this field's own schema node declare `null` as one of its types —
+     * either a bare `type: "null"` or a union like `["string", "null"]`?
+     */
+    const declaresNullType = (fieldSchema: unknown): boolean => {
+      if (!isRecord(fieldSchema)) return false;
+      const type = fieldSchema.type;
+      if (type === 'null') return true;
+      return Array.isArray(type) && (type as unknown[]).includes('null');
+    };
+
+    /**
+     * Walk every field reachable from `schema` via `properties` (object
+     * fields) and `items` (array element schemas), depth-first.
+     *
+     * Returns every field path visited (to prove the walk is non-vacuous)
+     * and every field path whose schema node declares `null` as a distinct
+     * type.
+     */
+    const walkSchemaFields = (
+      schema: unknown,
+      path = '$'
+    ): { visitedFields: string[]; nullTypedFields: string[] } => {
+      const visitedFields: string[] = [];
+      const nullTypedFields: string[] = [];
+
+      const visit = (node: unknown, nodePath: string): void => {
+        if (!isRecord(node)) return;
+
+        if (isRecord(node.properties)) {
+          for (const [fieldName, fieldSchema] of Object.entries(node.properties)) {
+            const fieldPath = `${nodePath}.properties.${fieldName}`;
+            visitedFields.push(fieldPath);
+            if (declaresNullType(fieldSchema)) {
+              nullTypedFields.push(fieldPath);
+            }
+            visit(fieldSchema, fieldPath);
+          }
+        }
+
+        if (isRecord(node.items)) {
+          visit(node.items, `${nodePath}.items`);
+        }
+      };
+
+      visit(schema, path);
+      return { visitedFields, nullTypedFields };
+    };
+
+    it('walker flags a null-typed field nested inside draft.exercises[], proving the walk descends into arrays', () => {
+      // Shaped like a miniature AI_TURN_SCHEMA: the null-distinct field sits
+      // three levels down (root -> draft -> exercises[] -> targetReps), not
+      // at the top level. A walker that only checks the root passes this
+      // vacuously; a real one must descend through both `properties` and
+      // `items` to find it.
+      const fixtureWithNestedNullField = {
+        type: 'object',
+        properties: {
+          reply: { type: 'string' },
+          draft: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              exercises: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string' },
+                    // Deliberately null-distinct: this is the exact shape
+                    // the guard exists to catch.
+                    targetReps: { type: ['integer', 'null'] },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      const { visitedFields, nullTypedFields } = walkSchemaFields(fixtureWithNestedNullField);
+
+      expect(nullTypedFields).toEqual([
+        '$.properties.draft.properties.exercises.items.properties.targetReps',
+      ]);
+      // Prove the walk actually reached the nested field, not just the root.
+      expect(visitedFields).toContain(
+        '$.properties.draft.properties.exercises.items.properties.targetReps'
+      );
+    });
+
+    it('walker flags a bare `type: "null"` declaration, not only a union', () => {
+      const fixture = {
+        type: 'object',
+        properties: {
+          alwaysNull: { type: 'null' },
+        },
+      };
+
+      const { nullTypedFields } = walkSchemaFields(fixture);
+      expect(nullTypedFields).toEqual(['$.properties.alwaysNull']);
+    });
+
+    it('walks a non-trivial, pinned number of AI_TURN_SCHEMA fields', () => {
+      const { visitedFields } = walkSchemaFields(AI_TURN_SCHEMA);
+
+      // 22 as of 2026-08-12 (issue #123): 3 root (reply/draft/settingsProposal)
+      // + 3 draft (name/notes/exercises) + 11 exercise-item fields + 5
+      // settingsProposal fields. This number is EXPECTED TO CHANGE as fields
+      // are added to AI_TURN_SCHEMA — bump it freely when it does. The point
+      // of pinning it is only to prove the walk is non-empty and that a
+      // human looked at the new count, not to freeze the schema's shape.
+      expect(visitedFields.length).toBe(22);
+    });
+
+    it('no AI_TURN_SCHEMA field declares null as a value meaningfully distinct from absence', () => {
+      const { nullTypedFields } = walkSchemaFields(AI_TURN_SCHEMA);
+
+      if (nullTypedFields.length > 0) {
+        throw new Error(
+          `AI_TURN_SCHEMA declares null as a type-distinct value on: ${nullTypedFields.join(', ')}.\n\n` +
+            'transformSchemaForOpenAI (src/ai/provider/subset.ts) strips/widens optional-field ' +
+            'nullability wholesale, on the assumption that no AI_TURN_SCHEMA field ever needs ' +
+            '`null` as a value meaningfully distinct from "absent". A field that violates that ' +
+            'assumption would be silently stripped by the transform, reintroducing the ' +
+            '100%-rejection class of bug PR #116/#120 fixed for OpenAI structured output. ' +
+            'If this field genuinely needs null as a distinct value, transformSchemaForOpenAI ' +
+            'needs an explicit carve-out for it before it is safe to ship.'
+        );
+      }
+
+      expect(nullTypedFields).toEqual([]);
+    });
+  });
 });
