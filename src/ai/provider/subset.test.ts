@@ -408,6 +408,9 @@ describe('OpenAI structured output schema validation', () => {
               "targetSets": {
                 "type": "integer",
               },
+              "targetWeightLbs": {
+                "type": "number",
+              },
               "title": {
                 "type": "string",
               },

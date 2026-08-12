@@ -42,6 +42,12 @@ export interface DraftExercise {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  /**
+   * Coach-prescribed target load, in **pounds** — the unit the model reads
+   * history in (contextBuilder's formatWeightLbs). acceptDraft converts to
+   * canonical kg exactly once on the way to the database.
+   */
+  targetWeightLbs?: number;
   notes?: string;
   description?: string; // applied only when the accept path creates the exercise
 }
@@ -82,6 +88,13 @@ export const AI_TURN_SCHEMA = {
               targetReps: { type: 'integer' },
               targetDurationSeconds: { type: 'integer' },
               restSeconds: { type: 'integer' },
+              // `number`, not `integer`: the bound is a 0.5lb grid, matching
+              // kgToLbs's rounding. And NO bound keywords here — `minimum` and
+              // `multipleOf` are both on UNSUPPORTED_SCHEMA_KEYWORDS, and one of
+              // them 400s the entire request before the model runs (see
+              // structuredOutputSubset.ts; it cost PR #71 a whole feature).
+              // The bound lives in validateRoutineDraft.
+              targetWeightLbs: { type: 'number' },
               notes: { type: 'string' },
               description: { type: 'string' },
             },
@@ -181,11 +194,25 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
       }
     };
 
+    const validateHalfStepWeight = (field: string, value: unknown) => {
+      if (value === undefined) return;
+      // The 0.5lb grid is kgToLbs's own rounding step (weightUnits.ts), so it is
+      // exactly the set of values that can round-trip to the input and back.
+      // Zero is rejected rather than stored: computeSetPrefill treats a
+      // non-positive weight as absent, so a stored 0 is a value nothing honours.
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || (value * 2) % 1 !== 0) {
+        throw new DraftValidationError(
+          `${field} must be a positive number in 0.5 steps, got "${value}"`
+        );
+      }
+    };
+
     validateInteger('warmupSets', exercise.warmupSets, 0);
     validateInteger('targetSets', exercise.targetSets, 1);
     validateInteger('targetReps', exercise.targetReps, 1);
     validateInteger('targetDurationSeconds', exercise.targetDurationSeconds, 0);
     validateInteger('restSeconds', exercise.restSeconds, 0);
+    validateHalfStepWeight('targetWeightLbs', exercise.targetWeightLbs);
   }
 
   return obj as unknown as RoutineDraft;

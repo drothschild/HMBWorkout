@@ -231,6 +231,7 @@ Exercise schema (inside draft.exercises):
 - supersetGroup: use the same string on grouped exercises for supersets
 - targetSets, targetReps: when present, must be integers >= 1
 - warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
+- targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete's own recent history to fill the field
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
 
 The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age and Experience lines under "About the User" — its "goals", "equipment", "personality", "age", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, or experience — a workout question is not such a request.`;
@@ -248,7 +249,7 @@ Settings proposal constraints:
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
-- All numeric values must be integers
+- All numeric values must be integers, except targetWeightLbs, which may use 0.5 steps
 - Give every duration-based exercise (targetDurationSeconds instead of reps) targetSets: 1 unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
 
 Planning from history:

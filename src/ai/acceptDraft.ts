@@ -2,6 +2,7 @@ import { Database, Q } from '@nozbe/watermelondb';
 import { upsertExercise, upsertRoutine, RoutineExerciseEntry } from '@/db/repository';
 import { RoutineDraft, slugifyTitle, validateRoutineDraft } from './draftSchema';
 import { type AiCoachMode } from './contextBuilder';
+import { lbsToKg } from '@/state/weightUnits';
 
 function normalizeWhitespace(text: string): string {
   return text
@@ -47,6 +48,12 @@ export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoa
     targetReps: ex.targetReps,
     targetDurationSeconds: ex.targetDurationSeconds,
     restSeconds: ex.restSeconds,
+    // The single write-side unit boundary. The model speaks lbs (it reads
+    // history in lbs — contextBuilder's formatWeightLbs); storage is canonical
+    // kg. Nothing below this line sees pounds. Guard on undefined rather than
+    // falsiness: the validator has already rejected 0, but `lbsToKg(0)` is 0,
+    // and a 0 written into the column is a value the prefill silently ignores.
+    targetWeightKg: ex.targetWeightLbs !== undefined ? lbsToKg(ex.targetWeightLbs) : undefined,
     notes: ex.notes,
   }));
 

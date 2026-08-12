@@ -892,6 +892,162 @@ describe('draftSchema', () => {
         'exercise description, when present, must be a string'
       );
     });
+
+    // coach-prescribed-weights.AC2.1: Success — accepts 185
+    test('coach-prescribed-weights.AC2.1: accepts targetWeightLbs: 185', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185,
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].targetWeightLbs).toBe(185);
+    });
+
+    // coach-prescribed-weights.AC2.2: Success — accepts 187.5 (half-pound)
+    test('coach-prescribed-weights.AC2.2: accepts targetWeightLbs: 187.5 (half-pound)', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 187.5,
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].targetWeightLbs).toBe(187.5);
+    });
+
+    // coach-prescribed-weights.AC2.3: Failure — rejects 0
+    test('coach-prescribed-weights.AC2.3: rejects targetWeightLbs: 0', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 0,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    // coach-prescribed-weights.AC2.4: Failure — rejects negative
+    test('coach-prescribed-weights.AC2.4: rejects targetWeightLbs: -5', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: -5,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    // coach-prescribed-weights.AC2.5: Failure — rejects off the 0.5 grid
+    test('coach-prescribed-weights.AC2.5: rejects targetWeightLbs: 185.3 (off 0.5 grid)', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185.3,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    // coach-prescribed-weights.AC2.5 discriminator: rejects 0.25lb (quarter-pound) grid
+    // This fixture catches mutations that loosen the grid to quarter-pounds.
+    // 185.25 -> 84.03kg -> 185.5 (broken round-trip if grid is 0.25)
+    // Fixture must discriminate the exact 0.5 grid, not just "some decimal off"
+    test('coach-prescribed-weights.AC2.5: rejects targetWeightLbs: 185.25 (quarter-pound, off 0.5 grid)', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185.25,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    // coach-prescribed-weights.AC2.6: Failure — rejects non-number
+    test('coach-prescribed-weights.AC2.6: rejects targetWeightLbs as string', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: '185' as unknown as number,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    // Edge case — omitting targetWeightLbs is valid
+    test('accepts exercise omitting targetWeightLbs', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].targetWeightLbs).toBeUndefined();
+    });
+
+    // AC2.1-2.6 scope: guard must apply to all exercises, not just exercises[0]
+    // Regression: guard scoped to exercises[0] passes all 112 tests. This fixture
+    // catches that scoping bug by placing the invalid weight on the second exercise.
+    test('coach-prescribed-weights.AC2.1-6: rejects invalid weight on non-first exercise', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185,
+          },
+          {
+            title: 'Incline Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 0, // Invalid: zero
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
   });
 
   describe('slugifyTitle', () => {
@@ -983,6 +1139,14 @@ describe('draftSchema', () => {
       expect(exerciseSchema.required).not.toContain('description');
     });
 
+    // coach-prescribed-weights.AC2.7 Success: targetWeightLbs is number, not integer
+    test('declares targetWeightLbs as type number (not integer) with no bound keywords', () => {
+      const draftSchema = (AI_TURN_SCHEMA.properties as any).draft;
+      const exerciseSchema = draftSchema.properties.exercises.items;
+      expect(exerciseSchema.properties.targetWeightLbs).toEqual({ type: 'number' });
+      expect(exerciseSchema.required).not.toContain('targetWeightLbs');
+    });
+
     test('does not require settingsProposal at root level', () => {
       expect(AI_TURN_SCHEMA.required).not.toContain('settingsProposal');
     });
@@ -1052,7 +1216,8 @@ describe('draftSchema', () => {
       // Bump this deliberately when AI_TURN_SCHEMA legitimately grows — if this assertion moves,
       // also re-check the <20 ceiling below still gives comfortable headroom before Anthropic's
       // ~24-optional-property structured-output limit.
-      expect(optionalCount).toBe(16);
+      // Bumped from 16 to 17 for targetWeightLbs (phase 2 of coach-prescribed-weights).
+      expect(optionalCount).toBe(17);
       expect(optionalCount).toBeLessThan(20);
 
       // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded
