@@ -264,7 +264,7 @@ should land on the provider/key screen, not the AI Coach goals screen).
 
 ```
 # AC3.1 — no decision logic in the screen
-grep -n "sk-\|\.trim()" "src/app/(tabs)/settings/ai-provider.tsx"
+grep -nE "sk-|\.trim\(\)|aiProvider ===|provider ===" "src/app/(tabs)/settings/ai-provider.tsx"
     → expected: EMPTY
 
 # AC3.2 — aiProvider written in exactly one place, none of them an effect

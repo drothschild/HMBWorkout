@@ -186,11 +186,13 @@ All in `src/state/aiProviderSettings.ts`, pure, no storage access.
 the PR or a **human-QA** step.
 
 - **AC3.1 Structural:** `src/app/(tabs)/settings/ai-provider.tsx` exists and holds no provider/key
-  decision logic. Concretely: `grep -n "sk-\|\.trim()" ` on that file returns nothing,
-  and every decision comes from `@/state/aiProviderSettings`. (Provider selection logic is
-  separately gated by AC3.2.)
-  *This is what stops the warning rule and the trim logic from acquiring a second,
-  divergent copy in an untestable file.*
+  decision logic. Concretely: `grep -nE "sk-|\.trim\(\)|aiProvider ===|provider ===" ` on that file
+  returns nothing, and every decision comes from `@/state/aiProviderSettings`. The widened grep
+  catches direct reads on `aiProvider` and reads on a `provider` parameter (e.g., from
+  `storedKeyFor(settings, provider)` calls), since the realistic reimplementation could branch on
+  either form.
+  *This is what stops the warning rule, the trim logic, and provider-branch decisions from
+  acquiring a second, divergent copy in an untestable file.*
 - **AC3.2 Structural:** The screen has **no** mount or focus effect that writes `aiProvider`.
   `aiProvider` appears in exactly one write, inside the picker's confirmed-selection handler.
   *This is the only check on "opening the screen writes nothing", and it cannot be a test: an
