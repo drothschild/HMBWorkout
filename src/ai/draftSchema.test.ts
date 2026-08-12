@@ -975,6 +975,25 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
+    // coach-prescribed-weights.AC2.5 discriminator: rejects 0.25lb (quarter-pound) grid
+    // This fixture catches mutations that loosen the grid to quarter-pounds.
+    // 185.25 -> 84.03kg -> 185.5 (broken round-trip if grid is 0.25)
+    // Fixture must discriminate the exact 0.5 grid, not just "some decimal off"
+    test('coach-prescribed-weights.AC2.5: rejects targetWeightLbs: 185.25 (quarter-pound, off 0.5 grid)', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185.25,
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
     // coach-prescribed-weights.AC2.6: Failure — rejects non-number
     test('coach-prescribed-weights.AC2.6: rejects targetWeightLbs as string', () => {
       const draft = {
@@ -1005,6 +1024,29 @@ describe('draftSchema', () => {
 
       const result = validateRoutineDraft(draft);
       expect(result.exercises[0].targetWeightLbs).toBeUndefined();
+    });
+
+    // AC2.1-2.6 scope: guard must apply to all exercises, not just exercises[0]
+    // Regression: guard scoped to exercises[0] passes all 112 tests. This fixture
+    // catches that scoping bug by placing the invalid weight on the second exercise.
+    test('coach-prescribed-weights.AC2.1-6: rejects invalid weight on non-first exercise', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 185,
+          },
+          {
+            title: 'Incline Press',
+            kind: 'strength' as const,
+            targetWeightLbs: 0, // Invalid: zero
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
   });
 

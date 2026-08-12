@@ -103,12 +103,14 @@ describe('buildSystem: AI Coach context builder', () => {
       );
     }, 30000);
 
-    // coach-prescribed-weights.AC2.8: The bound is stated as an exact sentence
-    it('states the targetWeightLbs bound in the exercise schema', async () => {
+    // coach-prescribed-weights.AC2.8: The bound is stated as an exact sentence (full sentence, not prefix)
+    // This pins the full statement including the "Omit it when..." guidance that Phase 4's
+    // history-fallback depends on. The plan prescribed prefix-only; this closes the gap.
+    it('states the complete targetWeightLbs bound and omit guidance in the exercise schema', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5'
+        'targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete\'s own recent history to fill the field'
       );
     }, 30000);
 
