@@ -9,13 +9,26 @@
  * Unconditionally calling `scrollToEnd()` (the prior behavior) lands the
  * user mid-sentence at the *end* of a long coach reply — worst case is the
  * post-workout debrief summary. The fix is to anchor on the reply's *top*
- * instead of the list's bottom. That single change also covers the "a short
- * reply should not jump" requirement for free: before a reply arrives the
- * list is already scrolled to the end (showing the user's own message /the
- * typing indicator), so a short reply's top lands almost exactly where the
- * view already was — there is nothing further to reveal, hence no jarring
- * scroll. A long reply's top, by contrast, is far above where `scrollToEnd`
- * would have landed, which is exactly the jump this fixes.
+ * instead of the list's bottom, via `scrollToIndex({ viewPosition: 0 })`.
+ * That single call also covers the "a short reply should not jump"
+ * requirement for free, but not because the two positions coincide — it's
+ * scroll clamping. `scrollToIndex` targets the item's own top-of-viewport
+ * offset (`contentHeight - itemHeight - footerHeight`); for a short reply
+ * that offset is *greater than* the max scroll offset (`contentHeight -
+ * viewportHeight`), so the underlying ScrollView clamps it down to the max
+ * — which is exactly where the list was already sitting from the prior
+ * `scrollToEnd`. A long reply's own offset stays *below* the max, so
+ * nothing clamps it and the jump lands right where the ticket asks.
+ *
+ * `previousTarget` lets a caller make the decision idempotent: pass back
+ * whatever target was last actually applied, and a render that recomputes
+ * the identical target (e.g. a re-render triggered by something other than
+ * new messages — declining a settings proposal, a failed accept) returns
+ * `{ kind: 'none' }` instead of asking the caller to re-run the same scroll.
+ * That matters because re-running `scrollToIndex` is not a no-op the way
+ * re-running the old `scrollToEnd` was: it unconditionally moves the list to
+ * the target's top, even if the user has since scrolled elsewhere on their
+ * own. See issue #215 review, finding C1.
  */
 
 export interface ChatScrollMessage {
@@ -35,7 +48,10 @@ export type ChatScrollTarget =
   // index must match `data`, not a visible-only subset.
   | { kind: 'top'; index: number };
 
-export function computeChatScrollTarget(messages: ChatScrollMessage[]): ChatScrollTarget {
+export function computeChatScrollTarget(
+  messages: ChatScrollMessage[],
+  previousTarget: ChatScrollTarget | null = null
+): ChatScrollTarget {
   let lastVisibleIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (!messages[i].hidden) {
@@ -48,9 +64,22 @@ export function computeChatScrollTarget(messages: ChatScrollMessage[]): ChatScro
     return { kind: 'none' };
   }
 
-  if (messages[lastVisibleIndex].role === 'user') {
-    return { kind: 'end' };
+  const target: ChatScrollTarget =
+    messages[lastVisibleIndex].role === 'user' ? { kind: 'end' } : { kind: 'top', index: lastVisibleIndex };
+
+  if (targetsEqual(target, previousTarget)) {
+    return { kind: 'none' };
   }
 
-  return { kind: 'top', index: lastVisibleIndex };
+  return target;
+}
+
+function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean {
+  if (b === null || a.kind !== b.kind) {
+    return false;
+  }
+  if (a.kind === 'top' && b.kind === 'top') {
+    return a.index === b.index;
+  }
+  return true;
 }

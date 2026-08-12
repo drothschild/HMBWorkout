@@ -21,7 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { computeChatScrollTarget } from '@/state/chatScrollTarget';
+import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
@@ -96,6 +96,13 @@ export default function AiCoachScreen() {
     return !settings.anthropicKey || settings.anthropicKey.trim() === '';
   });
   const flatListRef = useRef<FlatList>(null);
+  // The target actually applied by the auto-scroll effect below, so a
+  // re-render that recomputes the identical target (e.g. declining a
+  // settings proposal) can be told apart from one with genuinely new
+  // content to anchor on. See chatScrollTarget.ts and issue #215 review C1.
+  const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
+  // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
+  const scrollRetryCountRef = useRef(0);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -116,10 +123,14 @@ export default function AiCoachScreen() {
     if (!flatListRef.current) {
       return;
     }
-    const target = computeChatScrollTarget(messages);
+    const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
     if (target.kind === 'none') {
       return;
     }
+    lastScrollTargetRef.current = target;
+    // A fresh target means a fresh scroll attempt, so any retry budget left
+    // over from anchoring the previous target no longer applies.
+    scrollRetryCountRef.current = 0;
     if (target.kind === 'end') {
       flatListRef.current.scrollToEnd({ animated: true });
       return;
@@ -325,12 +336,33 @@ export default function AiCoachScreen() {
               // outside the currently-measured window can't resolve
               // synchronously. Land approximately, then retry once the
               // target has had a chance to render and be measured.
+              //
+              // Bounded (issue #215 review I2): averageItemLength is a poor
+              // estimator for this list (a one-word reply and a full
+              // debrief summary are the same "item"), so the approximate
+              // landing can itself fail to resolve the target and re-fire
+              // this handler. Give up after a few attempts rather than
+              // retrying indefinitely, and fall back to the end of the list
+              // so the user always lands somewhere sane.
+              if (scrollRetryCountRef.current >= 3) {
+                scrollRetryCountRef.current = 0;
+                flatListRef.current?.scrollToEnd({ animated: false });
+                return;
+              }
+              scrollRetryCountRef.current += 1;
               flatListRef.current?.scrollToOffset({
                 offset: info.averageItemLength * info.index,
                 animated: false,
               });
               setTimeout(() => {
-                flatListRef.current?.scrollToIndex({ index: info.index, viewPosition: 0, animated: true });
+                // Read the currently-applied target rather than the `info.index`
+                // closed over above (issue #215 review M3): if a new message
+                // arrived during this 50ms window, the effect above already
+                // re-anchored on it, and re-scrolling to the stale captured
+                // index here would fight that newer, correct scroll.
+                const current = lastScrollTargetRef.current;
+                const index = current !== null && current.kind === 'top' ? current.index : info.index;
+                flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
               }, 50);
             }}
           />
