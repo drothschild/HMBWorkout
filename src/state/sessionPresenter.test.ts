@@ -613,6 +613,18 @@ describe('createSessionPresenter', () => {
       expect(prefill?.weightLbs).toBe(175);
     });
 
+    test('AC4.3b: in-session set with weight only (no reps) wins over prescription', () => {
+      const state = createMockState();
+      state.loggedSets = [
+        { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: 79.38, durationSeconds: null, rpe: null },
+      ];
+
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+
+      expect(prefill?.weightLbs).toBe(175);
+      expect(prefill).not.toHaveProperty('reps');
+    });
+
     test('AC4.4(a): prescription only, no history, with targetReps', () => {
       const state = createMockState();
       state.loggedSets = [];
@@ -708,6 +720,16 @@ describe('createSessionPresenter', () => {
       const prefill = computeSetPrefill(state, { reps: 0 }, 83.91);
 
       expect(prefill).toEqual({ weightLbs: 185, reps: 5 });
+    });
+
+    test('AC4.9b: history with reps only (no weight) plus prescription → reps from history, not targetReps', () => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries[0].targetReps = 5;
+
+      const prefill = computeSetPrefill(state, { reps: 8 }, 83.91);
+
+      expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
 
     test('AC4.10: history with weight but no reps, plus prescription → prescribed weight only (no reps)', () => {
