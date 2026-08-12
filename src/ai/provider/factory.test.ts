@@ -148,6 +148,69 @@ describe('createAiClient factory', () => {
     expect(() => createAiClient(config)).toThrow();
   });
 
+  describe('rejects whitespace-only keys (F03/F04/F05 guards)', () => {
+    // F03: Explicit anthropic provider with whitespace-only anthropicKey
+    // The guard at line 72 must trim() before checking emptiness
+    it('throws when anthropicKey is whitespace-only with explicit provider (F03)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '   ',
+        aiProvider: 'anthropic',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/anthropicKey.*not configured/i);
+    });
+
+    // F04: Explicit openai provider with whitespace-only openaiKey
+    // The guard at line 112 must trim() before checking emptiness
+    it('throws when openaiKey is whitespace-only with explicit provider (F04)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '   ',
+        aiProvider: 'openai',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/openaiKey.*not configured/i);
+    });
+
+    // F05: Implicit detection path (lines 30-31) must trim before checking length
+    // When anthropicKey is whitespace-only and it's the only key, resolveProvider
+    // should reject it (not return 'anthropic')
+    it('throws when only anthropicKey is set and it is whitespace-only (F05a)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '   ',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/No AI provider configured/i);
+    });
+
+    // F05: Implicit detection for openaiKey
+    it('throws when only openaiKey is set and it is whitespace-only (F05b)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '   ',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/No AI provider configured/i);
+    });
+
+    // Verify tabs and mixed whitespace are also rejected
+    it('throws when anthropicKey is tabs/mixed whitespace (F03 variant)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '\t\n  \r',
+        aiProvider: 'anthropic',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/anthropicKey.*not configured/i);
+    });
+
+    it('throws when openaiKey is tabs/mixed whitespace (F04 variant)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '\t\n  \r',
+        aiProvider: 'openai',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/openaiKey.*not configured/i);
+    });
+  });
+
   it('accepts aiModel but does NOT yet apply it — pinning a known Phase 3 gap', async () => {
     // This test pins a limitation, not a feature. `aiModel` is a real settings
     // field, but neither client factory takes a model argument yet, so a
