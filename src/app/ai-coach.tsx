@@ -21,6 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
+import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
@@ -95,6 +96,13 @@ export default function AiCoachScreen() {
     return !settings.anthropicKey || settings.anthropicKey.trim() === '';
   });
   const flatListRef = useRef<FlatList>(null);
+  // The target actually applied by the auto-scroll effect below, so a
+  // re-render that recomputes the identical target (e.g. declining a
+  // settings proposal) can be told apart from one with genuinely new
+  // content to anchor on. See chatScrollTarget.ts and issue #215 review C1.
+  const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
+  // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
+  const scrollRetryCountRef = useRef(0);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -107,11 +115,39 @@ export default function AiCoachScreen() {
     }, [])
   );
 
-  // Auto-scroll to end when messages change
+  // Auto-scroll after a turn. The decision (end vs. top-anchor-on-the-reply)
+  // is a pure function (`computeChatScrollTarget`) so it's testable — see
+  // its doc comment for why an unconditional scrollToEnd was wrong for long
+  // coach replies (issue #215).
+  //
+  // An error surface appearing (a failed send, or the local acceptError
+  // bubble) growing ListFooterComponent is deliberately NOT handled here.
+  // An earlier version of this effect added a second, additive rule for it
+  // (issue #215 review round 2, F1), but a live simulator pass found it had
+  // no observable effect: scrollToEnd fires on the same commit that grows
+  // the footer, so FlatList scrolls to the pre-growth content height and
+  // the newly-revealed error bubble/Retry button stays below the fold
+  // regardless. That's a pre-existing timing bug in scrollToEnd itself, not
+  // something a rule that calls scrollToEnd can route around — tracked
+  // separately as issue #222. Don't re-add an error-surface rule here
+  // without first fixing #222, or it'll be exactly as inert as this one was.
   useEffect(() => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
+    if (!flatListRef.current) {
+      return;
     }
+    const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
+    if (target.kind === 'none') {
+      return;
+    }
+    lastScrollTargetRef.current = target;
+    // A fresh target means a fresh scroll attempt, so any retry budget left
+    // over from anchoring the previous target no longer applies.
+    scrollRetryCountRef.current = 0;
+    if (target.kind === 'end') {
+      flatListRef.current.scrollToEnd({ animated: true });
+      return;
+    }
+    flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
   }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
@@ -307,6 +343,47 @@ export default function AiCoachScreen() {
             ListFooterComponent={footer}
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}
+            onScrollToIndexFailed={(info) => {
+              // No getItemLayout (bubbles are variable-height), so an index
+              // outside the currently-measured window can't resolve
+              // synchronously. Land approximately, then retry once the
+              // target has had a chance to render and be measured.
+              //
+              // Bounded (issue #215 review I2): averageItemLength is a poor
+              // estimator for this list (a one-word reply and a full
+              // debrief summary are the same "item"), so the approximate
+              // landing can itself fail to resolve the target and re-fire
+              // this handler. Give up after a few attempts rather than
+              // retrying indefinitely.
+              //
+              // Giving up does nothing further (issue #215 review round 2,
+              // M3) rather than falling back to scrollToEnd: that fallback
+              // is exactly the mid-reply-bottom landing this ticket exists
+              // to remove, while the last scrollToOffset estimate below
+              // already landed close to the target — for a reply taller
+              // than average, on the correct (above-target) side of it —
+              // which is closer to the ticket's intent than the list's
+              // bottom would be.
+              if (scrollRetryCountRef.current >= 3) {
+                scrollRetryCountRef.current = 0;
+                return;
+              }
+              scrollRetryCountRef.current += 1;
+              flatListRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                // Read the currently-applied target rather than the `info.index`
+                // closed over above (issue #215 review M3): if a new message
+                // arrived during this 50ms window, the effect above already
+                // re-anchored on it, and re-scrolling to the stale captured
+                // index here would fight that newer, correct scroll.
+                const current = lastScrollTargetRef.current;
+                const index = current !== null && current.kind === 'top' ? current.index : info.index;
+                flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
+              }, 50);
+            }}
           />
 
           <View style={styles.inputContainer}>
