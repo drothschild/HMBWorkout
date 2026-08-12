@@ -1774,6 +1774,72 @@ describe('Repository: session and set helpers', () => {
       expect(walkRow.targetSets).toBe(1);
       expect(walkRow.warmupSets).toBe(0);
     }, 10000);
+
+    it('stores targetWeightKg when creating a new routine_exercise row', async () => {
+      // AC1.3: upsertRoutine creating a new row from an entry with
+      // targetWeightKg: 83.91 stores 83.91 and reads it back.
+      const routineId = 'routine-weight-create';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 83.91 },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      expect(squatRow.targetWeightKg).toBe(83.91);
+    }, 10000);
+
+    it('clears targetWeightKg when updating a routine_exercise row and the entry omits it', async () => {
+      // AC1.4: upsertRoutine updating an existing row from an entry with
+      // targetWeightKg absent sets the column to null, and the row keeps its id.
+      const routineId = 'routine-weight-clear';
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+
+      // First upsert: create with weight
+      await upsertRoutine(database, routineId, 'Chest Day', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetWeightKg: 95.25,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [benchBefore] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowIdBefore = benchBefore.id;
+      expect(benchBefore.targetWeightKg).toBe(95.25);
+
+      // Second upsert: update with weight omitted — should clear it
+      await upsertRoutine(database, routineId, 'Chest Day (edited)', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 5,
+          targetReps: 5,
+          // targetWeightKg is omitted
+        },
+      ]);
+
+      const [benchAfter] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id still resolves
+      expect(benchAfter.id).toBe(rowIdBefore);
+      // Weight cleared
+      expect(benchAfter.targetWeightKg).toBeNull();
+      // Other fields updated
+      expect(benchAfter.targetSets).toBe(5);
+      expect(benchAfter.targetReps).toBe(5);
+    }, 10000);
   });
 
   describe('getRecentSessionSummaries', () => {

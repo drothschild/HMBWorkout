@@ -1095,6 +1095,13 @@ export interface RoutineExerciseEntry {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  /**
+   * Coach-prescribed target load in canonical kg. The lbs → kg conversion
+   * happens once, upstream in acceptDraft; nothing below this boundary sees
+   * lbs. Absent means "no prescription", which leaves the SetLogger's
+   * history-derived prefill untouched.
+   */
+  targetWeightKg?: number;
   notes?: string;
 }
 
@@ -1172,6 +1179,7 @@ export async function upsertRoutine(
           re.targetReps = exerciseEntry.targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
+          re.targetWeightKg = exerciseEntry.targetWeightKg ?? null;
           re.notes = exerciseEntry.notes ?? null;
         });
       } else {
@@ -1186,6 +1194,7 @@ export async function upsertRoutine(
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
           if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
+          if (exerciseEntry.targetWeightKg !== undefined) re.targetWeightKg = exerciseEntry.targetWeightKg;
           if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
         });
       }
