@@ -163,28 +163,58 @@ describe('computeChatScrollTarget', () => {
 });
 
 describe('shouldDeferScrollForError', () => {
-  it('returns false when no error is present', () => {
-    expect(shouldDeferScrollForError(null, null)).toBe(false);
+  describe('store error surface (AiChatError)', () => {
+    it('returns false when no error is present', () => {
+      const error: { kind: 'network' } | null = null;
+      expect(shouldDeferScrollForError(error, null)).toBe(false);
+    });
+
+    it('returns false when error was already present (same kind)', () => {
+      const error = { kind: 'network' as const };
+      expect(shouldDeferScrollForError(error, error)).toBe(false);
+    });
+
+    it('returns true when error transitions from null to present', () => {
+      const error = { kind: 'unauthorized' as const };
+      expect(shouldDeferScrollForError(error, null)).toBe(true);
+    });
+
+    it('returns false when error transitions from present to null', () => {
+      const error = { kind: 'network' as const };
+      expect(shouldDeferScrollForError(null, error)).toBe(false);
+    });
+
+    it('returns true when error kind changes (new error replaces old one)', () => {
+      const oldError: { kind: string } = { kind: 'network' };
+      const newError: { kind: string } = { kind: 'unauthorized' };
+      expect(shouldDeferScrollForError(newError, oldError)).toBe(true);
+    });
   });
 
-  it('returns false when error was already present', () => {
-    const error = { kind: 'network' as const };
-    expect(shouldDeferScrollForError(error, error)).toBe(false);
-  });
+  describe('acceptError surface (string message)', () => {
+    it('returns false when no acceptError is present', () => {
+      expect(shouldDeferScrollForError<string | null>(null, null)).toBe(false);
+    });
 
-  it('returns true when error transitions from null to present', () => {
-    const error = { kind: 'unauthorized' as const };
-    expect(shouldDeferScrollForError(error, null)).toBe(true);
-  });
+    it('returns false when acceptError was already present (same message)', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(message, message)).toBe(false);
+    });
 
-  it('returns false when error transitions from present to null', () => {
-    const error = { kind: 'network' as const };
-    expect(shouldDeferScrollForError(null, error)).toBe(false);
-  });
+    it('returns true when acceptError transitions from null to present', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(message, null)).toBe(true);
+    });
 
-  it('returns true when error kind changes (new error replaces old one)', () => {
-    const oldError = { kind: 'network' as const };
-    const newError = { kind: 'unauthorized' as const };
-    expect(shouldDeferScrollForError(newError, oldError)).toBe(true);
+    it('returns false when acceptError transitions from present to null', () => {
+      const message = 'Failed to save routine. Try again.';
+      expect(shouldDeferScrollForError(null, message)).toBe(false);
+    });
+
+    it('returns true when acceptError message changes (new error replaces old)', () => {
+      const oldMessage = 'Failed to save routine. Try again.';
+      const newMessage = 'Could not apply those settings. Try again.';
+      expect(shouldDeferScrollForError(newMessage, oldMessage)).toBe(true);
+    });
   });
 });
