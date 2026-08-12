@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-09
+Last verified: 2026-08-11
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -289,6 +289,10 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    shell-side against the DB: `getExerciseTitles` (`src/db/repository.ts`) feeds the
    optional `exerciseTitles` map on `createSessionPresenter`, which exposes
    `currentExerciseTitle` and falls back to the raw id when an exercise is missing.
+   The coach-prescribed weight is a per-entry plan datum that deliberately does **not**
+   cross into `RoutineEntry` — no rule branches on load, and the Rill record is closed.
+   It reaches `computeSetPrefill` as a caller-resolved argument, the same way
+   `exerciseTitles` and `historyFallback` do.
 
 7. **`ReplaceExercise` swaps a running entry's identity, under engine guards.** The
    event carries `{ idx, exerciseId }`; the rule requires `idx == exerciseIndex`
@@ -470,6 +474,15 @@ never reach this layer anyway — `parseWorkoutLine` rejects both at parse time,
 context-dependent rules in "Parse context and validation strictness" above — though that is
 parser-layer behavior with no current production producer, since nothing outside tests calls
 `parseRoutine`/`parseSession` now.
+
+`serializeRoutine` **does not** emit `target_weight_kg` and the grammar was deliberately
+not extended, because `serializeRoutine`, `exportRoutine` and all of `parse.ts` have no
+production caller. Wiring an export path to a screen means adding a **distinct** flag key —
+not reusing `weight=`, which already means logged kg on a session line. Related finding:
+the "session sets only" restriction on `weight=` is a comment, not a rule. `parseFlags`
+keeps one global `knownFlags` allowlist for both contexts (`format.ts:247`), `parse.ts`
+consults its `context` parameter exactly once (line 171, the zero-reps rule), and a
+routine line carrying `weight=60` parses cleanly today.
 
 ## HealthKit (`src/health`)
 
@@ -750,6 +763,41 @@ renaming the *key* is forbidden.
   `routine_exercises` still loses sets whose row was destroyed —
   `upsertRoutine`'s drop branch is the only `destroyPermanently` on that table.
   Iterate the sets, or reconcile the leftovers, as `serializeSession` does
+- `routine_exercises.target_weight_kg` is a coach-prescribed target load, nullable,
+  added at schema v5. **It is stored in kg and the coach speaks lbs.** There is
+  exactly one write-side conversion, `lbsToKg` in `acceptDraft`, and the read edges
+  are `computeSetPrefill` (`kgToLbs`) and `formatExerciseLine` (`formatWeightLbs`).
+  A second conversion site is how a value gets converted twice. The bound is a
+  **positive multiple of 0.5 lbs**, enforced in `validateRoutineDraft` and stated
+  in `personaSection()`. It is the first non-integer field in the draft contract,
+  which is why the persona's numeric guidance carries an explicit exception.
+  `AI_TURN_SCHEMA` declares it as `number` with **no** bound keyword — `minimum`
+  and `multipleOf` are both on `UNSUPPORTED_SCHEMA_KEYWORDS`. A prescription
+  **overrides** the history-derived prefill and is **outranked** by the exercise's
+  own last set this session. It is scoped to the weight field: reps still come from
+  history. `updateRoutineExerciseExerciseId` must also clear `target_weight_kg`,
+  because sets/reps/rest are near-dimensionless across substitutes while load is
+  not, and because a prescription overrides history rather than deferring to it, a
+  stale one wins over the substitute's own correct numbers instead of quietly
+  losing to them. Clearing the column is only half of it: the session screen's
+  prefill effect and `applyAlternateToRoutine`'s write are independent async paths
+  off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`
+  is bumped **after** the write and the prefill effect depends on it. The contract
+  has two halves: bump strictly after `applyToRoutine` resolves, and never on a
+  rejected swap or a thrown write. **The store mechanism is pinned by AC6.7 tests in
+  `src/state/exerciseReplaceStore.test.ts`. The screen's consumption of it —
+  `session.tsx:303` depending on `routineRevision` — has zero automated cover: no
+  test suite can load the screen, and deleting the dependency array entry passes all
+  tests. AC6.9 is the only safeguard: a structural read verifying the entry is
+  present.** Its scope is explicit and load-bearing: it bumps
+  on exercise swaps only. `upsertRoutine` is the other writer of `target_weight_kg`,
+  so a coach revising a routine through `acceptDraft` can change or clear a
+  prescription and bump nothing — a session screen that stays mounted across such an
+  edit keeps the stale value until it remounts. That is not a live defect (editing a
+  routine mid-session is not a supported flow, and nothing outside the session
+  screen's own prefill reads a prescription), and the name is deliberately about the
+  *routine* so an `acceptDraft` bump can join the same counter later without a
+  rename. Do not assume routine edits are covered today.
 - A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
   `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
   display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)

@@ -272,6 +272,30 @@ export function historyPrefillStillApplies(
  * 0 would silently vanish from the logged set. A `prescribedWeightKg` of 0 is
  * therefore read as *no prescription*, not as a prescribed zero.
  */
+
+/**
+ * Convert a SessionSet from history into SetInputValues for prefilling.
+ * Pure transformation: maps null/undefined columns to the display format (kg→lbs)
+ * and returns undefined if neither reps nor weight are available.
+ * Testable: no DB, no side effects, only data transformation.
+ */
+export function historyToSetInputValues(historySet: {
+  reps?: number | null | undefined;
+  weightKg?: number | null | undefined;
+}): SetInputValues | undefined {
+  const values: SetInputValues = {};
+  if (historySet.reps != null) {
+    values.reps = historySet.reps;
+  }
+  if (historySet.weightKg != null) {
+    values.weightLbs = kgToLbs(historySet.weightKg);
+  }
+  if (values.reps !== undefined || values.weightLbs !== undefined) {
+    return values;
+  }
+  return undefined;
+}
+
 export function computeSetPrefill(
   sessionState: SessionState,
   historyFallback?: SetInputValues,
