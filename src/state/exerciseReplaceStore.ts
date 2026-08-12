@@ -79,6 +79,34 @@ interface ExerciseReplaceState {
   alternates: ExerciseAlternate[];
   /** User-facing copy for a failure. Never a stack trace. */
   error: string | null;
+  /**
+   * Bumped once each time a swap finishes re-pointing the routine row. The
+   * session screen's prefill effect depends on this so it re-reads the routine's
+   * prescribed loads *after* the write commits.
+   *
+   * This exists because the two halves of a swap race. `choose()` dispatches to
+   * the engine before it re-points the row (deliberately — a rejected swap must
+   * not move the routine), but that same dispatch updates activeSessionStore,
+   * which re-runs the prefill effect. The effect's read and
+   * applyAlternateToRoutine's write are then independent async paths with no
+   * ordering between them: if the read wins, the substitute's weight field is
+   * pre-typed with the *replaced* exercise's prescribed load — the exact hazard
+   * the swap-clear rule exists to prevent.
+   *
+   * Rather than trying to win that race, this guarantees one more effect run
+   * strictly after the write. The extra run is idempotent.
+   *
+   * SCOPE: exercise swaps only. `upsertRoutine` is the other writer of
+   * target_weight_kg — a coach revising a routine through acceptDraft can change
+   * or clear a prescription and bumps nothing here, so a session screen that
+   * stays mounted across such an edit keeps the stale value until it remounts.
+   * That is not a live defect (nothing reads a prescription outside the session
+   * screen's own prefill, and editing a routine mid-session is not a supported
+   * flow), and the name is deliberately about the *routine* rather than the swap
+   * so that an acceptDraft bump can be added to this same counter later without
+   * a rename. Do not assume routine edits are covered today.
+   */
+  routineRevision: number;
   /** Ask for alternates for this entry and open the picker. */
   open(target: ReplaceTarget): Promise<void>;
   /** Apply one. @returns true when the swap landed in both engine and routine. */
@@ -154,6 +182,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
     status: 'idle',
     alternates: [],
     error: null,
+    routineRevision: 0,
 
     async open(nextTarget: ReplaceTarget) {
       const gen = ++generation;
@@ -250,6 +279,12 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
         // Only now the routine row, so a rejected swap can never leave the
         // routine pointing somewhere the running session isn't.
         await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+
+        // Strictly after the row is re-pointed and its prescription cleared.
+        // Placement is the whole contract: bumped before the await, this would
+        // race the write it exists to sequence after; bumped in the catch, it
+        // would announce a clear that never happened.
+        set((state) => ({ routineRevision: state.routineRevision + 1 }));
 
         target = null;
         swapping = false;
