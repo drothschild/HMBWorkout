@@ -26,9 +26,16 @@ This phase implements and tests:
 - **coach-prescribed-weights.AC4.3 Success:** When the exercise already has a set logged this
   session, that set's weight wins over the prescription.
 - **coach-prescribed-weights.AC4.4 Success:** With a prescription, no history and no in-session set,
-  the result carries the prescribed `weightLbs` and `reps` from `entry.targetReps`.
+  the result carries the prescribed `weightLbs` and `reps` from `entry.targetReps` — and, on a
+  **second invocation with `entry.targetReps = 0`**, the prescribed `weightLbs` alone. Both halves are
+  required: the first is R5's ordinary cell, the second is the only criterion that reaches R5 with a
+  prescription and nothing else, which is what makes its terminal `Object.keys` check load-bearing
+  rather than decorative (the same fixture with no prescription returns `undefined`).
 - **coach-prescribed-weights.AC4.5 Edge:** For a duration-based entry (`isDurationBasedEntry`), the
-  prescription is ignored and the duration path is unchanged.
+  prescription is ignored and the duration path is unchanged — verified on **two invocations**, one
+  with no logged set (R3) and one with a usable in-session duration set (R2's duration sub-path).
+  Only the second discriminates: R3 returns a fresh object literal and never reads `prescribedLbs` at
+  all, so the prescription is structurally unreachable there.
 - **coach-prescribed-weights.AC4.6 Edge:** A prescription argument of `undefined` or `0` leaves the
   existing precedence chain byte-identical.
 - **coach-prescribed-weights.AC4.7 Success:** The returned value is in lbs — the kg prescription
@@ -46,15 +53,28 @@ This phase implements and tests:
   same input produces with no prescription. The presence of a prescription never changes the reps
   field.
 - **coach-prescribed-weights.AC4.11 Structural:** No non-terminal return in `computeSetPrefill` is
-  gated on `Object.keys(prefill).length`. Each non-terminal return's condition is computed from its
-  own source (the logged set, or `historyFallback`), never from the accumulating `prefill` object.
+  gated on a predicate computed from the accumulating `prefill` object. Each non-terminal return's
+  condition is computed from its own source — the logged set for R2, `historyFallback` for R4 — in
+  whatever form that predicate takes. `Object.keys(prefill).length` is merely the spelling both known
+  defects used, and it must appear exactly once (the terminal R5 return); but the criterion is the
+  **class**, not the token. `prefill.reps !== undefined || prefill.weightLbs !== undefined` on a
+  non-terminal return is the same bug written differently and fails this criterion just as hard.
+- **coach-prescribed-weights.AC4.12 Success:** An in-session logged set with **reps but no weight**,
+  plus a prescription, yields the set's reps and the prescription's weight. This is R2's partial-fill
+  path, and it is the only criterion that reaches the `if (prefill.weightLbs === undefined &&
+  prescribedLbs !== undefined)` assignment inside R2 — delete that block and every other AC4 case
+  still passes. (Promoted from an unnumbered extra case in Task 2, because "pinned by no AC" and
+  "pinned by a bullet someone may drop while trimming" are the same thing.)
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
   `src/state/sessionPresenter.test.ts` passes unmodified, proving the added parameter is
   behaviour-neutral when omitted.
-- **coach-prescribed-weights.AC5.3 Success:** `git diff origin/main --stat` shows no file under
-  `src/engine/` changed, and `src/engine/types.ts`'s `RoutineEntry` is untouched.
+- **coach-prescribed-weights.AC5.3 Success:** `git diff origin/main...HEAD --stat` shows no file under
+  `src/engine/` changed, `src/engine/types.ts`'s `RoutineEntry` is untouched, **and** every
+  `targetWeightKg` hit in the branch's own `src/` diff is in a shell file that is allowed to carry one
+  — nothing in `src/state/startSessionFromRoutine.ts` or `src/state/activeSession.ts`, the two files
+  that would put the value into engine state without touching `src/engine/` at all.
 
 ---
 
@@ -129,7 +149,7 @@ Lines 274-281 and 297-302 all guard `!= null && > 0`. AGENTS.md explains why: th
 <!-- START_TASK_1 -->
 ### Task 1: Restructure `computeSetPrefill`
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11` (tested in Task 2)
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.12` (tested in Task 2)
 
 **Files:**
 - Modify: `src/state/sessionPresenter.ts:241-306` (the docblock and the whole function body)
@@ -298,6 +318,11 @@ Check every path against the table, then check the invariants under it.
 | **R4** | strength entry, history contributed reps and/or weight | the prescription if present, **else** history's weight if `> 0`, else absent | history's reps if `> 0`, else absent | never |
 | **R5** | strength entry, nothing above returned | the prescription if present, else absent | `entry.targetReps` if `> 0`, else absent | never |
 
+Every cell above that mentions the prescription is pinned by a criterion, and two of them only
+narrowly: R2's *"else the prescription"* is reached by **AC4.12 alone**, and R5's *"the prescription
+if present"* by **AC4.4(b) alone**. If you find yourself deleting either test as redundant, you are
+deleting the only cover for a table cell.
+
 Three invariants hold across the whole table. If your code breaks any of them, it is wrong even if
 the tests pass:
 
@@ -353,7 +378,7 @@ git commit -m "feat(state): prescribed weight overrides history in the set prefi
 <!-- START_TASK_2 -->
 ### Task 2: The precedence test matrix
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11`, `coach-prescribed-weights.AC5.1`
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.12`, `coach-prescribed-weights.AC5.1`
 
 **Files:**
 - Test: `src/state/sessionPresenter.test.ts` (unit)
@@ -378,12 +403,42 @@ The kg↔lbs pairs to use: `lbsToKg(185) = 83.91` and `kgToLbs(83.91) = 185`; `k
   against **one** invocation, not two different fixtures.
 - **AC4.3:** a session with a logged set for this exercise at `weightKg: 79.38` (175 lbs);
   `prescribedWeightKg = 83.91`. Expect `weightLbs` to be `175` — the in-session set wins.
-- **AC4.4:** no logged sets, `historyFallback` omitted, `prescribedWeightKg = 83.91`, and the entry's
-  `targetReps = 5`. Expect `{ weightLbs: 185, reps: 5 }`.
-- **AC4.5:** a duration-based entry (`targetDurationSeconds > 0`, `targetReps: 0` — check
-  `isDurationBasedEntry` in `src/state/exerciseStopwatch.ts` for the exact predicate and build the
-  fixture to match it), with `prescribedWeightKg = 83.91`. Expect the result to carry
-  `durationSeconds` and **no** `weightLbs`.
+- **AC4.4:** **two invocations.**
+  - (a) no logged sets, `historyFallback` omitted, `prescribedWeightKg = 83.91`, and the entry's
+    `targetReps = 5`. Expect `{ weightLbs: 185, reps: 5 }`.
+  - (b) the same, but with `entry.targetReps = 0`. Expect `{ weightLbs: 185 }`. Reuse the existing
+    `'returns undefined when there is nothing to prefill'` fixture at
+    `sessionPresenter.test.ts:563-569` (`loggedSets = []`, `targetReps = 0`) and add the third
+    argument; assert alongside it that the *same* fixture with no prescription still returns
+    `undefined`, so the pair is pinned together.
+
+  ⚠ (b) is not a decorative extra. It is the only case in the whole matrix that reaches R5 carrying a
+  prescription and nothing else, which is what makes R5's terminal `Object.keys(prefill).length > 0`
+  check load-bearing rather than a leftover. Without it, R5's cell "the prescription if present, else
+  absent" in Task 1 Step 3's table is pinned by no test at all.
+
+- **AC4.5:** **two invocations**, because one of them cannot fail.
+  - (a) the R3 half: a duration-based entry (`kind: 'stretch'`, `targetDurationSeconds > 0`,
+    `targetReps: 0` — check `isDurationBasedEntry` in `src/state/exerciseStopwatch.ts` for the exact
+    predicate and build the fixture to match it) with **no logged set** and
+    `prescribedWeightKg = 83.91`. Expect the result to carry `durationSeconds` and **no** `weightLbs`.
+  - (b) the R2 half, modelled on the existing `'duration entries prefill from the last in-session
+    duration'` fixture at `sessionPresenter.test.ts:535-543`: `kind = 'stretch'`, one logged set with
+    `durationSeconds: 45` and null `reps`/`weightKg`, and
+    `expect(computeSetPrefill(state, undefined, 83.91)).toEqual({ durationSeconds: 45 })`. Use
+    `toEqual` on the whole object — the point is that `weightLbs` is **absent**, and a bare
+    `expect(prefill.durationSeconds).toBe(45)` would not notice a stray one.
+
+  ⚠ (a) alone is vacuous, and this is the phase's own defect class in its other form — *an acceptance
+  criterion naming a condition its fixture cannot discriminate.* With no logged set, control reaches
+  R3, which returns a **fresh object literal** and never reads `prescribedLbs`; delete
+  `!isDurationBased &&` from `prescribedLbs`'s condition and (a) still passes. That mutation is a live
+  bug, not a hypothetical: on the R2 duration sub-path it produces
+  `{ durationSeconds: 45, weightLbs: 185 }` — a weight prefilled onto a stretch. It is reachable
+  because nothing upstream gates a prescription on `kind`: `validateRoutineDraft` calls
+  `validateHalfStepWeight('targetWeightLbs', …)` unconditionally
+  (`src/ai/draftSchema.ts:215`), so a coach that puts `targetWeightLbs` on a stretch gets it stored.
+  (b) is the invocation that fails on it.
 - **AC4.6:** the same fixtures as AC4.1 and AC4.4 but with the third argument `undefined`, and again
   with `0`. Expect exactly what the two-argument form returns. Write this as a direct comparison —
   call `computeSetPrefill(state, fallback)` and `computeSetPrefill(state, fallback, 0)` and assert
@@ -422,19 +477,33 @@ The kg↔lbs pairs to use: `lbsToKg(185) = 83.91` and `kgToLbs(83.91) = 185`; `k
   from a plausible wrong one: gating R4 on a *key-count delta* instead of on history's own predicates
   would let `targetReps` leak in here.
 
-- **AC4.11:** a structural check, not a behavioural test. Read `computeSetPrefill` and confirm
-  `Object.keys(prefill)` appears exactly once, in the terminal R5 return. Record it as a one-line
+- **AC4.11:** a structural check, not a behavioural test. Read `computeSetPrefill` and confirm that
+  **each non-terminal return is gated on a predicate computed from its own source** — `contributed`
+  from the logged set for R2, `historyHasReps || historyHasWeight` from `historyFallback` for R4 — and
+  that **no** non-terminal return's condition reads `prefill` in any form. Record it as a one-line
   assertion in the PR description rather than as a jest test — a test that greps its own source is
-  worse than a reviewer who reads it. Its value is that it names the *class*, so the third instance
-  is caught by reading rather than by a third round of review.
+  worse than a reviewer who reads it.
 
-**Step 3b: Add one case that is not in the AC list**
+  ⚠ Do **not** reduce this to counting occurrences of `Object.keys(prefill)`. That token is the
+  spelling both known defects happened to use, and it must indeed appear exactly once (the terminal R5
+  return) — so say that too — but a token count is not the criterion. `if (prefill.reps !== undefined
+  || prefill.weightLbs !== undefined) return prefill;` on a non-terminal return is the identical bug
+  with `Object.keys` nowhere in sight, and a check written against the token waves it through. The
+  criterion's whole value is that it names the *class*, so a third instance is caught by reading
+  rather than by a third round of review.
 
-A logged in-session set with **reps but no weight**, plus a prescription. Expect `reps` from the
-logged set and `weightLbs` from the prescription. This is the partial-fill path through the in-session
-block, and it is the branch most likely to be broken by a later "simplification" of Task 1's code.
-Note it is *not* the same as AC4.8: here the set contributed something, so it is authoritative and
-the fall-through never happens.
+- **AC4.12:** a logged in-session set with **reps but no weight** (`reps: 8`, `weightKg: null`), plus
+  a prescription of `83.91`. Expect `{ reps: 8, weightLbs: 185 }` — reps from the logged set, weight
+  from the prescription.
+
+  ⚠ This is R2's partial-fill path, and it is the **only** criterion that reaches the
+  `if (prefill.weightLbs === undefined && prescribedLbs !== undefined)` assignment inside R2: AC4.3's
+  set carries a weight, so the guard short-circuits, and every other AC4 case with a prescription
+  falls through R2 entirely. Delete that three-line block from Task 1's code and the whole rest of the
+  matrix still passes. It is *not* the same as AC4.8: here the set contributed something, so it is
+  authoritative and the fall-through never happens. (This case previously lived as an unnumbered
+  "Step 3b" extra; it is an AC now because an unnumbered bullet is the first thing to go when someone
+  trims the list.)
 
 **Step 4: Run**
 
@@ -460,17 +529,45 @@ git commit -m "test(state): prefill precedence matrix for prescribed weights"
 
 **Step 1: Prove the engine was not touched (AC5.3)**
 
+⚠ **Use three-dot diffs throughout this step, and Step 5.** This is a five-PR chain landing
+sequentially, so `origin/main` moves under you: a two-dot `git diff origin/main` compares your tip
+against wherever `main` is *now*, and reports the *other* phases' merged additions as `-` lines in
+your diff. Three-dot (`A...B`) diffs against the merge base — your branch's own changes and nothing
+else — which is the only thing any of these checks is actually asserting about.
+
 ```bash
-git diff origin/main --stat -- src/engine
+git diff origin/main...HEAD --stat -- src/engine
 ```
 Expected: **no output.**
 
 ```bash
-git diff origin/main -- src/engine/types.ts
+git diff origin/main...HEAD -- src/engine/types.ts
 ```
-Expected: **no output.** `RoutineEntry` must be byte-identical to `origin/main`.
+Expected: **no output.** `RoutineEntry` must be byte-identical to the merge base.
 
 If either prints anything, the implementation took the trap in finding 1. Revert the engine changes and resolve the prescription shell-side.
+
+**Step 1b: Prove the value did not reach engine state some other way**
+
+Both diffs above can be clean while the prescription still enters engine state, because
+`src/state/startSessionFromRoutine.ts` is what *builds* `RoutineEntry[]` — and `RoutineEntry` is a TS
+type, so an entry assembled in a local variable and then pushed (rather than pushed as an object
+literal) skips excess-property checking and compiles with `src/engine/` untouched. It would then
+vanish at the Rill boundary on the first `dispatch`, which is precisely the failure AC5.3 names.
+
+Low plausibility for this phase — nothing here has any reason to edit that file — but the check is
+one command:
+
+```bash
+git diff $(git merge-base origin/main HEAD) HEAD -- src | grep -n 'targetWeightKg'
+```
+
+Expected: every hit is in `src/state/sessionPresenter.ts` or `src/state/sessionPresenter.test.ts`
+(this phase's only surface). **No hit may be in `src/state/startSessionFromRoutine.ts` or
+`src/state/activeSession.ts`** — those two are the shell files that put values *into* engine state,
+and a hit in either is the finding-1 trap wearing a clean `src/engine/` diff. In later phases the
+allowed set widens to `src/db/`, `src/ai/`, `src/state/routineDetailPresenter.ts` and `src/app/`; the
+two forbidden files never do.
 
 **Step 2:**
 ```bash
@@ -492,9 +589,13 @@ npm run lint
 **Step 5: Confirm the existing prefill tests were not edited**
 
 ```bash
-git diff origin/main -- src/state/sessionPresenter.test.ts | grep '^-' | grep -v '^---'
+git diff origin/main...HEAD -- src/state/sessionPresenter.test.ts | grep '^-' | grep -v '^---'
 ```
 Expected: **no output** — this phase only *adds* lines to that file. Any deleted or modified line means a pre-existing assertion was changed to accommodate the new behaviour, which falsifies AC5.1.
+
+⚠ Three-dot again, for the reason in Step 1. With a two-dot diff, a *later* phase's merged additions
+to this same file show up as `-` lines here and fail the check for something you did not do — and,
+worse, train the next reader to ignore its output.
 <!-- END_TASK_3 -->
 
 ---
@@ -509,3 +610,6 @@ Expected: **no output** — this phase only *adds* lines to that file. Any delet
 6. **Treating a prescribed `0` as a prescription.** Every other metric here reads `> 0` as the absence convention; a 0 would be discarded downstream anyway.
 7. **Converting kg→lbs more than once.** `prescribedLbs` is computed once at the top. Do not call `kgToLbs` again further down.
 8. **Building the AC4.5 duration fixture by guessing.** Read `isDurationBasedEntry` in `src/state/exerciseStopwatch.ts` and match its actual predicate, or the test exercises the strength path while claiming to test the duration one.
+9. **Writing AC4.5 with no logged set and calling it done.** That fixture goes down R3, which returns a fresh object literal and never reads the prescription — so the criterion cannot fail on the mutation it names. The discriminating invocation is the one *with* an in-session duration set (AC4.5(b)). This is the plan's recurring defect class in miniature: *a criterion naming a condition its fixture cannot discriminate.* Ask it of every case you write.
+10. **Checking AC4.11 by grepping for `Object.keys(prefill)`.** The token is not the bug; a non-terminal return gated on *anything* read from `prefill` is. `prefill.reps !== undefined || prefill.weightLbs !== undefined` passes a token grep and is the same defect.
+11. **Two-dot `git diff origin/main` in Task 3.** Five PRs land in sequence here, so `origin/main` moves; a two-dot diff shows other phases' merged work as removals from yours. Every diff check in this plan is three-dot, against the merge base.

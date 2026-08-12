@@ -21,6 +21,16 @@ This phase implements and verifies:
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.2 Success:** In the simulator, a routine created before this change
   starts, prefills, logs and completes exactly as it did before. *(human-only)*
+- **coach-prescribed-weights.AC5.4 Edge:** In the simulator, a **duration-based** entry's Duration
+  field still opens at its target and is not overwritten or cleared a beat later — checked on a
+  routine that has both a prescribed and an unprescribed stretch/cardio entry. *(human-only)*
+
+  This criterion exists because Task 2 moves the `kind !== 'strength'` gate
+  (`session.tsx:210`). Today that line returns before the async block for every non-strength entry, so
+  `apply()` runs exactly once for a duration entry. After Task 2 the block runs for all kinds and
+  calls `apply()` a **second** time whenever a prescription is present — and `apply()` writes
+  `setDurationText(...)` and `setCurrentRpe(undefined)` as well as the weight, so it can overwrite the
+  Duration field. Nothing else in this phase puts a duration entry on screen at all.
 
 ### coach-prescribed-weights.AC6: Cross-cutting
 - **coach-prescribed-weights.AC6.4:** In the simulator, the coach drafts a routine with a prescribed
@@ -28,25 +38,47 @@ This phase implements and verifies:
   even though the exercise has heavier or lighter history. *(human-only)*
 - **coach-prescribed-weights.AC6.5:** In the simulator, replacing an exercise mid-session leaves the
   substitute's weight field prefilled from the substitute's own history, not from the replaced
-  exercise's prescription. *(human-only)*
+  exercise's prescription — verified with a substitute that has **no history at all**, and repeated
+  **three times**. *(human-only)*
+
+  Both qualifiers are load-bearing, and without them this criterion is close to worthless. The
+  outcome it observes is a ~50/50 race unless Task 2 Step 3 was done (see AC6.9), so a single run
+  passes about half the time on a broken implementation; three runs cut that to ~1 in 8. And a
+  substitute *with* history can mask a stale prescription behind a plausible number, whereas a
+  substitute with none makes the failure unmistakable: `185` in a field that must be empty.
 - **coach-prescribed-weights.AC6.6:** In the simulator, the coach's next conversation about that
-  routine shows it can see the prescription it made. *(human-only)*
+  routine shows it can see the prescription it made — asked in a **fresh conversation**, never in the
+  one where the draft was accepted. *(human-only)*
 - **coach-prescribed-weights.AC6.7:** `exerciseReplaceStore` increments its `routineRevision`
   counter only *after* `applyToRoutine` resolves, and does not increment it when the engine rejects
-  the swap or the write throws.
+  the swap or the write throws — **and does increment it when the sheet is cancelled mid-write**,
+  because the write still committed.
 - **coach-prescribed-weights.AC6.8:** In the simulator, the prescribed weight reaches the input for
   an exercise the user has **never logged** — a brand-new coach-authored routine with no
   cross-session history at all. *(human-only)*
+- **coach-prescribed-weights.AC6.9 Structural:** `routineRevision` appears in `src/app/session.tsx`
+  in **exactly one dependency array — the prefill effect's (~line 254) — and not in the
+  progression-hint effect's (~line 182)**, and the file contains a `routineRevision` selector reading
+  from `exerciseReplaceStore`. Recorded in the PR description, in the shape of AC4.11.
 
-**All but one criterion in this phase is human-verified.** `src/app/` is not in `jest.config.js`'s
+  This is the only criterion that pins Task 2 Step 3 at all. Skipping that step entirely — never
+  subscribing to the counter, leaving line 254's dependency array unchanged — passes all five AC6.7
+  tests (they live in `src/state` and never load a screen) and passes AC6.5's manual scenario roughly
+  half the time, because the outcome simply reverts to the unarbitrated race of finding 7. A counter
+  nothing consumes is not a fix. Trap 11 already names the misplacement half of this — putting it on
+  the progression-hint effect too — with no criterion behind it.
+
+**All but two criteria in this phase are human-verified.** `src/app/` is not in `jest.config.js`'s
 `testMatch` at all — there is no jest project that can load a screen. AGENTS.md is explicit: *"a green
 run proves nothing about it."* Do not add tests under `src/app/` to feel better.
 
-The exception is **AC6.7**, and it is the most valuable thing in this phase. Task 1's work lands in
+The exceptions are **AC6.7** (automated) and **AC6.9** (a static read-and-record check), and together
+they are the most valuable thing in this phase. Task 1's work lands in
 `src/state/exerciseReplaceStore.ts`, which *is* covered — so the safety property that AC6.5 checks by
 hand gets a real automated test underneath it. Prefer that shape wherever a phase can reach for it:
 push the mechanism into a covered module and leave only the user-visible confirmation to the
-simulator.
+simulator. AC6.9 is the seam that shape leaves behind: the covered module can be perfect while the
+screen never reads it, and only a structural check spans the two.
 
 ⚠ **AC6.8 exists because AC6.4 structurally cannot fail on the bug this phase is about.** AC6.4's
 fixture has the user log a set and finish a session *first*, so history exists — which is exactly when
@@ -111,6 +143,19 @@ pure function is *future-proofing*, not a bug fix. If `ExerciseKind` ever gains 
 `isDurationBasedEntry` stops keying on `kind` alone, a duplicated predicate in a screen no test can
 see is where the two would drift apart silently. That is a real but speculative reason — do not go
 looking for a live disagreement between them, because there isn't one.
+
+**It does, however, have a live cost that has to be checked by hand.** Today `session.tsx:210`
+returns before the async block for every non-strength entry, so `apply()` runs exactly once on a
+duration entry. Moving the gate means the block runs for all kinds, and — because the combined
+early-return now fires only when *both* sources are absent — a duration entry that carries a
+prescription reaches a **second** `apply()`. `apply()` is not weight-only: it writes
+`setDurationText(...)` and `setCurrentRpe(undefined)` too. So the Duration field, which no code path
+in this effect could previously touch on a non-strength entry, is now writable by one — and the
+freshness guard's `!currentExerciseHasLoggedSet` clause means it fires precisely during the entry's
+first set, which is when a stopwatch run happens. A prescribed stretch is reachable because nothing
+gates a prescription on `kind` (`validateRoutineDraft` calls `validateHalfStepWeight`
+unconditionally, `src/ai/draftSchema.ts:215`). **AC5.4 / Task 3 Step 4b is the only place this is
+looked at**; an unprescribed duration entry still returns early and proves nothing about it.
 
 ### 5. A one-frame flash is expected and accepted
 
@@ -265,9 +310,13 @@ before `target = null;`:
 path. Each of those announces a clear that has not happened — and the effect would re-read the *old*
 prescription and re-apply it, which is worse than not bumping at all.
 
-Leave the `generation !== gen` guard below untouched. It governs whether the store's *visible* state
-is reset after a cancel; the revision bump is about a write that has already committed to the
-database and must be announced regardless.
+Leave the `generation !== gen` guard below untouched, and **do not move the bump below it either.**
+The guard governs whether the store's *visible* state is reset after a cancel; the revision bump is
+about a write that has already committed to the database and must be announced regardless. Putting
+the bump beside the existing `set({ status: 'idle', … })` on line 257 is the tempting placement — it
+is where this path's only other `set(...)` lives — and it silently drops the bump for any swap the
+user cancels mid-write, leaving the stale prescription in the field. AC6.7's cancelled-mid-write case
+is the one that fails on it; the other four do not.
 
 **Step 3: Write the tests**
 
@@ -284,6 +333,24 @@ setup that file already uses (it injects `dispatch`, `ensureExercise` and `apply
   `routineRevision` is **unchanged**.
 - **AC6.7 (write failure):** when the injected `applyToRoutine` rejects, `routineRevision` is
   **unchanged**.
+- **AC6.7 (cancelled mid-write):** hold `applyToRoutine`'s promise open, call `choose()` **without
+  awaiting**, call `cancel()` while the write is in flight, then release the promise and await.
+  `routineRevision` must be `before + 1`. Use the deferred-promise idiom this file already uses —
+  `let release: (value: unknown) => void = () => {};` with a `new Promise` handed to the injected dep
+  (`exerciseReplaceStore.test.ts:219` and `:276`, the latter calling `cancel()` mid-flight at `:280`).
+
+  ⚠ **This is the case that pins the bump's placement to the line it is on, rather than to the
+  general vicinity.** The four cases above all pass if the bump is moved five lines down — after the
+  `generation !== gen` guard, beside the existing `set({ status: 'idle', … })` at
+  `exerciseReplaceStore.ts:257` — which is exactly where an implementer adding a `set(...)` call most
+  naturally puts it, since that is where the file's other `set(...)` on this path lives. But
+  `generation` advances on both `cancel()` (`:272`) and `open()` (declared `:158`, incrementing at
+  `:159` — `const gen = ++generation;`),
+  so a user who dismisses the sheet while the write is in flight gets a committed write that is never
+  announced — the prefill effect never re-runs, and the stale prescription stays in the field. That is
+  the identical user-visible failure this whole counter exists to prevent, reached by a different
+  route. The comment in Step 2 says the guard must be left untouched *because the write has already
+  committed*; this test is what makes that sentence enforceable.
 
 **Step 4: Run**
 
@@ -304,7 +371,9 @@ git commit -m "feat(state): announce a completed exercise swap with routineRevis
 <!-- START_TASK_2 -->
 ### Task 2: Wire the prescription into the prefill effect
 
-**Verifies:** None automatically — this is `src/app/`, outside every jest project. Proven by H2/H3/H4 in `test-requirements.md`.
+**Verifies:** `coach-prescribed-weights.AC6.9` (a structural read-and-record check — the only thing
+that pins Step 3 at all). Nothing else here is automatable: this is `src/app/`, outside every jest
+project. Proven by H2/H3/H4/H6/H7 in `test-requirements.md`.
 
 **Files:**
 - Modify: `src/app/session.tsx:30` (import)
@@ -406,6 +475,15 @@ Replace everything from line 206's comment through line 246 (the closing `})();`
     })();
 ```
 
+⚠ **This step retypes roughly forty lines, and two of them are the staleness guard chain** — the
+`if (cancelled) return;` after the reads, and the `historyPrefillStillApplies` block before `apply()`.
+Nothing in the repo can fail if one of them is dropped in the retyping: `src/app/` has no test, and
+the two guards overlap enough that dropping *either alone* is usually harmless (`cancelled` covers
+unmount; the freshness check independently catches a session, index, exercise or logged-set change).
+Dropping **both**, or dropping the freshness check, is what puts a previous exercise's numbers into
+the current exercise's field. H2 gains a step for exactly this — advance through three exercises in
+quick succession — because it is the only thing that will notice.
+
 **Step 3: Subscribe to `routineRevision` and add it to the dependency array**
 
 `currentEntryExerciseId` already re-runs this effect on a swap — but re-running is not the same as
@@ -438,6 +516,20 @@ Then extend the prefill effect's dependency array (line 254):
 Add it to **this effect only.** The progression-hint effect above it does not read the prescription
 and does not need re-running on a swap-commit; widening its deps would just refire a DB query.
 
+**Step 3c: Record the structural check (AC6.9)**
+
+Before committing, read `src/app/session.tsx` back and record one line in the PR description:
+`routineRevision` appears in **exactly one dependency array — the prefill effect's, ~line 254 — and
+not in the progression-hint effect's, ~line 182** — and there is exactly one selector reading it off
+`exerciseReplaceStore`.
+
+⚠ This is not ceremony. Task 1's counter is in a jest-covered module and Task 2's consumption of it
+is in a file no suite can load, so **nothing but this check spans the two.** An implementation that
+does Task 1 perfectly and skips Step 3 entirely passes all five AC6.7 tests and passes AC6.5's manual
+scenario roughly half the time — the outcome just reverts to the unarbitrated race of finding 7,
+which resolves benignly about as often as not. "The tests pass and it worked when I tried it" is the
+expected appearance of that bug, which is why the criterion is structural rather than behavioural.
+
 **Step 4: Typecheck and lint**
 
 ```bash
@@ -459,7 +551,7 @@ git commit -m "feat(app): session prefill applies the coach's prescribed load"
 <!-- START_TASK_3 -->
 ### Task 3: Simulator verification
 
-**Verifies:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC6.4`, `coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`, `coach-prescribed-weights.AC6.8`
+**Verifies:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC5.4`, `coach-prescribed-weights.AC6.4`, `coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`, `coach-prescribed-weights.AC6.8`
 
 **This task has no code. It is the only proof this feature works.**
 
@@ -506,8 +598,18 @@ the v4 database and turns this into a fresh-install test that proves nothing):
 3. **Expected:** the weight field prefills from history exactly as it did before. No prescription
    exists, so the precedence chain is untouched.
 4. Log sets and complete the session normally.
+5. **Advance through at least three exercises in quick succession** — log or skip a set and move on
+   without waiting for each field to settle — and confirm each exercise's inputs show *that*
+   exercise's numbers. Then repeat once slowly for comparison.
 
-Evidence: screenshots before/after; note in the PR that the install was an upgrade, not a fresh one.
+   Task 2 retypes the whole async block, including the `if (cancelled) return;` check and the
+   `historyPrefillStillApplies` guard, and no test in the repo can fail on a dropped one. The symptom
+   is specific and easy to miss if you only ever change exercise slowly: the *previous* exercise's
+   reps and weight landing in the current exercise's field, a fraction of a second after arriving.
+   Moving fast is what widens the window enough to see it.
+
+Evidence: screenshots before/after; a screenshot or short screen recording of the fast-advance pass;
+and note in the PR that the install was an upgrade, not a fresh one.
 
 **Step 3b: AC6.8 — the prescription reaches an exercise with NO history**
 
@@ -548,35 +650,102 @@ optional; without it the screenshot does not distinguish this case from Step 2.
 
 1. Start the prescribed routine from Step 2.
 2. On the prescribed exercise, **before logging any set**, tap Replace and accept an alternate.
-3. **Expected:** the weight field no longer shows the prescribed 185. It shows the substitute's own
-   history, or is empty if the substitute has none.
-4. This is the safety case: a prescription overrides history, so a stale one would pre-type an
+   **Pick a substitute you have never logged a set for** — verify it the same way Step 3b does, with
+   the two-path query, not by memory. A substitute *with* history hides the failure behind a
+   plausible-looking number; a substitute with none makes it unmistakable, because the field must be
+   **empty** and the failure shows as `185`.
+3. **Expected:** the weight field is empty. (If you could not find a history-free substitute, the
+   weaker expectation is the substitute's own history and definitely not `185` — say which case you
+   ran, in the PR.)
+4. **Repeat the swap three times**, restarting the routine each time. Record all three outcomes.
+5. This is the safety case: a prescription overrides history, so a stale one would pre-type an
    impossible load into the field.
 
-⚠ **A pass here is weaker evidence than it looks.** Finding 7 explains that the effect's read races
-the swap's write; before Task 1's `routineRevision` counter, this check would pass or fail depending
-on which side won on that particular run. AC6.7's automated tests are what actually pin the ordering.
-If this step fails, suspect the counter wiring (Task 1 Step 2's placement, or Task 2 Step 3's
-dependency array) before suspecting Phase 1's clear — AC1.6 already proves the column is cleared.
+⚠ **A single pass here is close to worthless, which is why step 4 says three.** Finding 7 explains
+that the effect's read races the swap's write. If Task 2 Step 3 was skipped — the counter added but
+never consumed — the outcome is exactly that unarbitrated race, which resolves benignly something
+like half the time. One run therefore passes a broken implementation on a coin flip; three runs get
+you to roughly 7-in-8 confidence, which is the most a manual check can buy here.
 
-Evidence: screenshots before and after the swap.
+⚠ **And even three passes are confirmation, not proof.** The things that actually pin this are
+AC6.7's five automated tests (the store's half) and AC6.9's structural check (the screen's half —
+that `routineRevision` is in the prefill effect's dependency array and only there). If this step
+fails, suspect the counter wiring — Task 1 Step 2's placement, or Task 2 Step 3's dependency array —
+before suspecting Phase 1's clear; AC1.6 already proves the column is cleared.
+
+Evidence: screenshots before and after each of the three swaps, plus the history-check query output
+for the substitute.
+
+**Step 4b: AC5.4 — a duration entry's Duration field is untouched**
+
+Task 2 moves the `kind !== 'strength'` gate at `session.tsx:210`, so the async block now runs for
+stretch and cardio entries too, and calls `apply()` a **second** time whenever a prescription exists.
+`apply()` writes `setDurationText(...)` and `setCurrentRpe(undefined)` alongside the weight, so the
+Duration field is now reachable by a code path that never touched it before. **No other step in this
+phase puts a duration-based entry on screen.**
+
+1. Build (or ask the coach for) a routine containing **two** stretch or cardio entries: one the coach
+   gave a `targetWeightLbs`, one it did not. Nothing gates a prescription on `kind` —
+   `validateRoutineDraft` calls `validateHalfStepWeight` unconditionally
+   (`src/ai/draftSchema.ts:215`) — so ask for it directly if the coach will not volunteer one, and
+   confirm with `select order_, exercise_id, target_weight_kg from routine_exercises where
+   routine_id = '<id>';` that the column really is set on one row and null on the other.
+2. Start the routine and arrive at each entry in turn.
+3. **Expected:** the Duration field opens at the entry's target and **stays** there — no flicker to a
+   different value, no reset to empty a beat after arriving. No weight input should appear.
+4. On the **prescribed** entry, run the stopwatch and stop it, then wait a few seconds.
+   **Expected:** the recorded duration stays in the field. The second `apply()` fires only while no
+   set has been logged for the entry — which is exactly the window a stopwatch run happens in — so
+   this is the narrow case where it could clobber a real value.
+
+⚠ The unprescribed entry is a **control**, not a second test of the same thing: with no prescription
+and no history (history is strength-only), the async block still returns early for it, so its
+behaviour is byte-identical to today's. It is there to make a difference between the two entries
+visible. The prescribed entry is the one that can fail.
+
+Evidence: screenshots of both entries' Duration fields, taken a couple of seconds after arriving
+(not on the first frame), plus the `target_weight_kg` query output showing one set and one null.
 
 **Step 5: AC6.6 — the coach sees its own prescription**
 
-1. From the prescribed routine's screen, open the AI Coach in edit mode (or finish the workout and
-   use the debrief).
-2. Ask something that requires it to know the programmed load — e.g. "what weight did you programme
-   for squats?"
-3. **Expected:** it answers with the prescribed number, in lbs.
-4. This exercises the Phase 3 read path end to end.
+⚠ **Do not ask this in the conversation where you accepted the draft.** That is the short route, it
+is the one you will already be standing in after Step 2, and it makes the check vacuous: the model
+answers correctly from **its own previous turn**, with `formatExerciseLine` contributing nothing at
+all. Two things keep that conversation stale. The screen only re-initialises when its `modeKey`
+changes (`ai-coach.tsx:66-83` — a `startedModeRef` guard, and `router.push('/routine/<id>')` after an
+accept leaves the coach screen mounted in the stack), and the system prompt is cached until
+`reset`/`openDebrief` bumps `systemEpoch` (`aiChatStore.ts`). So the prompt in play was built
+*before* the routine existed. A pass proves the model has a memory, which was never in question.
 
-Evidence: screenshot of the exchange.
+1. **Force-quit the app and relaunch it.** The chat is never persisted, so this is the cheapest way to
+   guarantee a genuinely new conversation and a freshly built system prompt.
+2. Open the routine, and from *its* screen open the AI Coach in **edit mode** (or finish the workout
+   and use the debrief — either is fine, both build a new prompt).
+3. Ask something that requires it to know the programmed load — e.g. "what weight did you programme
+   for squats?"
+4. **Expected:** it answers with the prescribed number, in lbs.
+5. **Sharper variant, worth the extra minute:** prescribe two *different* loads on two exercises in
+   Step 2, and ask about the **second** one here. A model reconstructing an answer from context it
+   does not actually have is much likelier to produce the first or the more memorable number.
+6. This exercises the Phase 3 read path end to end.
+
+Evidence: screenshot of the exchange, and state in the PR that the app was relaunched first — a
+screenshot of the answer alone does not distinguish this from the vacuous version.
 
 **Step 6: Record the results**
 
-Put every screenshot and a one-line pass/fail for each of AC5.2, AC6.4, AC6.5, AC6.6 and AC6.8 in
-the PR description, plus the `count(*) = 0` output from Step 3b. A phase whose only verification is manual is not done until the evidence is written down
-somewhere a reviewer can see it.
+Put every screenshot and a one-line pass/fail for each of AC5.2, AC5.4, AC6.4, AC6.5, AC6.6 and
+AC6.8 in the PR description, plus:
+
+- the `count(*) = 0` output from Step 3b,
+- **all three** swap outcomes from Step 4, not just the last one,
+- the `target_weight_kg` query output from Step 4b,
+- a note that the app was force-quit before Step 5,
+- and the AC6.9 structural line from Task 2 Step 3c.
+
+A phase whose only verification is manual is not done until the evidence is written down somewhere a
+reviewer can see it — and for the repeated and structural checks, "it passed" without the count or
+the line is indistinguishable from the shortcut version of the same step.
 <!-- END_TASK_3 -->
 
 <!-- START_TASK_4 -->
@@ -695,8 +864,13 @@ npm run lint
 **Step 4: Full-change review**
 
 ```bash
-git diff origin/main --stat
+git diff origin/main...HEAD --stat
 ```
+
+⚠ Three-dot, against the merge base. Phases 1–4 have merged into `origin/main` by the time this runs,
+so a two-dot `git diff origin/main` compares your tip against a `main` that already contains them —
+their files appear in your stat with inverted line counts, and this step's whole job is to confirm a
+file list. Same reason as Phase 4's AC5.1/AC5.3 checks.
 
 Confirm the change set is exactly: `src/db/{schema,migrations,repository}.ts`,
 `src/db/models/RoutineExercise.ts`, `src/ai/{draftSchema,contextBuilder,acceptDraft}.ts`,
@@ -720,5 +894,10 @@ under `src/components/`.**
 8. **Skipping the AGENTS.md read-through.** Seven passages change and cross-references do not grep.
 9. **Assuming `routineRevision` covers routine edits.** It bumps on swaps only; an `acceptDraft` revision changes `target_weight_kg` and bumps nothing. Not a defect today — mid-session routine editing is not a supported flow — but the docblock and AGENTS.md must say so, or the next reader will assume otherwise.
 10. **Bumping `routineRevision` before `await deps.applyToRoutine(...)`, or in the `catch`.** Either announces a clear that has not happened, and the effect re-reads and re-applies the *old* prescription — worse than not bumping at all. AC6.7's ordering test is the one that catches it.
-11. **Adding `routineRevision` to the progression-hint effect's deps as well.** It does not read the prescription; widening its deps just refires a DB query on every swap.
-12. **Treating a green AC6.5 as proof the ordering is right.** Before Task 1 it passed or failed on a coin flip. The automated AC6.7 tests are the real evidence.
+11. **Adding `routineRevision` to the progression-hint effect's deps as well.** It does not read the prescription; widening its deps just refires a DB query on every swap. AC6.9 is the criterion behind this trap — it requires the counter to appear in exactly one dependency array, the prefill effect's.
+12. **Treating a green AC6.5 as proof the ordering is right.** Before Task 1 it passed or failed on a coin flip. AC6.7's five automated tests and AC6.9's structural check are the real evidence; AC6.5 is confirmation, and only at three runs against a history-free substitute.
+13. **Doing Task 1 and skipping Task 2 Step 3.** A counter nothing consumes changes nothing. All five AC6.7 tests still pass — they never load a screen — and AC6.5 still passes about half the time, because the outcome reverts to the raw race. AC6.9 is the only check that spans the covered module and the untestable screen.
+14. **Moving the `routineRevision` bump below the `generation !== gen` guard.** It looks like tidying — that is where the path's other `set(...)` call lives — and four of AC6.7's five cases pass. But `generation` advances on `cancel()` and `open()`, so a sheet dismissed mid-write commits a swap that is never announced, and the stale prescription stays in the field. AC6.7's cancelled-mid-write case exists for this.
+15. **Asking AC6.6's question in the conversation where you accepted the draft.** The model answers from its own prior turn and the prompt-building path under test contributes nothing. Force-quit first. This is the same defect class as trap 8 in test-requirements.md — a scenario whose setup guarantees the failure mode cannot occur.
+16. **Leaving duration entries unexercised.** Task 2 moves the `kind !== 'strength'` gate, so `apply()` — which also writes the Duration field and resets RPE — now runs a second time on a prescribed stretch or cardio entry. AC5.4 is the only step that puts one on screen.
+17. **Two-dot `git diff origin/main` in Task 5.** By this phase, four other PRs have landed on `main`; a two-dot diff reports them as part of your change set, which defeats the point of a file-list check.

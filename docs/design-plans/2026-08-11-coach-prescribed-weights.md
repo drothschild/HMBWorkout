@@ -122,9 +122,13 @@ the whole entry); auto-progression without the coach.
 - **coach-prescribed-weights.AC4.3 Success:** When the exercise already has a set logged this
   session, that set's weight wins over the prescription.
 - **coach-prescribed-weights.AC4.4 Success:** With a prescription, no history and no in-session set,
-  the result carries the prescribed `weightLbs` and `reps` from `entry.targetReps`.
+  the result carries the prescribed `weightLbs` and `reps` from `entry.targetReps` — and, with
+  `entry.targetReps = 0`, the prescribed `weightLbs` alone. The second invocation is the only one that
+  reaches the terminal fallback carrying a prescription and nothing else.
 - **coach-prescribed-weights.AC4.5 Edge:** For a duration-based entry (`isDurationBasedEntry`), the
-  prescription is ignored and the duration path is unchanged.
+  prescription is ignored and the duration path is unchanged — verified both with **and without** a
+  usable in-session duration set. Without one, the duration branch returns a fresh object that never
+  consults the prescription, so that invocation alone cannot discriminate.
 - **coach-prescribed-weights.AC4.6 Edge:** A prescription argument of `undefined` or `0` leaves the
   existing precedence chain byte-identical.
 - **coach-prescribed-weights.AC4.7 Success:** The returned value is in lbs — the kg prescription
@@ -141,8 +145,13 @@ the whole entry); auto-progression without the coach.
   same input produces with no prescription. The presence of a prescription never changes the reps
   field.
 - **coach-prescribed-weights.AC4.11 Structural:** No non-terminal return in `computeSetPrefill` is
-  gated on `Object.keys(prefill).length`. Each non-terminal return's condition is computed from its
-  own source (the logged set, or `historyFallback`), never from the accumulating `prefill` object.
+  gated on a predicate computed from the accumulating `prefill` object, in any spelling. Each
+  non-terminal return's condition is computed from its own source (the logged set, or
+  `historyFallback`). `Object.keys(prefill).length` is the form both known defects took and must
+  appear only in the terminal return, but the criterion is the class, not the token.
+- **coach-prescribed-weights.AC4.12 Success:** An in-session logged set with reps but no weight, plus
+  a prescription, yields the set's reps and the prescription's weight — the partial-fill path, and
+  the only case that exercises the prescription's fallback assignment inside the in-session branch.
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
@@ -150,8 +159,14 @@ the whole entry); auto-progression without the coach.
   behaviour-neutral when omitted.
 - **coach-prescribed-weights.AC5.2 Success:** In the simulator, a routine created before this change
   starts, prefills, logs and completes exactly as it did before. *(human-only)*
-- **coach-prescribed-weights.AC5.3 Success:** `git diff origin/main --stat` shows no file under
-  `src/engine/` changed, and `src/engine/types.ts`'s `RoutineEntry` is untouched.
+- **coach-prescribed-weights.AC5.3 Success:** `git diff origin/main...HEAD --stat` shows no file under
+  `src/engine/` changed, `src/engine/types.ts`'s `RoutineEntry` is untouched, and no `targetWeightKg`
+  appears in `src/state/startSessionFromRoutine.ts` or `src/state/activeSession.ts` — the two shell
+  files that could put the value into engine state with `src/engine/` unchanged. *(Three-dot diffs
+  throughout: this is a five-PR chain, and `origin/main` moves under each branch.)*
+- **coach-prescribed-weights.AC5.4 Edge:** In the simulator, a duration-based entry's Duration field
+  still opens at its target and is not overwritten a beat later, once Phase 5 moves the
+  `kind !== 'strength'` gate out of the prefill effect. *(human-only)*
 
 ### coach-prescribed-weights.AC6: Cross-cutting
 - **coach-prescribed-weights.AC6.1:** `npx tsc --noEmit` reports no errors at every phase boundary.
@@ -163,15 +178,22 @@ the whole entry); auto-progression without the coach.
   even though the exercise has heavier or lighter history. *(human-only)*
 - **coach-prescribed-weights.AC6.5:** In the simulator, replacing an exercise mid-session leaves the
   substitute's weight field prefilled from the substitute's own history, not from the replaced
-  exercise's prescription. *(human-only)*
+  exercise's prescription — with a substitute that has no history, repeated three times, because the
+  underlying outcome is a race that resolves benignly about half the time when the wiring is wrong.
+  *(human-only)*
 - **coach-prescribed-weights.AC6.6:** In the simulator, the coach's next conversation about that
-  routine shows it can see the prescription it made. *(human-only)*
+  routine shows it can see the prescription it made — asked in a **fresh** conversation, never the one
+  where the draft was accepted, in which the model can answer from its own prior turn. *(human-only)*
 - **coach-prescribed-weights.AC6.7:** `exerciseReplaceStore` increments its `routineRevision`
-  counter only *after* `applyToRoutine` resolves, and does not increment it when the engine rejects
-  the swap or the write throws.
+  counter only *after* `applyToRoutine` resolves, does not increment it when the engine rejects
+  the swap or the write throws, and **does** increment it when the sheet is cancelled mid-write.
 - **coach-prescribed-weights.AC6.8:** In the simulator, the prescribed weight reaches the input for
   an exercise the user has **never logged** — a brand-new coach-authored routine with no
   cross-session history at all. *(human-only)*
+- **coach-prescribed-weights.AC6.9 Structural:** `routineRevision` appears in `src/app/session.tsx` in
+  exactly one dependency array — the prefill effect's — and not the progression-hint effect's. This is
+  the only criterion covering the *consumption* of the counter; AC6.7 covers only its production, in a
+  module no screen change can affect.
 
 ## Glossary
 
@@ -560,12 +582,12 @@ session's own set, and touches the weight field only.
 **Dependencies:** None technically (the parameter is optional and self-contained), but it is
 meaningless before Phase 1 supplies a value.
 
-**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.11`,
+**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.12`,
 `coach-prescribed-weights.AC5.1`, `coach-prescribed-weights.AC5.3`
 
 **Done when:** `npm test -- src/state/sessionPresenter.test.ts` passes with every pre-existing
-assertion unmodified; `tsc --noEmit` clean; `git diff origin/main --stat` shows nothing under
-`src/engine/`.
+assertion unmodified; `tsc --noEmit` clean; `git diff origin/main...HEAD --stat` shows nothing under
+`src/engine/` (three-dot — `origin/main` moves under this branch as the chain lands).
 <!-- END_PHASE_4 -->
 
 <!-- START_PHASE_5 -->
@@ -590,12 +612,14 @@ whose code no test suite can see.
 
 **Dependencies:** Phases 1–4.
 
-**Covers:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC6.4`,
-`coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`,
-`coach-prescribed-weights.AC6.7`, `coach-prescribed-weights.AC6.8`
+**Covers:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC5.4`,
+`coach-prescribed-weights.AC6.4`, `coach-prescribed-weights.AC6.5`,
+`coach-prescribed-weights.AC6.6`, `coach-prescribed-weights.AC6.7`,
+`coach-prescribed-weights.AC6.8`, `coach-prescribed-weights.AC6.9`
 
-**Done when:** `npm test` is green including the new `exerciseReplaceStore` cases; the four simulator
-scenarios in test-requirements.md pass with screenshots; AGENTS.md describes only code that exists.
+**Done when:** `npm test` is green including the new `exerciseReplaceStore` cases; the six simulator
+scenarios in test-requirements.md (H2–H7) pass with screenshots; AC6.9's structural line is recorded
+in the PR; AGENTS.md describes only code that exists.
 <!-- END_PHASE_5 -->
 
 ### AC × phase matrix
@@ -605,16 +629,21 @@ scenarios in test-requirements.md pass with screenshots; AGENTS.md describes onl
 | AC1.1 – AC1.7 | 1 | yes (`src/db`) |
 | AC2.1 – AC2.11 | 2 | yes (`src/ai`) |
 | AC3.1 – AC3.3 | 3 | yes (`src/ai`, `src/state`) |
-| AC4.1 – AC4.11 | 4 | yes (`src/state`; AC4.11 is a read-and-record check) |
+| AC4.1 – AC4.12 | 4 | yes (`src/state`; AC4.11 is a read-and-record check) |
 | AC5.1 | 4 | yes (`src/state`) |
 | AC5.2 | 5 | **no — simulator** |
-| AC5.3 | 4 | yes (`git diff` check) |
+| AC5.3 | 4 | yes (three-dot `git diff` + one grep) |
+| AC5.4 | 5 | **no — simulator** |
 | AC6.1 – AC6.3 | **gate on every phase** | yes (`tsc`, `jest`, `lint`) |
 | AC6.4 – AC6.6 | 5 | **no — simulator** |
 | AC6.7 | 5 | yes (`src/state/exerciseReplaceStore.test.ts`) |
 | AC6.8 | 5 | **no — simulator** |
+| AC6.9 | 5 | yes (read-and-record on `src/app/session.tsx`) |
 
-**Totals: 43 criteria — 38 automated, 5 human.**
+**Totals: 46 criteria — 40 automated, 6 human.** (Revised 2026-08-11 by an acceptance-criteria audit
+of Phases 4–5: AC4.12, AC5.4 and AC6.9 added, and AC4.4/AC4.5/AC5.3/AC6.5/AC6.6/AC6.7 sharpened where
+the stated criterion could not discriminate the failure it named. Phases 1–3 were already merged and
+are untouched.)
 
 Every AC belongs to exactly one phase's *Covers* list, with one deliberate exception: AC6.1–AC6.3 are
 per-phase **gates**, not deliverables of any single phase, so they appear in every phase's *Done
