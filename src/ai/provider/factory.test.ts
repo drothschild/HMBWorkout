@@ -64,29 +64,63 @@ describe('createAiClient factory', () => {
   // (hand each client a 'WRONG-KEY' instead of the configured one) survived: the
   // coverage looked present because of where the test lived, not what it called.
   // Right file, wrong unit. These two go through the factory.
-  describe('forwards the configured key to the selected provider', () => {
+  describe('forwards trimmed keys to all client factories', () => {
     afterEach(() => jest.resetModules());
 
-    it('passes openaiKey to the OpenAI client', async () => {
+    it('trims openaiKey before passing to OpenAI chat client', async () => {
       jest.resetModules();
-      const openaiSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
-      jest.doMock('../openaiClient', () => ({ createOpenaiClient: openaiSpy }));
+      const chatClientSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      const commentClientSpy = jest.fn(() => ({ comment: async () => 'ok' }));
+      const suggestClientSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
+      const askClientSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+
+      jest.doMock('../openaiClient', () => ({
+        createOpenaiClient: chatClientSpy,
+        createRestCommentaryClient: commentClientSpy,
+      }));
+      jest.doMock('../openaiAlternatesClient', () => ({
+        createOpenaiAlternatesClient: suggestClientSpy,
+      }));
+      jest.doMock('../openaiExerciseQuestionClient', () => ({
+        createOpenaiExerciseQuestionClient: askClientSpy,
+      }));
 
       const { createAiClient: freshFactory } = await import('./factory');
-      freshFactory({ openaiKey: 'the-openai-key', aiProvider: 'openai' });
+      freshFactory({ openaiKey: '  sk-padded  ', aiProvider: 'openai' });
 
-      expect(openaiSpy).toHaveBeenCalledWith({ apiKey: 'the-openai-key' });
+      // CRITICAL: verify trimmed key reaches ALL surfaces
+      expect(chatClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
+      expect(commentClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
+      expect(suggestClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
+      expect(askClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
     });
 
-    it('passes anthropicKey to the Anthropic client', async () => {
+    it('trims anthropicKey before passing to Anthropic clients', async () => {
       jest.resetModules();
-      const anthropicSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
-      jest.doMock('../anthropicClient', () => ({ createAnthropicClient: anthropicSpy }));
+      const chatClientSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      const commentClientSpy = jest.fn(() => ({ comment: async () => 'ok' }));
+      const suggestClientSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
+      const askClientSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+
+      jest.doMock('../anthropicClient', () => ({
+        createAnthropicClient: chatClientSpy,
+        createRestCommentaryClient: commentClientSpy,
+      }));
+      jest.doMock('../alternatesClient', () => ({
+        createExerciseAlternatesClient: suggestClientSpy,
+      }));
+      jest.doMock('../exerciseQuestionClient', () => ({
+        createExerciseQuestionClient: askClientSpy,
+      }));
 
       const { createAiClient: freshFactory } = await import('./factory');
-      freshFactory({ anthropicKey: 'the-anthropic-key', aiProvider: 'anthropic' });
+      freshFactory({ anthropicKey: '  sk-ant-padded  ', aiProvider: 'anthropic' });
 
-      expect(anthropicSpy).toHaveBeenCalledWith({ apiKey: 'the-anthropic-key' });
+      // CRITICAL: verify trimmed key reaches ALL surfaces
+      expect(chatClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
+      expect(commentClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
+      expect(suggestClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
+      expect(askClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
     });
   });
 

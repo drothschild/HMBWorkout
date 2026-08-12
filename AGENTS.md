@@ -1,11 +1,11 @@
 # HMB Workout
 
-Last verified: 2026-08-11
+Last verified: 2026-08-12
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
-machine. Routines can also be authored conversationally against the Anthropic API
-with a user-supplied key (`src/ai`).
+machine. Routines can also be authored conversationally against Anthropic or OpenAI
+APIs with a user-supplied key (`src/ai` with multi-provider routing via `src/ai/provider`).
 
 ## Expo version discipline
 
@@ -492,13 +492,18 @@ save path is testable in the node jest project.
 
 ## AI Coach (`src/ai`)
 
-Conversational routine authoring. The user brings their own Anthropic key; requests go
-straight from the device to the Anthropic API, and the chat is never persisted. The AI
-settings fields (`anthropicKey`, `aiGoals`, `aiEquipment`, `aiPersonality`) are
-persisted under the storage key `'bridge_settings'`, alongside the profile and
-onboarding fields — do not rename this key, as it holds every user's API key and
-onboarding state, and renaming it orphans existing users. `BridgeSettings` in
-`src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onboarding
+Conversational routine authoring. The user brings their own API key (Anthropic or OpenAI);
+requests go straight from the device to the chosen provider's API, and the chat is
+never persisted. Provider selection is determined by `createAiClient` (`src/ai/provider/factory.ts`),
+which reads `anthropicKey`, `openaiKey`, and `aiProvider` to resolve the active provider,
+and route all four surfaces (chat, rest commentary, exercise question, alternates) to
+the corresponding client factory.
+
+The AI settings fields (`anthropicKey`, `openaiKey`, `aiProvider`, `aiModel`, `aiGoals`,
+`aiEquipment`, `aiPersonality`) are persisted under the storage key `'bridge_settings'`,
+alongside the profile and onboarding fields — do not rename this key, as it holds every
+user's API key and onboarding state, and renaming it orphans existing users. `BridgeSettings`
+in `src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onboarding
 settings, and no bridge settings at all — kept because renaming the *type* is churn and
 renaming the *key* is forbidden.
 
@@ -605,15 +610,16 @@ renaming the *key* is forbidden.
   `exerciseQuestionKey`, answer never persisted), and Replace-button alternates
   (`alternates*` + `acceptAlternate` — validate on receipt AND at swap; `kind`
   always from the entry, never the model; duplicate titles rejected at slug level)
-  each have their own prompt builder, and their own client except rest commentary,
-  whose `createRestCommentaryClient` sits alongside the conversation client inside
-  `anthropicClient.ts`. All follow the same rules: free text neutralized, immutable
-  directives last, secret-leak regression tests, network-vs-HTTP failure types,
-  every failure swallowed (a workout never depends on the AI), deps injected for
-  the node jest project. Known accepted debt: `neutralizeForPrompt` exists in
-  three copies and the POST/parse boilerplate in four (both `anthropicClient.ts`
-  factories, plus the question and alternates clients) — hoisting them is a
-  tracked follow-up; don't add another of either.
+  each have their own prompt builder, and their own client per provider. All follow the
+  same rules: free text neutralized, immutable directives last, secret-leak regression
+  tests, network-vs-HTTP failure types, every failure swallowed (a workout never depends
+  on the AI), deps injected for the node jest project. Known accepted debt: `neutralizeForPrompt`
+  exists in multiple copies and the POST/parse boilerplate is duplicated across both
+  `anthropicClient.ts` and `openaiClient.ts` (plus the one-shot alternates and question
+  clients for each provider, totaling 8 copies) — hoisting them is a tracked follow-up;
+  don't add another of either. `buildOpenAiBody` (`src/ai/provider/requestBuilder.ts`)
+  centralizes the Responses API body format to reduce drift; Anthropic clients build
+  their own request bodies and prompt builders are kept per-surface.
 - **Immutable directives must remain the last section of every system prompt.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
@@ -709,9 +715,12 @@ renaming the *key* is forbidden.
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate
 - `src/health/` — HealthKit write-only export
-- `src/ai/` — AI coach: turn/draft schema + validators, Anthropic client,
-  system-prompt builder, coach directives, draft→repository accept path, plus the
-  one-shot features (rest commentary, exercise question, replace alternates)
+- `src/ai/` — AI coach: turn/draft schema + validators, system-prompt builders,
+  coach directives, draft→repository accept path, plus the one-shot features
+  (rest commentary, exercise question, replace alternates)
+- `src/ai/provider/` — multi-provider abstraction: `createAiClient` factory routes to
+  Anthropic or OpenAI based on configured keys; unified `AiClient` interface; `buildOpenAiBody`
+  centralizes the OpenAI Responses API format (Anthropic clients build requests inline)
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
   each darkened to clear WCAG AA 4.5:1 text contrast against both white and
   black backgrounds; also used on non-button solid fills like the AI chat

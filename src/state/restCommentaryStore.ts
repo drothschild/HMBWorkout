@@ -24,7 +24,6 @@
  */
 
 import { create } from 'zustand';
-import { createRestCommentaryClient } from '@/ai/anthropicClient';
 import {
   buildRestCommentaryPrompt,
   normalizeCommentaryText,
@@ -34,7 +33,9 @@ import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
+import { createAiClient } from '@/ai/provider/factory';
 import type { ExerciseKind, SessionState } from '@/engine/types';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /**
  * The exercise the athlete is about to perform, plus the ids that scope the
@@ -60,7 +61,7 @@ export interface RestCommentaryTarget {
 export interface RestCommentaryDeps {
   getSettings: typeof getSettings;
   loadHistory: (exerciseId: string) => Promise<RestCommentaryHistorySet[]>;
-  createClient: typeof createRestCommentaryClient;
+  createClient: (config: ProviderConfig) => AiClient;
   logError?: (message: string, error: unknown) => void;
 }
 
@@ -147,9 +148,11 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
 
   const keyOf = (target: RestCommentaryTarget) => `${target.sessionId}#${target.entryIdx}`;
 
-  function apiKey(): string | null {
-    const key = deps.getSettings().anthropicKey?.trim();
-    return key ? key : null;
+  function hasApiKey(): boolean {
+    const settings = deps.getSettings();
+    const hasAnthropicKey = settings.anthropicKey?.trim();
+    const hasOpenaiKey = settings.openaiKey?.trim();
+    return Boolean(hasAnthropicKey || hasOpenaiKey);
   }
 
   async function requestComment(key: string, target: RestCommentaryTarget): Promise<string | null> {
@@ -165,10 +168,10 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
 
     const request = (async () => {
       const settings = deps.getSettings();
-      const trimmedKey = settings.anthropicKey?.trim();
-      // Checked in `show` too; re-checked here so no caller can reach the API
-      // without a key.
-      if (!trimmedKey) return null;
+      // Check if any key is configured
+      const hasAnthropicKey = settings.anthropicKey?.trim();
+      const hasOpenaiKey = settings.openaiKey?.trim();
+      if (!hasAnthropicKey && !hasOpenaiKey) return null;
 
       const history = await deps.loadHistory(target.exerciseId);
       const prompt = buildRestCommentaryPrompt({
@@ -193,7 +196,13 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         profileExperience: settings.profileExperience,
       });
 
-      const rawComment = await deps.createClient({ apiKey: trimmedKey }).comment(prompt);
+      const providerConfig: ProviderConfig = {
+        anthropicKey: settings.anthropicKey,
+        openaiKey: settings.openaiKey,
+        aiProvider: settings.aiProvider,
+      };
+      const client = deps.createClient(providerConfig);
+      const rawComment = await client.comment(prompt);
       // Normalize the response: collapse whitespace, strip quotes, and bound length
       // so the rest screen can render it safely. The client is pure transport and
       // returns raw text; consumption normalizes it.
@@ -255,7 +264,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
       }
 
       // No key configured: silence, and no reserved space either.
-      if (!apiKey()) {
+      if (!hasApiKey()) {
         set({ text: null, pending: false, attempted: false });
         return;
       }
@@ -291,5 +300,5 @@ export const restCommentaryStore = createRestCommentaryStore({
     const { database } = require('@/db');
     return loadRestCommentaryHistory(database, exerciseId);
   },
-  createClient: createRestCommentaryClient,
+  createClient: createAiClient,
 });

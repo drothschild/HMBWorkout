@@ -3,7 +3,7 @@ import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
-import { exerciseReplaceStore, replaceExerciseTarget } from '@/state/exerciseReplaceStore';
+import { exerciseReplaceStore, replaceExerciseTarget, canOfferReplace } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
 import type { SessionState } from '@/engine/types';
 
@@ -34,18 +34,18 @@ export function ReplaceExercise({
   const error = exerciseReplaceStore((state) => state.error);
 
   const target = replaceExerciseTarget(sessionState, exerciseTitles);
-  const hasKey = Boolean(getSettings().anthropicKey?.trim());
+  const canReplace = canOfferReplace(sessionState, getSettings());
 
   // Nothing to replace (a set is logged, or no exercise is in progress) and
   // nothing open: render nothing at all.
-  if ((!target || !hasKey) && status === 'idle') return null;
+  if ((!target || !canReplace) && status === 'idle') return null;
 
   const busy = status === 'loading' || status === 'swapping';
   const open = status !== 'idle';
 
   return (
     <View>
-      {target && hasKey && (
+      {target && canReplace && (
         <View style={styles.triggerWrapper}>
           <Pressable
             accessibilityRole="button"

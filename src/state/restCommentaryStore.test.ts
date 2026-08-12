@@ -12,6 +12,7 @@
 import type { RestCommentaryHistorySet } from '@/ai/restCommentaryPrompt';
 import { createRestCommentaryClient } from '@/ai/anthropicClient';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import {
   injectSettingsStorage,
   resetForTesting,
@@ -79,10 +80,31 @@ describe('createRestCommentaryStore', () => {
   };
 
   function makeStore() {
+    const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      const client = createRestCommentaryClient(
+        { apiKey: config.anthropicKey || 'test-key' },
+        mockFetch as unknown as typeof fetch
+      );
+      return {
+        async chat() {
+          throw new Error('chat not used in test');
+        },
+        async comment(request) {
+          return client.comment(request);
+        },
+        async suggest() {
+          throw new Error('suggest not used in test');
+        },
+        async ask() {
+          throw new Error('ask not used in test');
+        },
+      };
+    };
+
     return createRestCommentaryStore({
       getSettings,
       loadHistory,
-      createClient: (config) => createRestCommentaryClient(config, mockFetch as unknown as typeof fetch),
+      createClient: createUnifiedClient,
       logError,
     });
   }

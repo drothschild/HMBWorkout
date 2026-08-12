@@ -11,9 +11,9 @@
 export type AiProvider = 'anthropic' | 'openai';
 
 /**
- * Per-surface model selection. The frontier tier (gpt-5.6-sol / claude-sonnet)
- * goes to coach chat/debrief and routine drafting; cheaper tier (gpt-5.6-terra/luna)
- * for rest commentary and the exercise ? button.
+ * Per-surface model selection. Currently frontier tier (gpt-5.6-sol / claude-sonnet-5)
+ * is used for all surfaces; this interface is reserved for Phase 3 when per-surface
+ * model selection is implemented.
  */
 export interface AiModelConfig {
   /**
@@ -23,8 +23,8 @@ export interface AiModelConfig {
   chat: string;
 
   /**
-   * Rest commentary and exercise question. Cheaper tier.
-   * E.g. 'claude-sonnet-5', 'gpt-5.6-terra'
+   * Rest commentary and exercise question. Currently same as chat.
+   * E.g. 'claude-sonnet-5', 'gpt-5.6-sol'
    */
   oneShot: string;
 }
@@ -57,23 +57,36 @@ export interface ProviderConfig {
 
 /**
  * Unified AI client interface that both providers implement.
+ * Supports four surfaces: conversational, rest commentary, exercise question, and alternates.
  * Used by the shell to talk to either provider without caring which.
  */
 export interface AiClient {
   /**
-   * Send a chat message and get back structured JSON output.
-   *
-   * NOTE: `schema` and `model` parameters are deferred to Phase 3.
-   * The plan names per-surface model selection (chat/debrief on frontier,
-   * exerciseQuestion/restCommentary on cheaper tier), but Phase 2 hardcodes
-   * models in the clients themselves and doesn't expose schema selection.
-   * Both fields will be added to this request type when Phase 3 wires the
-   * underlying clients to accept them. See factory.ts:51-62 for the gap docs.
+   * Conversational chat: send messages and get back structured JSON output (AiTurn).
+   * Used by aiChatStore for coach conversations and routine drafting.
    */
   chat(request: {
     system: string;
     messages: { role: 'user' | 'assistant'; content: string }[];
   }): Promise<unknown>;
+
+  /**
+   * Rest-screen commentary: one-shot prose response for athlete coaching during rest.
+   * Single message (not array), returns raw text. Used by restCommentaryStore.
+   */
+  comment(request: { system: string; message: string }): Promise<string>;
+
+  /**
+   * Exercise alternates: one-shot structured JSON (ExerciseAlternates) suggesting
+   * exercise substitutions. Single message (not array). Used by exerciseReplaceStore.
+   */
+  suggest(request: { system: string; message: string }): Promise<unknown>;
+
+  /**
+   * Exercise question: one-shot prose response answering "how do I do this exercise?"
+   * Single message (not array), returns raw text. Used by exerciseQuestionStore.
+   */
+  ask(request: { system: string; message: string }): Promise<string>;
 }
 
 /**

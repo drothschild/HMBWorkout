@@ -23,6 +23,7 @@ import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/exerciseReplaceStore';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 
@@ -93,7 +94,7 @@ export default function AiCoachScreen() {
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [hasMissingKey, setHasMissingKey] = useState(() => {
     const settings = getSettings();
-    return !settings.anthropicKey || settings.anthropicKey.trim() === '';
+    return !hasAiKey(settings);
   });
   const flatListRef = useRef<FlatList>(null);
   // The target actually applied by the auto-scroll effect below, so a
@@ -121,7 +122,7 @@ export default function AiCoachScreen() {
   useFocusEffect(
     useCallback(() => {
       const settings = getSettings();
-      setHasMissingKey(!settings.anthropicKey || settings.anthropicKey.trim() === '');
+      setHasMissingKey(!hasAiKey(settings));
     }, [])
   );
 

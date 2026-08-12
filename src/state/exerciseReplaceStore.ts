@@ -28,16 +28,18 @@
  */
 
 import { create } from 'zustand';
-import { createExerciseAlternatesClient } from '@/ai/alternatesClient';
 import { buildAlternatesPrompt } from '@/ai/alternatesPrompt';
 import {
   ExerciseAlternate,
+  ExerciseAlternates,
   validateExerciseAlternate,
 } from '@/ai/alternatesSchema';
 import { applyAlternateToRoutine, ensureAlternateExercise } from '@/ai/acceptAlternate';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
+import { createAiClient } from '@/ai/provider/factory';
 import type { Event, ExerciseKind, SessionState } from '@/engine/types';
+import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /**
  * The entry being replaced, plus the ids the swap needs. Built by
@@ -61,7 +63,7 @@ export interface ReplaceTarget {
 
 export interface ExerciseReplaceDeps {
   getSettings: typeof getSettings;
-  createClient: typeof createExerciseAlternatesClient;
+  createClient: (config: ProviderConfig) => AiClient;
   /** The active session store's dispatch; returns null when the engine rejected. */
   dispatch: (event: Event) => Promise<SessionState | null>;
   /** Create-only exercise resolution; returns the exercise id. */
@@ -156,6 +158,16 @@ export function replaceExerciseTarget(
 }
 
 /**
+ * Whether any AI key is configured (anthropic or openai).
+ * Used by screens that require AI capability.
+ */
+export function hasAiKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
+  const hasAnthropicKey = settings.anthropicKey?.trim();
+  const hasOpenaiKey = settings.openaiKey?.trim();
+  return Boolean(hasAnthropicKey || hasOpenaiKey);
+}
+
+/**
  * Whether the screen should render the Replace button at all.
  *
  * Hidden rather than disabled without a key: a disabled button advertises a
@@ -163,9 +175,9 @@ export function replaceExerciseTarget(
  */
 export function canOfferReplace(
   sessionState: SessionState | null | undefined,
-  settings: { anthropicKey?: string }
+  settings: { anthropicKey?: string; openaiKey?: string }
 ): boolean {
-  if (!settings.anthropicKey?.trim()) return false;
+  if (!hasAiKey(settings)) return false;
   return replaceExerciseTarget(sessionState) !== null;
 }
 
@@ -189,11 +201,13 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       target = nextTarget;
       swapping = false;
 
-      const apiKey = deps.getSettings().anthropicKey?.trim();
+      const settings = deps.getSettings();
+      const hasAnthropicKey = settings.anthropicKey?.trim();
+      const hasOpenaiKey = settings.openaiKey?.trim();
       // No key, no call, and no placeholder — the button should not have been
       // rendered, but the guard is re-stated here so no caller can reach the
       // API without one.
-      if (!apiKey) {
+      if (!hasAnthropicKey && !hasOpenaiKey) {
         target = null;
         set({ status: 'idle', alternates: [], error: null });
         return;
@@ -202,7 +216,6 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       set({ status: 'loading', alternates: [], error: null });
 
       try {
-        const settings = deps.getSettings();
         const prompt = buildAlternatesPrompt({
           exercise: {
             title: nextTarget.exerciseTitle,
@@ -228,7 +241,13 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           profileExperience: settings.profileExperience,
         });
 
-        const result = await deps.createClient({ apiKey }).suggest(prompt);
+        const providerConfig: ProviderConfig = {
+          anthropicKey: settings.anthropicKey,
+          openaiKey: settings.openaiKey,
+          aiProvider: settings.aiProvider,
+        };
+        const client = deps.createClient(providerConfig);
+        const result = (await client.suggest(prompt)) as ExerciseAlternates;
 
         // Cancelled, or a newer request superseded this one, while it was in
         // flight: the answer is about an exercise the athlete is no longer
@@ -319,7 +338,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
  */
 export const exerciseReplaceStore = createExerciseReplaceStore({
   getSettings,
-  createClient: createExerciseAlternatesClient,
+  createClient: createAiClient,
   dispatch: (event) => {
     const { activeSessionStore } = require('@/state/activeSession');
     return activeSessionStore.getState().dispatch(event);

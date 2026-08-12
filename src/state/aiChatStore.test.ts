@@ -920,9 +920,13 @@ describe('aiChatStore', () => {
   });
 
   describe('IMPORTANT 1 — API key verification', () => {
-    it('passes trimmed API key to createClient', async () => {
+    it('passes provider config to createClient', async () => {
       const { store, fakeChat, fakeCreateClient } = makeStore({
-        getSettings: jest.fn().mockReturnValue({ anthropicKey: '  sk-padded  ' }),
+        getSettings: jest.fn().mockReturnValue({
+          anthropicKey: '  sk-padded  ',
+          openaiKey: undefined,
+          aiProvider: undefined,
+        }),
       });
 
       store.getState().reset({ kind: 'create' });
@@ -930,7 +934,11 @@ describe('aiChatStore', () => {
 
       await store.getState().send('hello');
 
-      expect(fakeCreateClient).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
+      expect(fakeCreateClient).toHaveBeenCalledWith({
+        anthropicKey: '  sk-padded  ',
+        openaiKey: undefined,
+        aiProvider: undefined,
+      });
     });
 
     it('creates client once per send call', async () => {
