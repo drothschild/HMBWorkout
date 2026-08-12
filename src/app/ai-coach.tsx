@@ -21,7 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { computeChatScrollTarget, didErrorSurfaceAppear, ChatScrollTarget } from '@/state/chatScrollTarget';
+import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
@@ -103,12 +103,6 @@ export default function AiCoachScreen() {
   const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
   // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
   const scrollRetryCountRef = useRef(0);
-  // Tracks whether an error surface (send failure / acceptError) was present
-  // as of the last time the auto-scroll effect ran, so it can tell an error
-  // *appearing* (footer grows, needs a scroll) from one merely persisting or
-  // disappearing (see issue #215 review round 2, F1).
-  const prevHasErrorRef = useRef(false);
-  const prevHasAcceptErrorRef = useRef(false);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -125,31 +119,22 @@ export default function AiCoachScreen() {
   // is a pure function (`computeChatScrollTarget`) so it's testable — see
   // its doc comment for why an unconditional scrollToEnd was wrong for long
   // coach replies (issue #215).
+  //
+  // An error surface appearing (a failed send, or the local acceptError
+  // bubble) growing ListFooterComponent is deliberately NOT handled here.
+  // An earlier version of this effect added a second, additive rule for it
+  // (issue #215 review round 2, F1), but a live simulator pass found it had
+  // no observable effect: scrollToEnd fires on the same commit that grows
+  // the footer, so FlatList scrolls to the pre-growth content height and
+  // the newly-revealed error bubble/Retry button stays below the fold
+  // regardless. That's a pre-existing timing bug in scrollToEnd itself, not
+  // something a rule that calls scrollToEnd can route around — tracked
+  // separately as issue #222. Don't re-add an error-surface rule here
+  // without first fixing #222, or it'll be exactly as inert as this one was.
   useEffect(() => {
     if (!flatListRef.current) {
       return;
     }
-
-    // An error surface (send failure, or the local acceptError bubble) is
-    // additive to the message-anchoring decision below, not a case of it:
-    // neither touches `messages`, so computeChatScrollTarget would recompute
-    // the same target and correctly say `none` — right for a *shrinking*
-    // footer (declining/approving a proposal, this is C1), wrong here, since
-    // an error surface *grows* the footer with a Retry button below the
-    // fold. See issue #215 review round 2, F1.
-    const hasError = error !== null;
-    const hasAcceptError = acceptError !== null;
-    const errorSurfaceAppeared = didErrorSurfaceAppear(
-      { hasError: prevHasErrorRef.current, hasAcceptError: prevHasAcceptErrorRef.current },
-      { hasError, hasAcceptError }
-    );
-    prevHasErrorRef.current = hasError;
-    prevHasAcceptErrorRef.current = hasAcceptError;
-    if (errorSurfaceAppeared) {
-      flatListRef.current.scrollToEnd({ animated: true });
-      return;
-    }
-
     const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
     if (target.kind === 'none') {
       return;
@@ -163,7 +148,7 @@ export default function AiCoachScreen() {
       return;
     }
     flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
-  }, [messages, status, error, pendingDraft, pendingSettingsProposal, acceptError]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
     setAcceptError(null);
