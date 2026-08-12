@@ -27,7 +27,12 @@ import { kgToLbs } from '@/state/weightUnits';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
-import { getExerciseTitles, getExerciseWorkingSetHistory, getRoutineDisplay } from '@/db/repository';
+import {
+  getExerciseTitles,
+  getExerciseWorkingSetHistory,
+  getRoutineDisplay,
+  getRoutineTargetWeightsKg,
+} from '@/db/repository';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
 /**
@@ -130,6 +135,12 @@ export default function SessionScreen() {
   const questionText = exerciseQuestionStore((state) => state.text);
   const questionPending = exerciseQuestionStore((state) => state.pending);
 
+  // Bumped after a swap finishes re-pointing the routine row. The prefill effect
+  // below depends on it so the prescription is re-read *after* that write lands —
+  // the effect's own re-run (via currentEntryExerciseId) races it. See
+  // exerciseReplaceStore.routineRevision.
+  const routineRevision = exerciseReplaceStore((state) => state.routineRevision);
+
   // The exercise being performed, as a primitive effect key. Every per-exercise
   // effect below depends on this rather than on exerciseIndex alone:
   // ReplaceExercise rewrites entries[exerciseIndex].exerciseId in place, so the
@@ -203,24 +214,58 @@ export default function SessionScreen() {
     // Synchronous prefill first (in-session sets or targets)...
     apply(computeSetPrefill(sessionState));
 
-    // ...then upgrade with cross-session history where it applies. The async
-    // continuation re-reads fresh store state before applying, so a set logged
-    // while the query was in flight is never clobbered by the stale closure.
+    // ...then upgrade with the coach's prescribed load and cross-session
+    // history. Both are DB reads and neither implies the other: a freshly
+    // drafted routine has a prescription and no history at all, which is
+    // exactly the case this feature exists for. Fetching them together and
+    // applying if EITHER is present is load-bearing — the previous shape
+    // returned early whenever history was missing, which would have silently
+    // dropped every prescription on a new routine.
+    //
+    // The async continuation re-reads fresh store state before applying, so a
+    // set logged while the queries were in flight is never clobbered by the
+    // stale closure.
     const entry = sessionState.entries?.[sessionState.exerciseIndex];
-    if (!entry || entry.kind !== 'strength') return;
+    if (!entry) return;
 
     (async () => {
       try {
         const db = getDatabase();
-        const history = await getExerciseWorkingSetHistory(db, entry.exerciseId);
-        const latest = history[0];
-        if (cancelled || !latest) return;
 
-        const fallback: SetInputValues = {};
-        if (latest.reps != null) fallback.reps = latest.reps;
-        // Stored kg converts to display lbs on the way into the input
-        if (latest.weightKg != null) fallback.weightLbs = kgToLbs(latest.weightKg);
-        if (fallback.reps === undefined && fallback.weightLbs === undefined) return;
+        // History is working-set only, so it is strength-only. The prescription
+        // is not gated on kind here: computeSetPrefill decides whether a load
+        // applies (it ignores one on a duration-based entry), and keeping that
+        // decision in the pure function stops two different predicates —
+        // `kind === 'strength'` here and `isDurationBasedEntry` there — from
+        // drifting apart.
+        const [prescriptions, history] = await Promise.all([
+          getRoutineTargetWeightsKg(db, sessionState.routineId),
+          entry.kind === 'strength'
+            ? getExerciseWorkingSetHistory(db, entry.exerciseId)
+            : Promise.resolve([] as Awaited<ReturnType<typeof getExerciseWorkingSetHistory>>),
+        ]);
+        if (cancelled) return;
+
+        // entry.idx IS the routine_exercises row's `order`
+        // (startSessionFromRoutine: "Use DB order directly, NOT loop counter"),
+        // so this is a direct hit. Keying on exerciseId would be wrong — a
+        // routine may list the same exercise twice with different loads.
+        const prescribedWeightKg = prescriptions.get(entry.idx);
+
+        const latest = history[0];
+        let fallback: SetInputValues | undefined;
+        if (latest) {
+          const values: SetInputValues = {};
+          if (latest.reps != null) values.reps = latest.reps;
+          // Stored kg converts to display lbs on the way into the input
+          if (latest.weightKg != null) values.weightLbs = kgToLbs(latest.weightKg);
+          if (values.reps !== undefined || values.weightLbs !== undefined) {
+            fallback = values;
+          }
+        }
+
+        // Neither source has anything to add; leave the synchronous prefill be.
+        if (fallback === undefined && prescribedWeightKg === undefined) return;
 
         // The closure's sessionState is a snapshot from when the effect ran, so
         // the result is applied only if fresh store state still matches every
@@ -238,10 +283,10 @@ export default function SessionScreen() {
           return;
         }
 
-        apply(computeSetPrefill(fresh, fallback));
+        apply(computeSetPrefill(fresh, fallback, prescribedWeightKg));
       } catch (error) {
         // Prefill is best-effort; empty inputs are always a valid state.
-        console.error('Failed to prefill from history:', error);
+        console.error('Failed to prefill set inputs:', error);
       }
     })();
 
@@ -251,7 +296,12 @@ export default function SessionScreen() {
     // Primitive deps on purpose (see the progression-hint effect above). The
     // exercise id is one of them, so a swap re-prefills for the substitute
     // instead of leaving the replaced exercise's numbers in the inputs.
-  }, [sessionState?.sessionId, sessionState?.exerciseIndex, currentEntryExerciseId]);
+  }, [
+    sessionState?.sessionId,
+    sessionState?.exerciseIndex,
+    currentEntryExerciseId,
+    routineRevision,
+  ]);
 
   // Engine state carries only exercise ids, so titles are resolved shell-side.
   // Entries are otherwise fixed for a session's lifetime, but ReplaceExercise
