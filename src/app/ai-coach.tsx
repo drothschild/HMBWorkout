@@ -21,7 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
+import { computeChatScrollTarget, didErrorSurfaceAppear, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
@@ -103,6 +103,12 @@ export default function AiCoachScreen() {
   const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
   // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
   const scrollRetryCountRef = useRef(0);
+  // Tracks whether an error surface (send failure / acceptError) was present
+  // as of the last time the auto-scroll effect ran, so it can tell an error
+  // *appearing* (footer grows, needs a scroll) from one merely persisting or
+  // disappearing (see issue #215 review round 2, F1).
+  const prevHasErrorRef = useRef(false);
+  const prevHasAcceptErrorRef = useRef(false);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -123,6 +129,27 @@ export default function AiCoachScreen() {
     if (!flatListRef.current) {
       return;
     }
+
+    // An error surface (send failure, or the local acceptError bubble) is
+    // additive to the message-anchoring decision below, not a case of it:
+    // neither touches `messages`, so computeChatScrollTarget would recompute
+    // the same target and correctly say `none` — right for a *shrinking*
+    // footer (declining/approving a proposal, this is C1), wrong here, since
+    // an error surface *grows* the footer with a Retry button below the
+    // fold. See issue #215 review round 2, F1.
+    const hasError = error !== null;
+    const hasAcceptError = acceptError !== null;
+    const errorSurfaceAppeared = didErrorSurfaceAppear(
+      { hasError: prevHasErrorRef.current, hasAcceptError: prevHasAcceptErrorRef.current },
+      { hasError, hasAcceptError }
+    );
+    prevHasErrorRef.current = hasError;
+    prevHasAcceptErrorRef.current = hasAcceptError;
+    if (errorSurfaceAppeared) {
+      flatListRef.current.scrollToEnd({ animated: true });
+      return;
+    }
+
     const target = computeChatScrollTarget(messages, lastScrollTargetRef.current);
     if (target.kind === 'none') {
       return;
@@ -136,7 +163,7 @@ export default function AiCoachScreen() {
       return;
     }
     flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
-  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
+  }, [messages, status, error, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -342,11 +369,18 @@ export default function AiCoachScreen() {
               // debrief summary are the same "item"), so the approximate
               // landing can itself fail to resolve the target and re-fire
               // this handler. Give up after a few attempts rather than
-              // retrying indefinitely, and fall back to the end of the list
-              // so the user always lands somewhere sane.
+              // retrying indefinitely.
+              //
+              // Giving up does nothing further (issue #215 review round 2,
+              // M3) rather than falling back to scrollToEnd: that fallback
+              // is exactly the mid-reply-bottom landing this ticket exists
+              // to remove, while the last scrollToOffset estimate below
+              // already landed close to the target — for a reply taller
+              // than average, on the correct (above-target) side of it —
+              // which is closer to the ticket's intent than the list's
+              // bottom would be.
               if (scrollRetryCountRef.current >= 3) {
                 scrollRetryCountRef.current = 0;
-                flatListRef.current?.scrollToEnd({ animated: false });
                 return;
               }
               scrollRetryCountRef.current += 1;

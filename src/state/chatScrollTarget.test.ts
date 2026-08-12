@@ -1,5 +1,5 @@
 // pattern: Functional Core
-import { computeChatScrollTarget } from './chatScrollTarget';
+import { computeChatScrollTarget, didErrorSurfaceAppear } from './chatScrollTarget';
 
 describe('computeChatScrollTarget', () => {
   it('returns none for an empty message list', () => {
@@ -149,5 +149,103 @@ describe('computeChatScrollTarget', () => {
       const retryTarget = computeChatScrollTarget(messages, appliedTarget);
       expect(retryTarget).toEqual({ kind: 'none' });
     });
+
+    it('does not treat a top and an end target at the same index as equal (issue #215 review round 2, D10)', () => {
+      // Both variants carry an index, so a comparator that only looked at
+      // the index (ignoring kind) would wrongly treat these as the same
+      // target. Not reachable today (the ref that holds `previousTarget`
+      // only ever survives within one conversation, where an index doesn't
+      // change identity — see the review's M2), but nothing pinned it.
+      const target = computeChatScrollTarget([{ role: 'user' }, { role: 'user' }], { kind: 'top', index: 1 });
+      expect(target).toEqual({ kind: 'end', index: 1 });
+    });
+  });
+});
+
+describe('didErrorSurfaceAppear (issue #215 review round 2, F1)', () => {
+  // An error surface (the ErrorBubble+Retry for a failed send, or the local
+  // acceptError bubble) lives in ListFooterComponent, below every message.
+  // Its appearing GROWS the footer — the opposite of decline/approve, which
+  // shrink it — so it needs its own additive scroll-to-end rule rather than
+  // widening computeChatScrollTarget's comparison (which would risk
+  // reintroducing C1 for the shrinking cases). Presence, not content, is
+  // what's compared: both `error` and `acceptError` are always cleared to
+  // null before they can be set again (aiChatStore.ts's startTurn; the
+  // screen's own setAcceptError(null) at the top of handleSend/handleAccept/
+  // handleApproveSettings/handleDeclineSettings), so an absent -> present
+  // transition is always a genuinely new surface, never a content swap.
+
+  it('returns true when the error surface transitions from absent to present', () => {
+    const appeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: false },
+      { hasError: true, hasAcceptError: false }
+    );
+    expect(appeared).toBe(true);
+  });
+
+  it('returns true when the acceptError surface transitions from absent to present', () => {
+    const appeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: false },
+      { hasError: false, hasAcceptError: true }
+    );
+    expect(appeared).toBe(true);
+  });
+
+  it('returns false when an error surface disappears (decline/retry-starts style shrink)', () => {
+    const appeared = didErrorSurfaceAppear(
+      { hasError: true, hasAcceptError: false },
+      { hasError: false, hasAcceptError: false }
+    );
+    expect(appeared).toBe(false);
+  });
+
+  it('returns false when a present error surface is unchanged across a re-render', () => {
+    // e.g. pendingDraft changing while a send error is still showing —
+    // nothing new to reveal, must not re-scroll.
+    const appeared = didErrorSurfaceAppear(
+      { hasError: true, hasAcceptError: false },
+      { hasError: true, hasAcceptError: false }
+    );
+    expect(appeared).toBe(false);
+  });
+
+  it('returns false when neither surface is present in either render', () => {
+    const appeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: false },
+      { hasError: false, hasAcceptError: false }
+    );
+    expect(appeared).toBe(false);
+  });
+
+  it('returns true for a second failure after retry() cleared the first error (regression guard)', () => {
+    // Mirrors the messages-level D2 guard, one layer up: retry() clears
+    // `error` to null before re-sending, so a second failure is a genuine
+    // absent -> present transition and must scroll again, exactly like the
+    // first failure did.
+    const firstFailureAppeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: false },
+      { hasError: true, hasAcceptError: false }
+    );
+    expect(firstFailureAppeared).toBe(true);
+
+    const retryStartedAppeared = didErrorSurfaceAppear(
+      { hasError: true, hasAcceptError: false },
+      { hasError: false, hasAcceptError: false }
+    );
+    expect(retryStartedAppeared).toBe(false);
+
+    const secondFailureAppeared = didErrorSurfaceAppear(
+      { hasError: false, hasAcceptError: false },
+      { hasError: true, hasAcceptError: false }
+    );
+    expect(secondFailureAppeared).toBe(true);
+  });
+
+  it('returns true when acceptError appears while error is already present (independent surfaces, OR semantics)', () => {
+    const appeared = didErrorSurfaceAppear(
+      { hasError: true, hasAcceptError: false },
+      { hasError: true, hasAcceptError: true }
+    );
+    expect(appeared).toBe(true);
   });
 });

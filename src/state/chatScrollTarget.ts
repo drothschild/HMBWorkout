@@ -101,9 +101,39 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
   if (a.kind === 'top' && b.kind === 'top') {
     return a.index === b.index;
   }
-  // 'none' is excluded by construction: `target` at the call site below is
+  // 'none' is excluded by construction: `target` at the call site above is
   // only ever 'end'/'top' (computed after the lastVisibleIndex === -1 early
   // return), and callers only ever feed back a target they actually applied,
-  // which is never 'none' either.
-  return a.kind === 'none' && b.kind === 'none';
+  // which is never 'none' either — so this line is unreachable, not a
+  // meaningful "none equals none" case.
+  return false;
+}
+
+/**
+ * A second, additive scroll decision alongside `computeChatScrollTarget`,
+ * for a case that decision doesn't cover: an error surface appearing in
+ * `ListFooterComponent` (the send-failure ErrorBubble+Retry, or the
+ * screen's local `acceptError` bubble). That footer sits below every
+ * message, so unlike a *shrinking* footer (declining/approving a settings
+ * proposal — see the C1 doc comment above), an error surface *growing* the
+ * footer needs the list to scroll down to reveal it — the same thing the
+ * old unconditional `scrollToEnd()` did before this fix existed.
+ *
+ * This is deliberately not folded into `computeChatScrollTarget`/
+ * `targetsEqual`: that comparison is keyed on which *message* is being
+ * anchored, and neither error surface changes `messages` at all, so
+ * widening it to also react to error state risks reintroducing exactly the
+ * over-eager re-scrolling C1 fixed. Comparing only *presence* (not content)
+ * is sufficient because both surfaces are always cleared to `null`/`false`
+ * before they can be set again — `error` by `startTurn` at the beginning of
+ * every send/retry, `acceptError` by the screen's own handlers — so an
+ * absent -> present transition always means a genuinely new surface.
+ */
+export function didErrorSurfaceAppear(
+  previous: { hasError: boolean; hasAcceptError: boolean },
+  current: { hasError: boolean; hasAcceptError: boolean }
+): boolean {
+  const errorAppeared = !previous.hasError && current.hasError;
+  const acceptErrorAppeared = !previous.hasAcceptError && current.hasAcceptError;
+  return errorAppeared || acceptErrorAppeared;
 }
