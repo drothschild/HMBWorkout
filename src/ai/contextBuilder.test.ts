@@ -433,6 +433,82 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(dumbellIdx).toBeLessThan(inclineIdx);
     }, 30000);
 
+    it('includes coach-prescribed weight in lbs when set on an entry (AC3.2)', async () => {
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-prescribed';
+          r.name = 'Prescribed Loads';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-squat';
+          e.title = 'Back Squat';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-prescribed', {
+        exerciseId: 'exercise-squat',
+        order: 0,
+        targetSets: 3,
+        targetReps: 5,
+        targetWeightKg: 83.91,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      // Assert the rendered lbs string, not the kg value — this proves
+      // the conversion happened at the display edge. kgToLbs(83.91) = 185.
+      expect(prompt).toContain('@ 185lbs');
+    }, 30000);
+
+    it('does not include a weight segment when entry has no prescription (AC3.3)', async () => {
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = 'routine-unprescribed';
+          r.name = 'No Prescribed Loads';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+
+        const exercisesTable = database.get('exercises');
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-bench';
+          e.title = 'Bench Press';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutineExercise(database, 'routine-unprescribed', {
+        exerciseId: 'exercise-bench',
+        order: 0,
+        targetSets: 3,
+        targetReps: 8,
+        restSeconds: 120,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      // Extract just the routine section to scope the assertion — "@ " also
+      // appears in the Recent Training History section, so a whole-prompt
+      // not.toContain would fail for the wrong reason on fixtures with history.
+      const routineStart = prompt.indexOf('## Existing Routines');
+      const historyStart = prompt.indexOf('## Recent Workouts');
+      const routineSection = prompt.substring(routineStart, historyStart);
+
+      // Assert both halves: no weight segment, and the existing segments still render
+      expect(routineSection).not.toContain('@ ');
+      expect(routineSection).toContain('3x8');
+      expect(routineSection).toContain('rest 120s');
+    }, 30000);
+
     it('returns a non-empty prompt when database is empty', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 

@@ -51,6 +51,7 @@ interface UpsertRoutineExerciseOptions {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  targetWeightKg?: number;
 }
 
 /**
@@ -777,6 +778,7 @@ export async function upsertRoutineExercise(
     targetReps,
     targetDurationSeconds,
     restSeconds,
+    targetWeightKg,
   } = options;
 
   return await database.write(async () => {
@@ -804,6 +806,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           record.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) record.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) record.targetWeightKg = targetWeightKg;
       });
       return re;
     } else {
@@ -819,6 +822,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           re.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) re.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) re.targetWeightKg = targetWeightKg;
       });
       return created as RoutineExercise;
     }
