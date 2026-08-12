@@ -11,9 +11,9 @@
 export type AiProvider = 'anthropic' | 'openai';
 
 /**
- * Per-surface model selection. The frontier tier (gpt-5.6-sol / claude-sonnet)
- * goes to coach chat/debrief and routine drafting; cheaper tier (gpt-5.6-terra/luna)
- * for rest commentary and the exercise ? button.
+ * Per-surface model selection. Currently frontier tier (gpt-5.6-sol / claude-sonnet-5)
+ * is used for all surfaces; this interface is reserved for Phase 3 when per-surface
+ * model selection is implemented.
  */
 export interface AiModelConfig {
   /**
@@ -23,8 +23,8 @@ export interface AiModelConfig {
   chat: string;
 
   /**
-   * Rest commentary and exercise question. Cheaper tier.
-   * E.g. 'claude-sonnet-5', 'gpt-5.6-terra'
+   * Rest commentary and exercise question. Currently same as chat.
+   * E.g. 'claude-sonnet-5', 'gpt-5.6-sol'
    */
   oneShot: string;
 }

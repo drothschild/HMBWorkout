@@ -37,20 +37,4 @@ describe('Unified AiClient supporting all surfaces', () => {
     expect(typeof client.suggest).toBe('function');
     expect(typeof client.ask).toBe('function');
   });
-
-  it('client.chat returns a turn with structured fields', async () => {
-    const mockFetch = jest.fn(async () => {
-      throw new Error('stop here');
-    });
-
-    const config: ProviderConfig = {
-      anthropicKey: 'test-key',
-    };
-
-    const client = createAiClient(config);
-
-    await client.chat({ system: 'test', messages: [] }).catch(() => {});
-
-    expect(mockFetch).not.toHaveBeenCalled(); // Still uses real fetch, not our mock
-  });
 });

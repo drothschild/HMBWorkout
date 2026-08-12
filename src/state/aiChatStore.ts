@@ -241,9 +241,8 @@ export function createAiChatStore(deps: AiChatDeps) {
       // Check if any key is configured
       const hasAnthropicKey = settings.anthropicKey?.trim();
       const hasOpenaiKey = settings.openaiKey?.trim();
-      const hasExplicitProvider = settings.aiProvider && (hasAnthropicKey || hasOpenaiKey);
 
-      if (!hasAnthropicKey && !hasOpenaiKey && !hasExplicitProvider) {
+      if (!hasAnthropicKey && !hasOpenaiKey) {
         set({
           status: 'error',
           error: { kind: 'missing_key' },

@@ -5,8 +5,7 @@
  */
 
 import { createAnthropicClient, createRestCommentaryClient } from '../anthropicClient';
-import { createOpenaiClient } from '../openaiClient';
-import { createRestCommentaryClient as createOpenaiRestCommentaryClient } from '../openaiClient';
+import { createOpenaiClient, createRestCommentaryClient as createOpenaiRestCommentaryClient } from '../openaiClient';
 import { createExerciseAlternatesClient } from '../alternatesClient';
 import { createOpenaiAlternatesClient } from '../openaiAlternatesClient';
 import { createExerciseQuestionClient } from '../exerciseQuestionClient';
