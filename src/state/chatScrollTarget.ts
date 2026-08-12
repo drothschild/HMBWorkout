@@ -25,10 +25,21 @@
  * the identical target (e.g. a re-render triggered by something other than
  * new messages — declining a settings proposal, a failed accept) returns
  * `{ kind: 'none' }` instead of asking the caller to re-run the same scroll.
- * That matters because re-running `scrollToIndex` is not a no-op the way
- * re-running the old `scrollToEnd` was: it unconditionally moves the list to
- * the target's top, even if the user has since scrolled elsewhere on their
- * own. See issue #215 review, finding C1.
+ * That matters because re-running `scrollToIndex`/`scrollToEnd` is not a
+ * no-op the way re-running the old unconditional `scrollToEnd` was: it
+ * unconditionally moves the list, even if the user has since scrolled
+ * elsewhere on their own. See issue #215 review, finding C1.
+ *
+ * "Identical target" means the same *message*, not just the same `kind` —
+ * `end` therefore carries an `index` too, even though the caller never
+ * needs it (`scrollToEnd` takes none). Comparing by `kind` alone made two
+ * genuinely different `end`s look identical: after a failed send the
+ * status changes but no message is appended, so retrying re-fires this
+ * decision over the *same* last message and must bail — but sending a
+ * *second* message after that same failure also lands on `end` (the new
+ * message is the user's own too) and must NOT bail, or the second message
+ * silently fails to scroll into view. Only the message's own index tells
+ * those two cases apart; see issue #215 review follow-up.
  */
 
 export interface ChatScrollMessage {
@@ -40,8 +51,12 @@ export type ChatScrollTarget =
   // Nothing visible yet (e.g. only a hidden debrief/onboarding opener has
   // been sent) — nothing to scroll to.
   | { kind: 'none' }
-  // The user's own message should always come fully into view.
-  | { kind: 'end' }
+  // The user's own message should always come fully into view. `index` is
+  // the position of that message in the raw array — the caller (`kind ===
+  // 'end'`) never needs it for the scroll itself, only so two `end`
+  // decisions for two different messages don't compare equal; see the
+  // module doc comment.
+  | { kind: 'end'; index: number }
   // Anchor the coach's reply so its top sits at the top of the viewport.
   // `index` is the position in the raw (unfiltered) message array — FlatList
   // renders a slot for every entry, hidden ones included (as null), so the
@@ -65,7 +80,9 @@ export function computeChatScrollTarget(
   }
 
   const target: ChatScrollTarget =
-    messages[lastVisibleIndex].role === 'user' ? { kind: 'end' } : { kind: 'top', index: lastVisibleIndex };
+    messages[lastVisibleIndex].role === 'user'
+      ? { kind: 'end', index: lastVisibleIndex }
+      : { kind: 'top', index: lastVisibleIndex };
 
   if (targetsEqual(target, previousTarget)) {
     return { kind: 'none' };
@@ -75,11 +92,18 @@ export function computeChatScrollTarget(
 }
 
 function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean {
-  if (b === null || a.kind !== b.kind) {
+  if (b === null) {
     return false;
+  }
+  if (a.kind === 'end' && b.kind === 'end') {
+    return a.index === b.index;
   }
   if (a.kind === 'top' && b.kind === 'top') {
     return a.index === b.index;
   }
-  return true;
+  // 'none' is excluded by construction: `target` at the call site below is
+  // only ever 'end'/'top' (computed after the lastVisibleIndex === -1 early
+  // return), and callers only ever feed back a target they actually applied,
+  // which is never 'none' either.
+  return a.kind === 'none' && b.kind === 'none';
 }

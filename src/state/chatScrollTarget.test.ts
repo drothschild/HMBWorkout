@@ -18,7 +18,7 @@ describe('computeChatScrollTarget', () => {
       { role: 'assistant' }, // "Hi, how can I help?"
       { role: 'user' }, // "Build me a leg day routine"
     ]);
-    expect(target).toEqual({ kind: 'end' });
+    expect(target).toEqual({ kind: 'end', index: 1 });
   });
 
   it('returns a top anchor at the message\'s own index when the last visible message is the assistant\'s', () => {
@@ -52,7 +52,7 @@ describe('computeChatScrollTarget', () => {
 
   it('returns end for a single, freshly-sent user message with no reply yet', () => {
     const target = computeChatScrollTarget([{ role: 'user' }]); // "Hello"
-    expect(target).toEqual({ kind: 'end' });
+    expect(target).toEqual({ kind: 'end', index: 0 });
   });
 
   describe('with a previously-applied target (issue #215 review, C1)', () => {
@@ -78,7 +78,7 @@ describe('computeChatScrollTarget', () => {
     it('returns none when the recomputed end target matches the previously-applied one', () => {
       const messages = [{ role: 'user' as const }]; // "Hello"
       const previous = computeChatScrollTarget(messages);
-      expect(previous).toEqual({ kind: 'end' });
+      expect(previous).toEqual({ kind: 'end', index: 0 });
 
       const target = computeChatScrollTarget(messages, previous);
       expect(target).toEqual({ kind: 'none' });
@@ -108,12 +108,46 @@ describe('computeChatScrollTarget', () => {
         [{ role: 'user' as const }, { role: 'assistant' as const }, { role: 'user' as const }],
         previous
       );
-      expect(target).toEqual({ kind: 'end' });
+      expect(target).toEqual({ kind: 'end', index: 2 });
     });
 
     it('has no previous-target special case for none — an empty/all-hidden list is always none', () => {
-      const target = computeChatScrollTarget([{ role: 'user', hidden: true }], { kind: 'end' });
+      const target = computeChatScrollTarget([{ role: 'user', hidden: true }], { kind: 'end', index: 0 });
       expect(target).toEqual({ kind: 'none' });
+    });
+
+    it('still scrolls to end for a second user message sent after a failed request (regression guard)', () => {
+      // aiChatStore.ts's catch block (startTurn/runTurn) sets status: 'error'
+      // and appends NO assistant message, and the send gate only checks
+      // `status === 'sending'` — so after a failure the user can immediately
+      // send a second message. The list grows by one, but the last visible
+      // message is still the user's own, so the target kind ('end') is
+      // identical to what was already applied for the first message. A
+      // same-kind comparison alone can't tell these apart from the
+      // retry()-bail case below — it must also notice *which* message is
+      // being anchored on, which is why `end` carries an `index` too.
+      const firstMessages = [{ role: 'user' as const }]; // "Build me a leg day routine"
+      const firstTarget = computeChatScrollTarget(firstMessages);
+      expect(firstTarget).toEqual({ kind: 'end', index: 0 });
+
+      const secondMessages = [...firstMessages, { role: 'user' as const }]; // failure, then "ok, try squats instead"
+      const secondTarget = computeChatScrollTarget(secondMessages, firstTarget);
+      expect(secondTarget).toEqual({ kind: 'end', index: 1 });
+    });
+
+    it('bails on the exact retry() re-fire: same message array, target recomputed, no scroll', () => {
+      // aiChatStore.ts's retry() calls startTurn(state.messages, ...) — the
+      // *same* array reference, appending nothing — while `status` goes
+      // error -> sending. The effect refires on the `status` dependency
+      // alone. Unlike the case above, nothing about the messages changed,
+      // so this must stay a bail: the list is already at the end from when
+      // the (still-unanswered) message was first sent.
+      const messages = [{ role: 'user' as const }]; // the message that failed and is being retried
+      const appliedTarget = computeChatScrollTarget(messages);
+      expect(appliedTarget).toEqual({ kind: 'end', index: 0 });
+
+      const retryTarget = computeChatScrollTarget(messages, appliedTarget);
+      expect(retryTarget).toEqual({ kind: 'none' });
     });
   });
 });
