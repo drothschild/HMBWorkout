@@ -67,8 +67,8 @@ interface ExerciseQuestionState {
   collapse(): void;
 }
 
-/** True when a usable API key is configured (either Anthropic or OpenAI) — the "hidden without a key" gate. */
-export function hasAnthropicKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
+/** True when a usable API key is configured (either Anthropic or OpenAI). */
+export function hasApiKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
   const hasAnthropicKeyTrimmed = settings.anthropicKey?.trim();
   const hasOpenaiKeyTrimmed = settings.openaiKey?.trim();
   return Boolean(hasAnthropicKeyTrimmed || hasOpenaiKeyTrimmed);

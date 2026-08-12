@@ -24,7 +24,7 @@ import type { SessionState, RoutineEntry } from '@/engine/types';
 import {
   createExerciseQuestionStore,
   exerciseQuestionTarget,
-  hasAnthropicKey,
+  hasApiKey,
   type ExerciseQuestionTarget,
 } from './exerciseQuestionStore';
 
@@ -494,17 +494,21 @@ describe('createExerciseQuestionStore', () => {
   });
 });
 
-describe('hasAnthropicKey', () => {
-  it('is false when the key is empty', () => {
-    expect(hasAnthropicKey({ anthropicKey: '' })).toBe(false);
+describe('hasApiKey', () => {
+  it('is false when both keys are empty', () => {
+    expect(hasApiKey({ anthropicKey: '', openaiKey: '' })).toBe(false);
   });
 
-  it('is false when the key is whitespace only', () => {
-    expect(hasAnthropicKey({ anthropicKey: '   ' })).toBe(false);
+  it('is false when both keys are whitespace only', () => {
+    expect(hasApiKey({ anthropicKey: '   ', openaiKey: '   ' })).toBe(false);
   });
 
-  it('is true when a real key is configured', () => {
-    expect(hasAnthropicKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
+  it('is true when an Anthropic key is configured', () => {
+    expect(hasApiKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
+  });
+
+  it('is true when an OpenAI key is configured', () => {
+    expect(hasApiKey({ openaiKey: 'sk-openai-test' })).toBe(true);
   });
 });
 
