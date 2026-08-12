@@ -424,11 +424,11 @@ describe('routineDetailPresenter', () => {
 
     expect(detail).not.toBeNull();
     expect(detail!.standaloneExercises).toHaveLength(3);
-    // Prescribed entry
+    // Prescribed entry: 83.91 renders as-is
     expect(detail!.standaloneExercises[0].targetWeightKg).toBe(83.91);
-    // Unprescribed entry — assert falsy, not specifically undefined, since WatermelonDB gives null
-    expect(detail!.standaloneExercises[1].targetWeightKg).toBeFalsy();
-    // Zero-prescribed entry — also falsy, discriminating 0 from other values
-    expect(detail!.standaloneExercises[2].targetWeightKg).toBeFalsy();
+    // Unprescribed entry: WatermelonDB gives null (not undefined) — kills || undefined mutants
+    expect(detail!.standaloneExercises[1].targetWeightKg).toBeNull();
+    // Zero-prescribed entry: 0 is distinct from null — kills ?? 0 and truthiness-guard mutants
+    expect(detail!.standaloneExercises[2].targetWeightKg).toBe(0);
   });
 });

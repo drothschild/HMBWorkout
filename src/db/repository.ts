@@ -42,6 +42,15 @@ interface AppendSetOptions {
 /**
  * Routine exercise options for upsertRoutineExercise
  */
+/**
+ * Options for upserting a routine exercise. Note: this function is test-only surface
+ * (zero production callers). The update branch is untested and diverges from Phase 1's
+ * upsertRoutine contract: it preserves-on-absent (if a field is undefined, the column
+ * keeps its existing value), while upsertRoutine clears-on-absent (mapping undefined
+ * to null). This divergence is intentional for the test helper's behavior, but if Phase 5
+ * wires upsertRoutineExercise into production flow, reconcile the contracts or add tests
+ * for the update path.
+ */
 interface UpsertRoutineExerciseOptions {
   exerciseId: string;
   order: number;

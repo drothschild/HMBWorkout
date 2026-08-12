@@ -433,7 +433,7 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(dumbellIdx).toBeLessThan(inclineIdx);
     }, 30000);
 
-    it('includes coach-prescribed weight in lbs when set on an entry, and omits it when absent (AC3.2, AC3.3)', async () => {
+    it('includes coach-prescribed weight in lbs when set on an entry, and omits it when absent or zero (AC3.2, AC3.3)', async () => {
       await database.write(async () => {
         const routinesTable = database.get('routines');
         await routinesTable.create((r: any) => {
@@ -456,6 +456,12 @@ describe('buildSystem: AI Coach context builder', () => {
           e.kind = 'strength';
           e.created_at = Date.now();
         });
+        await exercisesTable.create((e: any) => {
+          e._raw.id = 'exercise-zero';
+          e.title = 'Zero Squat';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
       });
 
       // Prescribed entry
@@ -467,13 +473,22 @@ describe('buildSystem: AI Coach context builder', () => {
         targetWeightKg: 83.91,
       });
 
-      // Unprescribed entry
+      // Unprescribed entry (absent)
       await upsertRoutineExercise(database, 'routine-mixed-prescription', {
         exerciseId: 'exercise-bench',
         order: 1,
         targetSets: 3,
         targetReps: 8,
         restSeconds: 120,
+      });
+
+      // Zero-prescribed entry — kills the !== undefined and != null mutants
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-zero',
+        order: 2,
+        targetSets: 3,
+        targetReps: 5,
+        targetWeightKg: 0,
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -483,17 +498,20 @@ describe('buildSystem: AI Coach context builder', () => {
       const historyStart = prompt.indexOf('## Recent Workouts');
       const routineSection = prompt.substring(routineStart, historyStart);
 
-      // AC3.2: Prescribed entry renders weight in lbs
+      // AC3.2: Prescribed entry renders weight in lbs in correct position
+      // Position: immediately after sets×reps, before rest segment (cosmetic but pinned)
+      expect(routineSection).toContain('Back Squat (strength) | 3x5 | @ 185lbs');
       // Assert the rendered lbs string, not the kg value — this proves
       // the conversion happened at the display edge. kgToLbs(83.91) = 185.
-      expect(routineSection).toContain('Back Squat');
       expect(routineSection).toContain('@ 185lbs');
 
-      // AC3.3: Unprescribed entry doesn't render weight segment, but other segments render
+      // AC3.3: Unprescribed entries (absent and zero) don't render weight segment
       expect(routineSection).toContain('Bench Press');
+      expect(routineSection).toContain('Zero Squat');
       expect(routineSection).toContain('3x8');
       expect(routineSection).toContain('rest 120s');
-      // Ensure no extra weight segments beyond the prescribed one
+
+      // Ensure exactly one weight segment: only the prescribed squat's 185lbs, not zero or absent
       const weightMatches = routineSection.match(/@ \d+(\.\d+)?lbs/g);
       expect(weightMatches).toHaveLength(1); // Only the squat's 185lbs
     }, 30000);
