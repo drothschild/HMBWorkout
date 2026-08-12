@@ -445,7 +445,7 @@ leave `tsc` broken for a later one.
 
 **Not a code task. This is the phase's exit condition.**
 
-**Scope: 27 mutants** covered by this phase, sourced from #234's per-file survivor table at commit
+**Scope: 37 mutants** covered by this phase, sourced from #234's per-file survivor table at commit
 `11f53ed`:
 
 | file | count | survivors |
@@ -454,34 +454,38 @@ leave `tsc` broken for a later one.
 | `src/state/exerciseQuestionStore.ts` | 5 | `E01`, `E03`–`E06` |
 | `src/state/restCommentaryStore.ts` | 4 | `R02`–`R05` |
 | `src/state/exerciseReplaceStore.ts` | 3 | `X02`–`X03` |
-| **Subtotal (stores)** | **17** | — |
 | `src/ai/provider/factory.ts` | 10 | `F19b`, `F20`, `F21`, `F23`, `F24` + 5 more |
-| **Subtotal (factory)** | **10** | — |
-| **Phase 1 total** | **27** | — |
+| `src/ai/openaiAlternatesClient.ts` | 6 | 6 survivors (mutations in alternates request building) |
+| `src/ai/openaiExerciseQuestionClient.ts` | 4 | 4 survivors (mutations in ask request building) |
+| **Phase 1 total** | **37** | — |
 
-**Remaining 10 survivors** (not in Phase 1 scope):
-- `src/ai/openaiAlternatesClient.ts`: 6 survivors
-- `src/ai/openaiExerciseQuestionClient.ts`: 4 survivors
+**Rationale for including all 37 in Phase 1:**
 
-**Scoping decision:** #234 assigns the entire card to #122 but makes no phase mapping for
-these 10 survivors under the current six-phase plan. #234's rationale — "wiring a UI to an
-untested path is the risk this card exists to prevent" — applies equally to these files:
-Phases 3–5 make the OpenAI path reachable for Replace and Question surfaces just as they do for
-chat and rest commentary. 
+1. **Phase 1 is the coverage phase for closing #234.** Its entire purpose is eliminating #234's
+   measured survivor gap. Splitting that gap across phases means #234 stays half-open with no
+   single phase accountable for whether the target is reached.
+2. **These files are testable now.** `src/ai/openaiAlternatesClient.ts` and
+   `src/ai/openaiExerciseQuestionClient.ts` are plain TypeScript in `src/ai`, which **is** in
+   `jest.config.js`'s `testMatch`. Nothing about them requires the settings UI to exist before
+   they can be tested — the OpenAI path's *reachability* is urgent, not the *order* of testing.
+3. **#234 expects to close as part of #122.** Target 37 and it closes cleanly. Target 27 and it
+   does not, requiring its own explanation rather than leaving the card appearing closed with
+   incomplete coverage.
 
-**Choose one:**
-- **Option A (Recommended):** Fold these 10 into this phase or a later phase's `Covers` list with an
-  acceptance criterion. They are live defects the moment Phase 3 lands; early coverage is simpler
-  than deferred coverage.
-- **Option B:** Explicitly defer these past #122 (e.g., to a future issue or the next feature
-  phase). If deferred, note this on #234 rather than leaving the card appearing closed when the
-  OpenAI path's coverage is incomplete. #234 is currently expected to close via this work.
+**Baseline from #234** (for reference): 37 survivors of 74 valid mutants measured (50% kill rate),
+with 1 anchor miss and 1 non-compiling mutant discarded. This phase's claim is "37 of 37
+previously-surviving mutants now die," which is a different statement from a kill rate over the full
+74-mutant set and should not be conflated with it.
 
-**Baseline from #234** (for reference on kill rate targets): 37 survivors of 74 valid mutants
-measured (50% kill rate), with 1 anchor miss and 1 non-compiling mutant discarded. Any phase
-targeting a specific kill rate should measure against the 74 valid mutants, not the raw 76.
+**Note on sweep execution:** This 37-mutant sweep is being run in two passes:
+- **Pass 1 (current):** Store mutations (17) + factory mutations (10) against the branch
+- **Pass 2 (follow-up):** Client mutations (6 + 4) as a second round on the same branch
 
-For each of the 27 mutants in Phase 1 scope:
+Both passes must report anchor-misses separately, since test doubles in `src/state` may have drifted
+since #234's measurement at `11f53ed`. A mutant whose anchor no longer exists is an anchor-miss, not
+a survivor — re-derive each anchor and report the count.
+
+For each of the 37 mutants in Phase 1 scope:
 
 1. Apply the mutation by hand.
 2. Assert the file actually changed (`git diff --stat` non-empty) and the anchor was unique.
