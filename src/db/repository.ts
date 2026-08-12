@@ -936,6 +936,50 @@ export async function updateRoutineExerciseExerciseId(
 }
 
 /**
+ * A routine's coach-prescribed target loads, keyed by entry position.
+ *
+ * The key is the row's `order`, which is the same 0-based number the engine
+ * carries as `RoutineEntry.idx` — `startSessionFromRoutine` sets `idx:
+ * re._raw.order` deliberately ("Use DB order directly, NOT loop counter"), so a
+ * caller holding an engine entry can look its prescription up directly without
+ * resolving a row id. Keying on `exercise_id` would be wrong: a routine may
+ * list the same exercise twice with different prescriptions.
+ *
+ * Rows with no prescription are **omitted entirely**, never mapped to `null` or
+ * `0`. WatermelonDB returns `null` for an unset optional column, and
+ * `computeSetPrefill` treats a non-positive weight as absent — a `0` in this map
+ * would be a value the reader silently discards.
+ *
+ * @param database The database instance
+ * @param routineId The routine whose entries to read
+ * @returns order → prescribed weight in kg, for prescribed entries only
+ */
+export async function getRoutineTargetWeightsKg(
+  database: Database,
+  routineId: string
+): Promise<Map<number, number>> {
+  const rows = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  const weights = new Map<number, number>();
+  for (const row of rows) {
+    const raw = (row as any)._raw;
+    const kg = raw.target_weight_kg;
+    // `!= null` on purpose: WatermelonDB gives null, not undefined, for an
+    // unset optional column (AGENTS.md). The `> 0` guard keeps a stored 0 —
+    // which the draft validator rejects but a hand-edited database could
+    // hold — out of the map, so no consumer has to re-derive absence.
+    if (kg != null && kg > 0) {
+      weights.set(raw.order as number, kg as number);
+    }
+  }
+
+  return weights;
+}
+
+/**
  * Get all routine exercises for a routine, grouped by superset_group.
  * Non-grouped exercises (with null superset_group) are returned as individual singleton groups.
  * Same superset_group labels that are non-contiguous are split into separate groups.

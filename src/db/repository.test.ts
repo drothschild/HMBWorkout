@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1899,6 +1899,51 @@ describe('Repository: session and set helpers', () => {
       expect(legPressRow.targetSets).toBe(4);
       expect(legPressRow.targetReps).toBe(6);
       expect(legPressRow.restSeconds).toBe(120);
+    }, 10000);
+  });
+
+  describe('getRoutineTargetWeightsKg', () => {
+    it('returns a map of order → kg for entries with prescriptions (AC1.5)', async () => {
+      // AC1.5: getRoutineTargetWeightsKg returns a Map<number, number> of
+      // order → kg containing an entry only for rows whose column is non-null.
+      const routineId = 'routine-weights-read';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'deadlift', 'Deadlift', 'strength');
+
+      await upsertRoutine(database, routineId, 'Main Lifts', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185.97 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6 }, // no weight
+        { exerciseId: 'deadlift', order: 2, targetSets: 3, targetReps: 1, targetWeightKg: 275.58 },
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Should have exactly two entries
+      expect(weights.size).toBe(2);
+      expect(weights.get(0)).toBe(185.97);
+      expect(weights.get(1)).toBeUndefined(); // No entry for unset weight
+      expect(weights.get(2)).toBe(275.58);
+    }, 10000);
+
+    it('omits entries with null weight, never storing null or 0 (AC1.7)', async () => {
+      // AC1.7: A row whose target_weight_kg is null produces no key in
+      // getRoutineTargetWeightsKg's map (never a null or 0 value).
+      const routineId = 'routine-weights-omit';
+      await upsertExercise(database, 'curl', 'Bicep Curl', 'strength');
+      await upsertExercise(database, 'press', 'Overhead Press', 'strength');
+
+      await upsertRoutine(database, routineId, 'Arms', [
+        { exerciseId: 'curl', order: 0, targetSets: 3, targetReps: 8, targetWeightKg: 20 },
+        { exerciseId: 'press', order: 1, targetSets: 3, targetReps: 5 }, // no weight
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only curl should be in the map
+      expect(weights.has(0)).toBe(true);
+      expect(weights.has(1)).toBe(false); // Not even stored as null or 0
+      expect(weights.get(1)).toBeUndefined();
     }, 10000);
   });
 
