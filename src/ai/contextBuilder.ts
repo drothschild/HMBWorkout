@@ -425,6 +425,15 @@ function formatExerciseLine(
     parts.push(`${exercise.targetDurationSeconds}s`);
   }
 
+  // The load this entry is programmed at, if the coach has set one. Rendered in
+  // lbs to match the unit the Recent Training History section below uses for
+  // logged sets — the model must never see two units for weight in one prompt.
+  // Truthiness guard, not `!== undefined`: routineDetailPresenter passes
+  // WatermelonDB's raw null straight through.
+  if (exercise.targetWeightKg) {
+    parts.push(`@ ${formatWeightLbs(exercise.targetWeightKg)}`);
+  }
+
   if (exercise.restSeconds) {
     parts.push(`rest ${exercise.restSeconds}s`);
   }

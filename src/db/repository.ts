@@ -42,6 +42,15 @@ interface AppendSetOptions {
 /**
  * Routine exercise options for upsertRoutineExercise
  */
+/**
+ * Options for upserting a routine exercise. Note: this function is test-only surface
+ * (zero production callers). The update branch is untested and diverges from Phase 1's
+ * upsertRoutine contract: it preserves-on-absent (if a field is undefined, the column
+ * keeps its existing value), while upsertRoutine clears-on-absent (mapping undefined
+ * to null). This divergence is intentional for the test helper's behavior, but if Phase 5
+ * wires upsertRoutineExercise into production flow, reconcile the contracts or add tests
+ * for the update path.
+ */
 interface UpsertRoutineExerciseOptions {
   exerciseId: string;
   order: number;
@@ -51,6 +60,7 @@ interface UpsertRoutineExerciseOptions {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  targetWeightKg?: number;
 }
 
 /**
@@ -777,6 +787,7 @@ export async function upsertRoutineExercise(
     targetReps,
     targetDurationSeconds,
     restSeconds,
+    targetWeightKg,
   } = options;
 
   return await database.write(async () => {
@@ -804,6 +815,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           record.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) record.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) record.targetWeightKg = targetWeightKg;
       });
       return re;
     } else {
@@ -819,6 +831,7 @@ export async function upsertRoutineExercise(
         if (targetDurationSeconds !== undefined)
           re.targetDurationSeconds = targetDurationSeconds;
         if (restSeconds !== undefined) re.restSeconds = restSeconds;
+        if (targetWeightKg !== undefined) re.targetWeightKg = targetWeightKg;
       });
       return created as RoutineExercise;
     }
