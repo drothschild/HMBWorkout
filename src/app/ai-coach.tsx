@@ -21,6 +21,7 @@ import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/the
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
+import { computeChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
@@ -107,11 +108,23 @@ export default function AiCoachScreen() {
     }, [])
   );
 
-  // Auto-scroll to end when messages change
+  // Auto-scroll after a turn. The decision (end vs. top-anchor-on-the-reply)
+  // is a pure function (`computeChatScrollTarget`) so it's testable — see
+  // its doc comment for why an unconditional scrollToEnd was wrong for long
+  // coach replies (issue #215).
   useEffect(() => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
+    if (!flatListRef.current) {
+      return;
     }
+    const target = computeChatScrollTarget(messages);
+    if (target.kind === 'none') {
+      return;
+    }
+    if (target.kind === 'end') {
+      flatListRef.current.scrollToEnd({ animated: true });
+      return;
+    }
+    flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
   }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError]);
 
   const handleSend = async () => {
@@ -307,6 +320,19 @@ export default function AiCoachScreen() {
             ListFooterComponent={footer}
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}
+            onScrollToIndexFailed={(info) => {
+              // No getItemLayout (bubbles are variable-height), so an index
+              // outside the currently-measured window can't resolve
+              // synchronously. Land approximately, then retry once the
+              // target has had a chance to render and be measured.
+              flatListRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index: info.index, viewPosition: 0, animated: true });
+              }, 50);
+            }}
           />
 
           <View style={styles.inputContainer}>
