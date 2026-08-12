@@ -1,5 +1,5 @@
 // pattern: Functional Core
-import { computeChatScrollTarget } from './chatScrollTarget';
+import { computeChatScrollTarget, shouldDeferScrollForError } from './chatScrollTarget';
 
 describe('computeChatScrollTarget', () => {
   it('returns none for an empty message list', () => {
@@ -159,5 +159,32 @@ describe('computeChatScrollTarget', () => {
       const target = computeChatScrollTarget([{ role: 'user' }, { role: 'user' }], { kind: 'top', index: 1 });
       expect(target).toEqual({ kind: 'end', index: 1 });
     });
+  });
+});
+
+describe('shouldDeferScrollForError', () => {
+  it('returns false when no error is present', () => {
+    expect(shouldDeferScrollForError(null, null)).toBe(false);
+  });
+
+  it('returns false when error was already present', () => {
+    const error = { kind: 'network' as const };
+    expect(shouldDeferScrollForError(error, error)).toBe(false);
+  });
+
+  it('returns true when error transitions from null to present', () => {
+    const error = { kind: 'unauthorized' as const };
+    expect(shouldDeferScrollForError(error, null)).toBe(true);
+  });
+
+  it('returns false when error transitions from present to null', () => {
+    const error = { kind: 'network' as const };
+    expect(shouldDeferScrollForError(null, error)).toBe(false);
+  });
+
+  it('returns true when error kind changes (new error replaces old one)', () => {
+    const oldError = { kind: 'network' as const };
+    const newError = { kind: 'unauthorized' as const };
+    expect(shouldDeferScrollForError(newError, oldError)).toBe(true);
   });
 });

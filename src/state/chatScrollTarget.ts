@@ -1,10 +1,19 @@
 // pattern: Functional Core
+import type { AiChatError } from './aiChatStore';
+
 /**
  * Decides where the AI Coach chat list should scroll after a render, so
  * `src/app/ai-coach.tsx` only needs to execute the result. Kept pure and out
  * of the screen because `src/app` carries zero jest coverage (see
  * jest.config.js testMatch) — the decision logic needs to live somewhere
  * jest can actually reach it.
+ *
+ * When an error surface appears (error bubble with Retry button), the
+ * ListFooterComponent grows. scrollToEnd fires on the same commit, scrolling
+ * to pre-growth height, leaving the Retry button below the fold (issue #222).
+ * The fix is to defer the scroll to after layout settles, using
+ * onContentSizeChange. Use shouldDeferScrollForError to detect when a deferred
+ * scroll is needed.
  *
  * Unconditionally calling `scrollToEnd()` (the prior behavior) lands the
  * user mid-sentence at the *end* of a long coach reply — worst case is the
@@ -107,4 +116,33 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
   // which is never 'none' either — so this line is unreachable, not a
   // meaningful "none equals none" case.
   return false;
+}
+
+/**
+ * Detects when an error surface appears (or changes), triggering a deferred
+ * scroll to reveal the Retry button. Used by ai-coach.tsx to decide whether
+ * to execute a scroll on onContentSizeChange rather than inline in the effect
+ * (issue #222).
+ *
+ * Returns true when error transitions from null to non-null, or when the error
+ * kind changes (indicating a new error replaces an old one, which also needs
+ * the footer re-laid-out and scrolled into view).
+ */
+export function shouldDeferScrollForError(
+  currentError: AiChatError | null,
+  previousError: AiChatError | null
+): boolean {
+  // No error now, no need to scroll
+  if (currentError === null) {
+    return false;
+  }
+
+  // Error was already present, check if it's the same one
+  if (previousError !== null) {
+    // Error kind changed (new error replaces old) — needs deferred scroll
+    return currentError.kind !== previousError.kind;
+  }
+
+  // Error transitioned from null to present
+  return true;
 }
