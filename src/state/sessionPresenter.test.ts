@@ -5,6 +5,7 @@ import {
   currentExerciseId,
   formatLoggedSetLine,
   historyPrefillStillApplies,
+  historyToSetInputValues,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
 import type { LoggedSet, SessionState } from '@/engine/types';
@@ -1400,5 +1401,78 @@ describe('formatLoggedSetLine', () => {
         rpe: undefined,
       })
     ).toBe('—');
+  });
+});
+
+describe('historyToSetInputValues', () => {
+  // AC4.12 + Important 3: history→SetInputValues transformation must be testable
+  // and survive mutations: kg→lbs conversion, reps+weight combination, nulls
+
+  test('converts reps + weight to SetInputValues with kg→lbs conversion', () => {
+    // Mutation killer: dropping kgToLbs would put raw kg (83.91) in lbs field
+    const result = historyToSetInputValues({
+      reps: 6,
+      weightKg: 83.91,
+    });
+
+    expect(result).toEqual({
+      reps: 6,
+      weightLbs: 185, // Hard-coded, not kgToLbs(83.91)
+    });
+  });
+
+  test('includes reps only when weight is absent/null', () => {
+    expect(historyToSetInputValues({ reps: 8, weightKg: null })).toEqual({
+      reps: 8,
+    });
+
+    expect(historyToSetInputValues({ reps: 10, weightKg: undefined })).toEqual({
+      reps: 10,
+    });
+  });
+
+  test('includes weight only when reps are absent/null', () => {
+    // Another mutation killer: the conversion must happen when reps are missing
+    // kgToLbs rounds to nearest 0.5, so 79.38 kg → 175 lbs, 60 kg → 132.5 lbs
+    expect(historyToSetInputValues({ reps: null, weightKg: 79.38 })).toEqual({
+      weightLbs: 175,
+    });
+
+    expect(historyToSetInputValues({ reps: undefined, weightKg: 60 })).toEqual({
+      weightLbs: 132.5,
+    });
+  });
+
+  test('returns undefined when both reps and weight are absent/null', () => {
+    // Mutation killer: always-return-undefined mutation would fail here
+    expect(historyToSetInputValues({ reps: null, weightKg: null })).toBeUndefined();
+
+    expect(historyToSetInputValues({ reps: undefined, weightKg: undefined })).toBeUndefined();
+  });
+
+  test('handles WatermelonDB null (not undefined) correctly', () => {
+    // AGENTS.md rule: every optional field read off a DB row must check != null
+    // WatermelonDB returns null, not undefined, for unset columns
+    const result = historyToSetInputValues({
+      reps: 5,
+      weightKg: null, // WatermelonDB null, not undefined
+    });
+
+    expect(result).toEqual({
+      reps: 5,
+    });
+  });
+
+  test('zero reps is a valid logged value (not absence)', () => {
+    // From AGENTS.md: a set logged with zero reps is a real, valid action
+    const result = historyToSetInputValues({
+      reps: 0,
+      weightKg: 100,
+    });
+
+    expect(result).toEqual({
+      reps: 0,
+      weightLbs: 220.5, // kgToLbs rounds to nearest 0.5
+    });
   });
 });
