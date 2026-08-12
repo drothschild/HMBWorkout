@@ -357,4 +357,59 @@ describe('routineDetailPresenter', () => {
 
     expect(detail!.hasActiveExercise).toBe(true);
   });
+
+  it('includes targetWeightKg when coach has prescribed a load (AC3.1)', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-prescribed';
+        r.name = 'Prescribed Loads';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'squat';
+        e.title = 'Back Squat';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'bench-press';
+        e.title = 'Bench Press';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+
+      // Entry with prescribed load
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-prescribed';
+        re._raw.exercise_id = 'squat';
+        re._raw.order = 0;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 5;
+        re._raw.target_weight_kg = 83.91;
+      });
+
+      // Entry without prescribed load
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-prescribed';
+        re._raw.exercise_id = 'bench-press';
+        re._raw.order = 1;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 8;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-prescribed');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.standaloneExercises).toHaveLength(2);
+    // Prescribed entry
+    expect(detail!.standaloneExercises[0].targetWeightKg).toBe(83.91);
+    // Unprescribed entry — assert falsy, not specifically undefined, since WatermelonDB gives null
+    expect(detail!.standaloneExercises[1].targetWeightKg).toBeFalsy();
+  });
 });
