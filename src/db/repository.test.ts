@@ -1926,6 +1926,45 @@ describe('Repository: session and set helpers', () => {
       expect(weights.get(2)).toBe(275.58);
     }, 10000);
 
+    it('isolates results to the queried routine when multiple routines have overlapping order values (cross-routine isolation)', async () => {
+      // F1: Cross-routine isolation. The map is keyed on order (0-based integer),
+      // not row id. Two different routines could have entries at the same order
+      // positions. The filter MUST isolate by routine_id, or a second routine's
+      // entries will collide with and overwrite the first routine's prescriptions
+      // in the returned map — a dangerous-load failure at exercise-swap time.
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+      await upsertExercise(database, 'incline-bench', 'Incline Bench', 'strength');
+
+      // Routine 1: squat at order 0 (185kg), bench at order 1 (95kg)
+      const routine1 = 'routine-isolation-1';
+      await upsertRoutine(database, routine1, 'Lower Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6, targetWeightKg: 95 },
+      ]);
+
+      // Routine 2: leg-press at order 0 (150kg), incline at order 1 (75kg)
+      // Same order positions, but DIFFERENT exercises and DIFFERENT weights
+      const routine2 = 'routine-isolation-2';
+      await upsertRoutine(database, routine2, 'Upper Day', [
+        { exerciseId: 'leg-press', order: 0, targetSets: 4, targetReps: 8, targetWeightKg: 150 },
+        { exerciseId: 'incline-bench', order: 1, targetSets: 3, targetReps: 10, targetWeightKg: 75 },
+      ]);
+
+      // Query routine 1 — should get its weights, not routine 2's
+      const weights1 = await getRoutineTargetWeightsKg(database, routine1);
+      expect(weights1.size).toBe(2);
+      expect(weights1.get(0)).toBe(185); // Routine 1's squat weight
+      expect(weights1.get(1)).toBe(95); // Routine 1's bench weight
+
+      // Query routine 2 — should get ITS weights, not routine 1's
+      const weights2 = await getRoutineTargetWeightsKg(database, routine2);
+      expect(weights2.size).toBe(2);
+      expect(weights2.get(0)).toBe(150); // Routine 2's leg-press weight (NOT 185)
+      expect(weights2.get(1)).toBe(75); // Routine 2's incline weight (NOT 95)
+    }, 10000);
+
     it('omits entries with null weight (AC1.7 — null case)', async () => {
       // AC1.7: A row whose target_weight_kg is null produces no key in
       // getRoutineTargetWeightsKg's map.

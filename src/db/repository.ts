@@ -1153,10 +1153,10 @@ export interface RoutineExerciseEntry {
   targetDurationSeconds?: number;
   restSeconds?: number;
   /**
-   * Coach-prescribed target load in canonical kg. The lbs → kg conversion
-   * happens once, upstream in acceptDraft; nothing below this boundary sees
-   * lbs. Absent means "no prescription", which leaves the SetLogger's
-   * history-derived prefill untouched.
+   * Coach-prescribed target load in canonical kg. Storage is always in kg.
+   * The lbs → kg conversion happens at the AI draft accept boundary (Phase 2);
+   * below that boundary, nothing sees lbs. Absent means "no prescription",
+   * which leaves the SetLogger's history-derived prefill untouched.
    */
   targetWeightKg?: number;
   notes?: string;
