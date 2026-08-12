@@ -433,12 +433,12 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(dumbellIdx).toBeLessThan(inclineIdx);
     }, 30000);
 
-    it('includes coach-prescribed weight in lbs when set on an entry (AC3.2)', async () => {
+    it('includes coach-prescribed weight in lbs when set on an entry, and omits it when absent (AC3.2, AC3.3)', async () => {
       await database.write(async () => {
         const routinesTable = database.get('routines');
         await routinesTable.create((r: any) => {
-          r._raw.id = 'routine-prescribed';
-          r.name = 'Prescribed Loads';
+          r._raw.id = 'routine-mixed-prescription';
+          r.name = 'Mixed Loads';
           r.created_at = Date.now();
           r.updated_at = Date.now();
         });
@@ -450,34 +450,6 @@ describe('buildSystem: AI Coach context builder', () => {
           e.kind = 'strength';
           e.created_at = Date.now();
         });
-      });
-
-      await upsertRoutineExercise(database, 'routine-prescribed', {
-        exerciseId: 'exercise-squat',
-        order: 0,
-        targetSets: 3,
-        targetReps: 5,
-        targetWeightKg: 83.91,
-      });
-
-      const prompt = await buildSystem(database, { kind: 'create' });
-
-      // Assert the rendered lbs string, not the kg value — this proves
-      // the conversion happened at the display edge. kgToLbs(83.91) = 185.
-      expect(prompt).toContain('@ 185lbs');
-    }, 30000);
-
-    it('does not include a weight segment when entry has no prescription (AC3.3)', async () => {
-      await database.write(async () => {
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = 'routine-unprescribed';
-          r.name = 'No Prescribed Loads';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        const exercisesTable = database.get('exercises');
         await exercisesTable.create((e: any) => {
           e._raw.id = 'exercise-bench';
           e.title = 'Bench Press';
@@ -486,9 +458,19 @@ describe('buildSystem: AI Coach context builder', () => {
         });
       });
 
-      await upsertRoutineExercise(database, 'routine-unprescribed', {
-        exerciseId: 'exercise-bench',
+      // Prescribed entry
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-squat',
         order: 0,
+        targetSets: 3,
+        targetReps: 5,
+        targetWeightKg: 83.91,
+      });
+
+      // Unprescribed entry
+      await upsertRoutineExercise(database, 'routine-mixed-prescription', {
+        exerciseId: 'exercise-bench',
+        order: 1,
         targetSets: 3,
         targetReps: 8,
         restSeconds: 120,
@@ -496,17 +478,24 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      // Extract just the routine section to scope the assertion — "@ " also
-      // appears in the Recent Training History section, so a whole-prompt
-      // not.toContain would fail for the wrong reason on fixtures with history.
+      // Extract routine section to scope assertions
       const routineStart = prompt.indexOf('## Existing Routines');
       const historyStart = prompt.indexOf('## Recent Workouts');
       const routineSection = prompt.substring(routineStart, historyStart);
 
-      // Assert both halves: no weight segment, and the existing segments still render
-      expect(routineSection).not.toContain('@ ');
+      // AC3.2: Prescribed entry renders weight in lbs
+      // Assert the rendered lbs string, not the kg value — this proves
+      // the conversion happened at the display edge. kgToLbs(83.91) = 185.
+      expect(routineSection).toContain('Back Squat');
+      expect(routineSection).toContain('@ 185lbs');
+
+      // AC3.3: Unprescribed entry doesn't render weight segment, but other segments render
+      expect(routineSection).toContain('Bench Press');
       expect(routineSection).toContain('3x8');
       expect(routineSection).toContain('rest 120s');
+      // Ensure no extra weight segments beyond the prescribed one
+      const weightMatches = routineSection.match(/@ \d+(\.\d+)?lbs/g);
+      expect(weightMatches).toHaveLength(1); // Only the squat's 185lbs
     }, 30000);
 
     it('returns a non-empty prompt when database is empty', async () => {
