@@ -1,11 +1,11 @@
 # HMB Workout
 
-Last verified: 2026-08-11
+Last verified: 2026-08-12
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
-machine. Routines can also be authored conversationally against the Anthropic API
-with a user-supplied key (`src/ai`).
+machine. Routines can also be authored conversationally against Anthropic or OpenAI
+APIs with a user-supplied key (`src/ai` with multi-provider routing via `src/ai/provider`).
 
 ## Expo version discipline
 
@@ -618,8 +618,8 @@ renaming the *key* is forbidden.
   `anthropicClient.ts` and `openaiClient.ts` (plus the one-shot alternates and question
   clients for each provider, totaling 8 copies) — hoisting them is a tracked follow-up;
   don't add another of either. `buildOpenAiBody` (`src/ai/provider/requestBuilder.ts`)
-  centralizes the Responses API body format to reduce drift; `buildAnthropicBody` and
-  prompt builders mirror its structure.
+  centralizes the Responses API body format to reduce drift; Anthropic clients build
+  their own request bodies and prompt builders are kept per-surface.
 - **Immutable directives must remain the last section of every system prompt.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
@@ -719,8 +719,8 @@ renaming the *key* is forbidden.
   coach directives, draft→repository accept path, plus the one-shot features
   (rest commentary, exercise question, replace alternates)
 - `src/ai/provider/` — multi-provider abstraction: `createAiClient` factory routes to
-  Anthropic or OpenAI based on configured keys; unified `AiClient` interface; shared
-  request builders (`buildOpenAiBody`, `buildAnthropicBody`) for all surfaces
+  Anthropic or OpenAI based on configured keys; unified `AiClient` interface; `buildOpenAiBody`
+  centralizes the OpenAI Responses API format (Anthropic clients build requests inline)
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
   each darkened to clear WCAG AA 4.5:1 text contrast against both white and
   black backgrounds; also used on non-button solid fills like the AI chat

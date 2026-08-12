@@ -158,6 +158,16 @@ export function replaceExerciseTarget(
 }
 
 /**
+ * Whether any AI key is configured (anthropic or openai).
+ * Used by screens that require AI capability.
+ */
+export function hasAiKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
+  const hasAnthropicKey = settings.anthropicKey?.trim();
+  const hasOpenaiKey = settings.openaiKey?.trim();
+  return Boolean(hasAnthropicKey || hasOpenaiKey);
+}
+
+/**
  * Whether the screen should render the Replace button at all.
  *
  * Hidden rather than disabled without a key: a disabled button advertises a
@@ -167,9 +177,7 @@ export function canOfferReplace(
   sessionState: SessionState | null | undefined,
   settings: { anthropicKey?: string; openaiKey?: string }
 ): boolean {
-  const hasAnthropicKey = settings.anthropicKey?.trim();
-  const hasOpenaiKey = settings.openaiKey?.trim();
-  if (!hasAnthropicKey && !hasOpenaiKey) return false;
+  if (!hasAiKey(settings)) return false;
   return replaceExerciseTarget(sessionState) !== null;
 }
 

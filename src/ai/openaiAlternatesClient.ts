@@ -28,12 +28,6 @@ const OPENAI_URL = 'https://api.openai.com/v1/responses';
 // Use frontier tier for exercise suggestions — coaching decisions benefit from better reasoning
 const MODEL = 'gpt-5.6-sol';
 
-/**
- * Three short exercise descriptions. Larger than rest-commentary but smaller
- * than the conversational client's full routine budget.
- */
-const ALTERNATES_MAX_TOKENS = 1024;
-
 type FetchFn = typeof fetch;
 
 export function createOpenaiAlternatesClient(
