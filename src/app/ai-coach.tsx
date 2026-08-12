@@ -145,12 +145,22 @@ export default function AiCoachScreen() {
       status === 'error' &&
       (error !== null || acceptError !== null);
 
+    // TEMPORARY LOGGING - Remove before pushing
+    console.log('[#222] Effect:', {
+      status,
+      previousStatus: previousStatusRef.current,
+      errorKind: error?.kind,
+      hasAcceptError: acceptError !== null,
+      turnJustEndedInError,
+    });
+
     if (turnJustEndedInError) {
       previousStatusRef.current = status;
       // Defer the scroll to after layout measurement. requestAnimationFrame
       // schedules after paint, ensuring FlatList has measured the new content
       // (issue #222).
       requestAnimationFrame(() => {
+        console.log('[#222] RAF fired, scrolling');
         flatListRef.current?.scrollToEnd({ animated: true });
       });
       return;
