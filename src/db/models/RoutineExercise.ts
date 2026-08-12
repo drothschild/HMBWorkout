@@ -18,5 +18,6 @@ export default class RoutineExercise extends Model {
   @field('target_reps') targetReps?: number;
   @field('target_duration_seconds') targetDurationSeconds?: number;
   @field('rest_seconds') restSeconds?: number;
+  @field('target_weight_kg') targetWeightKg?: number;
   @text('notes') notes?: string;
 }
