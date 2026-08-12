@@ -109,6 +109,10 @@ export default function AiCoachScreen() {
   // null never observed). A turn that ends in error (status: sending → error)
   // must scroll even if the error value didn't change.
   const previousStatusRef = useRef(status);
+  // Flag to scroll when error bubble is measured via onLayout. Using onLayout
+  // instead of requestAnimationFrame because RAF fires before error bubble layout
+  // completes, causing scrollToEnd to land short (true Heisenbug via logs).
+  const pendingDeferredScrollRef = useRef(false);
   const textInputColor = theme.text;
 
   // Re-check the key on every focus, not just mount: the gate must lift when
@@ -145,24 +149,12 @@ export default function AiCoachScreen() {
       status === 'error' &&
       (error !== null || acceptError !== null);
 
-    // TEMPORARY LOGGING - Remove before pushing
-    console.log('[#222] Effect:', {
-      status,
-      previousStatus: previousStatusRef.current,
-      errorKind: error?.kind,
-      hasAcceptError: acceptError !== null,
-      turnJustEndedInError,
-    });
-
     if (turnJustEndedInError) {
       previousStatusRef.current = status;
-      // Defer the scroll to after layout measurement. requestAnimationFrame
-      // schedules after paint, ensuring FlatList has measured the new content
-      // (issue #222).
-      requestAnimationFrame(() => {
-        console.log('[#222] RAF fired, scrolling');
-        flatListRef.current?.scrollToEnd({ animated: true });
-      });
+      // Set flag to scroll when error bubble is measured. requestAnimationFrame
+      // is not reliable because the error bubble view may not be laid out yet —
+      // onLayout fires exactly when *this specific view* is measured (issue #222).
+      pendingDeferredScrollRef.current = true;
       return;
     }
     previousStatusRef.current = status;
@@ -307,7 +299,22 @@ export default function AiCoachScreen() {
   }
 
   if (error) {
-    footerItems.push(<ErrorBubble key="error" error={error} onRetry={handleRetry} />);
+    footerItems.push(
+      <ErrorBubble
+        key="error"
+        error={error}
+        onRetry={handleRetry}
+        onLayout={() => {
+          // AC6.9: This handler has zero jest coverage (src/app is untestable).
+          // Deleting this callback silently reverts issue #222 — error bubbles
+          // below the fold when they appear. Before refactoring, verify in simulator.
+          if (pendingDeferredScrollRef.current && flatListRef.current) {
+            pendingDeferredScrollRef.current = false;
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }}
+      />
+    );
   }
 
   const footer = footerItems.length > 0 ? <View style={styles.footerContent}>{footerItems}</View> : null;
@@ -706,9 +713,10 @@ function SettingsProposalCard({
 interface ErrorBubbleProps {
   error: AiChatError;
   onRetry: () => void;
+  onLayout?: () => void;
 }
 
-function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
+function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
   const router = useRouter();
   const isDark = useIsDark();
 
@@ -758,6 +766,7 @@ function ErrorBubble({ error, onRetry }: ErrorBubbleProps) {
         styles.errorBubble,
         { backgroundColor: errorBubbleBackgroundColor },
       ]}
+      onLayout={onLayout}
     >
       <ThemedText type="default" style={[styles.errorMessage, { color: errorTextColor }]}>
         {errorMessage}
