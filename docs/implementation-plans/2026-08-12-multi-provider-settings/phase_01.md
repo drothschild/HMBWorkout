@@ -445,8 +445,25 @@ leave `tsc` broken for a later one.
 
 **Not a code task. This is the phase's exit condition.**
 
-For each of the 22 mutants (17 store mutants + 5 factory mutants: `E06`, `R05`, `S01`, `S05–S07`,
-`E01`, `E03–E04`, `R02–R03`, `X02–X03`, plus `F19b`, `F20`, `F21`, `F23`, `F24`):
+**Scope: 27 mutants** covered by this phase, sourced from #234's per-file survivor table at commit
+`11f53ed`:
+
+| file | count | survivors |
+|---|---|---|
+| `src/state/aiChatStore.ts` | 5 | `S01`, `S05`–`S07` |
+| `src/state/exerciseQuestionStore.ts` | 5 | `E01`, `E03`–`E06` |
+| `src/state/restCommentaryStore.ts` | 4 | `R02`–`R05` |
+| `src/state/exerciseReplaceStore.ts` | 3 | `X02`–`X03` |
+| **Subtotal (stores)** | **17** | — |
+| `src/ai/provider/factory.ts` | 10 | `F19b`, `F20`, `F21`, `F23`, `F24` + 5 more |
+| **Subtotal (factory)** | **10** | — |
+| **Phase 1 total** | **27** | — |
+
+**Out of Phase 1 scope** (10 survivors, owned by Phase 3 per #234):
+- `src/ai/openaiAlternatesClient.ts`: 6 survivors
+- `src/ai/openaiExerciseQuestionClient.ts`: 4 survivors
+
+For each of the 27 mutants listed above:
 
 1. Apply the mutation by hand.
 2. Assert the file actually changed (`git diff --stat` non-empty) and the anchor was unique.
