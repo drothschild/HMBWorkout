@@ -459,11 +459,29 @@ leave `tsc` broken for a later one.
 | **Subtotal (factory)** | **10** | — |
 | **Phase 1 total** | **27** | — |
 
-**Out of Phase 1 scope** (10 survivors, owned by Phase 3 per #234):
+**Remaining 10 survivors** (not in Phase 1 scope):
 - `src/ai/openaiAlternatesClient.ts`: 6 survivors
 - `src/ai/openaiExerciseQuestionClient.ts`: 4 survivors
 
-For each of the 27 mutants listed above:
+**Scoping decision:** #234 assigns the entire card to #122 but makes no phase mapping for
+these 10 survivors under the current six-phase plan. #234's rationale — "wiring a UI to an
+untested path is the risk this card exists to prevent" — applies equally to these files:
+Phases 3–5 make the OpenAI path reachable for Replace and Question surfaces just as they do for
+chat and rest commentary. 
+
+**Choose one:**
+- **Option A (Recommended):** Fold these 10 into this phase or a later phase's `Covers` list with an
+  acceptance criterion. They are live defects the moment Phase 3 lands; early coverage is simpler
+  than deferred coverage.
+- **Option B:** Explicitly defer these past #122 (e.g., to a future issue or the next feature
+  phase). If deferred, note this on #234 rather than leaving the card appearing closed when the
+  OpenAI path's coverage is incomplete. #234 is currently expected to close via this work.
+
+**Baseline from #234** (for reference on kill rate targets): 37 survivors of 74 valid mutants
+measured (50% kill rate), with 1 anchor miss and 1 non-compiling mutant discarded. Any phase
+targeting a specific kill rate should measure against the 74 valid mutants, not the raw 76.
+
+For each of the 27 mutants in Phase 1 scope:
 
 1. Apply the mutation by hand.
 2. Assert the file actually changed (`git diff --stat` non-empty) and the anchor was unique.
