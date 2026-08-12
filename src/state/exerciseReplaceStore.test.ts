@@ -184,9 +184,15 @@ describe('createExerciseReplaceStore', () => {
   };
 
   function makeStore() {
+    const capturedConfigs: ProviderConfig[] = [];
+
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      capturedConfigs.push(config);
+      const apiKey = config.aiProvider === 'openai'
+        ? (config.openaiKey ?? '')
+        : (config.anthropicKey ?? '');
       const client = createExerciseAlternatesClient(
-        { apiKey: config.anthropicKey || 'test-key' },
+        { apiKey },
         mockFetch as unknown as typeof fetch
       );
       return {
@@ -205,7 +211,7 @@ describe('createExerciseReplaceStore', () => {
       };
     };
 
-    return createExerciseReplaceStore({
+    const store = createExerciseReplaceStore({
       getSettings,
       createClient: createUnifiedClient,
       dispatch,
@@ -213,6 +219,7 @@ describe('createExerciseReplaceStore', () => {
       applyToRoutine,
       logError,
     });
+    return { store, capturedConfigs };
   }
 
   beforeEach(() => {
@@ -230,7 +237,7 @@ describe('createExerciseReplaceStore', () => {
 
   describe('open', () => {
     it('fetches alternates and offers them for choosing', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -244,7 +251,7 @@ describe('createExerciseReplaceStore', () => {
       let release: (value: unknown) => void = () => {};
       mockFetch.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const pending = store.getState().open(makeTarget());
 
       expect(store.getState().status).toBe('loading');
@@ -256,7 +263,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('sends the exercise being replaced in the prompt', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -266,7 +273,7 @@ describe('createExerciseReplaceStore', () => {
 
     it('makes no call and offers nothing without a key', async () => {
       setSettings({ anthropicKey: '' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -277,7 +284,7 @@ describe('createExerciseReplaceStore', () => {
 
     it('swallows a failed request, surfacing an error instead of throwing', async () => {
       mockFetch.mockRejectedValueOnce(new TypeError('Network request failed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await expect(store.getState().open(makeTarget())).resolves.toBeUndefined();
 
@@ -288,7 +295,7 @@ describe('createExerciseReplaceStore', () => {
 
     it('swallows a malformed response the same way', async () => {
       mockFetch.mockResolvedValueOnce(alternatesResponse({ alternates: [] }));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -301,7 +308,7 @@ describe('createExerciseReplaceStore', () => {
       let release: (value: unknown) => void = () => {};
       mockFetch.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const pending = store.getState().open(makeTarget());
       store.getState().cancel();
 
@@ -313,7 +320,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('carries the immutable coach directives — the safety rules bind here too', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -332,7 +339,7 @@ describe('createExerciseReplaceStore', () => {
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -357,7 +364,7 @@ describe('createExerciseReplaceStore', () => {
         profileAge: '41',
         profileExperience: 'Advanced',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -379,7 +386,7 @@ describe('createExerciseReplaceStore', () => {
 
   describe('choose', () => {
     async function opened() {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
       return store;
     }
@@ -454,7 +461,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('does nothing when there is no open choice', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       const ok = await store.getState().choose(ALTERNATES.alternates[0]);
 
@@ -478,7 +485,7 @@ describe('createExerciseReplaceStore', () => {
 
   describe('cancel', () => {
     it('clears the sheet', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
 
       store.getState().cancel();
@@ -494,7 +501,7 @@ describe('createExerciseReplaceStore', () => {
     // or write failure. The bump is observable only after the write completes.
 
     async function opened() {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
       return store;
     }

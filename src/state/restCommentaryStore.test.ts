@@ -80,9 +80,15 @@ describe('createRestCommentaryStore', () => {
   };
 
   function makeStore() {
+    const capturedConfigs: ProviderConfig[] = [];
+
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      capturedConfigs.push(config);
+      const apiKey = config.aiProvider === 'openai'
+        ? (config.openaiKey ?? '')
+        : (config.anthropicKey ?? '');
       const client = createRestCommentaryClient(
-        { apiKey: config.anthropicKey || 'test-key' },
+        { apiKey },
         mockFetch as unknown as typeof fetch
       );
       return {
@@ -101,12 +107,14 @@ describe('createRestCommentaryStore', () => {
       };
     };
 
-    return createRestCommentaryStore({
+    const store = createRestCommentaryStore({
       getSettings,
       loadHistory,
       createClient: createUnifiedClient,
       logError,
     });
+
+    return { store, capturedConfigs };
   }
 
   beforeEach(() => {
@@ -122,7 +130,7 @@ describe('createRestCommentaryStore', () => {
 
   describe('a normal rest', () => {
     it('surfaces the coach comment for the upcoming exercise', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -139,7 +147,7 @@ describe('createRestCommentaryStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const showing = store.getState().show(target());
 
       await waitUntil(() => store.getState().pending, 'pending to be set');
@@ -153,7 +161,7 @@ describe('createRestCommentaryStore', () => {
     });
 
     it('builds the prompt from the upcoming exercise and its history', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -166,7 +174,7 @@ describe('createRestCommentaryStore', () => {
 
     it('carries the coaching personality from settings', async () => {
       setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -175,7 +183,7 @@ describe('createRestCommentaryStore', () => {
     });
 
     it('clears the comment when rest ends', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().show(target());
 
       store.getState().hide();
@@ -187,7 +195,7 @@ describe('createRestCommentaryStore', () => {
 
   describe('one call per upcoming entry per session', () => {
     it('reuses the cached comment on the next rest of the same exercise', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
       store.getState().hide();
@@ -201,7 +209,7 @@ describe('createRestCommentaryStore', () => {
       mockFetch
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce(commentResponse('Success on retry.'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       // First rest: network failure, no cache
       await store.getState().show(target());
@@ -217,7 +225,7 @@ describe('createRestCommentaryStore', () => {
     });
 
     it('does not re-request while the same rest is still showing', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
       await store.getState().show(target());
@@ -229,7 +237,7 @@ describe('createRestCommentaryStore', () => {
       mockFetch
         .mockResolvedValueOnce(commentResponse('First.'))
         .mockResolvedValueOnce(commentResponse('Second.'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target({ entryIdx: 0 }));
       await store.getState().show(target({ entryIdx: 1, exerciseId: 'squat' }));
@@ -239,7 +247,7 @@ describe('createRestCommentaryStore', () => {
     });
 
     it('treats the same entry index in a new session as a new entry', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target({ sessionId: 'session-1' }));
       await store.getState().show(target({ sessionId: 'session-2' }));
@@ -256,7 +264,7 @@ describe('createRestCommentaryStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const first = store.getState().show(target());
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
@@ -281,7 +289,7 @@ describe('createRestCommentaryStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const showing = store.getState().show(target());
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'request to start');
 
@@ -304,7 +312,7 @@ describe('createRestCommentaryStore', () => {
         )
         .mockResolvedValueOnce(commentResponse('Fresh comment.'));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const first = store.getState().show(target({ entryIdx: 0 }));
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
@@ -335,7 +343,7 @@ describe('createRestCommentaryStore', () => {
         )
         .mockResolvedValueOnce(commentResponse('About the new exercise.'));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const first = store.getState().show(target({ entryIdx: 0 }));
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
@@ -350,7 +358,7 @@ describe('createRestCommentaryStore', () => {
   describe('rest never depends on the AI', () => {
     it('makes no call and shows nothing when no API key is configured', async () => {
       setSettings({ anthropicKey: '' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -364,7 +372,7 @@ describe('createRestCommentaryStore', () => {
 
     it('treats a whitespace-only key as no key', async () => {
       setSettings({ anthropicKey: '   ' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -373,7 +381,7 @@ describe('createRestCommentaryStore', () => {
 
     it('swallows and logs a network failure', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await expect(store.getState().show(target())).resolves.toBeUndefined();
 
@@ -386,7 +394,7 @@ describe('createRestCommentaryStore', () => {
 
     it('clears attempted when the rest ends', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
       expect(store.getState().attempted).toBe(true);
@@ -401,7 +409,7 @@ describe('createRestCommentaryStore', () => {
         status: 401,
         text: async () => 'unauthorized',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -411,7 +419,7 @@ describe('createRestCommentaryStore', () => {
 
     it('swallows and logs an unusable response body', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ content: [] }) });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -421,7 +429,7 @@ describe('createRestCommentaryStore', () => {
 
     it('swallows and logs a history read failure', async () => {
       loadHistory.mockRejectedValueOnce(new Error('db closed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -433,7 +441,7 @@ describe('createRestCommentaryStore', () => {
 
   describe('coach directives', () => {
     it('carries the immutable coach directives — the safety rules bind here too', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -447,7 +455,7 @@ describe('createRestCommentaryStore', () => {
       // Precedence against injection: coaching style is user-controlled free
       // text, and the directives must outrank it.
       setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
@@ -468,7 +476,7 @@ describe('createRestCommentaryStore', () => {
         profileAge: '41',
         profileExperience: 'Advanced',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().show(target());
 
