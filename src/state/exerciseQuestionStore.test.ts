@@ -426,6 +426,27 @@ describe('createExerciseQuestionStore', () => {
       expect(capturedConfigs).toHaveLength(0);
     });
 
+    it('E04/E05: forwards all provider config fields including aiProvider', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-prod',
+        openaiKey: 'sk-openai-prod',
+        aiProvider: 'anthropic',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+      mockFetch.mockResolvedValue(answerResponse('Test answer'));
+
+      await store.getState().toggle(target());
+
+      // E04/E05 mutations: deleting anthropicKey or openaiKey lines would fail
+      expect(capturedConfigs).toHaveLength(1);
+      const config = capturedConfigs[0];
+      expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
+      expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
+      expect(config).toHaveProperty('aiProvider', 'anthropic');
+      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
     it('swallows and logs a network failure, quietly reverting to collapsed', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
       const { store } = makeStore();

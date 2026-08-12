@@ -318,6 +318,34 @@ describe('createExerciseReplaceStore', () => {
       });
     });
 
+    it('X03/X04: forwards all provider config fields including aiProvider', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-prod',
+        openaiKey: 'sk-openai-prod',
+        aiProvider: 'openai',
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: JSON.stringify([{ title: 'Alt 1', kind: 'strength' }]) }],
+          stop_reason: 'end_turn',
+        }),
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      // X03/X04 mutations: deleting anthropicKey or openaiKey lines would fail
+      expect(capturedConfigs).toHaveLength(1);
+      const config = capturedConfigs[0];
+      expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
+      expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
+      expect(config).toHaveProperty('aiProvider', 'openai');
+      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
     it('does nothing from a no-key settings blob', async () => {
       setSettings({
         anthropicKey: '',

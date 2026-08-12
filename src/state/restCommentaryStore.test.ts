@@ -386,6 +386,31 @@ describe('createRestCommentaryStore', () => {
       expect(capturedConfigs).toHaveLength(0); // No config recorded if no API call
     });
 
+    it('R03/R04: forwards all provider config fields including aiProvider', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-prod',
+        openaiKey: 'sk-openai-prod',
+        aiProvider: 'anthropic',
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'Great work!' }] }),
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      // R03/R04 mutations: deleting anthropicKey or openaiKey lines would fail
+      expect(capturedConfigs).toHaveLength(1);
+      const config = capturedConfigs[0];
+      expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
+      expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
+      expect(config).toHaveProperty('aiProvider', 'anthropic');
+      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
     it('treats a whitespace-only key as no key', async () => {
       setSettings({ anthropicKey: '   ' });
       const { store } = makeStore();

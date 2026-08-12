@@ -1043,6 +1043,29 @@ describe('aiChatStore', () => {
       });
     });
 
+    it('S07: forwards aiProvider in ProviderConfig to createClient', async () => {
+      const { store, fakeChat, fakeCreateClient } = makeStore({
+        getSettings: jest.fn().mockReturnValue({
+          anthropicKey: 'sk-test',
+          openaiKey: 'key-openai',
+          aiProvider: 'anthropic',
+        }),
+      });
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('hello');
+
+      // S07 mutation: deleting the aiProvider line would make this fail
+      const call = fakeCreateClient.mock.calls[0][0];
+      expect(call).toHaveProperty('anthropicKey', 'sk-test');
+      expect(call).toHaveProperty('openaiKey', 'key-openai');
+      expect(call).toHaveProperty('aiProvider', 'anthropic');
+      // Ensure exactly 3 properties are forwarded
+      expect(Object.keys(call).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
     it('creates client once per send call', async () => {
       const { store, fakeChat, fakeCreateClient } = makeStore();
 
