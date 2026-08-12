@@ -14,6 +14,7 @@ import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from '@/state/coachOnboarding';
 import { createAiClient } from '@/ai/provider/factory';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
+import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
 export interface AiDisplayMessage {
   role: 'user' | 'assistant';
@@ -57,10 +58,10 @@ export interface AiChatDeps {
 }
 
 function mapError(error: unknown): AiChatError {
-  // Anthropic errors
+  // HTTP errors (Anthropic or OpenAI)
   if (
-    error?.constructor?.name === 'AnthropicHttpError' ||
-    error?.constructor?.name === 'OpenaiHttpError'
+    error instanceof AnthropicHttpError ||
+    (error as any)?.name === 'OpenaiHttpError'
   ) {
     const httpError = error as { status?: number };
     if (httpError.status === 401) {
@@ -70,10 +71,10 @@ function mapError(error: unknown): AiChatError {
     }
   }
 
-  // Network errors
+  // Network errors (Anthropic or OpenAI)
   if (
-    error?.constructor?.name === 'AnthropicUnreachable' ||
-    error?.constructor?.name === 'OpenaiUnreachable'
+    error instanceof AnthropicUnreachable ||
+    (error as any)?.name === 'OpenaiUnreachable'
   ) {
     return { kind: 'network' };
   }

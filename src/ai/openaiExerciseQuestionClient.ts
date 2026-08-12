@@ -11,16 +11,11 @@
 
 import { DraftValidationError } from './draftSchema';
 import { OpenaiUnreachable, OpenaiHttpError, OpenaiIncompleteError, OpenaiRefusalError } from './openaiClient';
+import { buildOpenAiBody } from './provider/requestBuilder';
 
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
 // Use frontier tier for exercise questions — detailed how-to answers benefit from better reasoning
 const MODEL = 'gpt-5.6-sol';
-
-/**
- * A detailed how-to needs more room than the rest-screen's 1-2 sentences,
- * but is still bounded. Paired with EXERCISE_QUESTION_MAX_CHARS (2000).
- */
-export const EXERCISE_QUESTION_MAX_TOKENS = 512;
 
 type FetchFn = typeof fetch;
 
@@ -33,6 +28,19 @@ export function createOpenaiExerciseQuestionClient(
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
     async ask(request: { system: string; message: string }): Promise<string> {
+      const requestBody = buildOpenAiBody(
+        {
+          system: request.system,
+          messages: [{ role: 'user', content: request.message }],
+          surface: 'exerciseQuestion',
+          outputFormat: 'text',
+          // Dummy schema required by buildOpenAiBody, ignored when outputFormat is 'text'
+          schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+          schemaName: 'ExerciseQuestionResponse',
+        },
+        MODEL
+      );
+
       let response: Response;
       try {
         response = await fetch(OPENAI_URL, {
@@ -41,14 +49,7 @@ export function createOpenaiExerciseQuestionClient(
             'content-type': 'application/json',
             authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify({
-            model: MODEL,
-            max_tokens: EXERCISE_QUESTION_MAX_TOKENS,
-            messages: [
-              { role: 'developer', content: request.system },
-              { role: 'user', content: request.message },
-            ],
-          }),
+          body: JSON.stringify(requestBody),
         });
       } catch (error) {
         throw new OpenaiUnreachable(

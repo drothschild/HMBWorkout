@@ -920,7 +920,7 @@ describe('aiChatStore', () => {
   });
 
   describe('IMPORTANT 1 — API key verification', () => {
-    it('passes provider config with trimmed keys to createClient', async () => {
+    it('passes provider config to createClient', async () => {
       const { store, fakeChat, fakeCreateClient } = makeStore({
         getSettings: jest.fn().mockReturnValue({
           anthropicKey: '  sk-padded  ',

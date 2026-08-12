@@ -74,7 +74,7 @@ export function createAiClient(config: ProviderConfig): AiClient {
       throw new Error('Anthropic provider selected but anthropicKey not configured');
     }
 
-    const apiConfig = { apiKey: config.anthropicKey };
+    const apiConfig = { apiKey: config.anthropicKey.trim() };
     const chatClient = createAnthropicClient(apiConfig);
     const commentClient = createRestCommentaryClient(apiConfig);
     const suggestClient = createExerciseAlternatesClient(apiConfig);
@@ -114,7 +114,7 @@ export function createAiClient(config: ProviderConfig): AiClient {
     throw new Error('OpenAI provider selected but openaiKey not configured');
   }
 
-  const apiConfig = { apiKey: config.openaiKey };
+  const apiConfig = { apiKey: config.openaiKey.trim() };
   const chatClient = createOpenaiClient(apiConfig);
   const commentClient = createOpenaiRestCommentaryClient(apiConfig);
   const suggestClient = createOpenaiAlternatesClient(apiConfig);
