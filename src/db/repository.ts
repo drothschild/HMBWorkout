@@ -858,8 +858,19 @@ export async function findRoutineExerciseIdByOrder(
  * The row keeps its id, and only `exercise_id` changes. That is the whole
  * point: `session_sets.routine_exercise_id` references this row, so deleting
  * and recreating the row would orphan every set ever logged against the entry.
- * The prescription (order, warmup/target/rest columns, superset group) belongs
- * to the plan and is left untouched — a substitute changes identity only.
+ * The plan's structure (order, warmup/target-set/target-rep/rest columns,
+ * superset group) belongs to the entry and is left untouched — a substitute
+ * inherits it.
+ *
+ * **`target_weight_kg` is the one exception, and it is cleared here.** Sets,
+ * reps and rest survive a substitution because they are near-dimensionless
+ * across movements; load is not — 185lb is a working squat and an impossible
+ * leg extension. And because a prescription *overrides* the history-derived
+ * prefill rather than deferring to it (computeSetPrefill, sessionPresenter.ts),
+ * a stale one does not quietly lose to the substitute's own correct numbers: it
+ * wins over them, and pre-types a dangerous load into the athlete's input. So
+ * the swap drops it, and the substitute falls back to plain history-derived
+ * prefill, which is right.
  *
  * **Past sets keep the identity they were recorded under; the row is then free
  * to re-point.** The row is permanent and shared by every session that ever
@@ -916,10 +927,56 @@ export async function updateRoutineExerciseExerciseId(
 
     await row.update((record: any) => {
       record.exerciseId = trimmed;
+      // See the docstring: a prescribed load does not survive a substitution.
+      record.targetWeightKg = null;
     });
 
     return row as RoutineExercise;
   });
+}
+
+/**
+ * A routine's coach-prescribed target loads, keyed by entry position.
+ *
+ * The key is the row's `order`, which is the same 0-based number the engine
+ * carries as `RoutineEntry.idx` — `startSessionFromRoutine` sets `idx:
+ * re._raw.order` deliberately ("Use DB order directly, NOT loop counter"), so a
+ * caller holding an engine entry can look its prescription up directly without
+ * resolving a row id. Keying on `exercise_id` would be wrong: a routine may
+ * list the same exercise twice with different prescriptions.
+ *
+ * Rows with no prescription are **omitted entirely**, never mapped to `null` or
+ * `0`. WatermelonDB returns `null` for an unset optional column, and
+ * `computeSetPrefill` treats a non-positive weight as absent — a `0` in this map
+ * would be a value the reader silently discards.
+ *
+ * @param database The database instance
+ * @param routineId The routine whose entries to read
+ * @returns order → prescribed weight in kg, for prescribed entries only
+ */
+export async function getRoutineTargetWeightsKg(
+  database: Database,
+  routineId: string
+): Promise<Map<number, number>> {
+  const rows = (await database
+    .get('routine_exercises')
+    .query(Q.where('routine_id', routineId))
+    .fetch()) as RoutineExercise[];
+
+  const weights = new Map<number, number>();
+  for (const row of rows) {
+    const raw = (row as any)._raw;
+    const kg = raw.target_weight_kg;
+    // `!= null` on purpose: WatermelonDB gives null, not undefined, for an
+    // unset optional column (AGENTS.md). The `> 0` guard keeps a stored 0 —
+    // which the draft validator rejects but a hand-edited database could
+    // hold — out of the map, so no consumer has to re-derive absence.
+    if (kg != null && kg > 0) {
+      weights.set(raw.order as number, kg as number);
+    }
+  }
+
+  return weights;
 }
 
 /**
@@ -1095,6 +1152,13 @@ export interface RoutineExerciseEntry {
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds?: number;
+  /**
+   * Coach-prescribed target load in canonical kg. Storage is always in kg.
+   * The lbs → kg conversion happens at the AI draft accept boundary (Phase 2);
+   * below that boundary, nothing sees lbs. Absent means "no prescription",
+   * which leaves the SetLogger's history-derived prefill untouched.
+   */
+  targetWeightKg?: number;
   notes?: string;
 }
 
@@ -1172,6 +1236,7 @@ export async function upsertRoutine(
           re.targetReps = exerciseEntry.targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
+          re.targetWeightKg = exerciseEntry.targetWeightKg ?? null;
           re.notes = exerciseEntry.notes ?? null;
         });
       } else {
@@ -1186,6 +1251,7 @@ export async function upsertRoutine(
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
           if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
+          if (exerciseEntry.targetWeightKg !== undefined) re.targetWeightKg = exerciseEntry.targetWeightKg;
           if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
         });
       }

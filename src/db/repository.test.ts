@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -1773,6 +1773,265 @@ describe('Repository: session and set helpers', () => {
       // Should have defaulted to 1, not reverted to null
       expect(walkRow.targetSets).toBe(1);
       expect(walkRow.warmupSets).toBe(0);
+    }, 10000);
+
+    it('stores targetWeightKg when creating a new routine_exercise row', async () => {
+      // AC1.3: upsertRoutine creating a new row from an entry with
+      // targetWeightKg: 83.91 stores 83.91 and reads it back.
+      const routineId = 'routine-weight-create';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 83.91 },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      expect(squatRow.targetWeightKg).toBe(83.91);
+    }, 10000);
+
+    it('clears targetWeightKg when updating a routine_exercise row and the entry omits it', async () => {
+      // AC1.4: upsertRoutine updating an existing row from an entry with
+      // targetWeightKg absent sets the column to null, and the row keeps its id.
+      const routineId = 'routine-weight-clear';
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+
+      // First upsert: create with weight
+      await upsertRoutine(database, routineId, 'Chest Day', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetWeightKg: 95.25,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [benchBefore] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowIdBefore = benchBefore.id;
+      expect(benchBefore.targetWeightKg).toBe(95.25);
+
+      // Second upsert: update with weight omitted — should clear it
+      await upsertRoutine(database, routineId, 'Chest Day (edited)', [
+        {
+          exerciseId: 'bench',
+          order: 0,
+          targetSets: 5,
+          targetReps: 5,
+          // targetWeightKg is omitted
+        },
+      ]);
+
+      const [benchAfter] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id still resolves
+      expect(benchAfter.id).toBe(rowIdBefore);
+      // Weight cleared
+      expect(benchAfter.targetWeightKg).toBeNull();
+      // Other fields updated
+      expect(benchAfter.targetSets).toBe(5);
+      expect(benchAfter.targetReps).toBe(5);
+    }, 10000);
+  });
+
+  describe('updateRoutineExerciseExerciseId', () => {
+    it('clears target_weight_kg when re-pointing to a different exercise, leaving other plan fields untouched', async () => {
+      // AC1.6: updateRoutineExerciseExerciseId sets target_weight_kg to null in
+      // the same database.write in which it re-points exercise_id, and leaves
+      // target_sets/target_reps/rest_seconds/warmup_sets/superset_group untouched.
+      const routineId = 'routine-repoint-weight';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+
+      // Create a routine entry with multiple plan fields and a weight prescription
+      await upsertRoutine(database, routineId, 'Leg Day', [
+        {
+          exerciseId: 'squat',
+          order: 0,
+          supersetGroup: 'leg-group',
+          warmupSets: 2,
+          targetSets: 4,
+          targetReps: 6,
+          restSeconds: 120,
+          targetWeightKg: 185.97,
+        },
+      ]);
+
+      const routineExercisesTable = database.get('routine_exercises');
+      const [squatRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      const rowId = squatRow.id;
+
+      // Verify initial state
+      expect(squatRow.exerciseId).toBe('squat');
+      expect(squatRow.targetWeightKg).toBe(185.97);
+      expect(squatRow.supersetGroup).toBe('leg-group');
+      expect(squatRow.warmupSets).toBe(2);
+      expect(squatRow.targetSets).toBe(4);
+      expect(squatRow.targetReps).toBe(6);
+      expect(squatRow.restSeconds).toBe(120);
+
+      // Re-point to leg press
+      await updateRoutineExerciseExerciseId(database, rowId, 'leg-press');
+
+      const [legPressRow] = (await routineExercisesTable
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+
+      // Row ID unchanged: session_sets.routine_exercise_id references still valid
+      expect(legPressRow.id).toBe(rowId);
+      // Exercise ID changed
+      expect(legPressRow.exerciseId).toBe('leg-press');
+      // Weight cleared (the exception)
+      expect(legPressRow.targetWeightKg).toBeNull();
+      // All other plan fields survive unchanged
+      expect(legPressRow.supersetGroup).toBe('leg-group');
+      expect(legPressRow.warmupSets).toBe(2);
+      expect(legPressRow.targetSets).toBe(4);
+      expect(legPressRow.targetReps).toBe(6);
+      expect(legPressRow.restSeconds).toBe(120);
+    }, 10000);
+  });
+
+  describe('getRoutineTargetWeightsKg', () => {
+    it('returns a map of order → kg for entries with prescriptions (AC1.5)', async () => {
+      // AC1.5: getRoutineTargetWeightsKg returns a Map<number, number> of
+      // order → kg containing an entry only for rows whose column is non-null.
+      const routineId = 'routine-weights-read';
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'deadlift', 'Deadlift', 'strength');
+
+      await upsertRoutine(database, routineId, 'Main Lifts', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185.97 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6 }, // no weight
+        { exerciseId: 'deadlift', order: 2, targetSets: 3, targetReps: 1, targetWeightKg: 275.58 },
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Should have exactly two entries
+      expect(weights.size).toBe(2);
+      expect(weights.get(0)).toBe(185.97);
+      expect(weights.get(1)).toBeUndefined(); // No entry for unset weight
+      expect(weights.get(2)).toBe(275.58);
+    }, 10000);
+
+    it('isolates results to the queried routine when multiple routines have overlapping order values (cross-routine isolation)', async () => {
+      // F1: Cross-routine isolation. The map is keyed on order (0-based integer),
+      // not row id. Two different routines could have entries at the same order
+      // positions. The filter MUST isolate by routine_id, or a second routine's
+      // entries will collide with and overwrite the first routine's prescriptions
+      // in the returned map — a dangerous-load failure at exercise-swap time.
+      await upsertExercise(database, 'squat', 'Squat', 'strength');
+      await upsertExercise(database, 'bench', 'Bench Press', 'strength');
+      await upsertExercise(database, 'leg-press', 'Leg Press', 'strength');
+      await upsertExercise(database, 'incline-bench', 'Incline Bench', 'strength');
+
+      // Routine 1: squat at order 0 (185kg), bench at order 1 (95kg)
+      const routine1 = 'routine-isolation-1';
+      await upsertRoutine(database, routine1, 'Lower Day', [
+        { exerciseId: 'squat', order: 0, targetSets: 5, targetReps: 3, targetWeightKg: 185 },
+        { exerciseId: 'bench', order: 1, targetSets: 4, targetReps: 6, targetWeightKg: 95 },
+      ]);
+
+      // Routine 2: leg-press at order 0 (150kg), incline at order 1 (75kg)
+      // Same order positions, but DIFFERENT exercises and DIFFERENT weights
+      const routine2 = 'routine-isolation-2';
+      await upsertRoutine(database, routine2, 'Upper Day', [
+        { exerciseId: 'leg-press', order: 0, targetSets: 4, targetReps: 8, targetWeightKg: 150 },
+        { exerciseId: 'incline-bench', order: 1, targetSets: 3, targetReps: 10, targetWeightKg: 75 },
+      ]);
+
+      // Query routine 1 — should get its weights, not routine 2's
+      const weights1 = await getRoutineTargetWeightsKg(database, routine1);
+      expect(weights1.size).toBe(2);
+      expect(weights1.get(0)).toBe(185); // Routine 1's squat weight
+      expect(weights1.get(1)).toBe(95); // Routine 1's bench weight
+
+      // Query routine 2 — should get ITS weights, not routine 1's
+      const weights2 = await getRoutineTargetWeightsKg(database, routine2);
+      expect(weights2.size).toBe(2);
+      expect(weights2.get(0)).toBe(150); // Routine 2's leg-press weight (NOT 185)
+      expect(weights2.get(1)).toBe(75); // Routine 2's incline weight (NOT 95)
+    }, 10000);
+
+    it('omits entries with null weight (AC1.7 — null case)', async () => {
+      // AC1.7: A row whose target_weight_kg is null produces no key in
+      // getRoutineTargetWeightsKg's map.
+      const routineId = 'routine-weights-omit-null';
+      await upsertExercise(database, 'curl', 'Bicep Curl', 'strength');
+      await upsertExercise(database, 'press', 'Overhead Press', 'strength');
+
+      await upsertRoutine(database, routineId, 'Arms', [
+        { exerciseId: 'curl', order: 0, targetSets: 3, targetReps: 8, targetWeightKg: 20 },
+        { exerciseId: 'press', order: 1, targetSets: 3, targetReps: 5 }, // no weight
+      ]);
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only curl should be in the map
+      expect(weights.has(0)).toBe(true);
+      expect(weights.has(1)).toBe(false); // Not stored as null
+      expect(weights.get(1)).toBeUndefined();
+    }, 10000);
+
+    it('omits entries with zero weight (AC1.7 — zero case)', async () => {
+      // AC1.7: A row whose target_weight_kg is 0 produces no key in the map.
+      // This tests the `> 0` guard that keeps stored zeros out of the map.
+      const routineId = 'routine-weights-omit-zero';
+      await upsertExercise(database, 'row', 'Barbell Row', 'strength');
+      await upsertExercise(database, 'pull', 'Pull-up', 'strength');
+
+      // Manually insert a row with explicit zero weight to test the guard
+      // (upsertRoutine never creates a zero weight, but hand-edited DBs could)
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'row';
+          re._raw.order = 0;
+          re.warmupSets = 2;
+          re.targetSets = 4;
+          re.targetReps = 6;
+          re.targetWeightKg = 0; // Explicit zero
+        });
+
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'pull';
+          re._raw.order = 1;
+          re.warmupSets = 0;
+          re.targetSets = 5;
+          re.targetReps = 3;
+          re.targetWeightKg = 45; // Normal weight
+        });
+      });
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only the 45kg entry should be in the map
+      expect(weights.size).toBe(1);
+      expect(weights.has(0)).toBe(false); // Zero weight must be omitted
+      expect(weights.has(1)).toBe(true);
+      expect(weights.get(1)).toBe(45);
     }, 10000);
   });
 
