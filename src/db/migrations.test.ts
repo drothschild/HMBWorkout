@@ -7,8 +7,8 @@ import { createAdapter as createWebAdapter } from './adapter.web';
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 4 for the sessions.sync_status undeclaration', () => {
-    expect(databaseSchema.version).toBe(4);
+  it('has bumped the schema version to 5 for routine_exercises.target_weight_kg', () => {
+    expect(databaseSchema.version).toBe(5);
   });
 
   it('declares exercises.description as an optional string column in the current schema', () => {
@@ -28,6 +28,17 @@ describe('Database schema migrations', () => {
       type: 'string',
       isOptional: true,
       isIndexed: true,
+    });
+  });
+
+  it('declares routine_exercises.target_weight_kg as an optional number column', () => {
+    // Optional and nullable: a coach-prescribed load for an entry. An absent
+    // prescription (null) leaves the SetLogger's history-derived prefill
+    // unchanged.
+    expect(databaseSchema.tables['routine_exercises'].columns['target_weight_kg']).toEqual({
+      name: 'target_weight_kg',
+      type: 'number',
+      isOptional: true,
     });
   });
 
@@ -59,7 +70,7 @@ describe('Database schema migrations', () => {
   it('walks a v1 install all the way to the current version in one upgrade', () => {
     // The real path for an install that predates both columns: WatermelonDB
     // applies every step between its version and the schema's, so a v1 install
-    // must arrive at v3 with both columns, not just the first one it meets.
+    // must arrive at v5 with all columns added by every schema bump.
     const steps = stepsForMigration({
       migrations,
       fromVersion: 1,
@@ -69,6 +80,7 @@ describe('Database schema migrations', () => {
     expect(steps.map((step) => `${step.table}.${step.columns[0].name}`)).toEqual([
       'exercises.description',
       'session_sets.exercise_id',
+      'routine_exercises.target_weight_kg',
     ]);
   });
 
@@ -97,6 +109,24 @@ describe('Database schema migrations', () => {
     // AC3.6: The v3→v4 upgrade path does not throw. Note this test runs on
     // LokiJS via createTestDatabase(), so a real SQLite v3→v4 open is only
     // verified by the simulator pass in Task 7 (Phase 3).
+  });
+
+  it('provides a real migration step from v4 to v5 that adds routine_exercises.target_weight_kg', () => {
+    // AC1.2: The v4→v5 migration uses a real addColumns step, unlike v4's
+    // deliberately empty one. Copying v4's empty-steps shape here would leave
+    // every upgrading install with a schema declaring a column its database
+    // does not have.
+    const steps = stepsForMigration({ migrations, fromVersion: 4, toVersion: 5 });
+
+    expect(steps).not.toBeNull();
+    expect(steps).toHaveLength(1);
+
+    const [step] = steps as { type: string; table: string; columns: unknown }[];
+    expect(step.type).toBe('add_columns');
+    expect(step.table).toBe('routine_exercises');
+    expect(step.columns).toEqual([
+      { name: 'target_weight_kg', type: 'number', isOptional: true },
+    ]);
   });
 
   it('declares no sync_status column on the sessions table in the current schema', () => {

@@ -64,5 +64,26 @@ export const migrations = schemaMigrations({
       // and the migration list has no gap, which schemaMigrations enforces.
       steps: [],
     },
+    {
+      toVersion: 5,
+      steps: [
+        // v4 -> v5: a routine entry can carry a coach-prescribed target load.
+        //
+        // NOTE: this is a real addColumns step, unlike v4's deliberately empty
+        // one. v4 *undeclared* a column (WatermelonDB 0.28 ships no removal
+        // step); v5 *adds* one, which has a first-class builder. Copying v4's
+        // empty-steps shape here would leave every upgrading install with a
+        // schema declaring a column its database does not have.
+        //
+        // Nullable and deliberately not backfilled, the same as v2's
+        // exercises.description and v3's session_sets.exercise_id: an entry with
+        // no prescription is the ordinary case, and the prefill's precedence
+        // chain is unchanged when the column is null.
+        addColumns({
+          table: 'routine_exercises',
+          columns: [{ name: 'target_weight_kg', type: 'number', isOptional: true }],
+        }),
+      ],
+    },
   ],
 });
