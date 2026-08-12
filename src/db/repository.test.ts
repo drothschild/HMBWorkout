@@ -1926,10 +1926,10 @@ describe('Repository: session and set helpers', () => {
       expect(weights.get(2)).toBe(275.58);
     }, 10000);
 
-    it('omits entries with null weight, never storing null or 0 (AC1.7)', async () => {
+    it('omits entries with null weight (AC1.7 — null case)', async () => {
       // AC1.7: A row whose target_weight_kg is null produces no key in
-      // getRoutineTargetWeightsKg's map (never a null or 0 value).
-      const routineId = 'routine-weights-omit';
+      // getRoutineTargetWeightsKg's map.
+      const routineId = 'routine-weights-omit-null';
       await upsertExercise(database, 'curl', 'Bicep Curl', 'strength');
       await upsertExercise(database, 'press', 'Overhead Press', 'strength');
 
@@ -1942,8 +1942,57 @@ describe('Repository: session and set helpers', () => {
 
       // Only curl should be in the map
       expect(weights.has(0)).toBe(true);
-      expect(weights.has(1)).toBe(false); // Not even stored as null or 0
+      expect(weights.has(1)).toBe(false); // Not stored as null
       expect(weights.get(1)).toBeUndefined();
+    }, 10000);
+
+    it('omits entries with zero weight (AC1.7 — zero case)', async () => {
+      // AC1.7: A row whose target_weight_kg is 0 produces no key in the map.
+      // This tests the `> 0` guard that keeps stored zeros out of the map.
+      const routineId = 'routine-weights-omit-zero';
+      await upsertExercise(database, 'row', 'Barbell Row', 'strength');
+      await upsertExercise(database, 'pull', 'Pull-up', 'strength');
+
+      // Manually insert a row with explicit zero weight to test the guard
+      // (upsertRoutine never creates a zero weight, but hand-edited DBs could)
+      await database.write(async () => {
+        const routinesTable = database.get('routines');
+        await routinesTable.create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Test';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+
+        const routineExercisesTable = database.get('routine_exercises');
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'row';
+          re._raw.order = 0;
+          re.warmupSets = 2;
+          re.targetSets = 4;
+          re.targetReps = 6;
+          re.targetWeightKg = 0; // Explicit zero
+        });
+
+        await routineExercisesTable.create((re: any) => {
+          re._raw.routine_id = routineId;
+          re._raw.exercise_id = 'pull';
+          re._raw.order = 1;
+          re.warmupSets = 0;
+          re.targetSets = 5;
+          re.targetReps = 3;
+          re.targetWeightKg = 45; // Normal weight
+        });
+      });
+
+      const weights = await getRoutineTargetWeightsKg(database, routineId);
+
+      // Only the 45kg entry should be in the map
+      expect(weights.size).toBe(1);
+      expect(weights.has(0)).toBe(false); // Zero weight must be omitted
+      expect(weights.has(1)).toBe(true);
+      expect(weights.get(1)).toBe(45);
     }, 10000);
   });
 
