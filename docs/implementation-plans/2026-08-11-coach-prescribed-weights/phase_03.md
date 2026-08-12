@@ -10,7 +10,7 @@
 
 **Depends on:** Phase 1 (the column), Phase 2 (something that writes it).
 
-**Codebase verified:** 2026-08-11 against `origin/main` @ `b6f8a6d`, by direct read of every file named below.
+**Codebase verified:** 2026-08-11 against `origin/main` @ `eb0afe0` (rebased after #220), by direct read of every file named below.
 
 ---
 
@@ -83,7 +83,9 @@ So `ExerciseDetail`'s `?: number` fields can actually hold `null` at runtime des
 - ✓ `src/state/routineDetailPresenter.test.ts` exists.
 - ✓ `src/ai/contextBuilder.test.ts:281-292` — the existing routine-section assertions
   (`toContain('3x8')`, `toContain('rest 120s')`, etc.), which are the pattern to follow.
-- ⚠ `npm test` on `origin/main` has 12 pre-existing failures in `src/interop/migrate.test.ts`.
+- ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
+  Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
+  earlier draft of this plan carved out.
 
 ---
 
@@ -229,7 +231,7 @@ Expected: no output.
 ```bash
 npm test
 ```
-Expected: only `src/interop/migrate.test.ts` fails, with the same 12 pre-existing failures.
+Expected: **green — every suite, no carve-out.** Any failure is yours.
 
 **Step 3:**
 ```bash

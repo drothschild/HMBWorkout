@@ -10,7 +10,7 @@
 
 **Depends on:** Nothing. This is the first phase.
 
-**Codebase verified:** 2026-08-11 against `origin/main` @ `b6f8a6d`, by direct read of every file named below.
+**Codebase verified:** 2026-08-11 against `origin/main` @ `eb0afe0` (rebased after #220), by direct read of every file named below.
 
 ---
 
@@ -95,10 +95,42 @@ This is an AGENTS.md-documented hazard with a live history of bugs. `re._raw.tar
   AI-accept-path caller and adding the field there is out of scope; leaving it alone keeps the diff
   honest.
 - ✓ `src/db/test-helpers.ts` exports `createTestDatabase`, `closeTestDatabase`, `flush`.
-- ✓ `npx tsc --noEmit` is clean on `origin/main`.
-- ⚠ `npm test` on `origin/main` reports **12 pre-existing failures**, all in
-  `src/interop/migrate.test.ts` (vault-backed tests whose fixture files were renamed). Your gate is
-  "no failure other than that file", never "all green". Do not try to fix it here.
+- ✓ `npx tsc --noEmit` is clean on `origin/main`, and `npm test` is **green** — 86 suites, 1582
+  tests, verified at `eb0afe0`. Your gate is plain green. (An earlier draft of this plan carried a
+  carve-out for `src/interop/migrate.test.ts`; #219/#220 deleted that suite. It is gone.)
+
+### 6. Two existing assertions break in this phase — that is expected work, not a regression
+
+`tsc` staying clean is not the whole greenness story. Two live assertions in
+`src/db/migrations.test.ts` pin the *current* schema version, and Task 1 must update both. **Neither
+is a sign you did something wrong.**
+
+```
+:10-12  it('has bumped the schema version to 4 for the sessions.sync_status undeclaration', () => {
+          expect(databaseSchema.version).toBe(4);
+        });
+```
+Fails outright on the bump. The **test title** goes stale too — it names v4's reason for existing.
+
+```
+:59-73  it('walks a v1 install all the way to the current version in one upgrade', ...)
+          expect(steps.map((step) => `${step.table}.${step.columns[0].name}`)).toEqual([
+            'exercises.description',
+            'session_sets.exercise_id',
+          ]);
+```
+This one is the trap. `toVersion` is `databaseSchema.version`, so it follows the bump automatically —
+and a real v5 `addColumns` step makes the array three elements. **It fails precisely because Task 1
+did the migration correctly.** If you were to "fix" it by giving v5 empty steps, this test would go
+green and the app would break for every upgrading install.
+
+Two assertions in the same file are *derived* and need no change: `:43`
+(`expect(migrations.maxVersion).toBe(databaseSchema.version)`) and `:66` (`toVersion:
+databaseSchema.version`).
+
+**Sweep result for the rest of this phase's surface:** nothing else pins a value that changes here.
+No test asserts a `routine_exercises` column list, and no test compares a `_raw` object by equality
+(both checked by grep across `src/`), so adding a nullable column breaks nothing else.
 
 ---
 
@@ -112,6 +144,8 @@ This is an AGENTS.md-documented hazard with a live history of bugs. `re._raw.tar
 **Files:**
 - Modify: `src/db/schema.ts:4` and `src/db/schema.ts:26-40`
 - Modify: `src/db/migrations.ts:66` (append a new entry after the v4 entry, before the closing `],`)
+- Modify: `src/db/migrations.test.ts:10-12` and `:59-73` — **two existing assertions this task
+  breaks by design.** See investigation finding 6.
 
 **Step 1: Bump the schema version**
 
@@ -172,14 +206,50 @@ Add to `src/db/migrations.test.ts`, following whatever `describe` structure that
 
 Add a comment on the AC1.2 test noting that the suite runs on LokiJS, so this proves the migration *list* is well-formed, not that a real SQLite file upgrades. The SQLite half is human verification H1 in `test-requirements.md`.
 
-**Step 5: Run the tests**
+**Step 5: Update the two assertions this task breaks**
+
+Both are in `src/db/migrations.test.ts` and both are expected — see investigation finding 6.
+
+**`:10-12`** — retitle and rebump. The title currently explains v4's reason for existing; v5's is
+different:
+
+```ts
+  it('has bumped the schema version to 5 for routine_exercises.target_weight_kg', () => {
+    expect(databaseSchema.version).toBe(5);
+  });
+```
+
+**`:59-73`** — the v1-walk gains a third entry. Extend the expected array; do **not** relax the
+assertion to a length check or a `toContain`, which would stop it catching a missing or misordered
+step:
+
+```ts
+    expect(steps.map((step) => `${step.table}.${step.columns[0].name}`)).toEqual([
+      'exercises.description',
+      'session_sets.exercise_id',
+      'routine_exercises.target_weight_kg',
+    ]);
+```
+
+⚠ If this test is failing, that is the *correct* signal — v5 added a real step. The wrong fix is to
+give v5 `steps: []` to make it pass; that would go green and break every upgrading install.
+
+**Step 6: Run the tests**
 
 ```bash
 npm test -- src/db/migrations.test.ts
 ```
-Expected: all tests in the file pass.
+Expected: all tests in the file pass, including the two you just updated.
 
-**Step 6: Commit**
+Then the whole suite, because the version bump could plausibly reach further than one file:
+
+```bash
+npm test
+```
+Expected: green. If any suite outside `src/db` fails, you have found a value pin the plan's sweep
+missed — fix it here and note it in the PR rather than deferring.
+
+**Step 7: Commit**
 
 ```bash
 git add src/db/schema.ts src/db/migrations.ts src/db/migrations.test.ts
@@ -475,12 +545,7 @@ Expected: no output.
 ```bash
 npm test
 ```
-Expected: exactly one failing suite, `src/interop/migrate.test.ts`, with 12 failures — **the same failures present on `origin/main` before this branch.** Confirm the count and the file. Any other failing suite is yours and must be fixed before this phase is done.
-
-To confirm the baseline if you doubt it:
-```bash
-git stash && npm test 2>&1 | tail -5 && git stash pop
-```
+Expected: **green — every suite, no carve-out.** Any failure is yours, including the two `src/db/migrations.test.ts` assertions Task 1 Step 5 updates.
 
 **Step 3: Lint**
 
@@ -506,5 +571,5 @@ Expected: no output. The prescription is shell-side data; if this command prints
 3. **Symmetrising `upsertRoutine`'s two branches.** Update clears with `?? null`; create guards with `if (… !== undefined)`. They differ deliberately.
 4. **`=== null` instead of `!= null`.** WatermelonDB returns `null` for unset optional columns; a strict-undefined check misses it. This exact class of bug is called out twice in AGENTS.md.
 5. **Testing the swap-clears rule without asserting the other columns survive.** A test that only checks the weight is gone would pass against a change that reset the whole row.
-6. **Chasing the `src/interop/migrate.test.ts` failures.** They pre-date this branch and are out of scope.
+6. **Treating the two `src/db/migrations.test.ts` failures as a mistake.** They are expected work (finding 6). The v1-walk one fails *because* the migration was written correctly — "fixing" it with `steps: []` goes green and breaks every upgrading install.
 7. **Adding `targetWeightKg` to `UpsertRoutineExerciseOptions` (`repository.ts:45-54`).** Different function, no caller on the accept path, not in scope.

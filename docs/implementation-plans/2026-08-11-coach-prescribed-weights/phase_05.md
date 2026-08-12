@@ -2,7 +2,7 @@
 
 **Goal:** The prescription actually reaches the input field, verified by hand — because this is the one phase whose code no test suite can see.
 
-**Architecture:** `src/app/session.tsx`'s prefill effect resolves the prescription from the database and hands it to the pure `computeSetPrefill` built in Phase 4. The effect's existing asynchronous block is structured entirely around *history* and returns early three separate times when there is none; each of those early returns would swallow a prescription that has nothing to do with history, so the block is restructured to fetch both and apply if either is present. Then AGENTS.md is updated to describe the code that now exists.
+**Architecture:** `src/app/session.tsx`'s prefill effect resolves the prescription from the database and hands it to the pure `computeSetPrefill` built in Phase 4. Two things make that harder than it looks. The effect's asynchronous block is structured entirely around *history* and returns early three separate times when there is none, each of which would swallow a prescription that has nothing to do with history — so the block is restructured to fetch both and apply if either is present. And the exercise-swap flow's write races the effect's read, so `exerciseReplaceStore` gains a `routineRevision` counter, bumped after the row is re-pointed, which the effect depends on: rather than winning the race, this guarantees one more read strictly after the write. Then AGENTS.md is updated to describe the code that now exists.
 
 **Tech Stack:** React 19 / React Native 0.86 / expo-router, TypeScript, iOS Simulator.
 
@@ -10,7 +10,7 @@
 
 **Depends on:** Phases 1–4, all merged.
 
-**Codebase verified:** 2026-08-11 against `origin/main` @ `b6f8a6d`, by direct read of `src/app/session.tsx:120-260`.
+**Codebase verified:** 2026-08-11 against `origin/main` @ `eb0afe0` (rebased after #220), by direct read of `src/app/session.tsx:120-260`.
 
 ---
 
@@ -31,8 +31,29 @@ This phase implements and verifies:
   exercise's prescription. *(human-only)*
 - **coach-prescribed-weights.AC6.6:** In the simulator, the coach's next conversation about that
   routine shows it can see the prescription it made. *(human-only)*
+- **coach-prescribed-weights.AC6.7:** `exerciseReplaceStore` increments its `routineRevision`
+  counter only *after* `applyToRoutine` resolves, and does not increment it when the engine rejects
+  the swap or the write throws.
+- **coach-prescribed-weights.AC6.8:** In the simulator, the prescribed weight reaches the input for
+  an exercise the user has **never logged** — a brand-new coach-authored routine with no
+  cross-session history at all. *(human-only)*
 
-**Every criterion in this phase is human-verified.** `src/app/` is not in `jest.config.js`'s `testMatch` at all — there is no jest project that can load a screen. AGENTS.md is explicit: *"a green run proves nothing about it."* Do not add tests here to feel better; add them nowhere and run the simulator instead.
+**All but one criterion in this phase is human-verified.** `src/app/` is not in `jest.config.js`'s
+`testMatch` at all — there is no jest project that can load a screen. AGENTS.md is explicit: *"a green
+run proves nothing about it."* Do not add tests under `src/app/` to feel better.
+
+The exception is **AC6.7**, and it is the most valuable thing in this phase. Task 1's work lands in
+`src/state/exerciseReplaceStore.ts`, which *is* covered — so the safety property that AC6.5 checks by
+hand gets a real automated test underneath it. Prefer that shape wherever a phase can reach for it:
+push the mechanism into a covered module and leave only the user-visible confirmation to the
+simulator.
+
+⚠ **AC6.8 exists because AC6.4 structurally cannot fail on the bug this phase is about.** AC6.4's
+fixture has the user log a set and finish a session *first*, so history exists — which is exactly when
+the early return at `session.tsx:217` does **not** fire. An implementation that threads
+`prescribedWeightKg` through `computeSetPrefill` but leaves that early return in place passes AC6.4,
+passes the whole suite, and ships a feature that silently does nothing on new coach-authored
+routines. AC6.8 is the no-history case. Do not merge the two; each covers a different half.
 
 ---
 
@@ -75,7 +96,21 @@ Do **not** key on `exerciseId`: a routine may list the same exercise twice with 
 
 ### 4. Let the pure function decide about duration-based entries
 
-The existing guard is `entry.kind !== 'strength'`. `computeSetPrefill` decides on `isDurationBasedEntry(entry)`, which is not the same predicate. Fetch the prescription regardless of kind and let `computeSetPrefill` ignore it — that keeps the decision in the functional core, where the design puts it, and avoids two predicates disagreeing. Keep the `kind === 'strength'` condition on the **history** query only, which is where it already belongs (`getExerciseWorkingSetHistory` returns working-type sets).
+Fetch the prescription regardless of kind and let `computeSetPrefill` ignore it when the entry is
+duration-based. Keep the `kind === 'strength'` condition on the **history** query only, which is
+where it already belongs (`getExerciseWorkingSetHistory` returns working-type sets).
+
+⚠ **Correction to an earlier draft of this plan**, which claimed `kind !== 'strength'` and
+`isDurationBasedEntry` "are a different predicate". *They are not.* `ExerciseKind` is the closed
+union `'strength' | 'cardio' | 'stretch'` (`src/engine/types.ts:8`) and `isDurationBasedEntry` is
+`entry?.kind === 'stretch' || entry?.kind === 'cardio'`
+(`src/state/exerciseStopwatch.ts:164-166`) — the exact complement. Today they agree on every input.
+
+The instruction stands, but on a weaker and more honest justification: keeping the decision in the
+pure function is *future-proofing*, not a bug fix. If `ExerciseKind` ever gains a fourth member, or
+`isDurationBasedEntry` stops keying on `kind` alone, a duplicated predicate in a screen no test can
+see is where the two would drift apart silently. That is a real but speculative reason — do not go
+looking for a live disagreement between them, because there isn't one.
 
 ### 5. A one-frame flash is expected and accepted
 
@@ -90,20 +125,177 @@ The synchronous pass runs before the DB reads resolve, so a prescribed exercise 
 - ✓ `kgToLbs` is already imported and used at line 222.
 - ✓ `activeSessionStore.getState()` is already used at line 229.
 - ✓ Effect deps, line 254: `[sessionState?.sessionId, sessionState?.exerciseIndex, currentEntryExerciseId]`.
-  These are correct unchanged — a swap changes `currentEntryExerciseId`, which re-runs the effect and
-  re-reads the (now cleared) prescription.
-- ⚠ `npm test` on `origin/main` has 12 pre-existing failures in `src/interop/migrate.test.ts`.
+  A swap changes `currentEntryExerciseId`, so the effect does re-run — but see finding 7: re-running
+  is not the same as reading the *cleared* value, and a fourth dependency is needed.
+- ✓ `src/app/session.tsx:24` — `exerciseReplaceStore` is already imported, and the file already
+  subscribes to other stores with the `store((s) => s.field)` hook form (lines 125-131). Adding one
+  more selector is the established pattern here.
+- ✓ `src/state/exerciseReplaceStore.test.ts` exists (465 lines) and `src/state` is in `testMatch`.
+- ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
+  Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
+  earlier draft of this plan carved out.
+
+### 7. The swap has an unresolved read/write race, and the fix is not to resolve it
+
+**An earlier draft of this plan asserted the effect "re-reads the (now cleared) prescription" after a
+swap. That was an assumption stated as an analysis, and it is withdrawn.** Here is what the code
+actually does.
+
+`src/state/exerciseReplaceStore.ts` `replace()` writes in two deliberate steps:
+
+```ts
+:239   const newState = await deps.dispatch({ tag: 'ReplaceExercise', idx: current.idx, exerciseId });
+:245   if (!newState) { throw new Error('the engine rejected the replacement'); }
+:252   await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+```
+
+The comment at :251 explains the ordering: *"Only now the routine row, so a rejected swap can never
+leave the routine pointing somewhere the running session isn't."* That ordering is correct and must
+not be changed.
+
+But **the dispatch is also what re-triggers the prefill effect.** It sets
+`activeSessionStore.sessionState` (`activeSession.ts:330`), which changes `currentEntryExerciseId`,
+which is in the effect's dependency array. So two async paths race from one dispatch:
+
+| Path | Steps |
+|---|---|
+| the prefill effect | zustand notify → React re-render (scheduler macrotask) → `getRoutineTargetWeightsKg` **read** |
+| `applyAlternateToRoutine` | `findRoutineExerciseIdByOrder` (a **read**) → `updateRoutineExerciseExerciseId` (the **write** that clears the column) |
+
+Nothing orders them. The re-render is a scheduler macrotask; AGENTS.md documents that WatermelonDB's
+WorkQueue routes a queued write through a real `setTimeout(fn, 0)` — also a macrotask — and there is
+an intervening async read before it. **Do not try to settle this by reasoning about microtask order;
+it does not settle.**
+
+If the read wins: `prescriptions.get(entry.idx)` returns the *old* prescription,
+`historyPrefillStillApplies` passes (session, index and the new exercise id all match, no set logged
+against the substitute), and the substitute's weight field is pre-typed with the replaced exercise's
+load. Nothing re-triggers the effect afterwards, so it persists until the user navigates away. That
+is precisely the failure the swap-clear rule exists to prevent.
+
+**The fix sidesteps the race rather than winning it.** Task 2 adds a monotonic `routineRevision`
+counter to `exerciseReplaceStore`, incremented *after* `await deps.applyToRoutine(...)` resolves, and
+Task 1 puts it in the effect's dependency array. Whoever wins, a final effect run happens after the
+write is committed. The extra run is idempotent: the same guard chain applies and re-applying an
+identical prefill is invisible.
+
+The residual risk is a user typing into the weight field in the milliseconds between accepting an
+alternate and the write committing, whose entry the extra run would overwrite. They have just tapped
+a button in a modal. Accepted.
+
+The payoff beyond correctness: `exerciseReplaceStore` is **jest-covered**, so the counter's contract
+becomes AC6.7 — an automated test — instead of resting on H4 happening to catch a race on one manual
+run.
 
 ---
 
 <!-- START_TASK_1 -->
-### Task 1: Wire the prescription into the prefill effect
+### Task 1: `routineRevision` — make the swap observable without winning the race
+
+**Verifies:** `coach-prescribed-weights.AC6.7`
+
+**Files:**
+- Modify: `src/state/exerciseReplaceStore.ts` — the state interface, the `create<...>` initial state,
+  and `replace()`'s success path around line 252
+- Test: `src/state/exerciseReplaceStore.test.ts` (unit)
+
+Read investigation finding 7 first. This task exists because clearing `target_weight_kg` (Phase 1)
+is not enough on its own: the session screen has to *observe* the clear, and nothing orders the
+effect's read against the swap's write.
+
+**Step 1: Add the counter to the state shape**
+
+In the store's state interface (alongside `status`, `alternates`, `error`), add:
+
+```ts
+  /**
+   * Bumped once each time a swap finishes re-pointing the routine row. The
+   * session screen's prefill effect depends on this so it re-reads the routine's
+   * prescribed loads *after* the write commits.
+   *
+   * This exists because the two halves of a swap race. `replace()` dispatches to
+   * the engine before it re-points the row (deliberately — a rejected swap must
+   * not move the routine), but that same dispatch updates activeSessionStore,
+   * which re-runs the prefill effect. The effect's read and
+   * applyAlternateToRoutine's write are then independent async paths with no
+   * ordering between them: if the read wins, the substitute's weight field is
+   * pre-typed with the *replaced* exercise's prescribed load — the exact hazard
+   * the swap-clear rule exists to prevent.
+   *
+   * Rather than trying to win that race, this guarantees one more effect run
+   * strictly after the write. The extra run is idempotent.
+   */
+  routineRevision: number;
+```
+
+Initialize it to `0` in the `create<ExerciseReplaceState>((set) => ({ ... }))` initial object,
+beside `status: 'idle'`.
+
+**Step 2: Bump it after the write, and only after**
+
+In `replace()`, immediately after the existing `await deps.applyToRoutine(...)` call (line 252) and
+before `target = null;`:
+
+```ts
+        await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+
+        // Strictly after the row is re-pointed and its prescription cleared.
+        // Placement is the whole contract: bumped before the await, this would
+        // race the write it exists to sequence after; bumped in the catch, it
+        // would announce a clear that never happened.
+        set((state) => ({ routineRevision: state.routineRevision + 1 }));
+```
+
+**Do not** bump it before the `await`, in the `catch`, or on the `if (!newState) throw` rejection
+path. Each of those announces a clear that has not happened — and the effect would re-read the *old*
+prescription and re-apply it, which is worse than not bumping at all.
+
+Leave the `generation !== gen` guard below untouched. It governs whether the store's *visible* state
+is reset after a cancel; the revision bump is about a write that has already committed to the
+database and must be announced regardless.
+
+**Step 3: Write the tests**
+
+Add to `src/state/exerciseReplaceStore.test.ts`, reusing the existing `ExerciseReplaceDeps` fake-deps
+setup that file already uses (it injects `dispatch`, `ensureExercise` and `applyToRoutine`).
+
+- **AC6.7 (bump):** a successful `replace()` leaves `routineRevision` one higher than before.
+- **AC6.7 (ordering):** make the injected `applyToRoutine` record `routineRevision` at the moment it
+  is *called*, then assert that recorded value equals the pre-swap value — i.e. the bump had not yet
+  happened when the write started. ⚠ This is the assertion that actually pins the contract. A test
+  that only checks the counter ends up higher passes against an implementation that bumps *before*
+  the await, which is the bug.
+- **AC6.7 (rejection):** when the injected `dispatch` resolves `null` (engine rejected),
+  `routineRevision` is **unchanged**.
+- **AC6.7 (write failure):** when the injected `applyToRoutine` rejects, `routineRevision` is
+  **unchanged**.
+
+**Step 4: Run**
+
+```bash
+npm test -- src/state/exerciseReplaceStore.test.ts
+npx tsc --noEmit
+```
+Expected: whole file passes, including every pre-existing test.
+
+**Step 5: Commit**
+
+```bash
+git add src/state/exerciseReplaceStore.ts src/state/exerciseReplaceStore.test.ts
+git commit -m "feat(state): announce a completed exercise swap with routineRevision"
+```
+<!-- END_TASK_1 -->
+
+<!-- START_TASK_2 -->
+### Task 2: Wire the prescription into the prefill effect
 
 **Verifies:** None automatically — this is `src/app/`, outside every jest project. Proven by H2/H3/H4 in `test-requirements.md`.
 
 **Files:**
 - Modify: `src/app/session.tsx:30` (import)
+- Modify: `src/app/session.tsx` around line 129 (a `routineRevision` selector)
 - Modify: `src/app/session.tsx:206-246` (the async block inside the prefill effect)
+- Modify: `src/app/session.tsx:254` (the effect's dependency array)
 
 **Step 1: Import the reader**
 
@@ -199,9 +391,37 @@ Replace everything from line 206's comment through line 246 (the closing `})();`
     })();
 ```
 
-**Step 3: Leave the effect's dependency array alone**
+**Step 3: Subscribe to `routineRevision` and add it to the dependency array**
 
-Line 254 stays exactly as it is. `currentEntryExerciseId` is already a dependency, so a mid-session Replace re-runs this effect and re-reads a prescription that Phase 1 has by then cleared — which is how AC6.5 becomes true without any extra wiring.
+`currentEntryExerciseId` already re-runs this effect on a swap — but re-running is not the same as
+reading the *cleared* prescription, because the effect's read races the swap's write (finding 7).
+Task 1's counter is what makes the outcome deterministic.
+
+Add the selector beside the other store subscriptions around line 129:
+
+```ts
+  // Bumped after a swap finishes re-pointing the routine row. The prefill effect
+  // below depends on it so the prescription is re-read *after* that write lands —
+  // the effect's own re-run (via currentEntryExerciseId) races it. See
+  // exerciseReplaceStore.routineRevision.
+  const routineRevision = exerciseReplaceStore((state) => state.routineRevision);
+```
+
+`exerciseReplaceStore` is already imported at line 24; no import change is needed.
+
+Then extend the prefill effect's dependency array (line 254):
+
+```ts
+  }, [
+    sessionState?.sessionId,
+    sessionState?.exerciseIndex,
+    currentEntryExerciseId,
+    routineRevision,
+  ]);
+```
+
+Add it to **this effect only.** The progression-hint effect above it does not read the prescription
+and does not need re-running on a swap-commit; widening its deps would just refire a DB query.
 
 **Step 4: Typecheck and lint**
 
@@ -219,12 +439,12 @@ Expected: both clean.
 git add src/app/session.tsx
 git commit -m "feat(app): session prefill applies the coach's prescribed load"
 ```
-<!-- END_TASK_1 -->
+<!-- END_TASK_2 -->
 
-<!-- START_TASK_2 -->
-### Task 2: Simulator verification
+<!-- START_TASK_3 -->
+### Task 3: Simulator verification
 
-**Verifies:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC6.4`, `coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`
+**Verifies:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC6.4`, `coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`, `coach-prescribed-weights.AC6.8`
 
 **This task has no code. It is the only proof this feature works.**
 
@@ -274,6 +494,28 @@ the v4 database and turns this into a fresh-install test that proves nothing):
 
 Evidence: screenshots before/after; note in the PR that the install was an upgrade, not a fresh one.
 
+**Step 3b: AC6.8 — the prescription reaches an exercise with NO history**
+
+**This is the step that can actually fail on the bug this phase exists to fix.** Step 2's fixture has
+history by construction, so it passes even if `session.tsx:217`'s early return was left in place.
+This one does not.
+
+1. Ask the coach for a routine containing an exercise **you have never logged a set for** — a
+   brand-new movement name, or a fresh simulator install. Give it a prescribed weight (e.g. 95).
+   Accept the draft.
+2. Confirm there is genuinely no history before you judge the result:
+   ```sql
+   select count(*) from session_sets where exercise_id = '<slug>';
+   ```
+   Expect `0`. If it is non-zero, pick a different exercise — otherwise you are re-running Step 2.
+3. Start the routine and arrive at that exercise.
+4. **Expected: the weight field opens at 95.** Empty means the async block still bails when history
+   is absent, and the feature is broken for every new coach-authored routine — the most likely single
+   defect in this phase.
+
+Evidence: screenshot of the SetLogger, plus the `count(*) = 0` query output. The query output is not
+optional; without it the screenshot does not distinguish this case from Step 2.
+
 **Step 4: AC6.5 — a swap drops the prescription**
 
 1. Start the prescribed routine from Step 2.
@@ -282,6 +524,12 @@ Evidence: screenshots before/after; note in the PR that the install was an upgra
    history, or is empty if the substitute has none.
 4. This is the safety case: a prescription overrides history, so a stale one would pre-type an
    impossible load into the field.
+
+⚠ **A pass here is weaker evidence than it looks.** Finding 7 explains that the effect's read races
+the swap's write; before Task 1's `routineRevision` counter, this check would pass or fail depending
+on which side won on that particular run. AC6.7's automated tests are what actually pin the ordering.
+If this step fails, suspect the counter wiring (Task 1 Step 2's placement, or Task 2 Step 3's
+dependency array) before suspecting Phase 1's clear — AC1.6 already proves the column is cleared.
 
 Evidence: screenshots before and after the swap.
 
@@ -298,13 +546,13 @@ Evidence: screenshot of the exchange.
 
 **Step 6: Record the results**
 
-Put all five screenshots and a one-line pass/fail for each of AC5.2, AC6.4, AC6.5 and AC6.6 in the PR
-description. A phase whose only verification is manual is not done until the evidence is written down
+Put every screenshot and a one-line pass/fail for each of AC5.2, AC6.4, AC6.5, AC6.6 and AC6.8 in
+the PR description, plus the `count(*) = 0` output from Step 3b. A phase whose only verification is manual is not done until the evidence is written down
 somewhere a reviewer can see it.
-<!-- END_TASK_2 -->
+<!-- END_TASK_3 -->
 
-<!-- START_TASK_3 -->
-### Task 3: AGENTS.md
+<!-- START_TASK_4 -->
+### Task 4: AGENTS.md
 
 **Verifies:** None (documentation). Required for the phase to be complete.
 
@@ -350,6 +598,16 @@ comment, not a rule.** `parseFlags` keeps one global `knownFlags` allowlist for 
 (`format.ts:247`), `parse.ts` consults its `context` parameter exactly once (line 171, the zero-reps
 rule), and a routine line carrying `weight=60` parses cleanly today.
 
+**Step 3b: Record the `routineRevision` ordering contract**
+
+Next to the swap rule from Step 2, record that clearing the column is only half of it: the session
+screen's prefill effect and `applyAlternateToRoutine`'s write are independent async paths off the
+same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision` is bumped
+**after** the write and the prefill effect depends on it. State the two halves of the contract that a
+future edit could break: bump strictly after `applyToRoutine` resolves, and never on a rejected swap
+or a thrown write. Note that this is pinned by tests in `src/state/exerciseReplaceStore.test.ts`, so
+it is one of the few session-screen behaviours with automated cover.
+
 **Step 4: Add the engine-convention note**
 
 Under engine convention 6 ("Engine state carries ids, never display data"), add the prescribed weight
@@ -364,7 +622,7 @@ Change AGENTS.md's `Last verified:` line to today's date.
 
 **Step 6: Read the whole file back**
 
-Six separate passages change. A surviving cross-reference to a rule you rewrote shows up in no grep —
+Seven separate passages change. A surviving cross-reference to a rule you rewrote shows up in no grep —
 read it start to finish.
 
 **Step 7: Commit**
@@ -373,10 +631,10 @@ read it start to finish.
 git add AGENTS.md
 git commit -m "docs: record the coach-prescribed weight contract"
 ```
-<!-- END_TASK_3 -->
+<!-- END_TASK_4 -->
 
-<!-- START_TASK_4 -->
-### Task 4: Final gate
+<!-- START_TASK_5 -->
+### Task 5: Final gate
 
 **Verifies:** `coach-prescribed-weights.AC6.1`, `coach-prescribed-weights.AC6.2`, `coach-prescribed-weights.AC6.3`
 
@@ -390,7 +648,7 @@ Expected: no output.
 ```bash
 npm test
 ```
-Expected: only `src/interop/migrate.test.ts` fails, with the same 12 pre-existing failures. Compare against `origin/main` if in doubt.
+Expected: **green — every suite, no carve-out.** Any failure is yours.
 
 **Step 3:**
 ```bash
@@ -405,20 +663,24 @@ git diff origin/main --stat
 
 Confirm the change set is exactly: `src/db/{schema,migrations,repository}.ts`,
 `src/db/models/RoutineExercise.ts`, `src/ai/{draftSchema,contextBuilder,acceptDraft}.ts`,
-`src/state/{routineDetailPresenter,sessionPresenter}.ts`, `src/app/session.tsx`, `AGENTS.md`, the
-matching `*.test.ts` files, and this plan's docs. **Nothing under `src/engine/`, nothing under
-`src/interop/`, nothing under `src/components/`.**
-<!-- END_TASK_4 -->
+`src/state/{routineDetailPresenter,sessionPresenter,exerciseReplaceStore}.ts`, `src/app/session.tsx`,
+`src/ai/provider/subset.test.ts` (the re-approved snapshot), `AGENTS.md`, the matching `*.test.ts`
+files, and this plan's docs. **Nothing under `src/engine/`, nothing under `src/interop/`, nothing
+under `src/components/`.**
+<!-- END_TASK_5 -->
 
 ---
 
 ## Traps
 
 1. **Leaving the async block's history-shaped early returns in place.** A new coach-authored routine has no history, so the prescription would never be applied — the feature would appear to do nothing, and no test in the repo would notice.
-2. **Gating the prescription fetch on `entry.kind === 'strength'`.** That is a different predicate from `isDurationBasedEntry`, which is what `computeSetPrefill` actually uses. Let the pure function decide.
+2. **Gating the prescription fetch on `entry.kind === 'strength'`.** Let `computeSetPrefill` decide instead. Note this is future-proofing, not a live bug — `kind !== 'strength'` and `isDurationBasedEntry` are currently the exact complement of one another (finding 4). An earlier draft of this plan claimed otherwise; do not go looking for a disagreement between them.
 3. **Keying the lookup on `exerciseId`.** A routine may list the same exercise twice with different prescriptions. The key is `entry.idx`.
 4. **Adding tests under `src/app/`.** No jest project loads that directory. The verification is the simulator.
 5. **Uninstalling before the AC5.2 run.** It destroys the pre-v5 database and turns an upgrade test into a fresh-install test.
 6. **Judging AC6.4 on the first frame.** The synchronous pass renders before the DB reads resolve; a value that changes to the prescribed number is correct.
 7. **Chasing a route-shaped `tsc` error.** Stale `.expo/types/router.d.ts`, documented in AGENTS.md. Regenerate, do not edit code.
-8. **Skipping the AGENTS.md read-through.** Six passages change and cross-references do not grep.
+8. **Skipping the AGENTS.md read-through.** Seven passages change and cross-references do not grep.
+9. **Bumping `routineRevision` before `await deps.applyToRoutine(...)`, or in the `catch`.** Either announces a clear that has not happened, and the effect re-reads and re-applies the *old* prescription — worse than not bumping at all. AC6.7's ordering test is the one that catches it.
+10. **Adding `routineRevision` to the progression-hint effect's deps as well.** It does not read the prescription; widening its deps just refires a DB query on every swap.
+11. **Treating a green AC6.5 as proof the ordering is right.** Before Task 1 it passed or failed on a coin flip. The automated AC6.7 tests are the real evidence.

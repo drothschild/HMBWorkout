@@ -10,7 +10,7 @@
 
 **Depends on:** Nothing technically — the parameter is optional and self-contained. Meaningless before Phase 1 supplies a value; wired up in Phase 5.
 
-**Codebase verified:** 2026-08-11 against `origin/main` @ `b6f8a6d`, by direct read of `src/state/sessionPresenter.ts` in full.
+**Codebase verified:** 2026-08-11 against `origin/main` @ `eb0afe0` (rebased after #220), by direct read of `src/state/sessionPresenter.ts` in full.
 
 ---
 
@@ -33,6 +33,10 @@ This phase implements and tests:
   existing precedence chain byte-identical.
 - **coach-prescribed-weights.AC4.7 Success:** The returned value is in lbs — the kg prescription
   passes through `kgToLbs` exactly once.
+- **coach-prescribed-weights.AC4.8 Edge:** An in-session logged set that contributed nothing usable
+  (no positive reps, no positive weight) still falls through to the history fallback when a
+  prescription is present — the prescription must not, by filling the weight field, make an empty
+  in-session set look authoritative and suppress history's reps.
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
@@ -93,7 +97,9 @@ Lines 274-281 and 297-302 all guard `!= null && > 0`. AGENTS.md explains why: th
 - ✓ `computeSetPrefill` has exactly one production caller, `src/app/session.tsx` (lines 204 and 241),
   which is wired in Phase 5. Adding an optional third parameter breaks neither call site.
 - ✓ `src/state/sessionPresenter.test.ts` exists and is in `testMatch`.
-- ⚠ `npm test` on `origin/main` has 12 pre-existing failures in `src/interop/migrate.test.ts`.
+- ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
+  Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
+  earlier draft of this plan carved out.
 
 ---
 
@@ -102,7 +108,7 @@ Lines 274-281 and 297-302 all guard `!= null && > 0`. AGENTS.md explains why: th
 <!-- START_TASK_1 -->
 ### Task 1: Restructure `computeSetPrefill`
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.7` (tested in Task 2)
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8` (tested in Task 2)
 
 **Files:**
 - Modify: `src/state/sessionPresenter.ts:241-306` (the docblock and the whole function body)
@@ -192,14 +198,26 @@ export function computeSetPrefill(
       if (lastMatch.weightKg != null && lastMatch.weightKg > 0) {
         prefill.weightLbs = kgToLbs(lastMatch.weightKg);
       }
+    }
+
+    // Whether the in-session set contributed anything, decided BEFORE the
+    // prescription is consulted. This ordering is load-bearing: a fully-empty
+    // logged set (zero/absent reps, no weight) must still fall through to the
+    // fallbacks below, exactly as it did before prescriptions existed. If the
+    // prescription were applied first it would populate weightLbs, make this
+    // check true, and return a weight-only prefill — silently dropping the
+    // history reps the fall-through exists to fetch.
+    const inSessionContributed = Object.keys(prefill).length > 0;
+
+    if (inSessionContributed) {
       // The set the athlete just did outranks the plan, so the prescription only
       // fills a weight this session has not already established (e.g. a logged
       // set that recorded reps but no load).
-      if (prefill.weightLbs === undefined && prescribedLbs !== undefined) {
+      if (!isDurationBased && prefill.weightLbs === undefined && prescribedLbs !== undefined) {
         prefill.weightLbs = prescribedLbs;
       }
+      return prefill;
     }
-    if (Object.keys(prefill).length > 0) return prefill;
     // A fully-empty logged set contributed nothing; fall through to the
     // fallbacks below rather than returning an all-undefined prefill.
   }
@@ -240,7 +258,9 @@ export function computeSetPrefill(
 
 With `prescribedWeightKg` omitted, `prescribedLbs` is `undefined` and:
 
-- the new `if` in the in-session block is a no-op;
+- `inSessionContributed` is exactly the old `Object.keys(prefill).length > 0` check, evaluated at the
+  same point on the same object, and the new `if` inside it is a no-op — so the in-session block
+  returns and falls through identically;
 - the duration return is unchanged;
 - `if (prescribedLbs !== undefined)` is a no-op;
 - the history weight guard gains `prefill.weightLbs === undefined`, which is always true at that
@@ -268,7 +288,7 @@ git commit -m "feat(state): prescribed weight overrides history in the set prefi
 <!-- START_TASK_2 -->
 ### Task 2: The precedence test matrix
 
-**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.7`, `coach-prescribed-weights.AC5.1`
+**Verifies:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8`, `coach-prescribed-weights.AC5.1`
 
 **Files:**
 - Test: `src/state/sessionPresenter.test.ts` (unit)
@@ -306,11 +326,24 @@ The kg↔lbs pairs to use: `lbsToKg(185) = 83.91` and `kgToLbs(83.91) = 185`; `k
 - **AC4.7:** covered by AC4.1's expectation of `185` rather than `83.91`. Add an explicit assertion
   that the returned `weightLbs` is not the kg number, so a dropped conversion cannot pass.
 
+- **AC4.8:** an in-session logged set for this exercise that contributed **nothing usable** — reps
+  `0` (or null) and weight null — plus `historyFallback = { reps: 8, weightLbs: 175 }` and a
+  prescription of `83.91`. Expect `{ reps: 8, weightLbs: 185 }`: the empty set falls through, history
+  supplies the reps, the prescription supplies the weight.
+
+  ⚠ This is the criterion that catches the ordering bug in Task 1. An implementation that applies the
+  prescription *before* computing `inSessionContributed` returns `{ weightLbs: 185 }` and silently
+  loses the reps. Nothing else catches it: AC4.6's byte-identity argument only exercises the
+  no-prescription path, and the extra case below uses a set that *does* have reps. A set logged with
+  zero reps is a real action — `src/interop/parse.ts`'s context rules exist precisely because of it.
+
 **Step 3: Add one case that is not in the AC list**
 
 A logged in-session set with **reps but no weight**, plus a prescription. Expect `reps` from the
 logged set and `weightLbs` from the prescription. This is the partial-fill path through the in-session
 block, and it is the branch most likely to be broken by a later "simplification" of Task 1's code.
+Note it is *not* the same as AC4.8: here the set contributed something, so it is authoritative and
+the fall-through never happens.
 
 **Step 4: Run**
 
@@ -358,7 +391,7 @@ Expected: no output.
 ```bash
 npm test
 ```
-Expected: only `src/interop/migrate.test.ts` fails, with the same 12 pre-existing failures.
+Expected: **green — every suite, no carve-out.** Any failure is yours.
 
 **Step 4:**
 ```bash
@@ -379,8 +412,9 @@ Expected: **no output** — this phase only *adds* lines to that file. Any delet
 
 1. **Adding `targetWeightKg` to `src/engine/types.ts`'s `RoutineEntry`.** It compiles, it looks right, and the value silently vanishes on the first `dispatch` because the Rill record is closed. AC5.3 exists to catch it.
 2. **Making the prescription override the in-session set too.** It re-offers a load the athlete just chose not to use. The chain is deliberate.
-3. **Making the override whole-object instead of field-scoped.** Returning `{ weightLbs: prescribed }` and dropping the history reps loses information for no reason.
-4. **Editing an existing test to make it pass.** AC5.1 is the guarantee that pre-v5 routines behave identically, and Task 3 Step 5 checks it mechanically with a diff, not by trust.
-5. **Treating a prescribed `0` as a prescription.** Every other metric here reads `> 0` as the absence convention; a 0 would be discarded downstream anyway.
-6. **Converting kg→lbs more than once.** `prescribedLbs` is computed once at the top. Do not call `kgToLbs` again further down.
-7. **Building the AC4.5 duration fixture by guessing.** Read `isDurationBasedEntry` in `src/state/exerciseStopwatch.ts` and match its actual predicate, or the test exercises the strength path while claiming to test the duration one.
+3. **Applying the prescription before computing `inSessionContributed`.** This is the subtlest failure in the phase and it was caught in review, not in testing. An in-session set that logged nothing usable would stop falling through to history — the prescription fills `weightLbs`, the early-return check goes true, and the history reps vanish. It is a whole-object override by accident, in exactly one branch. AC4.8 is the only thing that catches it.
+4. **Making the override whole-object instead of field-scoped.** Returning `{ weightLbs: prescribed }` and dropping the history reps loses information for no reason.
+5. **Editing an existing test to make it pass.** AC5.1 is the guarantee that pre-v5 routines behave identically, and Task 3 Step 5 checks it mechanically with a diff, not by trust.
+6. **Treating a prescribed `0` as a prescription.** Every other metric here reads `> 0` as the absence convention; a 0 would be discarded downstream anyway.
+7. **Converting kg→lbs more than once.** `prescribedLbs` is computed once at the top. Do not call `kgToLbs` again further down.
+8. **Building the AC4.5 duration fixture by guessing.** Read `isDurationBasedEntry` in `src/state/exerciseStopwatch.ts` and match its actual predicate, or the test exercises the strength path while claiming to test the duration one.

@@ -8,10 +8,13 @@ contract, and a new precedence rule in the SetLogger's prefill so that a prescri
 the history-derived weight rather than merely filling a gap. When the coach programs 185 and last
 week's log says 175, the weight field opens at 185.
 
-The approach is five independently-mergeable phases, each leaving `tsc --noEmit` clean and the test
-suite no worse than it starts (see *The suite is already red* below). Every type this change touches
-gains an **optional** field, so no consumer is broken by widening and no phase strands another —
-there is no exhaustive-union hazard here. Two decisions carry most of the design weight. First, the
+The approach is five independently-mergeable phases, each leaving `tsc --noEmit` clean and
+`npm test` green. Every type this change touches gains an **optional** field, so no consumer is
+broken by widening and no phase strands another — there is no exhaustive-union hazard here. That
+argument covers *type* consumers only, though: three existing tests pin current **values** of things
+this change edits (a schema-version literal, an enumerated migration-step list, and an inline
+snapshot of the whole AI turn schema), and updating each is named work inside the phase that breaks
+it. Two decisions carry most of the design weight. First, the
 prescription **does not cross into engine state**: the Rill `RoutineEntry` is a closed record that
 silently drops unknown fields (engine convention 6), no rule branches on load, and the shell already
 has an established pattern for resolving per-entry display data against the DB (`exerciseTitles`,
@@ -47,8 +50,9 @@ by a swap is worse than no prescription at all, so the swap clears it.
 
 6. **No `.lv` file is modified and no engine type is widened.** The prescription is shell-side data.
 
-7. **`npx tsc --noEmit` is clean** and `npm test` shows no failure that is not already failing on
-   `origin/main`.
+7. **`npx tsc --noEmit` is clean and `npm test` is green** at every phase boundary. `main` is green
+   as of `eb0afe0` (86 suites, 1582 tests), so this is an unqualified gate — an earlier draft of this
+   plan carried a carve-out for `src/interop/migrate.test.ts`, which #219/#220 has since deleted.
 
 **Out of scope:** displaying the prescription anywhere other than as the input's default (no "Coach:
 185 lbs" badge on the routine screen or SetLogger); extending the vault markdown grammar; a manual
@@ -125,6 +129,10 @@ the whole entry); auto-progression without the coach.
   existing precedence chain byte-identical.
 - **coach-prescribed-weights.AC4.7 Success:** The returned value is in lbs — the kg prescription
   passes through `kgToLbs` exactly once.
+- **coach-prescribed-weights.AC4.8 Edge:** An in-session logged set that contributed nothing usable
+  (no positive reps, no positive weight) still falls through to the history fallback when a
+  prescription is present — the prescription must not, by filling the weight field, make an empty
+  in-session set look authoritative and suppress history's reps.
 
 ### coach-prescribed-weights.AC5: Nothing that exists today changes
 - **coach-prescribed-weights.AC5.1 Success:** Every pre-existing assertion in
@@ -137,9 +145,8 @@ the whole entry); auto-progression without the coach.
 
 ### coach-prescribed-weights.AC6: Cross-cutting
 - **coach-prescribed-weights.AC6.1:** `npx tsc --noEmit` reports no errors at every phase boundary.
-- **coach-prescribed-weights.AC6.2:** `npm test` reports no failing suite other than
-  `src/interop/migrate.test.ts`, which is already failing on `origin/main` (see *The suite is already
-  red*).
+- **coach-prescribed-weights.AC6.2:** `npm test` is green at every phase boundary — all suites, no
+  carve-out.
 - **coach-prescribed-weights.AC6.3:** `npm run lint` passes at every phase boundary.
 - **coach-prescribed-weights.AC6.4:** In the simulator, the coach drafts a routine with a prescribed
   weight, the user accepts it, starts the session, and the weight field opens at the prescribed value
@@ -149,6 +156,12 @@ the whole entry); auto-progression without the coach.
   exercise's prescription. *(human-only)*
 - **coach-prescribed-weights.AC6.6:** In the simulator, the coach's next conversation about that
   routine shows it can see the prescription it made. *(human-only)*
+- **coach-prescribed-weights.AC6.7:** `exerciseReplaceStore` increments its `routineRevision`
+  counter only *after* `applyToRoutine` resolves, and does not increment it when the engine rejects
+  the swap or the write throws.
+- **coach-prescribed-weights.AC6.8:** In the simulator, the prescribed weight reaches the input for
+  an exercise the user has **never logged** — a brand-new coach-authored routine with no
+  cross-session history at all. *(human-only)*
 
 ## Glossary
 
@@ -188,6 +201,13 @@ the whole entry); auto-progression without the coach.
 - **Vault markdown / `src/interop`**: A markdown serializer and parser left over from the removed
   Obsidian sync feature. It has no production consumer for routines, which is why this design does
   not extend its grammar.
+- **`routineRevision`**: A counter this design adds to `exerciseReplaceStore`, bumped after the
+  routine row is re-pointed. The session screen's prefill effect depends on it so that it always
+  re-reads the prescription *after* the swap's write commits, rather than racing it.
+- **Inline snapshot (`toMatchInlineSnapshot`)**: A jest assertion whose expected value is written
+  into the test file itself and committed to git. `src/ai/provider/subset.test.ts` uses one on
+  `AI_TURN_SCHEMA` deliberately, so an unapproved schema change shows up as a reviewable diff.
+  Updating it is `jest -u`, and the diff belongs in the PR.
 - **`kgToLbs` / `lbsToKg` / `formatWeightLbs`**: The only conversion functions in the app
   (`src/state/weightUnits.ts`). kg is canonical in storage, the engine and HealthKit; lbs is display
   and entry only.
@@ -318,6 +338,53 @@ plain history-derived prefill, which is correct. `upsertRoutine`'s existing "abs
 cleared" contract covers the other direction (the coach revising a routine and dropping the
 prescription).
 
+### Clearing it is not enough on its own: the swap has a read/write race
+
+Clearing the column is only half the job. The session screen has to *observe* the clear, and the
+ordering that would make it do so is not guaranteed.
+
+`exerciseReplaceStore.replace` (`src/state/exerciseReplaceStore.ts`) deliberately writes in two
+steps: it dispatches `ReplaceExercise` to the engine at line 239, and only re-points the routine row
+at line 252, so a rejected swap never leaves the routine pointing where the session isn't. But **the
+dispatch is also what re-triggers the prefill effect** — it updates `activeSessionStore.sessionState`
+(`activeSession.ts:330`), which changes `currentEntryExerciseId`, which is in the effect's dependency
+array.
+
+So two independent async paths start from the same dispatch:
+
+- the effect's `getRoutineTargetWeightsKg` read, reached via a React re-render that zustand's
+  notification schedules;
+- `applyAlternateToRoutine`'s work, which is itself two steps — `findRoutineExerciseIdByOrder` (a
+  read) and only then `updateRoutineExerciseExerciseId` (the write that clears the column).
+
+Nothing orders them. The React scheduler's re-render is a macrotask, and AGENTS.md documents that
+WatermelonDB's WorkQueue routes a queued write through a real `setTimeout(fn, 0)` — also a macrotask
+— with an intervening async read before it. **This design does not claim to know which wins.** An
+earlier draft asserted the effect "re-reads the (now cleared) prescription"; that was an assumption
+presented as an analysis, and it is withdrawn.
+
+If the read wins, `prescriptions.get(entry.idx)` returns the *old* prescription,
+`historyPrefillStillApplies` passes (session, index and the new exercise id all match, and no set is
+logged against the substitute), and the substitute's weight field is pre-typed with the replaced
+exercise's load — exactly the failure the swap-clear rule exists to prevent. Nothing re-triggers the
+effect afterwards, so it persists until the user navigates away.
+
+**The fix does not require settling the race.** `exerciseReplaceStore` gains a monotonic
+`routineRevision` counter, incremented **after** `await deps.applyToRoutine(...)` resolves, and the
+prefill effect adds it to its dependency array. Whichever side wins, a final effect run happens after
+the write is committed and reads the cleared value. The extra run is idempotent — the same guard
+chain applies, and re-applying an identical prefill is invisible.
+
+Two things make this cheap: `session.tsx` already imports and subscribes to `exerciseReplaceStore`
+(line 24), and `src/state/exerciseReplaceStore.ts` is jest-covered. So the counter's contract — bump
+after the write, **no** bump on a rejected swap or a thrown write — becomes an automated criterion
+(AC6.7) rather than a manual one. That converts the case the design itself calls the safety case from
+a flaky human check into a real test.
+
+The residual risk is a user typing into the weight field in the milliseconds between accepting an
+alternate and the write committing, whose entry the extra run would overwrite. They have just tapped
+a button in a modal; this is accepted.
+
 ### The vault markdown grammar is not extended
 
 `src/interop`'s grammar already has a `weight=` flag. It is documented in three places as "logged
@@ -395,13 +462,17 @@ same contract as every other optional target, and readable by order.
 - `src/db/repository.ts` — `targetWeightKg?: number` on `RoutineExerciseEntry`; `upsertRoutine`
   writes it in both the update and create branches; `updateRoutineExerciseExerciseId` clears it on
   re-point (and its docstring is corrected); a new exported `getRoutineTargetWeightsKg`.
-- `src/db/repository.test.ts`, `src/db/migrations.test.ts` — coverage for all of the above.
+- `src/db/repository.test.ts`, `src/db/migrations.test.ts` — coverage for all of the above, **plus
+  two existing assertions the version bump breaks**: `migrations.test.ts:11`
+  (`expect(databaseSchema.version).toBe(4)`, and its stale test title) and `migrations.test.ts:59-73`
+  (the v1-walk, which enumerates exactly two steps and gains a third).
 
 **Dependencies:** None.
 
 **Covers:** `coach-prescribed-weights.AC1.1` – `coach-prescribed-weights.AC1.7`
 
-**Done when:** `npm test -- src/db` passes; `tsc --noEmit` clean; a v4 database opens at v5.
+**Done when:** `npm test` is green (all suites, not just `src/db`); `tsc --noEmit` clean; a v4
+database opens at v5.
 <!-- END_PHASE_1 -->
 
 <!-- START_PHASE_2 -->
@@ -420,12 +491,16 @@ passes the structured-output guard, and an accepted draft converts to kg exactly
   `RoutineExerciseEntry.targetWeightKg`. The sole write-side conversion boundary.
 - `src/ai/draftSchema.test.ts`, `src/ai/contextBuilder.test.ts`, `src/ai/acceptDraft.test.ts` —
   bounds, pinned prose, `expectStructuredOutputSafe`, conversion.
+- `src/ai/provider/subset.test.ts:370` — a `toMatchInlineSnapshot` of the whole `AI_TURN_SCHEMA`,
+  checked into git as a deliberate second tripwire. The new field breaks it; a **reviewed** `jest -u`
+  is the correct remedy, and the resulting diff belongs in the PR description.
 
 **Dependencies:** Phase 1 (the repository field must exist for `acceptDraft` to target).
 
 **Covers:** `coach-prescribed-weights.AC2.1` – `coach-prescribed-weights.AC2.11`
 
-**Done when:** `npm test -- src/ai` passes; `tsc --noEmit` clean; the schema guard is green.
+**Done when:** `npm test` is green (all suites — the snapshot lives outside `src/ai/*.test.ts`'s
+obvious neighbourhood); `tsc --noEmit` clean; the schema guard is green.
 <!-- END_PHASE_2 -->
 
 <!-- START_PHASE_3 -->
@@ -466,7 +541,7 @@ session's own set, and touches the weight field only.
 **Dependencies:** None technically (the parameter is optional and self-contained), but it is
 meaningless before Phase 1 supplies a value.
 
-**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.7`,
+**Covers:** `coach-prescribed-weights.AC4.1` – `coach-prescribed-weights.AC4.8`,
 `coach-prescribed-weights.AC5.1`, `coach-prescribed-weights.AC5.3`
 
 **Done when:** `npm test -- src/state/sessionPresenter.test.ts` passes with every pre-existing
@@ -485,18 +560,23 @@ whose code no test suite can see.
   passes it to `computeSetPrefill`. **The async block's existing early returns must be restructured**:
   it currently bails when the entry is not strength, when history is empty, or when the fallback has
   no usable field — each of which would skip a prescription that has nothing to do with history.
+- `src/state/exerciseReplaceStore.ts` — a `routineRevision` counter bumped after `applyToRoutine`
+  resolves, which the prefill effect depends on. This is what makes the swap case correct without
+  settling the race above, and it is **jest-covered**, unlike the rest of this phase.
+- `src/state/exerciseReplaceStore.test.ts` — the counter's contract.
 - `AGENTS.md` — record the new column and its unit boundary; the engine-convention-6 rationale for
   keeping it shell-side; the swap-clears-the-prescription rule alongside the existing
-  `updateRoutineExerciseExerciseId` stamp rule; and the accepted gap that `serializeRoutine` omits it.
-  Update "Last verified".
+  `updateRoutineExerciseExerciseId` stamp rule; the `routineRevision` ordering contract; and the
+  accepted gap that `serializeRoutine` omits it. Update "Last verified".
 
 **Dependencies:** Phases 1–4.
 
 **Covers:** `coach-prescribed-weights.AC5.2`, `coach-prescribed-weights.AC6.4`,
-`coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`
+`coach-prescribed-weights.AC6.5`, `coach-prescribed-weights.AC6.6`,
+`coach-prescribed-weights.AC6.7`, `coach-prescribed-weights.AC6.8`
 
-**Done when:** the three simulator scenarios in test-requirements.md pass with screenshots; AGENTS.md
-describes only code that exists.
+**Done when:** `npm test` is green including the new `exerciseReplaceStore` cases; the four simulator
+scenarios in test-requirements.md pass with screenshots; AGENTS.md describes only code that exists.
 <!-- END_PHASE_5 -->
 
 ### AC × phase matrix
@@ -506,19 +586,23 @@ describes only code that exists.
 | AC1.1 – AC1.7 | 1 | yes (`src/db`) |
 | AC2.1 – AC2.11 | 2 | yes (`src/ai`) |
 | AC3.1 – AC3.3 | 3 | yes (`src/ai`, `src/state`) |
-| AC4.1 – AC4.7 | 4 | yes (`src/state`) |
+| AC4.1 – AC4.8 | 4 | yes (`src/state`) |
 | AC5.1 | 4 | yes (`src/state`) |
 | AC5.2 | 5 | **no — simulator** |
 | AC5.3 | 4 | yes (`git diff` check) |
 | AC6.1 – AC6.3 | **gate on every phase** | yes (`tsc`, `jest`, `lint`) |
 | AC6.4 – AC6.6 | 5 | **no — simulator** |
+| AC6.7 | 5 | yes (`src/state/exerciseReplaceStore.test.ts`) |
+| AC6.8 | 5 | **no — simulator** |
+
+**Totals: 40 criteria — 35 automated, 5 human.**
 
 Every AC belongs to exactly one phase's *Covers* list, with one deliberate exception: AC6.1–AC6.3 are
 per-phase **gates**, not deliverables of any single phase, so they appear in every phase's *Done
 when* rather than in one *Covers*. Recording them against a single phase would be false — a phase
 that leaves `tsc` broken is not done, whichever phase it is.
 
-**Consequence sweep.** Two pieces of work are consequences of one phase but land in another phase's
+**Consequence sweep.** Four pieces of work are consequences of one phase but land in another phase's
 files, and are assigned deliberately:
 
 - **Clearing the prescription on an exercise swap** is a consequence of the column existing (Phase 1)
@@ -528,18 +612,40 @@ files, and are assigned deliberately:
   half-step bound (Phase 2) and lands in `src/ai/contextBuilder.ts` — which Phase 3 also edits, for a
   different function. Assigned to Phase 2, because a phase that ships the half-step bound while the
   prompt still says integers-only has shipped a contradiction.
+- **Updating `src/ai/provider/subset.test.ts:370`'s inline snapshot** is a consequence of Phase 2's
+  schema edit but lands in a directory (`src/ai/provider/`) no other part of this change touches.
+  Assigned to Phase 2: the phase that breaks a tripwire owns re-approving it.
+- **`exerciseReplaceStore`'s `routineRevision` counter** is a consequence of Phase 1's swap-clear but
+  lands in `src/state/` and is only *observable* once Phase 5 wires the effect. Assigned to Phase 5,
+  because a counter nothing depends on is dead code, and Phase 1's AC1.6 already proves the column is
+  cleared. The gap between them is real and accepted: between Phase 1 and Phase 5 the clear happens
+  and may not be observed — which is harmless, because until Phase 5 nothing reads the prescription
+  at all.
 
 ## Additional Considerations
 
-**The suite is already red on `origin/main`.** Verified at `b6f8a6d` with a clean worktree: `npm test`
-reports 12 failures, all in `src/interop/migrate.test.ts`. They are vault-backed tests that
-`describe.skip` when no Obsidian vault is present, so CI and most machines are green — but on the
-maintainer's machine the vault directory still exists while its files have been renamed (the helper
-looks for `"* Push.md"`; the vault now holds `"Push 2026-07-08 0935.md"`). The suite is dead weight
-left behind by the vault-sync removal in #214. **No phase in this plan can honestly claim "npm test
-passes"**, which is why AC6.2 is worded as "no failure that is not already failing on `origin/main`".
-Deleting `src/interop/migrate.test.ts` and `src/interop/test-helpers.ts` is out of scope here and
-should be its own ticket.
+**Greenness is not only `tsc`, and this plan learned that the hard way.** The first draft argued
+phases were independently mergeable because every widened type gains an *optional* field. That is
+true, and `tsc --noEmit` does stay clean at every boundary — but it says nothing about tests that pin
+current **values**. Three exist, and each is now named in the phase that breaks it:
+
+| Assertion | Breaks in | Why |
+|---|---|---|
+| `src/db/migrations.test.ts:11` — `expect(databaseSchema.version).toBe(4)` | Phase 1 | direct version bump |
+| `src/db/migrations.test.ts:59-73` — v1-walk enumerates exactly two steps | Phase 1 | a third `addColumns` step appears **because the migration was written correctly** |
+| `src/ai/provider/subset.test.ts:370` — `toMatchInlineSnapshot` of `AI_TURN_SCHEMA` | Phase 2 | a deliberate git-checked tripwire; remedy is a reviewed `jest -u` |
+
+The middle one is the instructive case: it fails *as a consequence of doing the work right*, which is
+the kind of gate failure that makes an implementer doubt a correct change. A sweep of the rest of the
+suite found nothing else — only two inline snapshots exist in the whole repo (`AI_TURN_SCHEMA` and
+`ALTERNATES_SCHEMA`, the latter untouched), no test asserts a `_raw` object by equality, and
+`sessionPresenter.test.ts`'s `toEqual` prefill assertions are unaffected because this change adds no
+new *output* field. Every phase's task list carries the same instruction: grep for value pins on
+anything it edits.
+
+**`main` is green.** Verified at `eb0afe0` — 86 suites, 1582 tests. An earlier draft of this plan
+carried a carve-out for 12 failures in `src/interop/migrate.test.ts`; #219/#220 deleted that
+vault-backed leftover, so AC6.2 is now an unqualified green gate. A failure in any suite is yours.
 
 **The Replace flow's alternates prompt will not mention the prescription.** `exerciseReplaceStore`'s
 `ReplaceTarget` is built from *engine* state, which by design does not carry the weight. Since the

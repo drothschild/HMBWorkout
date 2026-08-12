@@ -10,7 +10,7 @@
 
 **Depends on:** Phase 1 complete and merged (`RoutineExerciseEntry.targetWeightKg` must exist for `acceptDraft` to target).
 
-**Codebase verified:** 2026-08-11 against `origin/main` @ `b6f8a6d`, by direct read of every file named below.
+**Codebase verified:** 2026-08-11 against `origin/main` @ `eb0afe0` (rebased after #220), by direct read of every file named below.
 
 ---
 
@@ -122,8 +122,40 @@ expect(prompt).toContain('targetSets, targetReps: when present, must be integers
 - ✓ `expectStructuredOutputSafe` is exported from `src/ai/structuredOutputSubset.ts:102`, imported at
   `src/ai/draftSchema.test.ts:10`, and already called on `AI_TURN_SCHEMA` at lines **934** and
   **1013**. A bound keyword added in Task 1 fails there immediately.
-- ⚠ `npm test` on `origin/main` has 12 pre-existing failures in `src/interop/migrate.test.ts`. Not
-  yours.
+
+### 8. A committed inline snapshot of the whole schema breaks in this phase — in a directory you would not think to run
+
+`src/ai/provider/subset.test.ts:370` holds a `toMatchInlineSnapshot` of the **entire**
+`AI_TURN_SCHEMA`. Its own comment explains why it exists, and it is worth reading before you touch
+it:
+
+> `PRISTINE_AI_TURN` (above) is `JSON.stringify(AI_TURN_SCHEMA)` captured at module load — i.e.
+> re-derived from the very module under test. It can catch a transform mutating the schema object in
+> place, but it CANNOT catch drift: a field added to (or removed from, or renamed in)
+> `AI_TURN_SCHEMA` itself is captured into `PRISTINE_AI_TURN` along with the change […]
+> `toMatchInlineSnapshot` writes its expectation into THIS file, checked into git independent of
+> `draftSchema.ts`, so a schema edit that isn't deliberately re-approved here (`jest -u`) shows as a
+> diff in review and fails CI.
+
+So it is doing its job: **your change is exactly the kind of drift it was built to surface.** The
+correct remedy is a reviewed `jest -u`, and the resulting snapshot diff belongs in the PR
+description — that is the review step the tripwire exists to force.
+
+Two practical notes:
+- The snapshot's properties are **alphabetically ordered** by jest's serializer, so `targetWeightLbs`
+  lands between `targetSets` and `title`. If your regenerated diff shows anything else moving, the
+  edit was wider than intended.
+- `ALTERNATES_SCHEMA` has a second inline snapshot at `:476`. It is **untouched** by this phase; if
+  `jest -u` rewrites it too, something is wrong. Those two are the only inline snapshots in the whole
+  repo (checked by grep across `src/`).
+
+**Sweep result for the rest of this phase's surface:** nothing else pins a value that changes here.
+The existing persona pins at `contextBuilder.test.ts:62` and `:87` are untouched (this phase only
+adds a sentence and rewrites the unpinned line 251), and `PRISTINE_AI_TURN` is re-derived at module
+load so it follows the change automatically.
+- ✓ `npm test` is **green** on `origin/main` — 86 suites, 1582 tests, verified at `eb0afe0`.
+  Your gate is plain green; #219/#220 deleted the vault-backed `src/interop/migrate.test.ts` that an
+  earlier draft of this plan carved out.
 
 ---
 
@@ -138,6 +170,8 @@ expect(prompt).toContain('targetSets, targetReps: when present, must be integers
 - Modify: `src/ai/draftSchema.ts:36-47` (`DraftExercise`)
 - Modify: `src/ai/draftSchema.ts:76-90` (`AI_TURN_SCHEMA` exercise properties)
 - Test: `src/ai/draftSchema.test.ts` (unit)
+- Regenerate: `src/ai/provider/subset.test.ts:370` — a committed inline snapshot of the whole
+  schema. **This task breaks it by design.** See investigation finding 8.
 
 **Step 1: Add the field to `DraftExercise`**
 
@@ -180,17 +214,41 @@ Add one new assertion for the half the generic guard cannot see: that
 `AI_TURN_SCHEMA.properties.draft.properties.exercises.items.properties.targetWeightLbs` equals
 `{ type: 'number' }`. `expectStructuredOutputSafe` would pass just as happily on `{ type: 'integer' }`, which silently forbids every half-pound value the bound exists to allow.
 
-**Step 4: Run**
+**Step 4: Re-approve the inline snapshot**
+
+Running only `npm test -- src/ai/draftSchema.test.ts` will **not** surface the breakage — the
+snapshot lives in `src/ai/provider/subset.test.ts`. Run the whole AI tree first so you see it:
 
 ```bash
-npm test -- src/ai/draftSchema.test.ts
-npx tsc --noEmit
+npm test -- src/ai
+```
+Expected: `src/ai/provider/subset.test.ts` fails on the `AI_TURN_SCHEMA` snapshot. **This is
+correct** — see finding 8.
+
+Regenerate it, then **read the diff before committing**:
+
+```bash
+npm test -- src/ai/provider/subset.test.ts -u
+git diff src/ai/provider/subset.test.ts
 ```
 
-**Step 5: Commit**
+The diff must show exactly one addition — `"targetWeightLbs": { "type": "number" }` between
+`targetSets` and `title` — and nothing else. Anything else moving means your schema edit was wider
+than intended; investigate rather than accepting it. Paste this diff into the PR description; that
+review step is the entire reason the tripwire is committed to git.
+
+**Step 5: Run**
 
 ```bash
-git add src/ai/draftSchema.ts src/ai/draftSchema.test.ts
+npm test
+npx tsc --noEmit
+```
+Expected: **green — every suite, no carve-out.**
+
+**Step 6: Commit**
+
+```bash
+git add src/ai/draftSchema.ts src/ai/draftSchema.test.ts src/ai/provider/subset.test.ts
 git commit -m "feat(ai): declare targetWeightLbs on the draft contract"
 ```
 <!-- END_TASK_1 -->
@@ -389,14 +447,22 @@ Expected: no output.
 ```bash
 npm test
 ```
-Expected: only `src/interop/migrate.test.ts` fails, with the same 12 pre-existing failures.
+Expected: **green — every suite, no carve-out.** Any failure is yours.
 
 **Step 3:**
 ```bash
 npm run lint
 ```
 
-**Step 4: Confirm the three declarations actually moved together**
+**Step 4: Confirm the snapshot was re-approved, not left broken**
+
+```bash
+git diff origin/main --stat -- src/ai/provider/subset.test.ts
+```
+Expected: exactly one file changed, a small insertion. If this is empty, the snapshot was never
+regenerated and the suite is red.
+
+**Step 5: Confirm the three declarations actually moved together**
 
 ```bash
 grep -c targetWeightLbs src/ai/draftSchema.ts src/ai/contextBuilder.ts
@@ -415,3 +481,6 @@ Expected: a non-zero count for **both** files. `draftSchema.ts` should show at l
 5. **Computing the AC2.10 expectation with `lbsToKg`.** `expect(row.targetWeightKg).toBe(lbsToKg(185))` is a tautology that passes even if `lbsToKg` is broken. Hard-code `83.91`.
 6. **Converting somewhere other than `acceptDraft`.** A second conversion site is how a value gets converted twice. `acceptDraft` is the boundary; the repository, the engine and the DB are all kg.
 7. **Asserting on error message strings.** Assert `DraftValidationError` is thrown; the wording is not a contract.
+8. **Running only `npm test -- src/ai/draftSchema.test.ts` and committing green.** The inline snapshot that your schema edit breaks lives in `src/ai/provider/subset.test.ts`. You will find it at the phase gate instead, with no idea it was expected.
+9. **Blind `jest -u` across the repo.** Regenerate that one file and read the diff. A blanket update would silently re-approve `ALTERNATES_SCHEMA` too, discarding the second tripwire.
+10. **Concluding your schema edit was wrong when the snapshot fails.** It is doing its job. The remedy is a reviewed regeneration, not a revert.
