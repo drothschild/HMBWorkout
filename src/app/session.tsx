@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, StyleSheet, View, Pressable } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
@@ -16,6 +16,7 @@ import {
   currentExerciseId,
   historyPrefillStillApplies,
   historyToSetInputValues,
+  isRestingPhase,
   SetInputValues,
 } from '@/state/sessionPresenter';
 import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
@@ -425,6 +426,26 @@ export default function SessionScreen() {
       exerciseReplaceStore.getState().cancel();
     };
   }, []);
+
+  // Resting takes over the whole screen and has no text input, so a keyboard
+  // raised by the Reps/Weight fields would sit over the rest content — in
+  // particular the AI commentary, which renders just above Pause/Skip. Every AI
+  // failure here is swallowed, so "hidden behind the keyboard" and "never
+  // arrived" look identical to the user (issue #253).
+  //
+  // Keyed on the PHASE, not on the Log Set / Skip Set handlers: a superset
+  // hand-off, a rehydrate into `resting`, or any future path into rest gets the
+  // dismissal for free. `isRestingPhase` is the same predicate the takeover
+  // below renders on — the presenter's `restRemainingMs || undefined`
+  // normalisation makes `isRestPaused` and this agree exactly, including on the
+  // 0 sentinel — so the keyboard cannot survive a screen that has replaced the
+  // inputs it belongs to.
+  const isRestTakeover = sessionState ? isRestingPhase(sessionState) : false;
+  useEffect(() => {
+    if (isRestTakeover) {
+      Keyboard.dismiss();
+    }
+  }, [isRestTakeover]);
 
   if (!sessionState) {
     return (
