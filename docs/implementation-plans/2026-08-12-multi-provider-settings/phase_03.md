@@ -57,7 +57,7 @@ this screen contain **no decision of its own**. AC3.1 is the grep that enforces 
 
 Structure, top to bottom:
 
-1. Back button → `/settings` (copy `ai.tsx:83-92`).
+1. Back button → `/settings` (copy `ai.tsx:83-92`; note: `backButtonText` style color is in the `styles` block at `:272-275`).
 2. Title row: `AI Provider` + the `Changes save automatically.` caption.
 3. **Provider row** — a `Pressable` showing `PROVIDER_LABEL[selectedProvider]` with a `›`, opening
    the modal.
@@ -65,7 +65,7 @@ Structure, top to bottom:
    label `` `${PROVIDER_LABEL[selectedProvider]} API Key` ``, placeholder
    `keyPlaceholder(selectedProvider)`.
 5. **Warning line** — the string from `crossProviderKeyWarning`, rendered only when non-null.
-6. The provider `Modal` — two rows from `AI_PROVIDERS`, current one marked.
+6. The provider `Modal` — copy the backdrop + sheet from `ReplaceExercise.tsx:65-122` (includes the cancel row at `:113-119`); render two rows from `AI_PROVIDERS`, current one marked.
 
 #### State and the autosave
 
@@ -297,7 +297,7 @@ and nothing user-visible differs. The structural read is the only cover. Do not 
 
 ---
 
-### Task 6 — Simulator verification (seven scenarios)
+### Task 6 — Simulator verification (seven scenarios; AC3.6 – AC3.11 plus Task 4)
 
 Read the `running-in-simulator` skill first. Screenshots for each.
 

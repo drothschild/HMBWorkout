@@ -343,9 +343,9 @@ export default function AiCoachScreen() {
               API Key Required
             </ThemedText>
             <ThemedText type="default" style={styles.missingKeyMessage}>
-              Add your Anthropic API key in Settings to use the AI Coach
+              Add your API key in Settings to use the AI Coach
             </ThemedText>
-            <Pressable style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]} onPress={() => router.push('/settings/ai')}>
+            <Pressable style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]} onPress={() => router.push('/settings/ai-provider')}>
               <ThemedText type="default" style={styles.settingsButtonText}>
                 Open Settings
               </ThemedText>
@@ -726,7 +726,7 @@ function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
 
   switch (error.kind) {
     case 'missing_key':
-      errorMessage = 'Add your Anthropic API key in Settings to use the AI Coach';
+      errorMessage = 'Add your API key in Settings to use the AI Coach';
       showRetry = false;
       break;
     case 'unauthorized':
@@ -774,7 +774,7 @@ function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
       </ThemedText>
       {(error.kind === 'unauthorized' || error.kind === 'missing_key') && (
         <Pressable
-          onPress={() => router.push('/settings/ai')}
+          onPress={() => router.push('/settings/ai-provider')}
           style={({ pressed }) => [styles.errorLink, pressed && styles.pressed]}
         >
           <ThemedText

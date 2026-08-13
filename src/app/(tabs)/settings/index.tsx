@@ -9,13 +9,18 @@ import { useTheme } from '@/hooks/use-theme';
 interface SectionRow {
   title: string;
   description: string;
-  href: '/settings/ai';
+  href: '/settings/ai' | '/settings/ai-provider';
 }
 
 const SECTIONS: SectionRow[] = [
   {
+    title: 'AI Provider',
+    description: 'Provider, API key, models',
+    href: '/settings/ai-provider',
+  },
+  {
     title: 'AI Coach',
-    description: 'Anthropic API key, goals, equipment',
+    description: 'Goals, equipment, coaching style',
     href: '/settings/ai',
   },
 ];
