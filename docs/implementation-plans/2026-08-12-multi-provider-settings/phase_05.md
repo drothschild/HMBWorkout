@@ -132,10 +132,11 @@ export const AI_MODEL_CHOICES: Record<AiProvider, readonly string[]> = {
  */
 export function resolveModels(
   provider: AiProvider,
-  configured: AiModelConfig | undefined
+  configured: AiModelConfig | undefined,
+  choices: Record<AiProvider, readonly string[]> = AI_MODEL_CHOICES,
 ): AiModelConfig {
   const defaults = DEFAULT_MODELS[provider];
-  const allowed = AI_MODEL_CHOICES[provider];
+  const allowed = choices[provider];
   const pick = (id: string | undefined, fallback: string) =>
     id && allowed.includes(id) ? id : fallback;
 
@@ -400,9 +401,9 @@ Phase 6.
 ```
 npx tsc --noEmit                                    # exit 0
 npx jest                                            # green, all suites
-npm run lint                                        # 0 errors; report warnings vs 52
-grep -n "deliberately NOT read" src/ai/provider/factory.ts     # empty
-git diff origin/main...HEAD -- src/ai/provider/requestBuilder.ts  # empty
+npm run lint                                        # 0 errors; report warnings vs 51
+! grep -n "deliberately NOT read" src/ai/provider/factory.ts
+git diff origin/main...HEAD -- src/ai/provider/requestBuilder.ts # empty
 git diff origin/main...HEAD -- src/app src/components             # empty (no UI this phase)
 ```
 

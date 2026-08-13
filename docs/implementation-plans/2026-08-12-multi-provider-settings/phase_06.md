@@ -66,7 +66,7 @@ one outcome worse than a short list. Say so in the PR.
 The screen must still hold no decision, so the patch builder lives with the others:
 
 ```ts
-import { AI_MODEL_CHOICES, DEFAULT_MODELS, resolveModels } from '@/ai/provider/models';
+import { resolveModels } from '@/ai/provider/models';
 
 /**
  * Choosing one surface's model leaves the other's alone.
@@ -262,8 +262,8 @@ because `expo-router` falls back to `string`. The existing note covers only dyna
 ```
 npx tsc --noEmit                         # exit 0
 npx jest                                 # green, all suites
-npm run lint                             # 0 errors; report warnings vs the 52 baseline
-grep -rn "claude-\|gpt-" src/app/        # empty
+npm run lint                             # 0 errors; report warnings vs the 51 baseline
+! grep -rq "claude-\|gpt-" src/app/
 ```
 
 Plus, in the PR:

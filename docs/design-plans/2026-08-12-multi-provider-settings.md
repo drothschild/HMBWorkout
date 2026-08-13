@@ -334,7 +334,7 @@ the PR or a **human-QA** step.
   module. `Last verified` bumped.
   **It must also name the three sites that now implement the "explicit wins, else whichever key"
   selection rule** — `settings.ts:137-159` (`resolveAiProvider`, still zero production callers),
-  `factory.ts:23-44` (`resolveProvider`), and `aiProviderSettings.ts:63-72`
+  `factory.ts:24-44` (`resolveProvider`), and `aiProviderSettings.ts:64-73`
   (`initialProviderSelection`). `AGENTS.md` currently says selection "is determined by
   `createAiClient`", which stopped being the whole truth in Phase 2; `factory.ts:20`'s comment
   names two implementations and there are three. A rule in three places with no entry in the
@@ -772,9 +772,9 @@ This constraint goes in AGENTS.md (AC6.6), because it is exactly the sort of rul
 **Divergences:** two, both argued above. (1) The provider-switch patch carries an **explicit**
 blanking value, the exact inverse of `buildSettingsPatch`'s documented omit-undefined rule — the two
 live in the same slice and the contrast is a trap. (2) **IMPLEMENTATION CHOSE OPTION 2:** The
-provider-selection rule is implemented inline at `aiProviderSettings.ts:64-71` rather than delegating
+provider-selection rule is implemented inline at `aiProviderSettings.ts:64-73` rather than delegating
 to `settings.ts:resolveAiProvider`. The "explicit wins, else whichever key" decision now exists in
-three places: `settings.ts:141-158`, `factory.ts:25-39`, and `aiProviderSettings.ts:64-71`. This is a
+three places: `settings.ts:137-159`, `factory.ts:24-44`, and `aiProviderSettings.ts:64-73`. This is a
 recorded decision (option 2), not a silent duplication.
 
 ## Implementation Phases
