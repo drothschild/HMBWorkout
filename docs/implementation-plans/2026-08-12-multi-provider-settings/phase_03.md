@@ -145,7 +145,7 @@ function applySwitch(next: AiProvider) {
 
   Alert.alert(
     `Switch to ${PROVIDER_LABEL[next]}?`,
-    `Your saved ${PROVIDER_LABEL[next === 'anthropic' ? 'openai' : 'anthropic']} API key will be removed. You'll need to paste it again to switch back.`,
+    `Your saved ${PROVIDER_LABEL[plan.outgoing]} API key will be removed. You'll need to paste it again to switch back.`,
     [
       { text: 'Cancel', style: 'cancel', onPress: () => setPickerOpen(false) },
       { text: 'Switch', style: 'destructive', onPress: commit },
@@ -264,7 +264,7 @@ should land on the provider/key screen, not the AI Coach goals screen).
 
 ```
 # AC3.1 — no decision logic in the screen
-grep -nE "sk-|\.trim\(\)|aiProvider ===|provider ===" "src/app/(tabs)/settings/ai-provider.tsx"
+grep -nE "sk-|\.trim\(\)|aiProvider ===|provider ===|next ===" "src/app/(tabs)/settings/ai-provider.tsx"
     → expected: EMPTY
 
 # AC3.2 — aiProvider written in exactly one place, none of them an effect

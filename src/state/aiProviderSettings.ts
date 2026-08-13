@@ -75,8 +75,13 @@ export interface ProviderSwitchPlan {
   /** Apply this whole object. Do not hand-build a subset. */
   patch: Partial<BridgeSettings>;
   /**
-   * The provider being switched away from. Exposed so callers don't need to
-   * recompute it from provider logic.
+   * The provider that is NOT `next` — the one whose key a switch clears.
+   *
+   * A total function of `next` alone, which is why it is computed before the
+   * branch rather than inside it: on a same-provider re-select nothing is being
+   * switched away from and this is simply the other provider. Phase 3 renders it
+   * in the confirmation dialog; recomputing it screen-side is what puts a
+   * provider decision back into `src/app`, where nothing can test it.
    */
   outgoing: AiProvider;
   /**

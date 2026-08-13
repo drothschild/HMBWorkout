@@ -159,6 +159,9 @@ describe('aiProviderSettings', () => {
         {anthropicKey: '', openaiKey: 'sk-123', aiProvider: 'openai'},
         'anthropic',
       );
+      // Counter-intuitive but pinned: `outgoing` is a total function of `next`
+      // alone, so re-selecting anthropic still reports openai as the provider a
+      // switch would clear. Nothing is switched away from on this path.
       expect(outgoing).toBe('openai');
       expect(patch).toStrictEqual({
         aiProvider: 'anthropic',
@@ -206,7 +209,14 @@ describe('aiProviderSettings', () => {
     });
 
     it('writes only the selected provider field', () => {
+      // Both directions. `toEqual` above cannot see an extra field whose value
+      // is `undefined`, so without this the anthropic path accepts a patch
+      // carrying `openaiKey: undefined` — which `setSettings` spreads into the
+      // cache and `JSON.stringify` then drops, destroying the stored key.
       expect(Object.keys(apiKeyPatch('openai', 'sk-x'))).toEqual(['openaiKey']);
+      expect(Object.keys(apiKeyPatch('anthropic', 'sk-x'))).toEqual([
+        'anthropicKey',
+      ]);
     });
   });
 

@@ -332,6 +332,13 @@ the PR or a **human-QA** step.
   rule and the three layers that enforce it; the single trim boundary; the constrained model list and
   the fixed-contract constraint that governs its membership; the provider-attributed error copy
   module. `Last verified` bumped.
+  **It must also name the three sites that now implement the "explicit wins, else whichever key"
+  selection rule** — `settings.ts:137-159` (`resolveAiProvider`, still zero production callers),
+  `factory.ts:23-44` (`resolveProvider`), and `aiProviderSettings.ts:63-72`
+  (`initialProviderSelection`). `AGENTS.md` currently says selection "is determined by
+  `createAiClient`", which stopped being the whole truth in Phase 2; `factory.ts:20`'s comment
+  names two implementations and there are three. A rule in three places with no entry in the
+  durable contract file is the drift hazard AGENTS.md documents elsewhere.
 - **AC6.7 Structural:** `ProviderConfig`'s "Only one key is set per install" docstring is
   **unchanged**, and AGENTS.md states that the switch-clears rule is what keeps it true — so a future
   reader knows the sentence is load-bearing rather than incidental.

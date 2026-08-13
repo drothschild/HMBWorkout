@@ -357,6 +357,13 @@ implementation that wipes the key the user is actively using ships green.
 ```ts
 it('trims the stored key', () => {
   expect(apiKeyPatch('anthropic', '  sk-ant-x\n')).toEqual({ anthropicKey: 'sk-ant-x' });
+  // Pin the key SET in BOTH directions, not just one. `toEqual` cannot see an
+  // extra field whose value is `undefined`, so a one-sided assertion lets a
+  // patch that also carries `openaiKey: undefined` through — and `setSettings`
+  // spreads that into the cache, where `JSON.stringify` drops it and the other
+  // provider's stored key is gone.
+  expect(Object.keys(apiKeyPatch('anthropic', 'sk-x'))).toEqual(['anthropicKey']);
+  expect(Object.keys(apiKeyPatch('openai', 'sk-x'))).toEqual(['openaiKey']);
 });
 it('trims the openai key', () => {
   expect(apiKeyPatch('openai', '\tsk-proj-x  ')).toEqual({ openaiKey: 'sk-proj-x' });
