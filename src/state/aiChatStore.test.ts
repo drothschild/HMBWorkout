@@ -347,7 +347,7 @@ describe('aiChatStore', () => {
     });
 
     it('attributes an OpenAI 401 to openai', async () => {
-      const { store, fakeChat } = makeStore();
+      const { fakeChat } = makeStore();
       const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: '', openaiKey: 'sk-o', aiProvider: undefined });
       const storeWithOpenAi = createAiChatStore({
         db: {} as never,
@@ -366,7 +366,7 @@ describe('aiChatStore', () => {
     });
 
     it('attributes an Anthropic 401 to anthropic', async () => {
-      const { store, fakeChat } = makeStore();
+      const { fakeChat } = makeStore();
       const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: 'sk-a', openaiKey: '', aiProvider: undefined });
       const storeWithAnthropic = createAiChatStore({
         db: {} as never,
