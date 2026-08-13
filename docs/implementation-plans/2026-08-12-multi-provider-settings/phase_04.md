@@ -46,7 +46,7 @@ which key to go get. Scope unchanged; justification restated.
 3. **⚠ Verified value pin.** `grep -c "toEqual({ kind:" src/state/aiChatStore.test.ts` → **12**.
    `toEqual` is exact, so all twelve break. **This is expected work, named here.** Lines include
    `:203, 218, 232, 244, 466, 690, 701, 724, 1032, 1059` and two more.
-   **The remedy is to add the field to each expected object. Do NOT relax them to `toMatchObject`** —
+   **The remedy is to convert each assertion to `toStrictEqual` and add the field. **`toEqual` is not sufficient**: it ignores properties whose value is `undefined`, so an implementation that drops `?? null` (making `provider` undefined rather than null) survives it. Verified — that mutant passes under `toEqual` and fails 5 tests under `toStrictEqual`. Do NOT relax them to `toMatchObject`** —
    the exactness is what makes AC4.6 and AC4.7 discriminating.
 4. **`mapError`** is at `aiChatStore.ts:60-88`. It discriminates Anthropic by `instanceof`
    (`AnthropicHttpError`, `AnthropicUnreachable`) and OpenAI by `error.name`
@@ -302,7 +302,7 @@ condition exactly as it is — that is behaviour, not copy.
 
 ```
 grep -n "API key\|Couldn't reach\|unreadable\|Something went wrong" src/app/ai-coach.tsx
-    → expected: EMPTY
+    → expected: EXACTLY ONE match — `:347`, the no-key empty state (`Add your API key in Settings`). AC4.9 permits that line and requires it to survive; only the four `errorMessage = …` assignments go. **Do not delete the empty state to make this grep empty.**
 ```
 
 **Covers:** AC4.9
@@ -313,7 +313,7 @@ grep -n "API key\|Couldn't reach\|unreadable\|Something went wrong" src/app/ai-c
 
 ```
 git diff origin/main...HEAD -- src/ai/contextBuilder.test.ts
-    → expected: EMPTY
+    → expected: EXACTLY ONE match — `:347`, the no-key empty state (`Add your API key in Settings`). AC4.9 permits that line and requires it to survive; only the four `errorMessage = …` assignments go. **Do not delete the empty state to make this grep empty.**
 ```
 
 Those tests assert `anthropicKey` / `token` / `baseUrl` never appear in the **system prompt**. They
@@ -356,7 +356,7 @@ npm run lint                                      # 0 errors; report warnings vs
 grep -n "API key\|Couldn't reach\|unreadable" src/app/ai-coach.tsx      # empty
 git diff origin/main...HEAD -- src/ai/contextBuilder.test.ts            # empty
 git diff origin/main...HEAD -- src/state/aiChatStore.test.ts | grep "^-" | grep -v "^---" | grep toMatchObject
-    → expected: EMPTY (no assertion was weakened)
+    → expected: EXACTLY ONE match — `:347`, the no-key empty state (`Add your API key in Settings`). AC4.9 permits that line and requires it to survive; only the four `errorMessage = …` assignments go. **Do not delete the empty state to make this grep empty.** (no assertion was weakened)
 ```
 
 Then write and run these mutants:
