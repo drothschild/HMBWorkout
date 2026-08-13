@@ -360,7 +360,6 @@ describe('createExerciseReplaceStore', () => {
       expect(mockFetch).not.toHaveBeenCalled();
       expect(store.getState().status).toBe('idle');
       expect(store.getState().alternates).toEqual([]);
-      // No config should be captured if hasApiKey() returns false
       expect(capturedConfigs).toHaveLength(0);
     });
 

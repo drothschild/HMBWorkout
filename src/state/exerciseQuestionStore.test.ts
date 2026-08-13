@@ -19,7 +19,6 @@ import {
   setSettings,
   getSettings,
 } from '@/state/settings';
-import { hasAiKey } from '@/state/hasAiKey';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import type { SessionState, RoutineEntry } from '@/engine/types';
 import {
@@ -423,7 +422,6 @@ describe('createExerciseQuestionStore', () => {
       expect(store.getState().text).toBeNull();
       expect(store.getState().expandedKey).toBeNull();
       expect(store.getState().pending).toBe(false);
-      // No config should be captured if hasApiKey() returns false
       expect(capturedConfigs).toHaveLength(0);
     });
 
@@ -545,6 +543,7 @@ describe('createExerciseQuestionStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
+        aiProvider: 'anthropic',
         aiPersonality: 'Encouraging but honest.',
         profileAge: '41',
         profileExperience: 'Advanced',
@@ -566,24 +565,6 @@ describe('createExerciseQuestionStore', () => {
       expect(prompt).not.toContain('sk-ant-test-secret');
       expect(prompt).not.toContain('sk-openai-secret-key');
     });
-  });
-});
-
-describe('hasAiKey', () => {
-  it('is false when both keys are empty', () => {
-    expect(hasAiKey({ anthropicKey: '', openaiKey: '' })).toBe(false);
-  });
-
-  it('is false when both keys are whitespace only', () => {
-    expect(hasAiKey({ anthropicKey: '   ', openaiKey: '   ' })).toBe(false);
-  });
-
-  it('is true when an Anthropic key is configured', () => {
-    expect(hasAiKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
-  });
-
-  it('is true when an OpenAI key is configured', () => {
-    expect(hasAiKey({ openaiKey: 'sk-openai-test' })).toBe(true);
   });
 });
 
