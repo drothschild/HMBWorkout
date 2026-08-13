@@ -7,7 +7,7 @@
  */
 
 import type {AiProvider, AiModelConfig} from '@/ai/provider/types';
-import {resolveModels, DEFAULT_MODELS} from '@/ai/provider/models';
+import {resolveModels} from '@/ai/provider/models';
 import type {BridgeSettings} from '@/state/settings';
 
 /** Display order in the picker. */
