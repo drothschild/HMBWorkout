@@ -24,13 +24,20 @@ export const DEFAULT_MODELS: Record<AiProvider, AiModelConfig> = {
 };
 
 /**
- * Populated in Phase 6 Task 1 from a live `GET /v1/models` plus a per-surface
- * probe. Seeded with the two ids already in the tree so the floor is a working
- * default rather than an invented id.
+ * Every id here was probed live against ALL FOUR surfaces at their real budgets
+ * (chat 4096, alternates 1024, exerciseQuestion 512, restCommentary 256) under
+ * this app's fixed request contract, and returned rendered text. See #245.
+ *
+ * `claude-haiku-4-5-20251001` is deliberately ABSENT and is the reason this gate
+ * exists. It passes chat, alternates and exerciseQuestion, then fails
+ * restCommentary with `400 This model does not support the effort parameter` —
+ * because that surface alone sends `output_config: { effort: 'low' }`. Every AI
+ * failure in this app is swallowed, so adding it on reputation would have shipped
+ * rest commentary silently dead. Three of four surfaces passing is not a pass.
  */
 export const AI_MODEL_CHOICES: Record<AiProvider, readonly string[]> = {
-  anthropic: ['claude-sonnet-5'],
-  openai: ['gpt-5.6-sol'],
+  anthropic: ['claude-sonnet-5', 'claude-opus-5'],
+  openai: ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.4-mini'],
 };
 
 /**
