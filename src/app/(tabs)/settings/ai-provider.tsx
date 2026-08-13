@@ -16,9 +16,11 @@ import {
   crossProviderKeyWarning,
   initialProviderSelection,
   keyPlaceholder,
+  modelSelectionPatch,
   providerSwitchPlan,
   storedKeyFor,
 } from '@/state/aiProviderSettings';
+import { AI_MODEL_CHOICES, resolveModels } from '@/ai/provider/models';
 import { getSettings, setSettings } from '@/state/settings';
 import type { AiProvider } from '@/ai/provider/types';
 import type { BridgeSettings } from '@/state/settings';
@@ -35,6 +37,8 @@ export default function AiProviderSettingsScreen() {
   const [provider, setProvider] = useState(() => initialProviderSelection(getSettings()));
   const [keyText, setKeyText] = useState(() => storedKeyFor(getSettings(), provider));
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [chatModelPickerOpen, setChatModelPickerOpen] = useState(false);
+  const [oneShotModelPickerOpen, setOneShotModelPickerOpen] = useState(false);
 
   const pendingRef = useRef<Partial<BridgeSettings>>({});
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,10 +115,24 @@ export default function AiProviderSettingsScreen() {
     );
   }
 
+  function applyModelSelection(field: 'chat' | 'oneShot', modelId: string) {
+    const patch = modelSelectionPatch(getSettings(), provider, field, modelId);
+    queueSave(patch);
+    flush();
+
+    if (field === 'chat') {
+      setChatModelPickerOpen(false);
+    } else {
+      setOneShotModelPickerOpen(false);
+    }
+  }
+
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
   const warning = crossProviderKeyWarning(provider, keyText);
   const isDark = useIsDark();
+  const models = resolveModels(provider, getSettings().aiModel);
+  const availableModels = AI_MODEL_CHOICES[provider];
 
   return (
     <ThemedView style={styles.container}>
@@ -189,6 +207,40 @@ export default function AiProviderSettingsScreen() {
               </ThemedText>
             </ThemedView>
           )}
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Coach Model
+            </ThemedText>
+            <Pressable
+              onPress={() => setChatModelPickerOpen(true)}
+              style={[styles.picker, { borderColor: theme.backgroundSelected }]}
+            >
+              <ThemedText type="default" style={styles.pickerText}>
+                {models.chat}
+              </ThemedText>
+              <ThemedText type="default" style={styles.chevron}>
+                ›
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Quick Replies Model
+            </ThemedText>
+            <Pressable
+              onPress={() => setOneShotModelPickerOpen(true)}
+              style={[styles.picker, { borderColor: theme.backgroundSelected }]}
+            >
+              <ThemedText type="default" style={styles.pickerText}>
+                {models.oneShot}
+              </ThemedText>
+              <ThemedText type="default" style={styles.chevron}>
+                ›
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
+
         </ScrollView>
       </View>
 
@@ -220,6 +272,78 @@ export default function AiProviderSettingsScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => setPickerOpen(false)}
+              style={styles.cancel}
+            >
+              <ThemedText>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={chatModelPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setChatModelPickerOpen(false)}
+      >
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+            {availableModels.map((modelId) => (
+              <Pressable
+                key={modelId}
+                onPress={() => applyModelSelection('chat', modelId)}
+                style={[styles.pickerOption, { backgroundColor: theme.backgroundElement }]}
+              >
+                <ThemedText type="default" style={styles.pickerOptionText}>
+                  {modelId}
+                </ThemedText>
+                {modelId === models.chat && (
+                  <ThemedText type="default" style={styles.pickerOptionCheck}>
+                    ✓
+                  </ThemedText>
+                )}
+              </Pressable>
+            ))}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setChatModelPickerOpen(false)}
+              style={styles.cancel}
+            >
+              <ThemedText>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={oneShotModelPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setOneShotModelPickerOpen(false)}
+      >
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+            {availableModels.map((modelId) => (
+              <Pressable
+                key={modelId}
+                onPress={() => applyModelSelection('oneShot', modelId)}
+                style={[styles.pickerOption, { backgroundColor: theme.backgroundElement }]}
+              >
+                <ThemedText type="default" style={styles.pickerOptionText}>
+                  {modelId}
+                </ThemedText>
+                {modelId === models.oneShot && (
+                  <ThemedText type="default" style={styles.pickerOptionCheck}>
+                    ✓
+                  </ThemedText>
+                )}
+              </Pressable>
+            ))}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setOneShotModelPickerOpen(false)}
               style={styles.cancel}
             >
               <ThemedText>Cancel</ThemedText>
