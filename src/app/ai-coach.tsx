@@ -20,6 +20,7 @@ import { useIsDark } from '@/hooks/use-is-dark';
 import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
+import { aiChatErrorMessage } from '@/state/aiChatErrorCopy';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
@@ -721,38 +722,8 @@ function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
   const router = useRouter();
   const isDark = useIsDark();
 
-  let errorMessage: string;
-  let showRetry: boolean;
-
-  switch (error.kind) {
-    case 'missing_key':
-      errorMessage = 'Add your API key in Settings to use the AI Coach';
-      showRetry = false;
-      break;
-    case 'unauthorized':
-      errorMessage = 'API key rejected — check Settings';
-      showRetry = true;
-      break;
-    case 'network':
-      errorMessage = "Couldn't reach the AI service. Check your connection.";
-      showRetry = true;
-      break;
-    case 'http':
-      errorMessage = `The AI service returned an error (${error.status}). Try again.`;
-      showRetry = true;
-      break;
-    case 'parse':
-      errorMessage = 'Got an unreadable response. Try again.';
-      showRetry = true;
-      break;
-    case 'unknown':
-      errorMessage = 'Something went wrong. Try again.';
-      showRetry = true;
-      break;
-    default:
-      const _exhaustive: never = error;
-      return _exhaustive;
-  }
+  const errorMessage = aiChatErrorMessage(error);
+  const showRetry = error.kind !== 'missing_key';
 
   const errorTextColor = isDark
     ? ThemedBackgroundText.errorBubbleTextDark

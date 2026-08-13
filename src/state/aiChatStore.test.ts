@@ -201,7 +201,7 @@ describe('aiChatStore', () => {
       expect(fakeChat).not.toHaveBeenCalled();
       expect(fakeBuildSystem).not.toHaveBeenCalled();
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'missing_key' });
+      expect(store.getState().error).toStrictEqual({ kind: 'missing_key', provider: null });
       expect(store.getState().messages).toHaveLength(0);
     });
 
@@ -266,7 +266,7 @@ describe('aiChatStore', () => {
       expect(fakeChat).not.toHaveBeenCalled();
       expect(fakeBuildSystem).not.toHaveBeenCalled();
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'missing_key' });
+      expect(store.getState().error).toStrictEqual({ kind: 'missing_key', provider: null });
       expect(store.getState().messages).toHaveLength(0);
     });
   });
@@ -281,7 +281,7 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'unauthorized' });
+      expect(store.getState().error).toStrictEqual({ kind: 'unauthorized', provider: 'anthropic' });
     });
   });
 
@@ -295,7 +295,7 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'network' });
+      expect(store.getState().error).toStrictEqual({ kind: 'network', provider: 'anthropic' });
     });
 
     it('maps AnthropicHttpError to http error with status', async () => {
@@ -307,7 +307,7 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'http', status: 500 });
+      expect(store.getState().error).toStrictEqual({ kind: 'http', status: 500, provider: 'anthropic' });
     });
 
     it('maps OpenaiHttpError 401 to unauthorized', async () => {
@@ -319,7 +319,7 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'unauthorized' });
+      expect(store.getState().error).toStrictEqual({ kind: 'unauthorized', provider: 'openai' });
     });
 
     it('maps OpenaiHttpError 500 to http with status', async () => {
@@ -331,7 +331,7 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'http', status: 500 });
+      expect(store.getState().error).toStrictEqual({ kind: 'http', status: 500, provider: 'openai' });
     });
 
     it('maps OpenaiUnreachable to network', async () => {
@@ -343,7 +343,65 @@ describe('aiChatStore', () => {
       await store.getState().send('hello');
 
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'network' });
+      expect(store.getState().error).toStrictEqual({ kind: 'network', provider: 'openai' });
+    });
+
+    it('attributes an OpenAI 401 to openai', async () => {
+      const { store, fakeChat } = makeStore();
+      const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: '', openaiKey: 'sk-o', aiProvider: undefined });
+      const storeWithOpenAi = createAiChatStore({
+        db: {} as never,
+        createClient: jest.fn().mockReturnValue({ chat: fakeChat }),
+        buildSystem: jest.fn().mockResolvedValue('SYSTEM'),
+        accept: jest.fn(),
+        getSettings: fakeGetSettings,
+        setSettings: jest.fn(),
+      });
+
+      storeWithOpenAi.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new OpenaiHttpError(401, 'nope'));
+
+      await storeWithOpenAi.getState().send('hi');
+      expect(storeWithOpenAi.getState().error).toStrictEqual({ kind: 'unauthorized', provider: 'openai' });
+    });
+
+    it('attributes an Anthropic 401 to anthropic', async () => {
+      const { store, fakeChat } = makeStore();
+      const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: 'sk-a', openaiKey: '', aiProvider: undefined });
+      const storeWithAnthropic = createAiChatStore({
+        db: {} as never,
+        createClient: jest.fn().mockReturnValue({ chat: fakeChat }),
+        buildSystem: jest.fn().mockResolvedValue('SYSTEM'),
+        accept: jest.fn(),
+        getSettings: fakeGetSettings,
+        setSettings: jest.fn(),
+      });
+
+      storeWithAnthropic.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new AnthropicHttpError(401, 'nope'));
+
+      await storeWithAnthropic.getState().send('hi');
+      expect(storeWithAnthropic.getState().error).toStrictEqual({ kind: 'unauthorized', provider: 'anthropic' });
+    });
+
+    it('names the chosen provider on missing_key', async () => {
+      const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: '', openaiKey: '', aiProvider: 'openai' });
+      const { store } = makeStore({ getSettings: fakeGetSettings });
+
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hi');
+      expect(store.getState().error).toStrictEqual({ kind: 'missing_key', provider: 'openai' });
+    });
+
+    it('does not guess a provider the user never chose', async () => {
+      const fakeGetSettings = jest.fn().mockReturnValue({ anthropicKey: '', openaiKey: '', aiProvider: undefined });
+      const { store } = makeStore({ getSettings: fakeGetSettings });
+
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hi');
+      expect(store.getState().error).toStrictEqual({ kind: 'missing_key', provider: null });
     });
 
     it('keeps user message after error for retry', async () => {
@@ -565,7 +623,7 @@ describe('aiChatStore', () => {
 
       const state = store.getState();
       expect(fakeChat).not.toHaveBeenCalled();
-      expect(state.error).toEqual({ kind: 'missing_key' });
+      expect(state.error).toStrictEqual({ kind: 'missing_key', provider: null });
       expect(state.mode).toEqual(debrief);
     });
   });
@@ -789,7 +847,7 @@ describe('aiChatStore', () => {
 
       await store.getState().send('hello');
 
-      expect(store.getState().error).toEqual({ kind: 'parse' });
+      expect(store.getState().error).toStrictEqual({ kind: 'parse', provider: null });
     });
 
     it('maps unexpected errors to unknown error', async () => {
@@ -800,7 +858,7 @@ describe('aiChatStore', () => {
 
       await store.getState().send('hello');
 
-      expect(store.getState().error).toEqual({ kind: 'unknown' });
+      expect(store.getState().error).toStrictEqual({ kind: 'unknown', provider: null });
     });
   });
 
@@ -823,7 +881,7 @@ describe('aiChatStore', () => {
       await store.getState().retry();
 
       expect(fakeChat).toHaveBeenCalledTimes(1);
-      expect(store.getState().error).toEqual({ kind: 'missing_key' });
+      expect(store.getState().error).toStrictEqual({ kind: 'missing_key', provider: null });
     });
   });
 
@@ -1154,7 +1212,7 @@ describe('aiChatStore', () => {
 
       await store.getState().send('hello');
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'network' });
+      expect(store.getState().error).toStrictEqual({ kind: 'network', provider: 'anthropic' });
 
       const statusesDuring: string[] = [];
       const errorsDuring: (AiChatError | null)[] = [];
@@ -1181,7 +1239,7 @@ describe('aiChatStore', () => {
 
       await store.getState().send('hello');
       expect(store.getState().status).toBe('error');
-      expect(store.getState().error).toEqual({ kind: 'network' });
+      expect(store.getState().error).toStrictEqual({ kind: 'network', provider: 'anthropic' });
 
       const statusesDuring: string[] = [];
       const errorsDuring: (AiChatError | null)[] = [];
