@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-12
+Last verified: 2026-08-13
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -507,6 +507,63 @@ in `src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onb
 settings, and no bridge settings at all — kept because renaming the *type* is churn and
 renaming the *key* is forbidden.
 
+**The settings split.** `/settings/ai-provider` (provider, key) and `/settings/ai`
+(goals, equipment, coaching style, age, experience). The provider/key/model decisions live
+in `src/state/aiProviderSettings.ts` and the screen holds none of them, because `src/app`
+has no jest coverage — the patch/selection builders are `initialProviderSelection`,
+`providerSwitchPlan`, `apiKeyPatch` and `modelSelectionPatch`.
+
+**Per-surface model selection is not yet exposed.** `modelSelectionPatch` exists, is tested,
+and has **no production caller**; the provider screen has no model picker. Wiring one is the
+remaining work on #122.
+
+**One key per install.** Switching provider clears the outgoing provider's key, to `''`
+rather than `undefined` because `setSettings` persists through `JSON.stringify`, which drops
+`undefined` and would leave no evidence of the clear in the blob. This is what keeps
+`ProviderConfig`'s "Only one key is set per install" docstring true — the sentence is
+load-bearing, not incidental, and must not be edited without changing the rule it describes.
+The switch is confirmed only when the outgoing key is non-empty after trim. The write goes
+through the screen's `queueSave` + `flush`, never a bare `setSettings`: a bare write leaves
+a pending 500 ms autosave patch alive that fires afterwards and restores the key the user
+just destroyed.
+
+**`aiProvider` is written only from the picker.** Mounting the screen derives the displayed
+value through `initialProviderSelection` and writes nothing, so installs that predate the
+picker keep resolving implicitly in `factory.ts`. Nothing can test this — `src/app` is
+uncovered and an automated fixture cannot distinguish "no write" from "wrote the derived
+value" — so it rests on a structural criterion.
+
+**The key is trimmed at one boundary on the way in**, `apiKeyPatch`; `factory.ts:61,65,101,105`
+trims again at the wire (two guard sites and two forwarding sites, one pair per provider). **Keep both layers.** Note that the factory's trim makes an
+untrimmed *store* invisible to every wire-level assertion, so `apiKeyPatch`'s own test is
+the only cover.
+
+**Key-format validation warns, never blocks**, and is one-directional: `sk-ant-` under an
+OpenAI selection is flagged; nothing is flagged under Anthropic, because OpenAI has no
+unmistakable marker and `sk-` is a prefix of `sk-ant-`.
+
+**Chat error copy lives in `src/state/aiChatErrorCopy.ts`**, not in the screen, and names
+the failing provider. The provider is a two-member union, so key material cannot reach the
+banner by construction.
+
+**The model list is constrained and its membership is governed by the fixed request contract.**
+Every client sends a fixed request contract — `reasoning: { effort: 'none' }` on OpenAI,
+`thinking: { type: 'disabled' }` on Anthropic, `output_config: { effort: 'low' }` on Anthropic
+rest commentary — against fixed budgets (chat 4096, alternates 1024, exerciseQuestion 512,
+restCommentary 256). A model that rejects those, or whose minimum reasoning effort exceeds
+`none`, either 400s or returns `status: 'incomplete'` with no text and a bill — and every AI
+failure here is swallowed, so the symptom is four silently dead features. **Adding an id
+therefore requires one live call per surface returning rendered text; it is not a config
+edit.** The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
+membership in the repo — its `toStrictEqual` is load-bearing, since a loose matcher
+(`arrayContaining`) silently readmits unprobed ids. `resolveModels` ignores an id not on the selected provider's list and falls
+back per field, without rewriting the setting.
+
+The selection rule exists in three implementations: `settings.ts:137-159` (`resolveAiProvider`,
+still zero production callers), `factory.ts:23-44` (`resolveProvider`), and
+`aiProviderSettings.ts:63-72` (`initialProviderSelection`). All three are named in
+AGENTS.md so a future reader recognizes the rule when editing one of them.
+
 - **No SDK, on purpose.** `anthropicClient.ts` is a hand-rolled `fetch` POST to
   `/v1/messages` — non-streaming, `thinking: disabled`, structured output via
   `output_config.format.json_schema`. Adding `@anthropic-ai/sdk` is not an upgrade:
@@ -658,6 +715,13 @@ renaming the *key* is forbidden.
   changing code to chase a route-shaped tsc error, regenerate types (run the dev
   server once, or copy a fresh `.expo/types/router.d.ts` from a checkout that has) and
   re-run `tsc --noEmit` — a stale cache, not the route push, is the usual cause.
+- **A `tsc` error on a brand-new static route** — e.g. `/settings/ai-provider` on a checkout
+  that hasn't run Metro since the route landed. `.expo/types/router.d.ts` enumerates
+  static routes as literals, not templates, so a new route landing in a worktree shows
+  as absent to `tsc` until Metro regenerates the file. The remedy is the same: run the
+  dev server once or copy a fresh `router.d.ts` from a checkout that has, then re-run
+  `tsc --noEmit`. A worktree with no `.expo/types/` at all type-checks everything because
+  `expo-router` falls back to `string`.
 - **Fire-and-forget DB writes need `flush()` before assertions, not a bare
   `setImmediate` or a bare `setTimeout(fn, 0)` alone — both of `flush()`'s
   two stages are load-bearing, and `flush()` itself only advances the queue
@@ -713,14 +777,16 @@ renaming the *key* is forbidden.
   WatermelonDB's `null` to `undefined` at the boundary. **Not yet wired to any
   screen** — it has no callers outside its own tests
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
-  session start/rehydrate
+  session start/rehydrate; `aiProviderSettings.ts` (provider/key/model pure functions),
+  `aiChatErrorCopy.ts` (error messages with provider attribution)
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, system-prompt builders,
   coach directives, draft→repository accept path, plus the one-shot features
   (rest commentary, exercise question, replace alternates)
 - `src/ai/provider/` — multi-provider abstraction: `createAiClient` factory routes to
   Anthropic or OpenAI based on configured keys; unified `AiClient` interface; `buildOpenAiBody`
-  centralizes the OpenAI Responses API format (Anthropic clients build requests inline)
+  centralizes the OpenAI Responses API format (Anthropic clients build requests inline);
+  `models.ts` holds the constrained model list and per-surface resolution logic
 - `src/theme/` — design tokens: `ActionButtonColor` (the four action hues,
   each darkened to clear WCAG AA 4.5:1 text contrast against both white and
   black backgrounds; also used on non-button solid fills like the AI chat

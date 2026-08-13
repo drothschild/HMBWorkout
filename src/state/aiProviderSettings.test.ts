@@ -6,8 +6,10 @@ import {
   initialProviderSelection,
   providerSwitchPlan,
   apiKeyPatch,
+  modelSelectionPatch,
   crossProviderKeyWarning,
 } from './aiProviderSettings';
+import {DEFAULT_MODELS} from '@/ai/provider/models';
 
 describe('aiProviderSettings', () => {
   describe('AI_PROVIDERS', () => {
@@ -217,6 +219,64 @@ describe('aiProviderSettings', () => {
       expect(Object.keys(apiKeyPatch('anthropic', 'sk-x'))).toEqual([
         'anthropicKey',
       ]);
+    });
+  });
+
+  describe('modelSelectionPatch', () => {
+    // Three ids per provider, deliberately. With only two, the written id and the
+    // surviving id collide in the asserted output and a whole-object write
+    // ({chat: id, oneShot: id}) is indistinguishable from a per-field one.
+    const testChoices = {
+      anthropic: ['m-a', 'm-b', 'm-c'],
+      openai: ['o-a', 'o-b'],
+    };
+
+    it('changes only the named field', () => {
+      expect(
+        modelSelectionPatch(
+          {aiModel: {chat: 'm-a', oneShot: 'm-b'}},
+          'anthropic',
+          'chat',
+          'm-c',
+          testChoices,
+        ),
+      ).toStrictEqual({aiModel: {chat: 'm-c', oneShot: 'm-b'}});
+    });
+
+    // The other half of `keyof AiModelConfig`. Without this, `field` is only ever
+    // 'chat' and an implementation that ignores `field` entirely survives.
+    it('changes oneShot when that is the named field, leaving chat alone', () => {
+      expect(
+        modelSelectionPatch(
+          {aiModel: {chat: 'm-a', oneShot: 'm-b'}},
+          'anthropic',
+          'oneShot',
+          'm-c',
+          testChoices,
+        ),
+      ).toStrictEqual({aiModel: {chat: 'm-a', oneShot: 'm-c'}});
+    });
+
+    it('normalises an unlisted stored id before writing', () => {
+      const patch = modelSelectionPatch(
+        {aiModel: {chat: 'retired', oneShot: 'retired'}},
+        'anthropic',
+        'chat',
+        'm-a',
+        testChoices,
+      );
+      expect(patch.aiModel).toStrictEqual({
+        chat: 'm-a',
+        oneShot: DEFAULT_MODELS.anthropic.oneShot,
+      });
+    });
+
+    it('handles undefined aiModel by using provider defaults', () => {
+      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'o-b', testChoices);
+      expect(patch.aiModel).toStrictEqual({
+        chat: 'o-b',
+        oneShot: DEFAULT_MODELS.openai.oneShot,
+      });
     });
   });
 

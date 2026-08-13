@@ -6,7 +6,8 @@
  * `coachOnboarding.dismissOnboardingPatch`.
  */
 
-import type {AiProvider} from '@/ai/provider/types';
+import type {AiProvider, AiModelConfig} from '@/ai/provider/types';
+import {resolveModels} from '@/ai/provider/models';
 import type {BridgeSettings} from '@/state/settings';
 
 /** Display order in the picker. */
@@ -138,7 +139,7 @@ export function providerSwitchPlan(
  * Phase 3 removed the untrimmed `queueSave({anthropicKey: value})` from
  * `src/app/(tabs)/settings/ai.tsx` and added the trimmed `apiKeyPatch` call here.
  *
- * `factory.ts:76,116` trims again at the wire; both layers stay, matching the
+ * `factory.ts:61,65,101,105` trims again at the wire; both layers stay, matching the
  * codebase's existing double-normalisation habit. But the factory's trim is
  * also why an untrimmed store is invisible to every wire-level assertion — this
  * function is the only place the trim is observable.
@@ -151,6 +152,30 @@ export function apiKeyPatch(
   raw: string,
 ): Partial<BridgeSettings> {
   return {[KEY_FIELD[provider]]: raw.trim()};
+}
+
+/**
+ * Choosing one surface's model leaves the other's alone.
+ *
+ * The current pair is read through `resolveModels`, so a stored id that is no
+ * longer offered resolves to the default before the write — the user cannot
+ * silently re-persist a value the app has stopped honouring.
+ *
+ * The incoming `id` is written verbatim without membership validation. The caller
+ * is trusted: production only calls this from the UI, which only offers ids from
+ * `AI_MODEL_CHOICES`. An unlisted id would 400 on the next API call; all AI failures
+ * here are swallowed. If this function is called programmatically, validate `id`
+ * against `choices[provider]` at the call site.
+ */
+export function modelSelectionPatch(
+  settings: Pick<BridgeSettings, 'aiModel'>,
+  provider: AiProvider,
+  field: keyof AiModelConfig,
+  id: string,
+  choices?: Record<AiProvider, readonly string[]>,
+): Partial<BridgeSettings> {
+  const current = resolveModels(provider, settings.aiModel, choices);
+  return {aiModel: {...current, [field]: id}};
 }
 
 const ANTHROPIC_MARKER = 'sk-ant-';
