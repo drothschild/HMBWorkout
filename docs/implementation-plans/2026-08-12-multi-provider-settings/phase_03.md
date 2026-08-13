@@ -134,7 +134,7 @@ function applySwitch(next: AiProvider) {
     flush();
 
     setProvider(next);
-    setKeyText(currentKeyFor(getSettings(), next));
+    setKeyText(storedKeyFor(getSettings(), next));
     setPickerOpen(false);
   };
 
