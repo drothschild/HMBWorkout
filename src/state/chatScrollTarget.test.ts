@@ -1,5 +1,6 @@
 // pattern: Functional Core
-import { computeChatScrollTarget, shouldDeferScrollForError } from './chatScrollTarget';
+import {
+  isScrollableIndex, computeChatScrollTarget, shouldDeferScrollForError } from './chatScrollTarget';
 
 describe('computeChatScrollTarget', () => {
   it('returns none for an empty message list', () => {
@@ -216,5 +217,30 @@ describe('shouldDeferScrollForError', () => {
       const newMessage = 'Could not apply those settings. Try again.';
       expect(shouldDeferScrollForError(newMessage, oldMessage)).toBe(true);
     });
+  });
+});
+
+describe('isScrollableIndex (issue #252)', () => {
+  it('accepts an index inside the list', () => {
+    expect(isScrollableIndex(0, 1)).toBe(true);
+    expect(isScrollableIndex(1, 2)).toBe(true);
+  });
+
+  // The exact shape that threw: a target of index 1 computed against the
+  // previous conversation, fired 50ms later at a list the debrief reset to
+  // a single (hidden) opener. RN reported "requested index 1 is out of 0 to 0".
+  it('rejects the index that crashed the debrief', () => {
+    expect(isScrollableIndex(1, 1)).toBe(false);
+  });
+
+  it('rejects any index against an emptied list', () => {
+    expect(isScrollableIndex(0, 0)).toBe(false);
+    expect(isScrollableIndex(3, 0)).toBe(false);
+  });
+
+  it('rejects negative and non-integer indices', () => {
+    expect(isScrollableIndex(-1, 5)).toBe(false);
+    expect(isScrollableIndex(1.5, 5)).toBe(false);
+    expect(isScrollableIndex(NaN, 5)).toBe(false);
   });
 });

@@ -133,6 +133,25 @@ function targetsEqual(a: ChatScrollTarget, b: ChatScrollTarget | null): boolean 
  * acceptError. A guard added to one surface only and tested only on that one
  * is the bug this function fixes — don't fall into that trap.
  */
+/**
+ * Is `index` still addressable in a list of `messageCount` items?
+ *
+ * `scrollToIndex` THROWS on an out-of-range index — it is not a no-op — and
+ * the screen's retry path fires from a `setTimeout` 50ms after the target was
+ * computed. A conversation reset in that window (`aiChatStore.reset`, which
+ * `openDebrief` calls) empties the list while a target from the PREVIOUS
+ * conversation is still held in the caller's ref, so the deferred scroll asks
+ * for an index the new list does not have. That is issue #252: finishing a
+ * workout opened the debrief and threw
+ * `scrollToIndex out of range: requested index 1 is out of 0 to 0`.
+ *
+ * Lives here rather than in the screen because `src/app` has no jest coverage
+ * and this is the whole decision.
+ */
+export function isScrollableIndex(index: number, messageCount: number): boolean {
+  return Number.isInteger(index) && index >= 0 && index < messageCount;
+}
+
 export function shouldDeferScrollForError<T>(
   currentError: T | null,
   previousError: T | null

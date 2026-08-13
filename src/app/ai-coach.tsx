@@ -22,7 +22,7 @@ import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiChatErrorMessage } from '@/state/aiChatErrorCopy';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
-import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
+import { computeChatScrollTarget, isScrollableIndex, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { optOutPatch } from '@/state/coachOnboarding';
@@ -105,6 +105,23 @@ export default function AiCoachScreen() {
   const lastScrollTargetRef = useRef<ChatScrollTarget | null>(null);
   // Bounds the onScrollToIndexFailed retry below (issue #215 review I2).
   const scrollRetryCountRef = useRef(0);
+  // The deferred retry below fires 50ms later and must see the list as it is
+  // THEN, not as it was when the closure was created (issue #252).
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  // Holds the pending retry so a conversation reset can cancel it rather than
+  // letting it fire against the new, shorter list.
+  const scrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (scrollRetryTimerRef.current !== null) {
+        clearTimeout(scrollRetryTimerRef.current);
+      }
+    },
+    []
+  );
   // Tracks the previous state to detect when error surfaces appear or change.
   // Issue #222: must key on status transition to 'error', not error kind change,
   // because retry() clears and re-sets the same error in one commit (intermediate
@@ -414,7 +431,11 @@ export default function AiCoachScreen() {
                 offset: info.averageItemLength * info.index,
                 animated: false,
               });
-              setTimeout(() => {
+              if (scrollRetryTimerRef.current !== null) {
+                clearTimeout(scrollRetryTimerRef.current);
+              }
+              scrollRetryTimerRef.current = setTimeout(() => {
+                scrollRetryTimerRef.current = null;
                 // Read the currently-applied target rather than the `info.index`
                 // closed over above (issue #215 review M3): if a new message
                 // arrived during this 50ms window, the effect above already
@@ -422,6 +443,12 @@ export default function AiCoachScreen() {
                 // index here would fight that newer, correct scroll.
                 const current = lastScrollTargetRef.current;
                 const index = current !== null && current.kind === 'top' ? current.index : info.index;
+                // scrollToIndex THROWS on an out-of-range index. A reset during
+                // this window (openDebrief) leaves a target from the previous
+                // conversation pointing past the new list — issue #252.
+                if (!isScrollableIndex(index, messagesRef.current.length)) {
+                  return;
+                }
                 flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
               }, 50);
             }}
