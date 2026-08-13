@@ -15,7 +15,7 @@ automated test, a structural read, or a documented human verification.
 ```
 npx tsc --noEmit   → exit 0
 npx jest           → 90 suites, 1680 tests, all passing (13.8s)
-npm run lint       → 0 errors, 52 warnings
+npm run lint       → 0 errors, 51 warnings
 ```
 
 Every gate below is plain, unqualified green. A failure in any suite is yours.
@@ -73,13 +73,13 @@ green at 50% kill rate).
 | AC | Type | Test file | What it must verify |
 |---|---|---|---|
 | **AC1.1** | unit ×4 | the four store test files | Each store driven from `{ anthropicKey: '', openaiKey: 'sk-openai-123' }`, asserting the forwarded `ProviderConfig` with `toEqual`. ⚠ **`anthropicKey` MUST be empty** — with both keys set, the mutants that drop `openaiKey` (`S06`, `E04`, `R04`, `X04`) still resolve a provider and still fire the surface. That is the criterion's entire content. ⚠ **`toEqual`, not `objectContaining`** — a partial match passes a builder that drops a field. Also add the both-keys-empty negative, or `S05` survives. Phase 1 Task 2. |
-| **AC1.2** | static + unit | the three store test doubles | `grep -rn "|| 'test-key'" src/` empty, and a test asserting the **exact** forwarded key so `E06`/`R05` fail. ⚠ Do not substitute another default. Phase 1 Task 1. |
+| **AC1.2** | static + unit | the three store test doubles | `! grep -rq "|| 'test-key'" src/` and a test asserting the **exact** forwarded key so `E06`/`R05` fail. ⚠ Do not substitute another default. Phase 1 Task 1. |
 | **AC1.3** | unit | `aiChatStore.test.ts` | `OpenaiHttpError(401)` → `unauthorized`; `OpenaiHttpError(500)` → `{ http, 500 }`; `OpenaiUnreachable` → `network`. ⚠ **The 500 case is required** — with only 401 the `else if (httpError.status)` arm is unexercised. Phase 1 Task 3. |
 | **AC1.4** | unit ×2 | `factory.test.ts` | All eight wrappers forward `system`→`system` and `message`/`messages` to their own field, via `toHaveBeenCalledWith` on an exact object. ⚠ **The `system` and `message` sentinels must differ and neither may be empty.** With `system: ''` or `SYS === MSG` the `F23`/`F24` channel swap is invisible — and that swap puts user free text where `IMMUTABLE_DIRECTIVES` ride, which `requestBuilder.ts:94-100` documents as a *channel* guarantee. ⚠ `messages` non-empty, or `F20`/`F21` survive. Phase 1 Task 4. |
 | **AC1.5** | unit | `coachOnboarding.test.ts` | OpenAI-only + `unseen` → `true`; **no key at all** → `false`. ⚠ The positive **must** be OpenAI-only or it passes today; the negative is required or the mutant `return settings.onboardingState === 'unseen'` survives both. Phase 1 Task 5. |
 | **AC1.6** | unit | `postWorkoutDebrief.test.ts` | Same two cases against `planPostWorkoutDebrief`. Same discrimination. Phase 1 Task 6. |
-| **AC1.7** | static + `tsc` | — | `grep -rn "hasAnthropicKey" src/` empty; `src/app/session.tsx` imports `hasApiKey`; `tsc` exit 0. ⚠ Collapse with the existing module-private `hasApiKey` at `exerciseQuestionStore.ts:129` rather than creating two exported names. Phase 1 Task 7. |
-| **AC1.8** | static + `tsc` | — | `grep -rn "errorMapper\|ProviderUnreachable\|ProviderHttpError" src/` empty. Phase 1 Task 8. |
+| **AC1.7** | static + `tsc` | — | `! grep -rq "hasAnthropicKey" src/`; `src/app/session.tsx` imports `hasApiKey`; `tsc` exit 0. ⚠ Collapse with the existing module-private `hasApiKey` at `exerciseQuestionStore.ts:129` rather than creating two exported names. Phase 1 Task 7. |
+| **AC1.8** | static + `tsc` | — | `! grep -rq "errorMapper\|ProviderUnreachable\|ProviderHttpError" src/`. Phase 1 Task 8. |
 | **AC1.9** | mutation | — | All 17 #234 mutants written by hand, each verified to have changed the file and passed `tsc` before its run, each confirmed to fail a **named** test. Table + **anchor-miss count** in the PR. ⚠ A mis-anchored mutant is indistinguishable from a real gap; report the count even when it is zero. Phase 1 Task 9. |
 | **AC1.10** | static | — | `git diff origin/main...HEAD -- src/app src/components` shows the rename only. Phase 1 Task 9. |
 
@@ -135,15 +135,15 @@ sections below.
 | **AC5.6** | unit | `models.test.ts` | The input object is not mutated and no settings write occurs. |
 | **AC5.7** | unit ×16 | the eight client test files | Each factory: `{ apiKey, model: 'x' }` → `body.model === 'x'`, **and** `{ apiKey }` → `body.model === <the constant>`. ⚠ **The omitted case is required**, or the mutant `const model = config.model` (undefined in every body) passes every new test. |
 | **AC5.8** | unit ×2 | `factory.test.ts` | Per provider: chat client gets `models.chat`; comment/suggest/ask get `models.oneShot`. ⚠ **The fixture's `chat` and `oneShot` ids must DIFFER.** With them equal, the mutant passing `models.chat` to all four surfaces survives every assertion — and being able to differ is the entire point of `AiModelConfig`. |
-| **AC5.9** | unit ×4 | the four store test files | The forwarded `ProviderConfig` includes `aiModel`, asserted with an exact match. ⚠ **`objectContaining` passes a builder that drops it** — and the four builders currently *do* drop it, so this is not a hypothetical. Layers 1 and 2 without layer 3 is a no-op that tests green. |
-| **AC5.10** | structural | — | `grep -n "deliberately NOT read" src/ai/provider/factory.ts` → empty; the pinning test **replaced**, not deleted. |
+| **AC5.9** | unit ×4 | the four store test files | The forwarded `ProviderConfig` includes `aiModel`, with a fixture whose `aiModel` is a **non-undefined value** (`{ chat: string, oneShot: string }`), asserted by value in an exact-match `toHaveBeenCalledWith`. ⚠ **Jest's `toEqual` ignores properties whose value is `undefined`**, so a store hardcoding `aiModel: undefined` passes an exact-match fixture that carries no `aiModel` — this is Trap 2. Layers 1 and 2 without layer 3 is a no-op that tests green. For the absent case use `Object.keys(receivedConfig).includes('aiModel')` to pin the inversion. |
+| **AC5.10** | structural | — | `! grep -n "deliberately NOT read" src/ai/provider/factory.ts`; the pinning test **replaced**, not deleted. |
 | **AC5.11** | static | — | `git diff origin/main...HEAD -- src/ai/provider/requestBuilder.ts` → empty. `getTokenBudget` stays surface-keyed; the model/budget coupling is discharged through the list's membership, not here. |
 
 ### AC6 — Model picker, live verification, docs (Phase 6)
 
 | AC | Type | Test file | What it must verify |
 |---|---|---|---|
-| **AC6.1** | structural + unit | `aiProviderSettings.test.ts` | `grep -rn "claude-\|gpt-" src/app/` → empty. Plus `modelSelectionPatch` tests: changes **only** the named field (⚠ the two fields must hold *different* values, or per-field and whole-object are indistinguishable), and normalises an unlisted stored id before writing. |
+| **AC6.1** | structural + unit | `aiProviderSettings.test.ts` | `! grep -rq "claude-\|gpt-" src/app/`. Plus `modelSelectionPatch` tests: changes **only** the named field (⚠ the two fields must hold *different* values, or per-field and whole-object are indistinguishable), and normalises an unlisted stored id before writing. |
 | **AC6.2** | structural | — | The switch handler applies `plan.patch` as a whole object. `grep -n "plan.patch"` on the screen. ⚠ A hand-built `{ aiProvider, anthropicKey: '' }` clears the key and keeps a cross-provider model id — a config the new provider rejects on every request. |
 | **AC6.6** | read | `AGENTS.md` | Every paragraph listed in Phase 6 Task 6 is present and describes code that exists. |
 | **AC6.7** | read | `src/ai/provider/types.ts` | The `ProviderConfig` docstring is byte-unchanged, and AGENTS.md states that the clear-on-switch rule is what keeps it true. |
@@ -166,13 +166,13 @@ separately from the simulator steps. All are recorded in the relevant PR descrip
 
 | ID | AC | Check | Why nothing else can cover it |
 |---|---|---|---|
-| **S1** | AC3.1 | `grep -n "sk-\|\.trim()" src/app/(tabs)/settings/ai-provider.tsx` → empty | Stops the warning rule, the trim and the placeholder acquiring a second, divergent copy in an untestable file — which is how the tested one drifts. |
+| **S1** | AC3.1 | `! grep -n "sk-\|\.trim()" src/app/(tabs)/settings/ai-provider.tsx` | Stops the warning rule, the trim and the placeholder acquiring a second, divergent copy in an untestable file — which is how the tested one drifts. |
 | **S2** | AC3.2 | `aiProvider` written in exactly one place, and no mount/focus effect writes it | ⚠ **This one is worth reading twice.** An automated fixture that mounts the screen and reads `getSettings()` cannot distinguish "wrote nothing" from "wrote exactly the value `initialProviderSelection` derives" — those are equal **by construction, for every fixture**. Only a storage-backend call-count assertion discriminates, and no suite can mount the screen. A human step is no better: `expo-secure-store` is not queryable and nothing user-visible differs. This read is the only cover that exists. |
-| **S3** | AC3.3 | `grep -n "setSettings" src/app/(tabs)/settings/ai-provider.tsx` → import + exactly one call, inside `flush()` | A bare `setSettings(plan.patch)` leaves a live 500 ms autosave patch holding the key the user just typed; it fires afterwards and **restores the key they just destroyed**, persisted and invisible. H9 is the only other check, and it needs sub-second timing. |
-| **S4** | AC3.4 | `grep -n "anthropicKey" src/app/(tabs)/settings/ai.tsx` → empty | — |
+| **S3** | AC3.3 | `grep -n "setSettings" src/app/(tabs)/settings/ai-provider.tsx` shows import + exactly one call, inside `flush()` | A bare `setSettings(plan.patch)` leaves a live 500 ms autosave patch holding the key the user just typed; it fires afterwards and **restores the key they just destroyed**, persisted and invisible. H9 is the only other check, and it needs sub-second timing. |
+| **S4** | AC3.4 | `! grep -n "anthropicKey" src/app/(tabs)/settings/ai.tsx` | — |
 | **S5** | AC3.5 | `settings/index.tsx` has a two-member `href` union, two rows, and no "API key" in the AI Coach description | — |
-| **S6** | AC4.9 | `grep -n "API key\|Couldn't reach\|unreadable" src/app/ai-coach.tsx` → empty | The copy is now tested; this proves the screen uses the tested copy rather than keeping its own. |
-| **S7** | AC6.1 | `grep -rn "claude-\|gpt-" src/app/` → empty | A model id literal in an uncovered file is a 404 nothing can catch. |
+| **S6** | AC4.9 | `! grep -n "API key\|Couldn't reach\|unreadable" src/app/ai-coach.tsx` | The copy is now tested; this proves the screen uses the tested copy rather than keeping its own. |
+| **S7** | AC6.1 | `! grep -rq "claude-\|gpt-" src/app/` | A model id literal in an uncovered file is a 404 nothing can catch. |
 | **S8** | AC6.2 | The switch handler applies `plan.patch` whole | See AC6.2's note. |
 
 ---
