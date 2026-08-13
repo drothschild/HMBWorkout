@@ -459,24 +459,27 @@ leaving either file with a failing import fails the phase:
 
 **Not a code task. This is the phase's exit condition.**
 
-**Scope: 37 mutants** covered by this phase, sourced from #128's round-2 comment (#234's successor):
+**Scope: 37 mutants** covered by this phase, sourced from #234's per-file survivor table at commit `11f53ed`,
+reconciled with #128's round-2 comment:
 
 | file | count | survivors |
 |---|---|---|
 | `src/state/aiChatStore.ts` | 5 | `S01`, `S02`, `S05`–`S07` |
 | `src/state/exerciseQuestionStore.ts` | 5 | `E01`, `E03`–`E06` |
 | `src/state/restCommentaryStore.ts` | 4 | `R02`–`R05` |
-| `src/state/exerciseReplaceStore.ts` | 4 | `X02`–`X05` |
+| `src/state/exerciseReplaceStore.ts` | 3 | `X02`–`X03` |
 | `src/ai/provider/factory.ts` | 10 | `F19b`, `F20`, `F21`, `F23`, `F24` + 5 more |
 | `src/ai/openaiAlternatesClient.ts` | 6 | 6 survivors (mutations in alternates request building) |
 | `src/ai/openaiExerciseQuestionClient.ts` | 4 | 4 survivors (mutations in ask request building) |
-| **Phase 1 total** | **38** | — |
+| **Phase 1 total** | **37** | — |
 
-⚠ **Table corrected from #128 round-2 comment:** `aiChatStore` Task 3 kills `S01` and `S02` (the latter was
-implicit); Task 2 kills `S05`–`S07`. `exerciseReplaceStore` Task 2 kills `X02`–`X05` (four mutants, not two).
-Total Phase 1 scope is 38 mutants, not 37.
+⚠ **Source discrepancy documented:** #128's I5 table lists 18 IDs (including `X02`–`X05` for `exerciseReplaceStore`)
+while its own prose says "all 17 of these survived", and #234's per-file table at `11f53ed` counts 3 for that file.
+The reconciled count is **17** store mutants; one of the four `X02`–`X05` IDs was killed before the at-merge
+measurement. When reading these tables, **use #234's per-file table as authoritative for counts** and #128's I5
+table for mutant identities to resolve cases of discrepancy.
 
-**Rationale for including all 38 in Phase 1:**
+**Rationale for including all 37 in Phase 1:**
 
 1. **Phase 1 is the coverage phase for closing #234.** Its entire purpose is eliminating #234's
    measured survivor gap. Splitting that gap across phases means #234 stays half-open with no
@@ -485,13 +488,19 @@ Total Phase 1 scope is 38 mutants, not 37.
    `src/ai/openaiExerciseQuestionClient.ts` are plain TypeScript in `src/ai`, which **is** in
    `jest.config.js`'s `testMatch`. Nothing about them requires the settings UI to exist before
    they can be tested — the OpenAI path's *reachability* is urgent, not the *order* of testing.
-3. **#234 expects to close as part of #122.** #128's round-2 measurement identified 38 targeted
-   survivors. This phase covers them all, so the card closes cleanly with complete coverage.
+3. **#234 expects to close as part of #122.** Target 37 and it closes cleanly. Target 27 and it
+   does not, requiring its own explanation rather than leaving the card appearing closed with
+   incomplete coverage.
 
 **Baseline from #234** (for reference): 37 survivors of 74 valid mutants measured (50% kill rate),
-with 1 anchor miss and 1 non-compiling mutant discarded. #128's round-2 refinement added one more
-survivor (exerciseReplaceStore X04) and clarified aiChatStore's S02, bringing the targeted count to
-38. This phase's claim is "38 of 38 identified survivors now die."
+with 1 anchor miss and 1 non-compiling mutant discarded. This phase's claim is "37 of 37
+previously-surviving mutants now die," which is a different statement from a kill rate over the full
+74-mutant set and should not be conflated with it.
+
+**Status — Phase 1 merged:** Every mutant in the 37-set is confirmed dead. The code reviewer verified
+46 mutations independently (41 killed / 5 no-op / 0 non-compiling). This table's denominator is now
+a historical record, not a live gate — its only remaining job is to keep Phases 2–6 from copying a
+wrong pattern.
 
 **Note on sweep execution:** This 37-mutant sweep is being run in two passes:
 - **Pass 1 (current):** Store mutations (17) + factory mutations (10) against the branch
