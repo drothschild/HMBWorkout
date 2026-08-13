@@ -97,6 +97,27 @@ describe('openaiAlternatesClient', () => {
       expect(callBody.model).toBe('gpt-5.6-sol');
     });
 
+    it('C1.6: uses configured model when provided (openai alternates)', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{
+            type: 'message',
+            content: [{
+              type: 'output_text',
+              text: '{"alternates": [{"title": "Alt", "description": "Desc"}]}',
+            }],
+          }],
+        }),
+      });
+
+      const client = createOpenaiAlternatesClient({ apiKey: 'test-key', model: 'gpt-4o' }, mockFetch as any);
+      await client.suggest({ system: 'test', message: 'test' });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.model).toBe('gpt-4o');
+    });
+
     it('throws OpenaiUnreachable on network error', async () => {
       const mockFetch = jest.fn().mockRejectedValueOnce(new Error('Network timeout'));
       const client = createOpenaiAlternatesClient({ apiKey: 'test-key' }, mockFetch as any);

@@ -13,14 +13,14 @@
  * either 400s or returns `status: 'incomplete'` with no text and a bill.
  *
  * So an id may only be added here after one live call PER SURFACE that returns
- * rendered text. This is not a config edit. See the design doc and AGENTS.md.
+ * rendered text. This is not a config edit.
  */
 
 import type {AiModelConfig, AiProvider} from './types';
 
 export const DEFAULT_MODELS: Record<AiProvider, AiModelConfig> = {
-  anthropic: {chat: 'claude-sonnet-5', oneShot: 'claude-sonnet-5'},
-  openai: {chat: 'gpt-5.6-sol', oneShot: 'gpt-5.6-sol'},
+  anthropic: { chat: 'claude-sonnet-5', oneShot: 'claude-sonnet-5' },
+  openai: { chat: 'gpt-5.6-sol', oneShot: 'gpt-5.6-sol' },
 };
 
 /**

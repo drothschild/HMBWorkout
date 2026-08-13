@@ -228,6 +228,12 @@ describe('createAiClient factory', () => {
   });
 
   describe('routes models to surfaces correctly', () => {
+    // I3 note: A test was deleted that directly called createOpenaiClient and
+    // asserted `model === 'gpt-5.6-sol'` in the request body (named
+    // 'accepts aiModel but does NOT yet apply it'). Its model assertion now
+    // lives in the C1 tests below, which verify configured models end up in
+    // the request body for ALL eight factories. The factory tests at C2 verify
+    // resolveModels is called with the right arguments.
     afterEach(() => jest.resetModules());
 
     it('routes chat to the chat model and the three one-shots to oneShot (anthropic)', async () => {
@@ -236,6 +242,10 @@ describe('createAiClient factory', () => {
       const commentSpy = jest.fn(() => ({ comment: async () => 'ok' }));
       const suggestSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
       const askSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+      const resolveModelsMock = jest.fn(() => ({
+        chat: 'CHAT-ID',
+        oneShot: 'ONESHOT-ID',
+      }));
 
       jest.doMock('../anthropicClient', () => ({
         createAnthropicClient: chatSpy,
@@ -248,10 +258,7 @@ describe('createAiClient factory', () => {
         createExerciseQuestionClient: askSpy,
       }));
       jest.doMock('./models', () => ({
-        resolveModels: jest.fn(() => ({
-          chat: 'CHAT-ID',
-          oneShot: 'ONESHOT-ID',
-        })),
+        resolveModels: resolveModelsMock,
       }));
 
       const { createAiClient: f } = await import('./factory');
@@ -259,6 +266,9 @@ describe('createAiClient factory', () => {
         anthropicKey: 'sk-ant-x',
         aiModel: { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' },
       });
+
+      // C2: resolveModels must be called with the configured model
+      expect(resolveModelsMock).toHaveBeenCalledWith('anthropic', { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' });
 
       // Chat gets the chat model
       expect(chatSpy).toHaveBeenCalledWith(
@@ -282,6 +292,10 @@ describe('createAiClient factory', () => {
       const commentSpy = jest.fn(() => ({ comment: async () => 'ok' }));
       const suggestSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
       const askSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+      const resolveModelsMock = jest.fn(() => ({
+        chat: 'CHAT-ID',
+        oneShot: 'ONESHOT-ID',
+      }));
 
       jest.doMock('../openaiClient', () => ({
         createOpenaiClient: chatSpy,
@@ -294,10 +308,7 @@ describe('createAiClient factory', () => {
         createOpenaiExerciseQuestionClient: askSpy,
       }));
       jest.doMock('./models', () => ({
-        resolveModels: jest.fn(() => ({
-          chat: 'CHAT-ID',
-          oneShot: 'ONESHOT-ID',
-        })),
+        resolveModels: resolveModelsMock,
       }));
 
       const { createAiClient: f } = await import('./factory');
@@ -305,6 +316,9 @@ describe('createAiClient factory', () => {
         openaiKey: 'sk-openai-x',
         aiModel: { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' },
       });
+
+      // C2: resolveModels must be called with the configured model
+      expect(resolveModelsMock).toHaveBeenCalledWith('openai', { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' });
 
       // Chat gets the chat model
       expect(chatSpy).toHaveBeenCalledWith(

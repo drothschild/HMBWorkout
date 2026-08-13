@@ -111,6 +111,26 @@ describe('Anthropic Client', () => {
       expect(body.output_config.format.schema).toEqual(AI_TURN_SCHEMA);
     });
 
+    it('C1.1: uses configured model when provided (chat)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValueOnce({
+          content: [{ type: 'text', text: JSON.stringify({ reply: 'test' }) }],
+          stop_reason: 'end_turn',
+        }),
+      });
+
+      const client = createAnthropicClient({ apiKey: 'test-key', model: 'claude-opus' }, mockFetch);
+      await client.chat({
+        system: 'test',
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.model).toBe('claude-opus');
+    });
+
     it('throws AnthropicHttpError on 401 response', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,

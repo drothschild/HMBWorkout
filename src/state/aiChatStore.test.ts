@@ -1126,6 +1126,28 @@ describe('aiChatStore', () => {
       expect(Object.keys(call).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior tests only checked Object.keys presence; they passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      const { store, fakeChat, fakeCreateClient } = makeStore({
+        getSettings: jest.fn().mockReturnValue({
+          anthropicKey: 'sk-test',
+          aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+        }),
+      });
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('hello');
+
+      const call = fakeCreateClient.mock.calls[0][0];
+      expect(call.aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
+    });
+
     it('creates client once per send call', async () => {
       const { store, fakeChat, fakeCreateClient } = makeStore();
 

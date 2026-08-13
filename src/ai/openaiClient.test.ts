@@ -47,7 +47,28 @@ describe('openaiClient', () => {
       expect(callBody.text?.format?.strict).toBe(true);
       expect(callBody.text?.format?.schema).toBeDefined();
 
+      // C1.4: Verify default model is used when not configured
+      expect(callBody.model).toBe('gpt-5.6-sol');
+
       expect(result).toEqual({ reply: 'test response' });
+    });
+
+    it('C1.5: uses configured model when provided (openai chat)', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'output_text', text: '{"reply": "ok"}' }] }],
+        }),
+      });
+
+      const client = createOpenaiClient({ apiKey: 'test-key', model: 'gpt-4-turbo' }, mockFetch as any);
+      await client.chat({
+        system: 'test',
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.model).toBe('gpt-4-turbo');
     });
 
     it('throws OpenaiUnreachable on network error', async () => {
@@ -363,6 +384,7 @@ describe('openaiClient', () => {
       // 'medium' on GPT-5.6, which would exhaust this surface's 256-token ceiling
       // before any prose is produced.
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.model).toBe('gpt-5.6-sol');
       expect(callBody.reasoning).toEqual({ effort: 'none' });
       expect(callBody.max_output_tokens).toBe(256); // getTokenBudget('restCommentary')
 
@@ -372,6 +394,21 @@ describe('openaiClient', () => {
 
       // Verify text format for plain text output
       expect(callBody.text?.format?.type).toBe('text');
+    });
+
+    it('C1.9: uses configured model when provided (openai rest commentary)', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'Go!' }] }],
+        }),
+      });
+
+      const client = createRestCommentaryClient({ apiKey: 'test-key', model: 'gpt-4o-mini' }, mockFetch as any);
+      await client.comment({ system: 'test', message: 'test' });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.model).toBe('gpt-4o-mini');
     });
 
     it('throws OpenaiUnreachable on network error', async () => {

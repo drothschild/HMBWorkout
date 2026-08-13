@@ -23,7 +23,7 @@ export interface AiModelConfig {
   chat: string;
 
   /**
-   * Rest commentary and exercise question. Currently same as chat.
+   * Rest commentary and exercise question.
    * E.g. 'claude-sonnet-5', 'gpt-5.6-sol'
    */
   oneShot: string;
