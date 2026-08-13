@@ -1,4 +1,4 @@
-import {resolveModels} from './models';
+import {resolveModels, AI_MODEL_CHOICES} from './models';
 
 describe('resolveModels', () => {
   it('returns anthropic hardcoded ids when nothing is configured', () => {
@@ -57,5 +57,22 @@ describe('resolveModels', () => {
     const before = JSON.stringify(configured);
     resolveModels('anthropic', configured);
     expect(JSON.stringify(configured)).toBe(before);
+  });
+});
+
+describe('AI_MODEL_CHOICES', () => {
+  it('pins the list of model ids - any addition requires a live call per surface and a deliberate test edit', () => {
+    // Phase 6 Task 1: every id added here requires:
+    // 1. A live GET /v1/models call on both providers
+    // 2. One live call PER SURFACE (4 surfaces × 2 providers = 8 calls)
+    // 3. Each surface must return rendered, non-empty text (not status: 'ok' with empty body)
+    // 4. Results recorded in the PR with max_output_tokens, status, and first line of output
+    //
+    // This test fails if an id is added without updating this assertion, ensuring
+    // the constraint is remembered and enforced.
+    expect(AI_MODEL_CHOICES).toStrictEqual({
+      anthropic: ['claude-sonnet-5'],
+      openai: ['gpt-5.6-sol'],
+    });
   });
 });

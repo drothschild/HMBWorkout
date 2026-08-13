@@ -7,6 +7,8 @@
  */
 
 import type {AiProvider} from '@/ai/provider/types';
+import type {AiModelConfig} from '@/ai/provider/types';
+import {resolveModels, DEFAULT_MODELS} from '@/ai/provider/models';
 import type {BridgeSettings} from '@/state/settings';
 
 /** Display order in the picker. */
@@ -151,6 +153,23 @@ export function apiKeyPatch(
   raw: string,
 ): Partial<BridgeSettings> {
   return {[KEY_FIELD[provider]]: raw.trim()};
+}
+
+/**
+ * Choosing one surface's model leaves the other's alone.
+ *
+ * The current pair is read through `resolveModels`, so a stored id that is no
+ * longer offered resolves to the default before the write — the user cannot
+ * silently re-persist a value the app has stopped honouring.
+ */
+export function modelSelectionPatch(
+  settings: Pick<BridgeSettings, 'aiModel'>,
+  provider: AiProvider,
+  field: keyof AiModelConfig,
+  id: string,
+): Partial<BridgeSettings> {
+  const current = resolveModels(provider, settings.aiModel);
+  return {aiModel: {...current, [field]: id}};
 }
 
 const ANTHROPIC_MARKER = 'sk-ant-';

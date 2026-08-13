@@ -6,8 +6,10 @@ import {
   initialProviderSelection,
   providerSwitchPlan,
   apiKeyPatch,
+  modelSelectionPatch,
   crossProviderKeyWarning,
 } from './aiProviderSettings';
+import {DEFAULT_MODELS} from '@/ai/provider/models';
 
 describe('aiProviderSettings', () => {
   describe('AI_PROVIDERS', () => {
@@ -217,6 +219,51 @@ describe('aiProviderSettings', () => {
       expect(Object.keys(apiKeyPatch('anthropic', 'sk-x'))).toEqual([
         'anthropicKey',
       ]);
+    });
+  });
+
+  describe('modelSelectionPatch', () => {
+    it('changes only the named field', () => {
+      expect(
+        modelSelectionPatch(
+          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'gpt-5.6-sol'}},
+          'anthropic',
+          'chat',
+          'claude-opus-4',
+        ),
+      ).toEqual({aiModel: {chat: 'claude-opus-4', oneShot: 'gpt-5.6-sol'}});
+    });
+
+    it('normalises an unlisted stored id before writing', () => {
+      const patch = modelSelectionPatch(
+        {aiModel: {chat: 'retired', oneShot: 'retired'}},
+        'anthropic',
+        'chat',
+        'claude-sonnet-5',
+      );
+      expect(patch.aiModel).toEqual({
+        chat: 'claude-sonnet-5',
+        oneShot: DEFAULT_MODELS.anthropic.oneShot,
+      });
+    });
+
+    it('keeps the oneShot when changing chat', () => {
+      expect(
+        modelSelectionPatch(
+          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'claude-opus-4'}},
+          'anthropic',
+          'chat',
+          'claude-3-5-sonnet',
+        ).aiModel?.oneShot,
+      ).toBe('claude-opus-4');
+    });
+
+    it('handles undefined aiModel by using provider defaults', () => {
+      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'gpt-5.6-sol');
+      expect(patch.aiModel).toEqual({
+        chat: 'gpt-5.6-sol',
+        oneShot: DEFAULT_MODELS.openai.oneShot,
+      });
     });
   });
 
