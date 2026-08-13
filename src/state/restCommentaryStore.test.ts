@@ -419,6 +419,27 @@ describe('createRestCommentaryStore', () => {
       expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior test only checked Object.keys presence; it passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      setSettings({
+        anthropicKey: 'sk-ant-test',
+        aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+      });
+
+      mockFetch.mockResolvedValueOnce(commentResponse('Great work!'));
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
+    });
+
     it('treats a whitespace-only key as no key', async () => {
       setSettings({ anthropicKey: '   ' });
       const { store } = makeStore();

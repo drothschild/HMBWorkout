@@ -447,6 +447,27 @@ describe('createExerciseQuestionStore', () => {
       expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior test only checked Object.keys presence; it passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      setSettings({
+        anthropicKey: 'sk-ant-test',
+        aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+      });
+
+      mockFetch.mockResolvedValue(answerResponse('Test answer'));
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
+    });
+
     it('swallows and logs a network failure, quietly reverting to collapsed', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
       const { store } = makeStore();
