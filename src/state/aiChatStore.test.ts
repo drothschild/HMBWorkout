@@ -221,6 +221,7 @@ describe('aiChatStore', () => {
         anthropicKey: 'sk-test',
         openaiKey: undefined,
         aiProvider: undefined,
+        aiModel: undefined,
       });
       expect(fakeChat).toHaveBeenCalled();
       expect(store.getState().status).toBe('idle');
@@ -245,6 +246,7 @@ describe('aiChatStore', () => {
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
         aiProvider: undefined,
+        aiModel: undefined,
       });
       expect(fakeChat).toHaveBeenCalled();
       expect(store.getState().status).toBe('idle');
@@ -1120,8 +1122,30 @@ describe('aiChatStore', () => {
       expect(call).toHaveProperty('anthropicKey', 'sk-test');
       expect(call).toHaveProperty('openaiKey', 'key-openai');
       expect(call).toHaveProperty('aiProvider', 'anthropic');
-      // Ensure exactly 3 properties are forwarded
-      expect(Object.keys(call).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      // Ensure exactly 4 properties are forwarded (including aiModel)
+      expect(Object.keys(call).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior tests only checked Object.keys presence; they passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      const { store, fakeChat, fakeCreateClient } = makeStore({
+        getSettings: jest.fn().mockReturnValue({
+          anthropicKey: 'sk-test',
+          aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+        }),
+      });
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('hello');
+
+      const call = fakeCreateClient.mock.calls[0][0];
+      expect(call.aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
     });
 
     it('creates client once per send call', async () => {
@@ -1698,7 +1722,7 @@ describe('aiChatStore', () => {
     });
 
     it('coach-onboarding.AC4.3 Failure: failed validation is swallowed, conversation continues', async () => {
-      const { store, fakeChat, fakeSetSettings } = makeStore({
+      const { store, fakeChat } = makeStore({
         setSettings: jest.fn().mockImplementation(() => {
           throw new DraftValidationError('Invalid field');
         }),

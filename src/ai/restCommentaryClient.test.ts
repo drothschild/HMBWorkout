@@ -43,10 +43,21 @@ describe('createRestCommentaryClient', () => {
     expect(options.headers['anthropic-version']).toBe('2023-06-01');
 
     const body = JSON.parse(options.body);
+    expect(body.model).toBe('claude-sonnet-5');
     expect(body.system).toBe('You are a coach');
     expect(body.messages).toEqual([
       { role: 'user', content: '## Up Next\n\nBench Press' },
     ]);
+  });
+
+  it('C1.8: uses configured model when provided (rest commentary)', async () => {
+    mockFetch.mockResolvedValueOnce(textResponse('Keep pushing.'));
+
+    const client = createRestCommentaryClient({ apiKey: 'test-key', model: 'claude-opus' }, mockFetch);
+    await client.comment({ system: 's', message: 'm' });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe('claude-opus');
   });
 
   it('keeps the token budget small and effort low — this runs against a ticking countdown', async () => {

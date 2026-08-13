@@ -36,8 +36,9 @@ export class AnthropicHttpError extends Error {
   }
 }
 
-export function createAnthropicClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createAnthropicClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     async chat(request: { system: string; messages: AiChatMessage[] }): Promise<AiTurn> {
@@ -51,7 +52,7 @@ export function createAnthropicClient(config: { apiKey: string }, fetchFn?: Fetc
             'anthropic-version': ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: MODEL,
+            model,
             max_tokens: MAX_TOKENS,
             thinking: { type: 'disabled' },
             system: request.system,
@@ -117,8 +118,9 @@ export type AnthropicClient = ReturnType<typeof createAnthropicClient>;
  *
  * Callers are expected to swallow every error: rest must never depend on this.
  */
-export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createRestCommentaryClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
@@ -133,7 +135,7 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
             'anthropic-version': ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: MODEL,
+            model,
             max_tokens: COMMENTARY_MAX_TOKENS,
             thinking: { type: 'disabled' },
             // Latency is the binding constraint here — the athlete is watching

@@ -41,10 +41,21 @@ describe('createExerciseQuestionClient', () => {
     expect(options.headers['anthropic-version']).toBe('2023-06-01');
 
     const body = JSON.parse(options.body);
+    expect(body.model).toBe('claude-sonnet-5');
     expect(body.system).toBe('You are a coach');
     expect(body.messages).toEqual([
       { role: 'user', content: '## Exercise\n\nBench Press' },
     ]);
+  });
+
+  it('C1.3: uses configured model when provided (exercise question)', async () => {
+    mockFetch.mockResolvedValueOnce(textResponse('How to bench press.'));
+
+    const client = createExerciseQuestionClient({ apiKey: 'test-key', model: 'claude-haiku' }, mockFetch);
+    await client.ask({ system: 's', message: 'm' });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe('claude-haiku');
   });
 
   it('budgets more tokens than the rest-screen comment — this is a detailed answer, not 1-2 sentences', async () => {

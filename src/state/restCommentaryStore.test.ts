@@ -416,7 +416,28 @@ describe('createRestCommentaryStore', () => {
       expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
       expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
       expect(config).toHaveProperty('aiProvider', 'anthropic');
-      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior test only checked Object.keys presence; it passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      setSettings({
+        anthropicKey: 'sk-ant-test',
+        aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+      });
+
+      mockFetch.mockResolvedValueOnce(commentResponse('Great work!'));
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().show(target());
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
     });
 
     it('treats a whitespace-only key as no key', async () => {
@@ -457,9 +478,10 @@ describe('createRestCommentaryStore', () => {
       // Verify the config was forwarded with the OpenAI key, not blanked
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]).toEqual({
+        aiModel: undefined,
+        aiProvider: undefined,
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
-        aiProvider: undefined,
       });
       // M1: Verify OpenAI client was used by checking Authorization header
       const headers = mockFetch.mock.calls[0][1].headers;

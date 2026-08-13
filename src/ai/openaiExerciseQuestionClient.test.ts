@@ -100,6 +100,27 @@ describe('openaiExerciseQuestionClient', () => {
       expect(callBody.model).toBe('gpt-5.6-sol');
     });
 
+    it('C1.7: uses configured model when provided (openai exercise question)', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [{
+            type: 'message',
+            content: [{
+              type: 'output_text',
+              text: 'Answer',
+            }],
+          }],
+        }),
+      });
+
+      const client = createOpenaiExerciseQuestionClient({ apiKey: 'test-key', model: 'gpt-4' }, mockFetch as any);
+      await client.ask({ system: 'test', message: 'test' });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.model).toBe('gpt-4');
+    });
+
     it('detects incomplete response status (Q11)', async () => {
       const mockFetch = jest.fn().mockResolvedValueOnce({
         ok: true,

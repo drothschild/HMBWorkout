@@ -313,9 +313,10 @@ describe('createExerciseReplaceStore', () => {
       // Verify the config was forwarded with the OpenAI key, not blanked
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]).toEqual({
+        aiModel: undefined,
+        aiProvider: undefined,
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
-        aiProvider: undefined,
       });
     });
 
@@ -344,7 +345,34 @@ describe('createExerciseReplaceStore', () => {
       expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
       expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
       expect(config).toHaveProperty('aiProvider', 'openai');
-      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
+    it('I2: forwards configured aiModel by value (not just by key presence)', async () => {
+      // I2 fix: prior test only checked Object.keys presence; it passed even
+      // when aiModel was undefined. This test verifies the actual value arrives.
+      setSettings({
+        anthropicKey: 'sk-ant-test',
+        aiModel: { chat: 'claude-opus', oneShot: 'claude-haiku' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: JSON.stringify([{ title: 'Alt', kind: 'strength' }]) }],
+          stop_reason: 'end_turn',
+        }),
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].aiModel).toStrictEqual({
+        chat: 'claude-opus',
+        oneShot: 'claude-haiku',
+      });
     });
 
     it('does nothing from a no-key settings blob', async () => {

@@ -59,8 +59,9 @@ export class OpenaiRefusalError extends Error {
   }
 }
 
-export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createOpenaiClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     async chat(request: { system: string; messages: AiChatMessage[] }): Promise<AiTurn> {
@@ -74,7 +75,7 @@ export function createOpenaiClient(config: { apiKey: string }, fetchFn?: FetchFn
             schemaName: 'AiTurn',
             surface: 'chat',
           },
-          MODEL
+          model
         );
       } catch (error) {
         // Unreachable today: the schema and schemaName above are hardcoded and
@@ -196,8 +197,9 @@ export type OpenaiClient = ReturnType<typeof createOpenaiClient>;
  *
  * Callers are expected to swallow every error: rest must never depend on this.
  */
-export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createRestCommentaryClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
@@ -213,7 +215,7 @@ export function createRestCommentaryClient(config: { apiKey: string }, fetchFn?:
             surface: 'restCommentary',
             outputFormat: 'text',
           },
-          MODEL
+          model
         );
       } catch (error) {
         throw new OpenaiSchemaError(

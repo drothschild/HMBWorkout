@@ -88,11 +88,19 @@ describe('createAiClient factory', () => {
       const { createAiClient: freshFactory } = await import('./factory');
       freshFactory({ openaiKey: '  sk-padded  ', aiProvider: 'openai' });
 
-      // CRITICAL: verify trimmed key reaches ALL surfaces
-      expect(chatClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
-      expect(commentClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
-      expect(suggestClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
-      expect(askClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-padded' });
+      // CRITICAL: verify trimmed key reaches ALL surfaces with the correct full config
+      expect(chatClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-padded' })
+      );
+      expect(commentClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-padded' })
+      );
+      expect(suggestClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-padded' })
+      );
+      expect(askClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-padded' })
+      );
     });
 
     it('trims anthropicKey before passing to Anthropic clients', async () => {
@@ -116,11 +124,19 @@ describe('createAiClient factory', () => {
       const { createAiClient: freshFactory } = await import('./factory');
       freshFactory({ anthropicKey: '  sk-ant-padded  ', aiProvider: 'anthropic' });
 
-      // CRITICAL: verify trimmed key reaches ALL surfaces
-      expect(chatClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
-      expect(commentClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
-      expect(suggestClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
-      expect(askClientSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-padded' });
+      // CRITICAL: verify trimmed key reaches ALL surfaces with the correct full config
+      expect(chatClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-ant-padded' })
+      );
+      expect(commentClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-ant-padded' })
+      );
+      expect(suggestClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-ant-padded' })
+      );
+      expect(askClientSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: 'sk-ant-padded' })
+      );
     });
   });
 
@@ -211,32 +227,114 @@ describe('createAiClient factory', () => {
     });
   });
 
-  it('accepts aiModel but does NOT yet apply it — pinning a known Phase 3 gap', async () => {
-    // This test pins a limitation, not a feature. `aiModel` is a real settings
-    // field, but neither client factory takes a model argument yet, so a
-    // user-chosen model is silently ignored. Two earlier tests here were named
-    // "uses provided model config" and "uses default models when none provided"
-    // and asserted only `expect(client).toBeDefined()` — they would have passed
-    // no matter what the factory did with the config, which is how the gap
-    // stayed invisible.
-    //
-    // Asserting the wrong-but-actual behaviour makes Phase 3 change it
-    // deliberately: whoever wires model selection has to delete this test and
-    // say so, rather than finding green tests that already claim it works.
-    const captured: { model?: string } = {};
-    const fetchFn = jest.fn(async (_url: string, init: { body: string }) => {
-      captured.model = (JSON.parse(init.body) as { model?: string }).model;
-      throw new Error('stop here — we only need the request body');
+  describe('routes models to surfaces correctly', () => {
+    // I3 note: A test was deleted that directly called createOpenaiClient and
+    // asserted `model === 'gpt-5.6-sol'` in the request body (named
+    // 'accepts aiModel but does NOT yet apply it'). Its model assertion now
+    // lives in the C1 tests below, which verify configured models end up in
+    // the request body for ALL eight factories. The factory tests at C2 verify
+    // resolveModels is called with the right arguments.
+    afterEach(() => jest.resetModules());
+
+    it('routes chat to the chat model and the three one-shots to oneShot (anthropic)', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      const commentSpy = jest.fn(() => ({ comment: async () => 'ok' }));
+      const suggestSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
+      const askSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+      const resolveModelsMock = jest.fn(() => ({
+        chat: 'CHAT-ID',
+        oneShot: 'ONESHOT-ID',
+      }));
+
+      jest.doMock('../anthropicClient', () => ({
+        createAnthropicClient: chatSpy,
+        createRestCommentaryClient: commentSpy,
+      }));
+      jest.doMock('../alternatesClient', () => ({
+        createExerciseAlternatesClient: suggestSpy,
+      }));
+      jest.doMock('../exerciseQuestionClient', () => ({
+        createExerciseQuestionClient: askSpy,
+      }));
+      jest.doMock('./models', () => ({
+        resolveModels: resolveModelsMock,
+      }));
+
+      const { createAiClient: f } = await import('./factory');
+      f({
+        anthropicKey: 'sk-ant-x',
+        aiModel: { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' },
+      });
+
+      // C2: resolveModels must be called with the configured model
+      expect(resolveModelsMock).toHaveBeenCalledWith('anthropic', { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' });
+
+      // Chat gets the chat model
+      expect(chatSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'CHAT-ID' })
+      );
+      // Three one-shots get the oneShot model
+      expect(commentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
+      expect(suggestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
+      expect(askSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
     });
 
-    const client = createOpenaiClient({ apiKey: 'k' }, fetchFn as never);
-    await client
-      .chat({ system: 's', messages: [{ role: 'user', content: 'hi' }] })
-      .catch(() => undefined);
+    it('routes chat to the chat model and the three one-shots to oneShot (openai)', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(() => ({ chat: async () => ({ reply: 'ok' }) }));
+      const commentSpy = jest.fn(() => ({ comment: async () => 'ok' }));
+      const suggestSpy = jest.fn(() => ({ suggest: async () => ({ alternates: [] }) }));
+      const askSpy = jest.fn(() => ({ ask: async () => 'ok' }));
+      const resolveModelsMock = jest.fn(() => ({
+        chat: 'CHAT-ID',
+        oneShot: 'ONESHOT-ID',
+      }));
 
-    // The hardcoded model, NOT any caller-supplied one.
-    // Uses explicit -sol (frontier tier) rather than the alias 'gpt-5.6'
-    expect(captured.model).toBe('gpt-5.6-sol');
+      jest.doMock('../openaiClient', () => ({
+        createOpenaiClient: chatSpy,
+        createRestCommentaryClient: commentSpy,
+      }));
+      jest.doMock('../openaiAlternatesClient', () => ({
+        createOpenaiAlternatesClient: suggestSpy,
+      }));
+      jest.doMock('../openaiExerciseQuestionClient', () => ({
+        createOpenaiExerciseQuestionClient: askSpy,
+      }));
+      jest.doMock('./models', () => ({
+        resolveModels: resolveModelsMock,
+      }));
+
+      const { createAiClient: f } = await import('./factory');
+      f({
+        openaiKey: 'sk-openai-x',
+        aiModel: { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' },
+      });
+
+      // C2: resolveModels must be called with the configured model
+      expect(resolveModelsMock).toHaveBeenCalledWith('openai', { chat: 'CHAT-ID', oneShot: 'ONESHOT-ID' });
+
+      // Chat gets the chat model
+      expect(chatSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'CHAT-ID' })
+      );
+      // Three one-shots get the oneShot model
+      expect(commentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
+      expect(suggestSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
+      expect(askSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'ONESHOT-ID' })
+      );
+    });
   });
 
   describe('forwards payloads correctly to each surface on its own channel', () => {

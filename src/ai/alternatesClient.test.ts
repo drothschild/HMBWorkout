@@ -52,9 +52,20 @@ describe('createExerciseAlternatesClient', () => {
     expect(options.headers['anthropic-version']).toBe('2023-06-01');
 
     const body = JSON.parse(options.body);
+    expect(body.model).toBe('claude-sonnet-5');
     expect(body.system).toBe('You are a coach');
     expect(body.messages).toEqual([{ role: 'user', content: '## Replace\n\nBench Press' }]);
     expect(body.thinking).toEqual({ type: 'disabled' });
+  });
+
+  it('C1.2: uses configured model when provided (alternates)', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(PAYLOAD));
+
+    const client = createExerciseAlternatesClient({ apiKey: 'test-key', model: 'claude-haiku' }, mockFetch);
+    await client.suggest({ system: 's', message: 'm' });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe('claude-haiku');
   });
 
   it('asks for structured output against the alternates schema, not the turn schema', async () => {

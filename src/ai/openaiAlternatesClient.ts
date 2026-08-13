@@ -31,10 +31,11 @@ const MODEL = 'gpt-5.6-sol';
 type FetchFn = typeof fetch;
 
 export function createOpenaiAlternatesClient(
-  config: { apiKey: string },
+  config: { apiKey: string; model?: string },
   fetchFn?: FetchFn
 ) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns alternates already validated against `ALTERNATES_SCHEMA`'s bounds. */
@@ -49,7 +50,7 @@ export function createOpenaiAlternatesClient(
             schemaName: 'ExerciseAlternates',
             surface: 'alternates',
           },
-          MODEL
+          model
         );
       } catch (error) {
         throw new OpenaiSchemaError(

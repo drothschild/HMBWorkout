@@ -234,6 +234,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           anthropicKey: settings.anthropicKey,
           openaiKey: settings.openaiKey,
           aiProvider: settings.aiProvider,
+          aiModel: settings.aiModel,
         };
         const client = deps.createClient(providerConfig);
         const result = (await client.suggest(prompt)) as ExerciseAlternates;

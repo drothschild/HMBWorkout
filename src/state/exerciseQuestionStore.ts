@@ -153,6 +153,7 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
         anthropicKey: settings.anthropicKey,
         openaiKey: settings.openaiKey,
         aiProvider: settings.aiProvider,
+        aiModel: settings.aiModel,
       };
       const client = deps.createClient(providerConfig);
       const rawAnswer = await client.ask(prompt);

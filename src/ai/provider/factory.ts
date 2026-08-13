@@ -10,6 +10,7 @@ import { createExerciseAlternatesClient } from '../alternatesClient';
 import { createOpenaiAlternatesClient } from '../openaiAlternatesClient';
 import { createExerciseQuestionClient } from '../exerciseQuestionClient';
 import { createOpenaiExerciseQuestionClient } from '../openaiExerciseQuestionClient';
+import { resolveModels } from './models';
 import type { AiClient, ProviderConfig, AiProvider } from './types';
 
 /**
@@ -53,19 +54,7 @@ function resolveProvider(config: ProviderConfig): AiProvider {
  */
 export function createAiClient(config: ProviderConfig): AiClient {
   const provider = resolveProvider(config);
-
-  // NOTE: `config.aiModel` is deliberately NOT read here. The settings field is
-  // real (Phase 1 added it, and settings.test.ts round-trips it), but neither
-  // client factory accepts a model argument yet — both hardcode their own. So a
-  // user-chosen model would be silently ignored.
-  //
-  // An earlier revision computed a `modelConfig` here, dropped it on the floor,
-  // and silenced the resulting unused-variable warning with an eslint-disable.
-  // That is strictly worse than not reading it: it looks wired, lints clean, and
-  // two tests named "uses provided model config" asserted only that the factory
-  // returned something. Wiring it for real is Phase 3 (it changes both client
-  // signatures, including the working Anthropic one) and is pinned by the
-  // accepted-but-ignored test in factory.test.ts until then.
+  const models = resolveModels(provider, config.aiModel);
 
   if (provider === 'anthropic') {
     // Guard matches resolveProvider's logic: require non-empty trimmed value
@@ -73,11 +62,11 @@ export function createAiClient(config: ProviderConfig): AiClient {
       throw new Error('Anthropic provider selected but anthropicKey not configured');
     }
 
-    const apiConfig = { apiKey: config.anthropicKey.trim() };
-    const chatClient = createAnthropicClient(apiConfig);
-    const commentClient = createRestCommentaryClient(apiConfig);
-    const suggestClient = createExerciseAlternatesClient(apiConfig);
-    const askClient = createExerciseQuestionClient(apiConfig);
+    const apiKey = config.anthropicKey.trim();
+    const chatClient = createAnthropicClient({ apiKey, model: models.chat });
+    const commentClient = createRestCommentaryClient({ apiKey, model: models.oneShot });
+    const suggestClient = createExerciseAlternatesClient({ apiKey, model: models.oneShot });
+    const askClient = createExerciseQuestionClient({ apiKey, model: models.oneShot });
 
     return {
       async chat(request) {
@@ -113,11 +102,11 @@ export function createAiClient(config: ProviderConfig): AiClient {
     throw new Error('OpenAI provider selected but openaiKey not configured');
   }
 
-  const apiConfig = { apiKey: config.openaiKey.trim() };
-  const chatClient = createOpenaiClient(apiConfig);
-  const commentClient = createOpenaiRestCommentaryClient(apiConfig);
-  const suggestClient = createOpenaiAlternatesClient(apiConfig);
-  const askClient = createOpenaiExerciseQuestionClient(apiConfig);
+  const apiKey = config.openaiKey.trim();
+  const chatClient = createOpenaiClient({ apiKey, model: models.chat });
+  const commentClient = createOpenaiRestCommentaryClient({ apiKey, model: models.oneShot });
+  const suggestClient = createOpenaiAlternatesClient({ apiKey, model: models.oneShot });
+  const askClient = createOpenaiExerciseQuestionClient({ apiKey, model: models.oneShot });
 
   return {
     async chat(request) {

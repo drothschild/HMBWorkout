@@ -157,6 +157,7 @@ export function createAiChatStore(deps: AiChatDeps) {
       anthropicKey: settings.anthropicKey,
       openaiKey: settings.openaiKey,
       aiProvider: settings.aiProvider,
+      aiModel: settings.aiModel,
     };
 
     const client = deps.createClient(providerConfig);
