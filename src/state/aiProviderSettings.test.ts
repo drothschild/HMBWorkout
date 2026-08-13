@@ -223,21 +223,38 @@ describe('aiProviderSettings', () => {
   });
 
   describe('modelSelectionPatch', () => {
+    // Three ids per provider, deliberately. With only two, the written id and the
+    // surviving id collide in the asserted output and a whole-object write
+    // ({chat: id, oneShot: id}) is indistinguishable from a per-field one.
     const testChoices = {
-      anthropic: ['claude-sonnet-5', 'claude-opus-4'],
-      openai: ['gpt-5.6-sol', 'gpt-4o'],
+      anthropic: ['m-a', 'm-b', 'm-c'],
+      openai: ['o-a', 'o-b'],
     };
 
     it('changes only the named field', () => {
       expect(
         modelSelectionPatch(
-          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'claude-opus-4'}},
+          {aiModel: {chat: 'm-a', oneShot: 'm-b'}},
           'anthropic',
           'chat',
-          'claude-opus-4',
+          'm-c',
           testChoices,
         ),
-      ).toEqual({aiModel: {chat: 'claude-opus-4', oneShot: 'claude-opus-4'}});
+      ).toStrictEqual({aiModel: {chat: 'm-c', oneShot: 'm-b'}});
+    });
+
+    // The other half of `keyof AiModelConfig`. Without this, `field` is only ever
+    // 'chat' and an implementation that ignores `field` entirely survives.
+    it('changes oneShot when that is the named field, leaving chat alone', () => {
+      expect(
+        modelSelectionPatch(
+          {aiModel: {chat: 'm-a', oneShot: 'm-b'}},
+          'anthropic',
+          'oneShot',
+          'm-c',
+          testChoices,
+        ),
+      ).toStrictEqual({aiModel: {chat: 'm-a', oneShot: 'm-c'}});
     });
 
     it('normalises an unlisted stored id before writing', () => {
@@ -245,31 +262,19 @@ describe('aiProviderSettings', () => {
         {aiModel: {chat: 'retired', oneShot: 'retired'}},
         'anthropic',
         'chat',
-        'claude-sonnet-5',
+        'm-a',
         testChoices,
       );
-      expect(patch.aiModel).toEqual({
-        chat: 'claude-sonnet-5',
+      expect(patch.aiModel).toStrictEqual({
+        chat: 'm-a',
         oneShot: DEFAULT_MODELS.anthropic.oneShot,
       });
     });
 
-    it('keeps the oneShot when changing chat with different listed values', () => {
-      expect(
-        modelSelectionPatch(
-          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'claude-opus-4'}},
-          'anthropic',
-          'chat',
-          'claude-opus-4',
-          testChoices,
-        ).aiModel?.oneShot,
-      ).toBe('claude-opus-4');
-    });
-
     it('handles undefined aiModel by using provider defaults', () => {
-      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'gpt-4o', testChoices);
-      expect(patch.aiModel).toEqual({
-        chat: 'gpt-4o',
+      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'o-b', testChoices);
+      expect(patch.aiModel).toStrictEqual({
+        chat: 'o-b',
         oneShot: DEFAULT_MODELS.openai.oneShot,
       });
     });

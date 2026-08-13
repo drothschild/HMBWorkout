@@ -507,11 +507,15 @@ in `src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onb
 settings, and no bridge settings at all — kept because renaming the *type* is churn and
 renaming the *key* is forbidden.
 
-**The settings split.** `/settings/ai-provider` (provider, key, models) and `/settings/ai`
+**The settings split.** `/settings/ai-provider` (provider, key) and `/settings/ai`
 (goals, equipment, coaching style, age, experience). The provider/key/model decisions live
 in `src/state/aiProviderSettings.ts` and the screen holds none of them, because `src/app`
-has no jest coverage. All three pure functions are defined there: `initialProviderSelection`,
-`providerSwitchPlan`, `apiKeyPatch`, `modelSelectionPatch`.
+has no jest coverage — the patch/selection builders are `initialProviderSelection`,
+`providerSwitchPlan`, `apiKeyPatch` and `modelSelectionPatch`.
+
+**Per-surface model selection is not yet exposed.** `modelSelectionPatch` exists, is tested,
+and has **no production caller**; the provider screen has no model picker. Wiring one is the
+remaining work on #122.
 
 **One key per install.** Switching provider clears the outgoing provider's key, to `''`
 rather than `undefined` because `setSettings` persists through `JSON.stringify`, which drops
@@ -529,8 +533,8 @@ picker keep resolving implicitly in `factory.ts`. Nothing can test this — `src
 uncovered and an automated fixture cannot distinguish "no write" from "wrote the derived
 value" — so it rests on a structural criterion.
 
-**The key is trimmed at one boundary on the way in**, `apiKeyPatch`; `factory.ts:76,116`
-trims again at the wire. **Keep both layers.** Note that the factory's trim makes an
+**The key is trimmed at one boundary on the way in**, `apiKeyPatch`; `factory.ts:61,65,101,105`
+trims again at the wire (two guard sites and two forwarding sites, one pair per provider). **Keep both layers.** Note that the factory's trim makes an
 untrimmed *store* invisible to every wire-level assertion, so `apiKeyPatch`'s own test is
 the only cover.
 
@@ -543,11 +547,16 @@ the failing provider. The provider is a two-member union, so key material cannot
 banner by construction.
 
 **The model list is constrained and its membership is governed by the fixed request contract.**
-Spell out the contract (`reasoning: { effort: 'none' }`, `thinking: { type: 'disabled' }`,
-`output_config: { effort: 'low' }` on Anthropic rest commentary) and the fixed budgets
-(chat 4096, alternates 1024, exerciseQuestion 512, restCommentary 256), and state that
-**adding an id requires one live call per surface returning rendered text — it is not a
-config edit.** `resolveModels` ignores an id not on the selected provider's list and falls
+Every client sends a fixed request contract — `reasoning: { effort: 'none' }` on OpenAI,
+`thinking: { type: 'disabled' }` on Anthropic, `output_config: { effort: 'low' }` on Anthropic
+rest commentary — against fixed budgets (chat 4096, alternates 1024, exerciseQuestion 512,
+restCommentary 256). A model that rejects those, or whose minimum reasoning effort exceeds
+`none`, either 400s or returns `status: 'incomplete'` with no text and a bill — and every AI
+failure here is swallowed, so the symptom is four silently dead features. **Adding an id
+therefore requires one live call per surface returning rendered text; it is not a config
+edit.** The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
+membership in the repo — its `toStrictEqual` is load-bearing, since a loose matcher
+(`arrayContaining`) silently readmits unprobed ids. `resolveModels` ignores an id not on the selected provider's list and falls
 back per field, without rewriting the setting.
 
 The selection rule exists in three implementations: `settings.ts:137-159` (`resolveAiProvider`,

@@ -139,7 +139,7 @@ export function providerSwitchPlan(
  * Phase 3 removed the untrimmed `queueSave({anthropicKey: value})` from
  * `src/app/(tabs)/settings/ai.tsx` and added the trimmed `apiKeyPatch` call here.
  *
- * `factory.ts:76,116` trims again at the wire; both layers stay, matching the
+ * `factory.ts:61,65,101,105` trims again at the wire; both layers stay, matching the
  * codebase's existing double-normalisation habit. But the factory's trim is
  * also why an untrimmed store is invisible to every wire-level assertion — this
  * function is the only place the trim is observable.
