@@ -457,9 +457,10 @@ describe('createRestCommentaryStore', () => {
       // Verify the config was forwarded with the OpenAI key, not blanked
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]).toEqual({
+        aiModel: undefined,
+        aiProvider: undefined,
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
-        aiProvider: undefined,
       });
       // M1: Verify OpenAI client was used by checking Authorization header
       const headers = mockFetch.mock.calls[0][1].headers;

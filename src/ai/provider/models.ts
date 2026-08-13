@@ -50,9 +50,10 @@ export const AI_MODEL_CHOICES: Record<AiProvider, readonly string[]> = {
 export function resolveModels(
   provider: AiProvider,
   configured: AiModelConfig | undefined,
+  choices: Record<AiProvider, readonly string[]> = AI_MODEL_CHOICES,
 ): AiModelConfig {
   const defaults = DEFAULT_MODELS[provider];
-  const allowed = AI_MODEL_CHOICES[provider];
+  const allowed = choices[provider];
   const pick = (id: string | undefined, fallback: string) =>
     id && allowed.includes(id) ? id : fallback;
 

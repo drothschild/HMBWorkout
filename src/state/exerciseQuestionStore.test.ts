@@ -402,9 +402,10 @@ describe('createExerciseQuestionStore', () => {
       // Verify the config was forwarded with the OpenAI key, not blanked
       expect(capturedConfigs).toHaveLength(1);
       expect(capturedConfigs[0]).toEqual({
+        aiModel: undefined,
+        aiProvider: undefined,
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
-        aiProvider: undefined,
       });
     });
 

@@ -1700,7 +1700,7 @@ describe('aiChatStore', () => {
     });
 
     it('coach-onboarding.AC4.3 Failure: failed validation is swallowed, conversation continues', async () => {
-      const { store, fakeChat, fakeSetSettings } = makeStore({
+      const { store, fakeChat } = makeStore({
         setSettings: jest.fn().mockImplementation(() => {
           throw new DraftValidationError('Invalid field');
         }),

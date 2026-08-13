@@ -1,4 +1,4 @@
-import {resolveModels, DEFAULT_MODELS, AI_MODEL_CHOICES} from './models';
+import {resolveModels} from './models';
 
 describe('resolveModels', () => {
   it('returns anthropic hardcoded ids when nothing is configured', () => {
@@ -23,27 +23,21 @@ describe('resolveModels', () => {
   });
 
   it('falls back per field, not per object', () => {
-    // Temporary fixture: add a second Anthropic id to the list for testing
-    const testChoices = {anthropic: ['claude-sonnet-5', 'test-claude-haiku'], openai: ['gpt-5.6-sol']};
+    // Test fixture adds a second Anthropic id to exercise per-field fallback
+    const testChoices = {anthropic: ['claude-sonnet-5', 'claude-haiku'], openai: ['gpt-5.6-sol']};
 
-    const pick = (id: string | undefined, fallback: string) =>
-      id && testChoices.anthropic.includes(id) ? id : fallback;
-
-    const result = {
-      chat: pick('retired-id', 'claude-sonnet-5'),
-      oneShot: pick('test-claude-haiku', 'claude-sonnet-5'),
-    };
-
-    expect(result).toStrictEqual({chat: 'claude-sonnet-5', oneShot: 'test-claude-haiku'});
+    expect(
+      resolveModels('anthropic', {chat: 'retired-id', oneShot: 'claude-haiku'}, testChoices)
+    ).toStrictEqual({chat: 'claude-sonnet-5', oneShot: 'claude-haiku'});
   });
 
   it('returns a listed id unchanged', () => {
-    // Since AI_MODEL_CHOICES is constrained, this test uses the only available non-default
-    // When Phase 6 adds more ids, this test can be expanded
-    const configured = {chat: 'claude-sonnet-5', oneShot: 'claude-sonnet-5'};
-    expect(resolveModels('anthropic', configured)).toStrictEqual({
+    // Test fixture provides a second id so we can verify a non-default choice is returned
+    const testChoices = {anthropic: ['claude-sonnet-5', 'claude-haiku'], openai: ['gpt-5.6-sol']};
+    const configured = {chat: 'claude-sonnet-5', oneShot: 'claude-haiku'};
+    expect(resolveModels('anthropic', configured, testChoices)).toStrictEqual({
       chat: 'claude-sonnet-5',
-      oneShot: 'claude-sonnet-5',
+      oneShot: 'claude-haiku',
     });
   });
 
