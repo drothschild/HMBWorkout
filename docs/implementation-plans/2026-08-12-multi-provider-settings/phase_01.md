@@ -96,7 +96,8 @@ const capturedConfigs: ProviderConfig[] = [];
 
 const createUnifiedClient = (config: ProviderConfig): AiClient => {
   capturedConfigs.push(config);
-  const apiKey = config.aiProvider === 'openai' || config.openaiKey
+  const apiKey = (config.aiProvider === 'openai') ||
+    (config.openaiKey && !config.anthropicKey && !config.aiProvider)
     ? (config.openaiKey ?? '')
     : (config.anthropicKey ?? '');
   const client = createRestCommentaryClient(
@@ -111,6 +112,12 @@ const createUnifiedClient = (config: ProviderConfig): AiClient => {
   };
 };
 ```
+
+⚠ **The condition differs from the plan:** The plan stated `config.aiProvider === 'openai' || config.openaiKey`,
+which would incorrectly route to OpenAI whenever a key exists, overriding an explicit `aiProvider: 'anthropic'`.
+The shipped code above is correct: it routes to OpenAI only when either (1) `aiProvider` is explicitly set to `'openai'`,
+or (2) an OpenAI key exists with no Anthropic key and `aiProvider` is not set. This enforces the "explicit setting wins"
+rule from `resolveAiProvider`. The implementer deviated from the plan because the plan was wrong.
 
 Return `capturedConfigs` from `makeStore()` so tests can assert on it.
 
@@ -338,12 +345,12 @@ widened in Phase 3 to accept either key. This was not. Reuse the existing predic
 writing a fourth copy of the rule:
 
 ```ts
-import { hasAiKey } from '@/state/exerciseReplaceStore';
+import { hasAiKey } from '@/state/hasAiKey';
 // …
 const hasKey = hasAiKey(settings);
 ```
 
-(`hasAiKey` is at `src/state/exerciseReplaceStore.ts:164` and already means "either key, trimmed".)
+(`hasAiKey` is at `src/state/hasAiKey.ts` and means "either key, trimmed".)
 
 Tests:
 
@@ -413,10 +420,17 @@ because they have different signatures (one parameterized, one a closure).
 
 **Workable approach:** Rename the exported function at `:71` from `hasAnthropicKey(settings)` to
 `hasApiKey(settings)`, and have the closure at `:129` delegate to it by calling
-`hasApiKey(deps.getSettings())`. This makes the module use a single exported predicate name.
+`hasApiKey(deps.getSettings())`.
 
-⚠ **`src/app/session.tsx` is in this phase's scope**, because the rename breaks it and no phase may
-leave `tsc` broken for a later one.
+⚠ **The actual solution is different:** The shipped code creates a separate `src/state/hasAiKey.ts` module
+that exports `hasAiKey(settings)`, and `exerciseQuestionStore` imports it from there. This centralizes the
+predicate so all sites — `coachOnboarding.ts`, `postWorkoutDebrief.ts`, `exerciseQuestionStore.ts`, and the
+caller in `src/app` — read from the same module and cannot drift.
+
+⚠ **Two files in `src/app` are in this phase's scope** — the rename breaks both. AC1.10 is a git diff on `src/app`;
+leaving either file with a failing import fails the phase:
+- `src/app/session.tsx:24` imports the renamed predicate
+- `src/app/ai-coach.tsx:26` imports the renamed predicate
 
 **Verify:** `grep -rn "hasAnthropicKey" src/` returns nothing; `npx tsc --noEmit` exit 0.
 
@@ -445,21 +459,24 @@ leave `tsc` broken for a later one.
 
 **Not a code task. This is the phase's exit condition.**
 
-**Scope: 37 mutants** covered by this phase, sourced from #234's per-file survivor table at commit
-`11f53ed`:
+**Scope: 37 mutants** covered by this phase, sourced from #128's round-2 comment (#234's successor):
 
 | file | count | survivors |
 |---|---|---|
-| `src/state/aiChatStore.ts` | 5 | `S01`, `S05`–`S07` |
+| `src/state/aiChatStore.ts` | 5 | `S01`, `S02`, `S05`–`S07` |
 | `src/state/exerciseQuestionStore.ts` | 5 | `E01`, `E03`–`E06` |
 | `src/state/restCommentaryStore.ts` | 4 | `R02`–`R05` |
-| `src/state/exerciseReplaceStore.ts` | 3 | `X02`–`X03` |
+| `src/state/exerciseReplaceStore.ts` | 4 | `X02`–`X05` |
 | `src/ai/provider/factory.ts` | 10 | `F19b`, `F20`, `F21`, `F23`, `F24` + 5 more |
 | `src/ai/openaiAlternatesClient.ts` | 6 | 6 survivors (mutations in alternates request building) |
 | `src/ai/openaiExerciseQuestionClient.ts` | 4 | 4 survivors (mutations in ask request building) |
-| **Phase 1 total** | **37** | — |
+| **Phase 1 total** | **38** | — |
 
-**Rationale for including all 37 in Phase 1:**
+⚠ **Table corrected from #128 round-2 comment:** `aiChatStore` Task 3 kills `S01` and `S02` (the latter was
+implicit); Task 2 kills `S05`–`S07`. `exerciseReplaceStore` Task 2 kills `X02`–`X05` (four mutants, not two).
+Total Phase 1 scope is 38 mutants, not 37.
+
+**Rationale for including all 38 in Phase 1:**
 
 1. **Phase 1 is the coverage phase for closing #234.** Its entire purpose is eliminating #234's
    measured survivor gap. Splitting that gap across phases means #234 stays half-open with no
@@ -468,14 +485,13 @@ leave `tsc` broken for a later one.
    `src/ai/openaiExerciseQuestionClient.ts` are plain TypeScript in `src/ai`, which **is** in
    `jest.config.js`'s `testMatch`. Nothing about them requires the settings UI to exist before
    they can be tested — the OpenAI path's *reachability* is urgent, not the *order* of testing.
-3. **#234 expects to close as part of #122.** Target 37 and it closes cleanly. Target 27 and it
-   does not, requiring its own explanation rather than leaving the card appearing closed with
-   incomplete coverage.
+3. **#234 expects to close as part of #122.** #128's round-2 measurement identified 38 targeted
+   survivors. This phase covers them all, so the card closes cleanly with complete coverage.
 
 **Baseline from #234** (for reference): 37 survivors of 74 valid mutants measured (50% kill rate),
-with 1 anchor miss and 1 non-compiling mutant discarded. This phase's claim is "37 of 37
-previously-surviving mutants now die," which is a different statement from a kill rate over the full
-74-mutant set and should not be conflated with it.
+with 1 anchor miss and 1 non-compiling mutant discarded. #128's round-2 refinement added one more
+survivor (exerciseReplaceStore X04) and clarified aiChatStore's S02, bringing the targeted count to
+38. This phase's claim is "38 of 38 identified survivors now die."
 
 **Note on sweep execution:** This 37-mutant sweep is being run in two passes:
 - **Pass 1 (current):** Store mutations (17) + factory mutations (10) against the branch
@@ -506,6 +522,12 @@ grep -rn "anthropicKey" src/state src/components src/app | grep -v "\.test\."
 
 Every remaining hit must be either the settings type/default itself, a `ProviderConfig` builder that
 also carries `openaiKey`, or a justified exception named in the PR.
+
+⚠ **On `hasAnthropicKey` specifically:** The grep `grep -rn "hasAnthropicKey" src/` is too broad —
+`src/state/settings.ts:146,149,153` and `src/ai/provider/factory.ts:30,33,37` use `hasAnthropicKey` as
+a **local variable name**, not a function call. Scope it to the call form to find actual references:
+`grep -rn "\bhasAnthropicKey(" src/` — this returns empty after Phase 1 completes, confirming the
+exported predicate has been fully replaced by `hasAiKey`.
 
 **Covers:** AC1.9, AC1.10
 
