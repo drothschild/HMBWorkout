@@ -4,8 +4,11 @@ import { useRouter, useFocusEffect } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { WarningColors } from '@/theme/warningColors';
 import { useTheme } from '@/hooks/use-theme';
+import { useIsDark } from '@/hooks/use-is-dark';
 import {
   AI_PROVIDERS,
   PROVIDER_LABEL,
@@ -111,6 +114,7 @@ export default function AiProviderSettingsScreen() {
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
   const warning = crossProviderKeyWarning(provider, keyText);
+  const isDark = useIsDark();
 
   return (
     <ThemedView style={styles.container}>
@@ -180,7 +184,9 @@ export default function AiProviderSettingsScreen() {
 
           {warning && (
             <ThemedView style={[styles.formGroup, styles.warningGroup]}>
-              <ThemedText style={styles.warningText}>{warning}</ThemedText>
+              <ThemedText style={[styles.warningText, { color: isDark ? WarningColors.textDark : WarningColors.textLight }]}>
+                {warning}
+              </ThemedText>
             </ThemedView>
           )}
         </ScrollView>
@@ -210,6 +216,14 @@ export default function AiProviderSettingsScreen() {
                 )}
               </Pressable>
             ))}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setPickerOpen(false)}
+              style={styles.cancel}
+            >
+              <ThemedText>Cancel</ThemedText>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -242,13 +256,16 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   backButtonText: {
-    fontSize: 16,
+    color: ActionButtonColor.secondary,
+    fontWeight: '500',
   },
   scroll: {
     flex: 1,
   },
   content: {
     gap: Spacing.three,
+    width: '100%',
+    flexGrow: 1,
   },
   titleRow: {
     gap: Spacing.one,
@@ -302,7 +319,6 @@ const styles = StyleSheet.create({
   },
   warningText: {
     fontSize: 13,
-    color: '#F57F17',
   },
   backdrop: {
     flex: 1,
@@ -330,5 +346,9 @@ const styles = StyleSheet.create({
   pickerOptionCheck: {
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  cancel: {
+    alignItems: 'center',
+    paddingVertical: Spacing.two,
   },
 });

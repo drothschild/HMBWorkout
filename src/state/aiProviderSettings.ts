@@ -135,8 +135,8 @@ export function providerSwitchPlan(
 /**
  * THE intended single boundary where a raw input value becomes a stored key.
  *
- * Phase 3 must remove the untrimmed `queueSave({anthropicKey: value})` from
- * `src/app/(tabs)/settings/ai.tsx:147` to complete this boundary.
+ * Phase 3 removed the untrimmed `queueSave({anthropicKey: value})` from
+ * `src/app/(tabs)/settings/ai.tsx` and added the trimmed `apiKeyPatch` call here.
  *
  * `factory.ts:76,116` trims again at the wire; both layers stay, matching the
  * codebase's existing double-normalisation habit. But the factory's trim is
