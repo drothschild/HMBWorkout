@@ -15,6 +15,29 @@ describe('resolveModels', () => {
     });
   });
 
+  // Only possible now that AI_MODEL_CHOICES holds a real second id per provider
+  // (#245). Before that, every listed id WAS the default, so "returns the
+  // configured id" and "returns the fallback" produced identical output and no
+  // fixture could tell them apart.
+  it('returns a genuinely listed non-default id unchanged', () => {
+    expect(resolveModels('anthropic', { chat: 'claude-opus-5', oneShot: 'claude-opus-5' })).toStrictEqual(
+      { chat: 'claude-opus-5', oneShot: 'claude-opus-5' }
+    );
+    expect(resolveModels('openai', { chat: 'gpt-5.6-luna', oneShot: 'gpt-5.4-mini' })).toStrictEqual(
+      { chat: 'gpt-5.6-luna', oneShot: 'gpt-5.4-mini' }
+    );
+  });
+
+  // Binds the DEFAULT `choices` argument to AI_MODEL_CHOICES. Called without a
+  // third argument, so an implementation defaulting to an empty allow-list (or
+  // to anything other than the real constant) falls back and fails here.
+  // Untestable while each list held one id equal to the default.
+  it('defaults its allow-list to AI_MODEL_CHOICES', () => {
+    expect(resolveModels('anthropic', { chat: 'claude-opus-5', oneShot: 'claude-sonnet-5' }).chat).toBe(
+      'claude-opus-5'
+    );
+  });
+
   it('ignores a cross-provider id and falls back to the provider default', () => {
     // Cross-provider ids: 'gpt-5.6-sol' is OpenAI, not Anthropic
     expect(resolveModels('anthropic', { chat: 'gpt-5.6-sol', oneShot: 'gpt-5.6-sol' })).toStrictEqual(
@@ -71,8 +94,8 @@ describe('AI_MODEL_CHOICES', () => {
     // This test fails if an id is added without updating this assertion, ensuring
     // the constraint is remembered and enforced.
     expect(AI_MODEL_CHOICES).toStrictEqual({
-      anthropic: ['claude-sonnet-5'],
-      openai: ['gpt-5.6-sol'],
+      anthropic: ['claude-sonnet-5', 'claude-opus-5'],
+      openai: ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.4-mini'],
     });
   });
 });
