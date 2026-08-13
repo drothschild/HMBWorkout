@@ -11,7 +11,6 @@ import { getSettings, setSettings } from '@/state/settings';
 import { ONBOARDING_ROUTE } from '@/state/coachOnboarding';
 
 type AiSettingsPatch = Partial<{
-  anthropicKey: string;
   aiGoals: string;
   aiEquipment: string;
   aiPersonality: string;
@@ -24,7 +23,6 @@ const AUTOSAVE_DELAY_MS = 500;
 export default function AiCoachSettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const [anthropicKey, setAnthropicKey] = useState(() => getSettings().anthropicKey);
   const [aiGoals, setAiGoals] = useState(() => getSettings().aiGoals);
   const [aiEquipment, setAiEquipment] = useState(() => getSettings().aiEquipment);
   const [aiPersonality, setAiPersonality] = useState(() => getSettings().aiPersonality);
@@ -65,7 +63,6 @@ export default function AiCoachSettingsScreen() {
     useCallback(() => {
       flush();
       const settings = getSettings();
-      setAnthropicKey(settings.anthropicKey);
       setAiGoals(settings.aiGoals);
       setAiEquipment(settings.aiEquipment);
       setAiPersonality(settings.aiPersonality);
@@ -132,25 +129,6 @@ export default function AiCoachSettingsScreen() {
               Changes save automatically.
             </ThemedText>
           </View>
-
-          <ThemedView style={styles.formGroup}>
-            <ThemedText type="default" style={styles.label}>
-              Anthropic API Key
-            </ThemedText>
-            <TextInput
-              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
-              placeholder="sk-ant-..."
-              placeholderTextColor={placeholderColor}
-              value={anthropicKey}
-              onChangeText={(value) => {
-                setAnthropicKey(value);
-                queueSave({ anthropicKey: value });
-              }}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </ThemedView>
 
           <ThemedView style={[styles.formGroup, styles.flexGroup]}>
             <ThemedText type="default" style={styles.label}>
