@@ -223,15 +223,21 @@ describe('aiProviderSettings', () => {
   });
 
   describe('modelSelectionPatch', () => {
+    const testChoices = {
+      anthropic: ['claude-sonnet-5', 'claude-opus-4'],
+      openai: ['gpt-5.6-sol', 'gpt-4o'],
+    };
+
     it('changes only the named field', () => {
       expect(
         modelSelectionPatch(
-          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'gpt-5.6-sol'}},
+          {aiModel: {chat: 'claude-sonnet-5', oneShot: 'claude-opus-4'}},
           'anthropic',
           'chat',
           'claude-opus-4',
+          testChoices,
         ),
-      ).toEqual({aiModel: {chat: 'claude-opus-4', oneShot: 'gpt-5.6-sol'}});
+      ).toEqual({aiModel: {chat: 'claude-opus-4', oneShot: 'claude-opus-4'}});
     });
 
     it('normalises an unlisted stored id before writing', () => {
@@ -240,6 +246,7 @@ describe('aiProviderSettings', () => {
         'anthropic',
         'chat',
         'claude-sonnet-5',
+        testChoices,
       );
       expect(patch.aiModel).toEqual({
         chat: 'claude-sonnet-5',
@@ -247,21 +254,22 @@ describe('aiProviderSettings', () => {
       });
     });
 
-    it('keeps the oneShot when changing chat', () => {
+    it('keeps the oneShot when changing chat with different listed values', () => {
       expect(
         modelSelectionPatch(
           {aiModel: {chat: 'claude-sonnet-5', oneShot: 'claude-opus-4'}},
           'anthropic',
           'chat',
-          'claude-3-5-sonnet',
+          'claude-opus-4',
+          testChoices,
         ).aiModel?.oneShot,
       ).toBe('claude-opus-4');
     });
 
     it('handles undefined aiModel by using provider defaults', () => {
-      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'gpt-5.6-sol');
+      const patch = modelSelectionPatch({aiModel: undefined}, 'openai', 'chat', 'gpt-4o', testChoices);
       expect(patch.aiModel).toEqual({
-        chat: 'gpt-5.6-sol',
+        chat: 'gpt-4o',
         oneShot: DEFAULT_MODELS.openai.oneShot,
       });
     });

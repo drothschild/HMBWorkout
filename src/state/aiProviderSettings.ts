@@ -6,8 +6,7 @@
  * `coachOnboarding.dismissOnboardingPatch`.
  */
 
-import type {AiProvider} from '@/ai/provider/types';
-import type {AiModelConfig} from '@/ai/provider/types';
+import type {AiProvider, AiModelConfig} from '@/ai/provider/types';
 import {resolveModels, DEFAULT_MODELS} from '@/ai/provider/models';
 import type {BridgeSettings} from '@/state/settings';
 
@@ -161,14 +160,21 @@ export function apiKeyPatch(
  * The current pair is read through `resolveModels`, so a stored id that is no
  * longer offered resolves to the default before the write — the user cannot
  * silently re-persist a value the app has stopped honouring.
+ *
+ * The incoming `id` is written verbatim without membership validation. The caller
+ * is trusted: production only calls this from the UI, which only offers ids from
+ * `AI_MODEL_CHOICES`. An unlisted id would 400 on the next API call; all AI failures
+ * here are swallowed. If this function is called programmatically, validate `id`
+ * against `choices[provider]` at the call site.
  */
 export function modelSelectionPatch(
   settings: Pick<BridgeSettings, 'aiModel'>,
   provider: AiProvider,
   field: keyof AiModelConfig,
   id: string,
+  choices?: Record<AiProvider, readonly string[]>,
 ): Partial<BridgeSettings> {
-  const current = resolveModels(provider, settings.aiModel);
+  const current = resolveModels(provider, settings.aiModel, choices);
   return {aiModel: {...current, [field]: id}};
 }
 
