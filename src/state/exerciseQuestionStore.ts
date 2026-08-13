@@ -68,7 +68,6 @@ interface ExerciseQuestionState {
   collapse(): void;
 }
 
-
 /**
  * Build the cache key for an exercise question target.
  *
@@ -120,7 +119,6 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
   let cachedSessionId: string | null = null;
   let currentKey: string | null = null;
   let generation = 0;
-
 
   async function requestAnswer(key: string, target: ExerciseQuestionTarget): Promise<string | null> {
     const inFlight = pendingRequests.get(key);

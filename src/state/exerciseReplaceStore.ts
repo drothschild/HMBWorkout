@@ -158,7 +158,6 @@ export function replaceExerciseTarget(
   };
 }
 
-
 /**
  * Whether the screen should render the Replace button at all.
  *

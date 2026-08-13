@@ -11,6 +11,7 @@
 
 import type { RestCommentaryHistorySet } from '@/ai/restCommentaryPrompt';
 import { createRestCommentaryClient } from '@/ai/anthropicClient';
+import { createRestCommentaryClient as createOpenaiRestCommentaryClient } from '@/ai/openaiClient';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import {
@@ -84,14 +85,20 @@ describe('createRestCommentaryStore', () => {
 
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
       capturedConfigs.push(config);
-      const apiKey = (config.aiProvider === 'openai') ||
-        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
+      const isOpenai = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider);
+      const apiKey = isOpenai
         ? (config.openaiKey ?? '')
         : (config.anthropicKey ?? '');
-      const client = createRestCommentaryClient(
-        { apiKey },
-        mockFetch as unknown as typeof fetch
-      );
+      const client = isOpenai
+        ? createOpenaiRestCommentaryClient(
+            { apiKey },
+            mockFetch as unknown as typeof fetch
+          )
+        : createRestCommentaryClient(
+            { apiKey },
+            mockFetch as unknown as typeof fetch
+          );
       return {
         async chat() {
           throw new Error('chat not used in test');
@@ -428,6 +435,19 @@ describe('createRestCommentaryStore', () => {
         aiProvider: undefined,
       });
 
+      // Use OpenAI Responses format: output array with message item
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [
+            {
+              type: 'message',
+              content: [{ type: 'output_text', text: 'Same weight, one more rep.' }],
+            },
+          ],
+        }),
+      });
+
       const { store, capturedConfigs } = makeStore();
 
       await store.getState().show(target());
@@ -441,6 +461,10 @@ describe('createRestCommentaryStore', () => {
         openaiKey: 'sk-openai-123',
         aiProvider: undefined,
       });
+      // M1: Verify OpenAI client was used by checking Authorization header
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers.authorization).toBe('Bearer sk-openai-123');
+      expect(headers['x-api-key']).toBeUndefined();
     });
 
     it('makes no call from a no-key settings blob', async () => {
@@ -458,7 +482,6 @@ describe('createRestCommentaryStore', () => {
       expect(store.getState().text).toBeNull();
       expect(store.getState().pending).toBe(false);
       expect(store.getState().attempted).toBe(false);
-      // No config should be captured if hasApiKey() returns false
       expect(capturedConfigs).toHaveLength(0);
     });
 
@@ -555,6 +578,7 @@ describe('createRestCommentaryStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
+        aiProvider: 'anthropic',
         aiPersonality: 'Encouraging but honest.',
         profileAge: '41',
         profileExperience: 'Advanced',
