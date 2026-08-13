@@ -416,7 +416,7 @@ describe('createRestCommentaryStore', () => {
       expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
       expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
       expect(config).toHaveProperty('aiProvider', 'anthropic');
-      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
     it('treats a whitespace-only key as no key', async () => {

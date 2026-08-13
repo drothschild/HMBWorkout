@@ -221,6 +221,7 @@ describe('aiChatStore', () => {
         anthropicKey: 'sk-test',
         openaiKey: undefined,
         aiProvider: undefined,
+        aiModel: undefined,
       });
       expect(fakeChat).toHaveBeenCalled();
       expect(store.getState().status).toBe('idle');
@@ -245,6 +246,7 @@ describe('aiChatStore', () => {
         anthropicKey: '',
         openaiKey: 'sk-openai-123',
         aiProvider: undefined,
+        aiModel: undefined,
       });
       expect(fakeChat).toHaveBeenCalled();
       expect(store.getState().status).toBe('idle');
@@ -1120,8 +1122,8 @@ describe('aiChatStore', () => {
       expect(call).toHaveProperty('anthropicKey', 'sk-test');
       expect(call).toHaveProperty('openaiKey', 'key-openai');
       expect(call).toHaveProperty('aiProvider', 'anthropic');
-      // Ensure exactly 3 properties are forwarded
-      expect(Object.keys(call).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      // Ensure exactly 4 properties are forwarded (including aiModel)
+      expect(Object.keys(call).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
     it('creates client once per send call', async () => {

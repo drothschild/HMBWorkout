@@ -344,7 +344,7 @@ describe('createExerciseReplaceStore', () => {
       expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
       expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
       expect(config).toHaveProperty('aiProvider', 'openai');
-      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+      expect(Object.keys(config).sort()).toEqual(['aiModel', 'aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
     it('does nothing from a no-key settings blob', async () => {

@@ -20,10 +20,11 @@ const MODEL = 'gpt-5.6-sol';
 type FetchFn = typeof fetch;
 
 export function createOpenaiExerciseQuestionClient(
-  config: { apiKey: string },
+  config: { apiKey: string; model?: string },
   fetchFn?: FetchFn
 ) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
@@ -38,7 +39,7 @@ export function createOpenaiExerciseQuestionClient(
           schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
           schemaName: 'ExerciseQuestionResponse',
         },
-        MODEL
+        model
       );
 
       let response: Response;

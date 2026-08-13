@@ -32,8 +32,9 @@ export const EXERCISE_QUESTION_MAX_TOKENS = 512;
 
 type FetchFn = typeof fetch;
 
-export function createExerciseQuestionClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createExerciseQuestionClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns the first non-empty text block, raw; callers normalize. */
@@ -48,7 +49,7 @@ export function createExerciseQuestionClient(config: { apiKey: string }, fetchFn
             'anthropic-version': ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: MODEL,
+            model,
             max_tokens: EXERCISE_QUESTION_MAX_TOKENS,
             thinking: { type: 'disabled' },
             system: request.system,

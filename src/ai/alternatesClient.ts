@@ -36,8 +36,9 @@ const ALTERNATES_MAX_TOKENS = 1024;
 
 type FetchFn = typeof fetch;
 
-export function createExerciseAlternatesClient(config: { apiKey: string }, fetchFn?: FetchFn) {
+export function createExerciseAlternatesClient(config: { apiKey: string; model?: string }, fetchFn?: FetchFn) {
   const fetch = fetchFn ?? globalThis.fetch;
+  const model = config.model ?? MODEL;
 
   return {
     /** @returns alternates already validated against `ALTERNATES_SCHEMA`'s bounds. */
@@ -52,7 +53,7 @@ export function createExerciseAlternatesClient(config: { apiKey: string }, fetch
             'anthropic-version': ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: MODEL,
+            model,
             max_tokens: ALTERNATES_MAX_TOKENS,
             thinking: { type: 'disabled' },
             system: request.system,

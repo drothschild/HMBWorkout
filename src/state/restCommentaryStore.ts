@@ -192,6 +192,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         anthropicKey: settings.anthropicKey,
         openaiKey: settings.openaiKey,
         aiProvider: settings.aiProvider,
+        aiModel: settings.aiModel,
       };
       const client = deps.createClient(providerConfig);
       const rawComment = await client.comment(prompt);

@@ -11,9 +11,9 @@
 export type AiProvider = 'anthropic' | 'openai';
 
 /**
- * Per-surface model selection. Currently frontier tier (gpt-5.6-sol / claude-sonnet-5)
- * is used for all surfaces; this interface is reserved for Phase 3 when per-surface
- * model selection is implemented.
+ * Per-surface model selection.
+ * Allows different model ids for chat (main conversation, routine drafting, debrief)
+ * and oneShot (rest commentary, exercise question, replace alternates).
  */
 export interface AiModelConfig {
   /**
