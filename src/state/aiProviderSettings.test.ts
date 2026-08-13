@@ -34,6 +34,13 @@ describe('aiProviderSettings', () => {
     it('returns sk-... for openai', () => {
       expect(keyPlaceholder('openai')).toBe('sk-...');
     });
+
+    it('returns different values for the two providers', () => {
+      // Catches mutations like: return provider === 'anthropic' ? 'sk-...' : 'sk-...'
+      const anthropic = keyPlaceholder('anthropic');
+      const openai = keyPlaceholder('openai');
+      expect(anthropic).not.toBe(openai);
+    });
   });
 
   describe('storedKeyFor', () => {
@@ -47,6 +54,15 @@ describe('aiProviderSettings', () => {
       expect(
         storedKeyFor({anthropicKey: 'sk-ant-abc', openaiKey: 'sk-123'}, 'openai'),
       ).toBe('sk-123');
+    });
+
+    it('distinguishes between the two providers for the same settings blob', () => {
+      // Catches mutations like: return settings.anthropicKey || ''
+      // or swapped keys: return settings.openaiKey when provider is 'anthropic'
+      const settings = {anthropicKey: 'ant-KEY', openaiKey: 'oai-KEY'};
+      expect(storedKeyFor(settings, 'anthropic')).toBe('ant-KEY');
+      expect(storedKeyFor(settings, 'openai')).toBe('oai-KEY');
+      expect(storedKeyFor(settings, 'anthropic')).not.toBe(storedKeyFor(settings, 'openai'));
     });
 
     it('returns empty string when anthropic key is undefined', () => {
@@ -105,6 +121,22 @@ describe('aiProviderSettings', () => {
         }),
       ).toBe('openai');
     });
+
+    it('defaults to anthropic when both keys are set and no explicit provider', () => {
+      expect(
+        initialProviderSelection({
+          ...base,
+          anthropicKey: 'sk-ant-x',
+          openaiKey: 'sk-oai-y',
+        }),
+      ).toBe('anthropic');
+    });
+
+    it('defaults specifically to anthropic, not openai, for the neither-or-both case', () => {
+      // Catches: return 'openai' or return null (if arm-3 is broken)
+      expect(initialProviderSelection(base)).toBe('anthropic');
+      expect(initialProviderSelection(base)).not.toBe('openai');
+    });
   });
 
   describe('providerSwitchPlan', () => {
@@ -113,11 +145,12 @@ describe('aiProviderSettings', () => {
         {anthropicKey: 'sk-ant-x', openaiKey: '', aiProvider: 'anthropic'},
         'openai',
       );
-      expect(patch).toEqual({
+      expect(patch).toStrictEqual({
         aiProvider: 'openai',
         anthropicKey: '',
         aiModel: undefined,
       });
+      expect('aiModel' in patch).toBe(true);
     });
 
     it('clears the openai key when switching away from openai', () => {
@@ -125,11 +158,12 @@ describe('aiProviderSettings', () => {
         {anthropicKey: '', openaiKey: 'sk-123', aiProvider: 'openai'},
         'anthropic',
       );
-      expect(patch).toEqual({
+      expect(patch).toStrictEqual({
         aiProvider: 'anthropic',
         openaiKey: '',
         aiModel: undefined,
       });
+      expect('aiModel' in patch).toBe(true);
     });
 
     it.each([
