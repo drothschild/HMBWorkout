@@ -14,7 +14,7 @@ import { hasAiKey } from '@/state/hasAiKey';
 import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from '@/state/coachOnboarding';
 import { createAiClient } from '@/ai/provider/factory';
-import type { AiClient, ProviderConfig } from '@/ai/provider/types';
+import type { AiClient, ProviderConfig, AiProvider } from '@/ai/provider/types';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
 
 export interface AiDisplayMessage {
@@ -24,13 +24,21 @@ export interface AiDisplayMessage {
   hidden?: boolean; // when true, not rendered in the UI but still sent to API
 }
 
+/**
+ * `provider` names which provider failed, so the banner can point the user at
+ * the right console. It is `null` only when no provider is implicated — no key
+ * configured and none explicitly chosen.
+ *
+ * It is a two-member union, never a string derived from a key, so key material
+ * cannot reach the UI through this field by construction.
+ */
 export type AiChatError =
-  | { kind: 'missing_key' }
-  | { kind: 'unauthorized' }
-  | { kind: 'network' }
-  | { kind: 'http'; status: number }
-  | { kind: 'parse' }
-  | { kind: 'unknown' };
+  | { kind: 'missing_key'; provider: AiProvider | null }
+  | { kind: 'unauthorized'; provider: AiProvider | null }
+  | { kind: 'network'; provider: AiProvider | null }
+  | { kind: 'http'; status: number; provider: AiProvider | null }
+  | { kind: 'parse'; provider: AiProvider | null }
+  | { kind: 'unknown'; provider: AiProvider | null };
 
 interface AiChatState {
   mode: AiCoachMode;
@@ -58,7 +66,18 @@ export interface AiChatDeps {
   setSettings: typeof setSettings;
 }
 
+function providerOf(error: unknown): AiProvider | null {
+  if (error instanceof AnthropicHttpError || error instanceof AnthropicUnreachable) {
+    return 'anthropic';
+  }
+  const name = (error as { name?: string } | null)?.name;
+  if (name === 'OpenaiHttpError' || name === 'OpenaiUnreachable') return 'openai';
+  return null;
+}
+
 function mapError(error: unknown): AiChatError {
+  const provider = providerOf(error);
+
   // HTTP errors (Anthropic or OpenAI)
   if (
     error instanceof AnthropicHttpError ||
@@ -66,9 +85,9 @@ function mapError(error: unknown): AiChatError {
   ) {
     const httpError = error as { status?: number };
     if (httpError.status === 401) {
-      return { kind: 'unauthorized' };
+      return { kind: 'unauthorized', provider };
     } else if (httpError.status) {
-      return { kind: 'http', status: httpError.status };
+      return { kind: 'http', status: httpError.status, provider };
     }
   }
 
@@ -77,16 +96,16 @@ function mapError(error: unknown): AiChatError {
     error instanceof AnthropicUnreachable ||
     (error as any)?.name === 'OpenaiUnreachable'
   ) {
-    return { kind: 'network' };
+    return { kind: 'network', provider };
   }
 
   // Parse errors
   if (error instanceof DraftValidationError) {
-    return { kind: 'parse' };
+    return { kind: 'parse', provider };
   }
 
   // Unknown
-  return { kind: 'unknown' };
+  return { kind: 'unknown', provider };
 }
 
 function buildSettingsPatch(proposal: SettingsProposal): Parameters<typeof setSettings>[0] {
@@ -243,7 +262,10 @@ export function createAiChatStore(deps: AiChatDeps) {
       if (!hasAiKey(settings)) {
         set({
           status: 'error',
-          error: { kind: 'missing_key' },
+          // settings.aiProvider, NOT initialProviderSelection: that function defaults to
+          // 'anthropic' when nothing is configured, which would tell a user who picked
+          // OpenAI and left the key blank to go find an Anthropic key. See AC4.8.
+          error: { kind: 'missing_key', provider: settings.aiProvider ?? null },
         });
         return;
       }
