@@ -13,7 +13,7 @@ then enters that provider's API key.
 
 **`src/app` has zero jest coverage.** `jest.config.js` runs one `node` project whose `testMatch`
 covers `engine/db/interop/state/health/helpers/ai/theme/watch/components/export` — `app` is not in
-the list. A screen is invisible to all 1680 tests.
+the list. A screen is invisible to all 1754 tests.
 
 So this phase builds **every decision that screen will make** as pure functions in `src/state`, with
 full tests. Phase 3's screen then contains a `useState`, a `Pressable`, a `Modal`, and calls into
@@ -302,18 +302,24 @@ it('clears the outgoing key and the model when switching away from anthropic', (
     { anthropicKey: 'sk-ant-x', openaiKey: '', aiProvider: 'anthropic' },
     'openai'
   );
-  expect(patch).toEqual({
+  expect(patch).toStrictEqual({
     aiProvider: 'openai',
     anthropicKey: '',
     aiModel: undefined,
   });
 });
 ```
-⚠ **`toEqual` on the whole patch.** `toMatchObject` or `objectContaining` passes a patch that omits
-`anthropicKey` entirely — which clears nothing, silently, forever. The criterion is that the key is
-**present with value `''`**, not merely absent.
-⚠ Note `toEqual` treats an explicit `aiModel: undefined` and an absent `aiModel` as equal. If you want
-that pinned, add `expect('aiModel' in patch).toBe(true)` as a second line.
+⚠ **`toStrictEqual` on the whole patch — not `toEqual`.** `toMatchObject` or `objectContaining`
+passes a patch that omits `anthropicKey` entirely — which clears nothing, silently, forever. The
+criterion is that the key is **present with value `''`**, not merely absent.
+⚠ **`toEqual` is not sufficient, and prescribing it here caused a real defect.** Jest's `toEqual`
+treats an explicit `aiModel: undefined` as equal to an absent `aiModel`, so it cannot pin any field
+whose expected value is `undefined`. Under `toEqual`, two mutants survived the full suite: dropping
+`aiModel: undefined` from the switch patch, and — at the *same-provider* assertion — a plan that
+**also wipes the other provider's key**, under a test named "clears nothing". `setSettings` spreads
+`openaiKey: undefined` into the cache and `JSON.stringify` drops it, so that key is genuinely gone
+from the persisted blob, with no dialog, on a `secureTextEntry` field the user cannot read back.
+Use `toStrictEqual` at **both** switch-patch assertion sites.
 
 ```ts
 it('clears the openai key when switching away from openai', /* mirror image */);
@@ -336,7 +342,7 @@ it('re-selecting the active provider clears nothing', () => {
     'anthropic'
   );
   expect(needsConfirmation).toBe(false);
-  expect(patch).toEqual({ aiProvider: 'anthropic' });
+  expect(patch).toStrictEqual({ aiProvider: 'anthropic' });
   expect(patch.anthropicKey).toBeUndefined();   // the key it would destroy
 });
 ```
@@ -351,6 +357,13 @@ implementation that wipes the key the user is actively using ships green.
 ```ts
 it('trims the stored key', () => {
   expect(apiKeyPatch('anthropic', '  sk-ant-x\n')).toEqual({ anthropicKey: 'sk-ant-x' });
+  // Pin the key SET in BOTH directions, not just one. `toEqual` cannot see an
+  // extra field whose value is `undefined`, so a one-sided assertion lets a
+  // patch that also carries `openaiKey: undefined` through — and `setSettings`
+  // spreads that into the cache, where `JSON.stringify` drops it and the other
+  // provider's stored key is gone.
+  expect(Object.keys(apiKeyPatch('anthropic', 'sk-x'))).toEqual(['anthropicKey']);
+  expect(Object.keys(apiKeyPatch('openai', 'sk-x'))).toEqual(['openaiKey']);
 });
 it('trims the openai key', () => {
   expect(apiKeyPatch('openai', '\tsk-proj-x  ')).toEqual({ openaiKey: 'sk-proj-x' });
