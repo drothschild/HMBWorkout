@@ -200,6 +200,13 @@ export default function AiProviderSettingsScreen() {
             />
           </ThemedView>
 
+          {warning && (
+            <ThemedView style={[styles.formGroup, styles.warningGroup]}>
+              <ThemedText style={[styles.warningText, { color: isDark ? WarningColors.textDark : WarningColors.textLight }]}>
+                {warning}
+              </ThemedText>
+            </ThemedView>
+          )}
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
               Coach Model
@@ -234,13 +241,6 @@ export default function AiProviderSettingsScreen() {
             </Pressable>
           </ThemedView>
 
-          {warning && (
-            <ThemedView style={[styles.formGroup, styles.warningGroup]}>
-              <ThemedText style={[styles.warningText, { color: isDark ? WarningColors.textDark : WarningColors.textLight }]}>
-                {warning}
-              </ThemedText>
-            </ThemedView>
-          )}
         </ScrollView>
       </View>
 
