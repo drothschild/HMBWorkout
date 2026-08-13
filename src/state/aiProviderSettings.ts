@@ -34,7 +34,7 @@ export function keyPlaceholder(provider: AiProvider): string {
  * Used by Phase 3 to populate the key input's initial value.
  */
 export function storedKeyFor(
-  settings: BridgeSettings | Partial<BridgeSettings>,
+  settings: Partial<BridgeSettings>,
   provider: AiProvider,
 ): string {
   const raw = provider === 'anthropic' ? settings.anthropicKey : settings.openaiKey;
@@ -75,6 +75,11 @@ export interface ProviderSwitchPlan {
   /** Apply this whole object. Do not hand-build a subset. */
   patch: Partial<BridgeSettings>;
   /**
+   * The provider being switched away from. Exposed so callers don't need to
+   * recompute it from provider logic.
+   */
+  outgoing: AiProvider;
+  /**
    * True only when the outgoing provider has a key worth losing. An
    * unconditional dialog trains the user to dismiss it, at which point the one
    * that matters gets dismissed too.
@@ -102,13 +107,13 @@ export function providerSwitchPlan(
   next: AiProvider,
 ): ProviderSwitchPlan {
   const current = initialProviderSelection(settings);
+  const outgoing = next === 'anthropic' ? 'openai' : 'anthropic';
 
   if (next === current) {
     // Re-selecting the active provider destroys nothing.
-    return {patch: {aiProvider: next}, needsConfirmation: false};
+    return {patch: {aiProvider: next}, outgoing, needsConfirmation: false};
   }
 
-  const outgoing = next === 'anthropic' ? 'openai' : 'anthropic';
   return {
     patch: {
       aiProvider: next,
@@ -117,12 +122,16 @@ export function providerSwitchPlan(
       // API. Cleared here from this phase on, before anything reads it.
       aiModel: undefined,
     },
+    outgoing,
     needsConfirmation: hasKey(settings, outgoing),
   };
 }
 
 /**
- * THE single boundary where a raw input value becomes a stored key.
+ * THE intended single boundary where a raw input value becomes a stored key.
+ *
+ * Phase 3 must remove the untrimmed `queueSave({anthropicKey: value})` from
+ * `src/app/(tabs)/settings/ai.tsx:147` to complete this boundary.
  *
  * `factory.ts:76,116` trims again at the wire; both layers stay, matching the
  * codebase's existing double-normalisation habit. But the factory's trim is

@@ -141,10 +141,11 @@ describe('aiProviderSettings', () => {
 
   describe('providerSwitchPlan', () => {
     it('clears the outgoing key and the model when switching away from anthropic', () => {
-      const {patch} = providerSwitchPlan(
+      const {patch, outgoing} = providerSwitchPlan(
         {anthropicKey: 'sk-ant-x', openaiKey: '', aiProvider: 'anthropic'},
         'openai',
       );
+      expect(outgoing).toBe('anthropic');
       expect(patch).toStrictEqual({
         aiProvider: 'openai',
         anthropicKey: '',
@@ -154,10 +155,11 @@ describe('aiProviderSettings', () => {
     });
 
     it('clears the openai key when switching away from openai', () => {
-      const {patch} = providerSwitchPlan(
+      const {patch, outgoing} = providerSwitchPlan(
         {anthropicKey: '', openaiKey: 'sk-123', aiProvider: 'openai'},
         'anthropic',
       );
+      expect(outgoing).toBe('openai');
       expect(patch).toStrictEqual({
         aiProvider: 'anthropic',
         openaiKey: '',
@@ -171,21 +173,22 @@ describe('aiProviderSettings', () => {
       ['an empty key', '', false],
       ['a whitespace key', '   ', false],
     ])('needsConfirmation is %s -> %s', (_label, outgoingKey, expected) => {
-      const {needsConfirmation} = providerSwitchPlan(
+      const {needsConfirmation, outgoing} = providerSwitchPlan(
         {anthropicKey: outgoingKey, openaiKey: '', aiProvider: 'anthropic'},
         'openai',
       );
+      expect(outgoing).toBe('anthropic');
       expect(needsConfirmation).toBe(expected);
     });
 
     it('re-selecting the active provider clears nothing', () => {
-      const {patch, needsConfirmation} = providerSwitchPlan(
+      const {patch, outgoing, needsConfirmation} = providerSwitchPlan(
         {anthropicKey: 'sk-ant-x', openaiKey: '', aiProvider: 'anthropic'},
         'anthropic',
       );
+      expect(outgoing).toBe('openai');
       expect(needsConfirmation).toBe(false);
-      expect(patch).toEqual({aiProvider: 'anthropic'});
-      expect(patch.anthropicKey).toBeUndefined();
+      expect(patch).toStrictEqual({aiProvider: 'anthropic'});
     });
   });
 

@@ -764,8 +764,11 @@ This constraint goes in AGENTS.md (AC6.6), because it is exactly the sort of rul
 
 **Divergences:** two, both argued above. (1) The provider-switch patch carries an **explicit**
 blanking value, the exact inverse of `buildSettingsPatch`'s documented omit-undefined rule — the two
-live in the same slice and the contrast is a trap. (2) `settings.ts:resolveAiProvider` gains its first
-production caller, changing it from dead code to a live dependency; its behaviour is not modified.
+live in the same slice and the contrast is a trap. (2) **IMPLEMENTATION CHOSE OPTION 2:** The
+provider-selection rule is implemented inline at `aiProviderSettings.ts:64-71` rather than delegating
+to `settings.ts:resolveAiProvider`. The "explicit wins, else whichever key" decision now exists in
+three places: `settings.ts:141-158`, `factory.ts:25-39`, and `aiProviderSettings.ts:64-71`. This is a
+recorded decision (option 2), not a silent duplication.
 
 ## Implementation Phases
 
@@ -808,8 +811,8 @@ screen can contain none of them.
 **Components:**
 - `src/state/aiProviderSettings.ts` (new) — `initialProviderSelection`, `providerSwitchPlan`,
   `apiKeyPatch`, `crossProviderKeyWarning`, `PROVIDER_LABEL`, `keyPlaceholder`, `AI_PROVIDERS`.
-  `initialProviderSelection` builds on `settings.ts:resolveAiProvider`, giving that function its
-  first production caller.
+  `initialProviderSelection` implements the provider-selection rule inline (option 2 from design
+  discussion); `settings.ts:resolveAiProvider` remains unused.
 - `src/state/aiProviderSettings.test.ts` (new) — the full matrix, including every legal-adjacent
   value AC2 names.
 
