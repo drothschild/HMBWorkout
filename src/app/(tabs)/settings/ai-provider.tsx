@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { WarningColors } from '@/theme/warningColors';
+import { WarningColors, WARNING_SURFACE_CSS } from '@/theme/warningColors';
 import { useTheme } from '@/hooks/use-theme';
 import { useIsDark } from '@/hooks/use-is-dark';
 import {
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
     paddingLeft: Spacing.two,
   },
   warningGroup: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    backgroundColor: WARNING_SURFACE_CSS,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
     borderRadius: 8,
