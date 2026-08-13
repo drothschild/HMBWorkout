@@ -20,7 +20,7 @@ import { useIsDark } from '@/hooks/use-is-dark';
 import { ActionButtonColor, BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
 import { getAiChatStore } from '@/state/aiChatStore';
 import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
-import { aiChatErrorMessage } from '@/state/aiChatErrorCopy';
+import { aiChatErrorMessage, aiChatErrorAllowsRetry } from '@/state/aiChatErrorCopy';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { computeChatScrollTarget, isScrollableIndex, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
@@ -750,7 +750,7 @@ function ErrorBubble({ error, onRetry, onLayout }: ErrorBubbleProps) {
   const isDark = useIsDark();
 
   const errorMessage = aiChatErrorMessage(error);
-  const showRetry = error.kind !== 'missing_key';
+  const showRetry = aiChatErrorAllowsRetry(error);
 
   const errorTextColor = isDark
     ? ThemedBackgroundText.errorBubbleTextDark
