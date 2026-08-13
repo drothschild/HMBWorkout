@@ -40,3 +40,32 @@ export function aiChatErrorMessage(error: AiChatError): string {
       return 'Something went wrong. Try again.';
   }
 }
+
+/**
+ * Whether the error bubble offers a Retry button.
+ *
+ * Lives here, beside the copy, for the same reason the copy moved out of the
+ * screen: this is a per-kind decision and `src/app` has no jest coverage.
+ *
+ * Written as an exhaustive switch rather than `error.kind !== 'missing_key'`
+ * so that adding a seventh `AiChatError` kind is a **TS2366 compile error**
+ * here (strict mode, no `default` arm) instead of that kind silently
+ * inheriting a Retry button. The screen used to carry the negation *plus* a
+ * `const _exhaustive: never`; the Phase 4 move kept the negation and dropped
+ * the guard, which is issue #248.
+ *
+ * `missing_key` is the only kind Retry cannot help: there is nothing to retry
+ * until a key exists, which is why that bubble offers the Settings link instead.
+ */
+export function aiChatErrorAllowsRetry(error: AiChatError): boolean {
+  switch (error.kind) {
+    case 'missing_key':
+      return false;
+    case 'unauthorized':
+    case 'network':
+    case 'http':
+    case 'parse':
+    case 'unknown':
+      return true;
+  }
+}
