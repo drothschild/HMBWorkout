@@ -88,25 +88,3 @@ export interface AiClient {
    */
   ask(request: { system: string; message: string }): Promise<string>;
 }
-
-/**
- * Error types for provider operations. Both providers emit these
- * when network or HTTP errors occur.
- */
-export class ProviderUnreachable extends Error {
-  constructor(public provider: AiProvider, message: string) {
-    super(`${provider} unreachable: ${message}`);
-    this.name = 'ProviderUnreachable';
-  }
-}
-
-export class ProviderHttpError extends Error {
-  constructor(
-    public provider: AiProvider,
-    public status: number,
-    message: string
-  ) {
-    super(`${provider} HTTP ${status}: ${message}`);
-    this.name = 'ProviderHttpError';
-  }
-}

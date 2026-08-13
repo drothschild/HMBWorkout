@@ -37,6 +37,7 @@ import {
 import { applyAlternateToRoutine, ensureAlternateExercise } from '@/ai/acceptAlternate';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import { createAiClient } from '@/ai/provider/factory';
 import type { Event, ExerciseKind, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
@@ -157,15 +158,6 @@ export function replaceExerciseTarget(
   };
 }
 
-/**
- * Whether any AI key is configured (anthropic or openai).
- * Used by screens that require AI capability.
- */
-export function hasAiKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
-  const hasAnthropicKey = settings.anthropicKey?.trim();
-  const hasOpenaiKey = settings.openaiKey?.trim();
-  return Boolean(hasAnthropicKey || hasOpenaiKey);
-}
 
 /**
  * Whether the screen should render the Replace button at all.
@@ -202,12 +194,10 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       swapping = false;
 
       const settings = deps.getSettings();
-      const hasAnthropicKey = settings.anthropicKey?.trim();
-      const hasOpenaiKey = settings.openaiKey?.trim();
       // No key, no call, and no placeholder — the button should not have been
       // rendered, but the guard is re-stated here so no caller can reach the
       // API without one.
-      if (!hasAnthropicKey && !hasOpenaiKey) {
+      if (!hasAiKey(settings)) {
         target = null;
         set({ status: 'idle', alternates: [], error: null });
         return;

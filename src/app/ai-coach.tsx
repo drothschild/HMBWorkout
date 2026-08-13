@@ -23,7 +23,7 @@ import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { computeChatScrollTarget, ChatScrollTarget } from '@/state/chatScrollTarget';
 import { getSettings, setSettings } from '@/state/settings';
-import { hasAiKey } from '@/state/exerciseReplaceStore';
+import { hasAiKey } from '@/state/hasAiKey';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
 

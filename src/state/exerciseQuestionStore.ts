@@ -32,6 +32,7 @@ import { buildExerciseQuestionPrompt, normalizeExerciseAnswerText } from '@/ai/e
 import { loadExerciseDescription } from '@/ai/exerciseQuestionContext';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
 import type { ExerciseKind, SessionState } from '@/engine/types';
@@ -67,12 +68,6 @@ interface ExerciseQuestionState {
   collapse(): void;
 }
 
-/** True when a usable API key is configured (either Anthropic or OpenAI) — the "hidden without a key" gate. */
-export function hasAnthropicKey(settings: { anthropicKey?: string; openaiKey?: string }): boolean {
-  const hasAnthropicKeyTrimmed = settings.anthropicKey?.trim();
-  const hasOpenaiKeyTrimmed = settings.openaiKey?.trim();
-  return Boolean(hasAnthropicKeyTrimmed || hasOpenaiKeyTrimmed);
-}
 
 /**
  * Build the cache key for an exercise question target.
@@ -126,12 +121,6 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
   let currentKey: string | null = null;
   let generation = 0;
 
-  function hasApiKey(): boolean {
-    const settings = deps.getSettings();
-    const hasAnthropicKey = settings.anthropicKey?.trim();
-    const hasOpenaiKey = settings.openaiKey?.trim();
-    return Boolean(hasAnthropicKey || hasOpenaiKey);
-  }
 
   async function requestAnswer(key: string, target: ExerciseQuestionTarget): Promise<string | null> {
     const inFlight = pendingRequests.get(key);
@@ -145,11 +134,9 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
 
     const request = (async () => {
       const settings = deps.getSettings();
-      const hasAnthropicKey = settings.anthropicKey?.trim();
-      const hasOpenaiKey = settings.openaiKey?.trim();
       // Checked in `toggle` too; re-checked here so no caller can reach the
       // API without a key.
-      if (!hasAnthropicKey && !hasOpenaiKey) return null;
+      if (!hasAiKey(settings)) return null;
 
       const description = await deps.loadDescription(target.exerciseId);
       const prompt = buildExerciseQuestionPrompt({
@@ -235,7 +222,7 @@ export function createExerciseQuestionStore(deps: ExerciseQuestionDeps) {
 
       // No key configured: never expand, never call. Defense-in-depth — the
       // screen already hides the button in this case.
-      if (!hasApiKey()) {
+      if (!hasAiKey(deps.getSettings())) {
         currentKey = null;
         set({ expandedKey: null, text: null, pending: false });
         return;

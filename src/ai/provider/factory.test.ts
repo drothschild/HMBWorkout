@@ -148,6 +148,69 @@ describe('createAiClient factory', () => {
     expect(() => createAiClient(config)).toThrow();
   });
 
+  describe('rejects whitespace-only keys (F03/F04/F05 guards)', () => {
+    // F03: Explicit anthropic provider with whitespace-only anthropicKey
+    // The guard at line 72 must trim() before checking emptiness
+    it('throws when anthropicKey is whitespace-only with explicit provider (F03)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '   ',
+        aiProvider: 'anthropic',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/anthropicKey.*not configured/i);
+    });
+
+    // F04: Explicit openai provider with whitespace-only openaiKey
+    // The guard at line 112 must trim() before checking emptiness
+    it('throws when openaiKey is whitespace-only with explicit provider (F04)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '   ',
+        aiProvider: 'openai',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/openaiKey.*not configured/i);
+    });
+
+    // F05: Implicit detection path (lines 30-31) must trim before checking length
+    // When anthropicKey is whitespace-only and it's the only key, resolveProvider
+    // should reject it (not return 'anthropic')
+    it('throws when only anthropicKey is set and it is whitespace-only (F05a)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '   ',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/No AI provider configured/i);
+    });
+
+    // F05: Implicit detection for openaiKey
+    it('throws when only openaiKey is set and it is whitespace-only (F05b)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '   ',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/No AI provider configured/i);
+    });
+
+    // Verify tabs and mixed whitespace are also rejected
+    it('throws when anthropicKey is tabs/mixed whitespace (F03 variant)', () => {
+      const config: ProviderConfig = {
+        anthropicKey: '\t\n  \r',
+        aiProvider: 'anthropic',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/anthropicKey.*not configured/i);
+    });
+
+    it('throws when openaiKey is tabs/mixed whitespace (F04 variant)', () => {
+      const config: ProviderConfig = {
+        openaiKey: '\t\n  \r',
+        aiProvider: 'openai',
+      };
+
+      expect(() => createAiClient(config)).toThrow(/openaiKey.*not configured/i);
+    });
+  });
+
   it('accepts aiModel but does NOT yet apply it — pinning a known Phase 3 gap', async () => {
     // This test pins a limitation, not a feature. `aiModel` is a real settings
     // field, but neither client factory takes a model argument yet, so a
@@ -174,5 +237,107 @@ describe('createAiClient factory', () => {
     // The hardcoded model, NOT any caller-supplied one.
     // Uses explicit -sol (frontier tier) rather than the alias 'gpt-5.6'
     expect(captured.model).toBe('gpt-5.6-sol');
+  });
+
+  describe('forwards payloads correctly to each surface on its own channel', () => {
+    afterEach(() => jest.resetModules());
+
+    // Security-relevant: system/message swap puts user free text where immutable
+    // directives belong. These sentinels must be distinct and non-empty so the
+    // swap is detectable.
+    const SYSTEM_SENTINEL = 'SYSTEM-IMMUTABLE-DIRECTIVES-CHANNEL';
+    const MESSAGE_SENTINEL = 'MESSAGE-USER-CONTENT-CHANNEL';
+
+    it('anthropic: each surface forwards system and message to its client with correct field positions', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(async () => ({ reply: 'ok' }));
+      const commentSpy = jest.fn(async () => 'ok');
+      const suggestSpy = jest.fn(async () => ({ alternates: [] }));
+      const askSpy = jest.fn(async () => 'ok');
+
+      jest.doMock('../anthropicClient', () => ({
+        createAnthropicClient: () => ({ chat: chatSpy }),
+        createRestCommentaryClient: () => ({ comment: commentSpy }),
+      }));
+      jest.doMock('../alternatesClient', () => ({
+        createExerciseAlternatesClient: () => ({ suggest: suggestSpy }),
+      }));
+      jest.doMock('../exerciseQuestionClient', () => ({
+        createExerciseQuestionClient: () => ({ ask: askSpy }),
+      }));
+
+      const { createAiClient: factory } = await import('./factory');
+      const client = factory({ anthropicKey: 'sk-ant-test' });
+
+      // Call each surface with distinct sentinels to detect field swaps
+      await client.chat({ system: SYSTEM_SENTINEL, messages: [{ role: 'user', content: MESSAGE_SENTINEL }] });
+      await client.comment({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.suggest({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.ask({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+
+      // CRITICAL: exact object match to catch system/message swap (F23/F24 mutant)
+      expect(chatSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        messages: [{ role: 'user', content: MESSAGE_SENTINEL }],
+      });
+      expect(commentSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(suggestSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(askSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+    });
+
+    it('openai: each surface forwards system and message to its client with correct field positions', async () => {
+      jest.resetModules();
+      const chatSpy = jest.fn(async () => ({ reply: 'ok' }));
+      const commentSpy = jest.fn(async () => 'ok');
+      const suggestSpy = jest.fn(async () => ({ alternates: [] }));
+      const askSpy = jest.fn(async () => 'ok');
+
+      jest.doMock('../openaiClient', () => ({
+        createOpenaiClient: () => ({ chat: chatSpy }),
+        createRestCommentaryClient: () => ({ comment: commentSpy }),
+      }));
+      jest.doMock('../openaiAlternatesClient', () => ({
+        createOpenaiAlternatesClient: () => ({ suggest: suggestSpy }),
+      }));
+      jest.doMock('../openaiExerciseQuestionClient', () => ({
+        createOpenaiExerciseQuestionClient: () => ({ ask: askSpy }),
+      }));
+
+      const { createAiClient: factory } = await import('./factory');
+      const client = factory({ openaiKey: 'sk-openai-test', aiProvider: 'openai' });
+
+      // Same sentinel test on OpenAI path
+      await client.chat({ system: SYSTEM_SENTINEL, messages: [{ role: 'user', content: MESSAGE_SENTINEL }] });
+      await client.comment({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.suggest({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+      await client.ask({ system: SYSTEM_SENTINEL, message: MESSAGE_SENTINEL });
+
+      // CRITICAL: exact object match to catch system/message swap
+      expect(chatSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        messages: [{ role: 'user', content: MESSAGE_SENTINEL }],
+      });
+      expect(commentSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(suggestSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+      expect(askSpy).toHaveBeenCalledWith({
+        system: SYSTEM_SENTINEL,
+        message: MESSAGE_SENTINEL,
+      });
+    });
   });
 });

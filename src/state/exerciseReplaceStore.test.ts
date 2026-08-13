@@ -184,9 +184,16 @@ describe('createExerciseReplaceStore', () => {
   };
 
   function makeStore() {
+    const capturedConfigs: ProviderConfig[] = [];
+
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      capturedConfigs.push(config);
+      const apiKey = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
+        ? (config.openaiKey ?? '')
+        : (config.anthropicKey ?? '');
       const client = createExerciseAlternatesClient(
-        { apiKey: config.anthropicKey || 'test-key' },
+        { apiKey },
         mockFetch as unknown as typeof fetch
       );
       return {
@@ -205,7 +212,7 @@ describe('createExerciseReplaceStore', () => {
       };
     };
 
-    return createExerciseReplaceStore({
+    const store = createExerciseReplaceStore({
       getSettings,
       createClient: createUnifiedClient,
       dispatch,
@@ -213,6 +220,7 @@ describe('createExerciseReplaceStore', () => {
       applyToRoutine,
       logError,
     });
+    return { store, capturedConfigs };
   }
 
   beforeEach(() => {
@@ -229,8 +237,22 @@ describe('createExerciseReplaceStore', () => {
   });
 
   describe('open', () => {
+    it('forwards the configured Anthropic API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The factory records configs, so we verify the key value was actually forwarded.
+      // Without this assertion, the mutant survives because mockFetch resolves anyway.
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(store.getState().status).toBe('choosing');
+      // Verify the config was forwarded with the Anthropic key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].anthropicKey).toBe('sk-ant-test'); // Must be non-empty
+    });
+
     it('fetches alternates and offers them for choosing', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -244,7 +266,7 @@ describe('createExerciseReplaceStore', () => {
       let release: (value: unknown) => void = () => {};
       mockFetch.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const pending = store.getState().open(makeTarget());
 
       expect(store.getState().status).toBe('loading');
@@ -256,7 +278,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('sends the exercise being replaced in the prompt', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -266,7 +288,7 @@ describe('createExerciseReplaceStore', () => {
 
     it('makes no call and offers nothing without a key', async () => {
       setSettings({ anthropicKey: '' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -275,9 +297,76 @@ describe('createExerciseReplaceStore', () => {
       expect(store.getState().alternates).toEqual([]);
     });
 
+    it('fetches alternates from an OpenAI-only settings blob and forwards openaiKey', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(store.getState().status).toBe('choosing');
+      expect(store.getState().alternates).toHaveLength(3);
+      // Verify the config was forwarded with the OpenAI key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]).toEqual({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+    });
+
+    it('X03/X04: forwards all provider config fields including aiProvider', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-prod',
+        openaiKey: 'sk-openai-prod',
+        aiProvider: 'openai',
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: JSON.stringify([{ title: 'Alt 1', kind: 'strength' }]) }],
+          stop_reason: 'end_turn',
+        }),
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      // X03/X04 mutations: deleting anthropicKey or openaiKey lines would fail
+      expect(capturedConfigs).toHaveLength(1);
+      const config = capturedConfigs[0];
+      expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
+      expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
+      expect(config).toHaveProperty('aiProvider', 'openai');
+      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
+    it('does nothing from a no-key settings blob', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe('idle');
+      expect(store.getState().alternates).toEqual([]);
+      // No config should be captured if hasApiKey() returns false
+      expect(capturedConfigs).toHaveLength(0);
+    });
+
     it('swallows a failed request, surfacing an error instead of throwing', async () => {
       mockFetch.mockRejectedValueOnce(new TypeError('Network request failed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await expect(store.getState().open(makeTarget())).resolves.toBeUndefined();
 
@@ -288,7 +377,7 @@ describe('createExerciseReplaceStore', () => {
 
     it('swallows a malformed response the same way', async () => {
       mockFetch.mockResolvedValueOnce(alternatesResponse({ alternates: [] }));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -301,7 +390,7 @@ describe('createExerciseReplaceStore', () => {
       let release: (value: unknown) => void = () => {};
       mockFetch.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const pending = store.getState().open(makeTarget());
       store.getState().cancel();
 
@@ -313,7 +402,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('carries the immutable coach directives — the safety rules bind here too', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -332,7 +421,7 @@ describe('createExerciseReplaceStore', () => {
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -351,13 +440,14 @@ describe('createExerciseReplaceStore', () => {
       setSettings({
         anthropicKey: 'sk-ant-test-secret',
         openaiKey: 'sk-openai-secret-key',
+        aiProvider: 'anthropic',
         aiGoals: 'Bigger bench',
         aiEquipment: 'Barbell, dumbbells',
         aiPersonality: 'Blunt',
         profileAge: '41',
         profileExperience: 'Advanced',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
@@ -379,7 +469,7 @@ describe('createExerciseReplaceStore', () => {
 
   describe('choose', () => {
     async function opened() {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
       return store;
     }
@@ -454,7 +544,7 @@ describe('createExerciseReplaceStore', () => {
     });
 
     it('does nothing when there is no open choice', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       const ok = await store.getState().choose(ALTERNATES.alternates[0]);
 
@@ -478,7 +568,7 @@ describe('createExerciseReplaceStore', () => {
 
   describe('cancel', () => {
     it('clears the sheet', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
 
       store.getState().cancel();
@@ -494,7 +584,7 @@ describe('createExerciseReplaceStore', () => {
     // or write failure. The bump is observable only after the write completes.
 
     async function opened() {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().open(makeTarget());
       return store;
     }

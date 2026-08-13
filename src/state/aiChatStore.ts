@@ -10,6 +10,7 @@ import {
 import { acceptDraft as acceptDraftFn } from '@/ai/acceptDraft';
 import { buildSystem as buildSystemFn, AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
 import { getSettings, setSettings } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import { DEBRIEF_OPENING_MESSAGE } from '@/state/postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from '@/state/coachOnboarding';
 import { createAiClient } from '@/ai/provider/factory';
@@ -239,10 +240,7 @@ export function createAiChatStore(deps: AiChatDeps) {
     async function startTurn(newMessages: AiDisplayMessage[], mode: AiCoachMode) {
       const settings = deps.getSettings();
       // Check if any key is configured
-      const hasAnthropicKey = settings.anthropicKey?.trim();
-      const hasOpenaiKey = settings.openaiKey?.trim();
-
-      if (!hasAnthropicKey && !hasOpenaiKey) {
+      if (!hasAiKey(settings)) {
         set({
           status: 'error',
           error: { kind: 'missing_key' },

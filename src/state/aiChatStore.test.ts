@@ -5,6 +5,7 @@ import { DEBRIEF_OPENING_MESSAGE } from './postWorkoutDebrief';
 import { ONBOARDING_OPENING_MESSAGE } from './coachOnboarding';
 import { RoutineDraft, DraftValidationError, AiTurn, SettingsProposal } from '@/ai/draftSchema';
 import { AnthropicHttpError, AnthropicUnreachable } from '@/ai/anthropicClient';
+import { OpenaiHttpError, OpenaiUnreachable } from '@/ai/openaiClient';
 
 // Helper to create a test store with mocked dependencies
 function makeStore(deps: Partial<AiChatDeps> = {}) {
@@ -203,6 +204,71 @@ describe('aiChatStore', () => {
       expect(store.getState().error).toEqual({ kind: 'missing_key' });
       expect(store.getState().messages).toHaveLength(0);
     });
+
+    it('forwards the configured Anthropic API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The factory records configs, so we verify the key value was actually forwarded.
+      // Without this assertion, the mutant survives because fakeChat resolves anyway.
+      const { store, fakeChat, fakeCreateClient } = makeStore();
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello back!' });
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hello');
+
+      // Verify the config was forwarded with the Anthropic key, not blanked
+      expect(fakeCreateClient).toHaveBeenCalledWith({
+        anthropicKey: 'sk-test',
+        openaiKey: undefined,
+        aiProvider: undefined,
+      });
+      expect(fakeChat).toHaveBeenCalled();
+      expect(store.getState().status).toBe('idle');
+    });
+
+    it('sends request when OpenAI-only key is configured', async () => {
+      const fakeGetSettings = jest.fn().mockReturnValue({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+      const { store, fakeChat, fakeCreateClient } = makeStore({
+        getSettings: fakeGetSettings,
+      });
+
+      fakeChat.mockResolvedValueOnce({ reply: 'Hello back!' });
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hello');
+
+      expect(fakeCreateClient).toHaveBeenCalledWith({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+      expect(fakeChat).toHaveBeenCalled();
+      expect(store.getState().status).toBe('idle');
+    });
+
+    it('does not send request when both keys are empty', async () => {
+      const fakeGetSettings = jest.fn().mockReturnValue({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+      const { store, fakeChat, fakeBuildSystem } = makeStore({
+        getSettings: fakeGetSettings,
+      });
+
+      store.getState().reset({ kind: 'create' });
+
+      await store.getState().send('hello');
+
+      expect(fakeChat).not.toHaveBeenCalled();
+      expect(fakeBuildSystem).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe('error');
+      expect(store.getState().error).toEqual({ kind: 'missing_key' });
+      expect(store.getState().messages).toHaveLength(0);
+    });
   });
 
   describe('AC4.2 - unauthorized', () => {
@@ -242,6 +308,42 @@ describe('aiChatStore', () => {
 
       expect(store.getState().status).toBe('error');
       expect(store.getState().error).toEqual({ kind: 'http', status: 500 });
+    });
+
+    it('maps OpenaiHttpError 401 to unauthorized', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new OpenaiHttpError(401, 'Unauthorized'));
+
+      await store.getState().send('hello');
+
+      expect(store.getState().status).toBe('error');
+      expect(store.getState().error).toEqual({ kind: 'unauthorized' });
+    });
+
+    it('maps OpenaiHttpError 500 to http with status', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new OpenaiHttpError(500, 'Internal Server Error'));
+
+      await store.getState().send('hello');
+
+      expect(store.getState().status).toBe('error');
+      expect(store.getState().error).toEqual({ kind: 'http', status: 500 });
+    });
+
+    it('maps OpenaiUnreachable to network', async () => {
+      const { store, fakeChat } = makeStore();
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockRejectedValue(new OpenaiUnreachable('Network error'));
+
+      await store.getState().send('hello');
+
+      expect(store.getState().status).toBe('error');
+      expect(store.getState().error).toEqual({ kind: 'network' });
     });
 
     it('keeps user message after error for retry', async () => {
@@ -939,6 +1041,29 @@ describe('aiChatStore', () => {
         openaiKey: undefined,
         aiProvider: undefined,
       });
+    });
+
+    it('S07: forwards aiProvider in ProviderConfig to createClient', async () => {
+      const { store, fakeChat, fakeCreateClient } = makeStore({
+        getSettings: jest.fn().mockReturnValue({
+          anthropicKey: 'sk-test',
+          openaiKey: 'key-openai',
+          aiProvider: 'anthropic',
+        }),
+      });
+
+      store.getState().reset({ kind: 'create' });
+      fakeChat.mockResolvedValue({ reply: 'hi' });
+
+      await store.getState().send('hello');
+
+      // S07 mutation: deleting the aiProvider line would make this fail
+      const call = fakeCreateClient.mock.calls[0][0];
+      expect(call).toHaveProperty('anthropicKey', 'sk-test');
+      expect(call).toHaveProperty('openaiKey', 'key-openai');
+      expect(call).toHaveProperty('aiProvider', 'anthropic');
+      // Ensure exactly 3 properties are forwarded
+      expect(Object.keys(call).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
     });
 
     it('creates client once per send call', async () => {

@@ -82,6 +82,36 @@ describe('coach-onboarding.AC4.6: onboarding constants', () => {
     expect(shouldShowOnboardingCard(settings)).toBe(false);
   });
 
+  test('C1.1: shouldShowOnboardingCard: true with OpenAI-only key and unseen state', () => {
+    // Mutation test: if the gate checks only anthropicKey, this fails
+    const settings: BridgeSettings = {
+      anthropicKey: '',
+      openaiKey: 'sk-test',
+      aiGoals: '',
+      aiEquipment: '',
+      aiPersonality: '',
+      profileAge: '',
+      profileExperience: '',
+      onboardingState: 'unseen',
+    };
+    expect(shouldShowOnboardingCard(settings)).toBe(true);
+  });
+
+  test('C1.2: shouldShowOnboardingCard: false with both keys empty and unseen state', () => {
+    // Mutation test: required negative case for no-key discrimination
+    const settings: BridgeSettings = {
+      anthropicKey: '',
+      openaiKey: '',
+      aiGoals: '',
+      aiEquipment: '',
+      aiPersonality: '',
+      profileAge: '',
+      profileExperience: '',
+      onboardingState: 'unseen',
+    };
+    expect(shouldShowOnboardingCard(settings)).toBe(false);
+  });
+
   describe('coach-onboarding: the decisions the screens delegate here', () => {
     // src/app has no jest coverage, so anything decided inside a screen is
     // decided where no suite can see it. These are the pieces that can live in

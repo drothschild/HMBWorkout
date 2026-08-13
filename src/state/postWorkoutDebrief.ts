@@ -7,6 +7,7 @@
  */
 
 import type { AiCoachMode, DebriefMode } from '@/ai/contextBuilder';
+import { hasAiKey } from '@/state/hasAiKey';
 
 export interface FinishedWorkout {
   routineId: string;
@@ -23,14 +24,14 @@ export const DEBRIEF_OPENING_MESSAGE = 'I just finished this workout.';
 /**
  * Decide whether a finished workout opens a debrief, and about what.
  *
- * Returns null when the chat cannot or should not run — with no Anthropic key
- * there is nothing to talk to, and completion carries on exactly as before.
+ * Returns null when the chat cannot or should not run — with no API key
+ * configured there is nothing to talk to, and completion carries on exactly as before.
  */
 export function planPostWorkoutDebrief(
   finished: FinishedWorkout,
-  settings: { anthropicKey?: string }
+  settings: { anthropicKey?: string; openaiKey?: string }
 ): DebriefMode | null {
-  if (!settings.anthropicKey || settings.anthropicKey.trim() === '') {
+  if (!hasAiKey(settings)) {
     return null;
   }
 

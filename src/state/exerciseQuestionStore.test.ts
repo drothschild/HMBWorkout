@@ -19,12 +19,12 @@ import {
   setSettings,
   getSettings,
 } from '@/state/settings';
+import { hasAiKey } from '@/state/hasAiKey';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 import type { SessionState, RoutineEntry } from '@/engine/types';
 import {
   createExerciseQuestionStore,
   exerciseQuestionTarget,
-  hasAnthropicKey,
   type ExerciseQuestionTarget,
 } from './exerciseQuestionStore';
 
@@ -71,9 +71,16 @@ describe('createExerciseQuestionStore', () => {
   };
 
   function makeStore() {
+    const capturedConfigs: ProviderConfig[] = [];
+
     const createUnifiedClient = (config: ProviderConfig): AiClient => {
+      capturedConfigs.push(config);
+      const apiKey = (config.aiProvider === 'openai') ||
+        (config.openaiKey && !config.anthropicKey && !config.aiProvider)
+        ? (config.openaiKey ?? '')
+        : (config.anthropicKey ?? '');
       const client = createExerciseQuestionClient(
-        { apiKey: config.anthropicKey || 'test-key' },
+        { apiKey },
         mockFetch as unknown as typeof fetch
       );
       return {
@@ -92,12 +99,14 @@ describe('createExerciseQuestionStore', () => {
       };
     };
 
-    return createExerciseQuestionStore({
+    const store = createExerciseQuestionStore({
       getSettings,
       loadDescription,
       createClient: createUnifiedClient,
       logError,
     });
+
+    return { store, capturedConfigs };
   }
 
   beforeEach(() => {
@@ -113,7 +122,7 @@ describe('createExerciseQuestionStore', () => {
 
   describe('a normal tap', () => {
     it('expands with the answer for the current exercise', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -131,7 +140,7 @@ describe('createExerciseQuestionStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const toggling = store.getState().toggle(target());
 
       await waitUntil(() => store.getState().pending, 'pending to be set');
@@ -147,7 +156,7 @@ describe('createExerciseQuestionStore', () => {
 
     it('builds the prompt from the current exercise and its description', async () => {
       loadDescription.mockResolvedValue('Pause at the chest.');
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -160,7 +169,7 @@ describe('createExerciseQuestionStore', () => {
 
     it('carries the coaching personality from settings', async () => {
       setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -169,7 +178,7 @@ describe('createExerciseQuestionStore', () => {
     });
 
     it('collapses when tapped again', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().toggle(target());
 
       await store.getState().toggle(target());
@@ -181,7 +190,7 @@ describe('createExerciseQuestionStore', () => {
 
   describe('caching per exercise entry for the session', () => {
     it('reuses the cached answer on a re-tap without calling again', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
       await store.getState().toggle(target()); // collapse
@@ -192,7 +201,7 @@ describe('createExerciseQuestionStore', () => {
     });
 
     it('does not re-call while already expanded for the same entry', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
       // A caller re-deriving the same target and calling toggle again would
@@ -207,7 +216,7 @@ describe('createExerciseQuestionStore', () => {
       mockFetch
         .mockResolvedValueOnce(answerResponse('About bench.'))
         .mockResolvedValueOnce(answerResponse('About squat.'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target({ entryIdx: 0 }));
       await store.getState().toggle(target({ entryIdx: 1, exerciseId: 'squat' }));
@@ -220,7 +229,7 @@ describe('createExerciseQuestionStore', () => {
       mockFetch
         .mockResolvedValueOnce(answerResponse('First bench press'))
         .mockResolvedValueOnce(answerResponse('Second bench press'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target({ entryIdx: 0, exerciseId: 'bench-press' }));
       await store.getState().toggle(target({ entryIdx: 0 })); // collapse
@@ -237,7 +246,7 @@ describe('createExerciseQuestionStore', () => {
     });
 
     it('treats the same entry index in a new session as a new entry', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target({ sessionId: 'session-1' }));
       await store.getState().toggle(target({ sessionId: 'session-1' })); // collapse
@@ -255,7 +264,7 @@ describe('createExerciseQuestionStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const first = store.getState().toggle(target());
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request to start');
 
@@ -273,7 +282,7 @@ describe('createExerciseQuestionStore', () => {
 
   describe('collapsing', () => {
     it('clears the expanded state', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
       await store.getState().toggle(target());
 
       store.getState().collapse();
@@ -284,7 +293,7 @@ describe('createExerciseQuestionStore', () => {
     });
 
     it('is a no-op when nothing is expanded', () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       expect(() => store.getState().collapse()).not.toThrow();
       expect(store.getState().expandedKey).toBeNull();
@@ -299,7 +308,7 @@ describe('createExerciseQuestionStore', () => {
           })
       );
 
-      const store = makeStore();
+      const { store } = makeStore();
       const toggling = store.getState().toggle(target());
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'request to start');
 
@@ -323,7 +332,7 @@ describe('createExerciseQuestionStore', () => {
         )
         .mockResolvedValueOnce(answerResponse('Fresh answer.'));
 
-      const store = makeStore();
+      const { store } = makeStore();
       const first = store.getState().toggle(target({ entryIdx: 0 }));
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
@@ -345,7 +354,7 @@ describe('createExerciseQuestionStore', () => {
   describe('logging a set must never depend on the AI', () => {
     it('makes no call and does not expand when no API key is configured', async () => {
       setSettings({ anthropicKey: '' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -358,16 +367,90 @@ describe('createExerciseQuestionStore', () => {
 
     it('treats a whitespace-only key as no key', async () => {
       setSettings({ anthropicKey: '   ' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it('forwards the configured Anthropic API key to the client, not a blank value', async () => {
+      // This catches mutants that blank anthropicKey but leave the shell unchanged.
+      // The factory records configs, so we verify the key value was actually forwarded.
+      // Without this assertion, the mutant survives because mockFetch resolves anyway.
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(mockFetch).toHaveBeenCalled();
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0].anthropicKey).toBe('sk-ant-test'); // Must be non-empty
+    });
+
+    it('drives the surface from an OpenAI-only settings blob and forwards openaiKey', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(store.getState().text).toBe('Setup: grip just outside shoulder width.');
+      expect(store.getState().pending).toBe(false);
+      // Verify the config was forwarded with the OpenAI key, not blanked
+      expect(capturedConfigs).toHaveLength(1);
+      expect(capturedConfigs[0]).toEqual({
+        anthropicKey: '',
+        openaiKey: 'sk-openai-123',
+        aiProvider: undefined,
+      });
+    });
+
+    it('does not fire from a no-key settings blob', async () => {
+      setSettings({
+        anthropicKey: '',
+        openaiKey: '',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+
+      await store.getState().toggle(target());
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(store.getState().text).toBeNull();
+      expect(store.getState().expandedKey).toBeNull();
+      expect(store.getState().pending).toBe(false);
+      // No config should be captured if hasApiKey() returns false
+      expect(capturedConfigs).toHaveLength(0);
+    });
+
+    it('E04/E05: forwards all provider config fields including aiProvider', async () => {
+      setSettings({
+        anthropicKey: 'sk-ant-prod',
+        openaiKey: 'sk-openai-prod',
+        aiProvider: 'anthropic',
+      });
+
+      const { store, capturedConfigs } = makeStore();
+      mockFetch.mockResolvedValue(answerResponse('Test answer'));
+
+      await store.getState().toggle(target());
+
+      // E04/E05 mutations: deleting anthropicKey or openaiKey lines would fail
+      expect(capturedConfigs).toHaveLength(1);
+      const config = capturedConfigs[0];
+      expect(config).toHaveProperty('anthropicKey', 'sk-ant-prod');
+      expect(config).toHaveProperty('openaiKey', 'sk-openai-prod');
+      expect(config).toHaveProperty('aiProvider', 'anthropic');
+      expect(Object.keys(config).sort()).toEqual(['aiProvider', 'anthropicKey', 'openaiKey']);
+    });
+
     it('swallows and logs a network failure, quietly reverting to collapsed', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network request failed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await expect(store.getState().toggle(target())).resolves.toBeUndefined();
 
@@ -379,7 +462,7 @@ describe('createExerciseQuestionStore', () => {
 
     it('swallows and logs an HTTP failure', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'unauthorized' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -390,7 +473,7 @@ describe('createExerciseQuestionStore', () => {
 
     it('swallows and logs an unusable response body', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ content: [] }) });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -400,7 +483,7 @@ describe('createExerciseQuestionStore', () => {
 
     it('swallows and logs a description read failure', async () => {
       loadDescription.mockRejectedValueOnce(new Error('db closed'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -413,7 +496,7 @@ describe('createExerciseQuestionStore', () => {
       mockFetch
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce(answerResponse('Success on retry.'));
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
       expect(store.getState().text).toBeNull();
@@ -427,7 +510,7 @@ describe('createExerciseQuestionStore', () => {
 
   describe('coach directives', () => {
     it('carries the immutable coach directives — the safety rules bind here too', async () => {
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -441,7 +524,7 @@ describe('createExerciseQuestionStore', () => {
       // Precedence against injection: coaching style is user-controlled free
       // text, and the directives must outrank it.
       setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -466,7 +549,7 @@ describe('createExerciseQuestionStore', () => {
         profileAge: '41',
         profileExperience: 'Advanced',
       });
-      const store = makeStore();
+      const { store } = makeStore();
 
       await store.getState().toggle(target());
 
@@ -486,17 +569,21 @@ describe('createExerciseQuestionStore', () => {
   });
 });
 
-describe('hasAnthropicKey', () => {
-  it('is false when the key is empty', () => {
-    expect(hasAnthropicKey({ anthropicKey: '' })).toBe(false);
+describe('hasAiKey', () => {
+  it('is false when both keys are empty', () => {
+    expect(hasAiKey({ anthropicKey: '', openaiKey: '' })).toBe(false);
   });
 
-  it('is false when the key is whitespace only', () => {
-    expect(hasAnthropicKey({ anthropicKey: '   ' })).toBe(false);
+  it('is false when both keys are whitespace only', () => {
+    expect(hasAiKey({ anthropicKey: '   ', openaiKey: '   ' })).toBe(false);
   });
 
-  it('is true when a real key is configured', () => {
-    expect(hasAnthropicKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
+  it('is true when an Anthropic key is configured', () => {
+    expect(hasAiKey({ anthropicKey: 'sk-ant-test' })).toBe(true);
+  });
+
+  it('is true when an OpenAI key is configured', () => {
+    expect(hasAiKey({ openaiKey: 'sk-openai-test' })).toBe(true);
   });
 });
 
