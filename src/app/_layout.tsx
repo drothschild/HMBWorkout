@@ -12,7 +12,10 @@ import { loadActiveEngineState } from '@/db/engineState';
 import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
 import { rehydrateActiveSession } from '@/state/sessionRehydrate';
 import { reconcileForegroundedSession } from '@/state/foregroundReconcile';
-import { loadSettings, injectSettingsStorage } from '@/state/settings';
+import { loadSettings, injectSettingsStorage, getSettings } from '@/state/settings';
+import { shouldShowFirstRunKeyPrompt } from '@/state/firstRunKeyPrompt';
+import { FirstRunKeyPrompt } from '@/components/FirstRunKeyPrompt';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { secureStorageBackend } from '@/storage/secureStorage';
 import * as Notifications from 'expo-notifications';
 import { createRestTimerExecutor } from '@/engine/executors/restTimer';
@@ -37,6 +40,12 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [rulesLoaded, setRulesLoaded] = useState(false);
   const [ruleError, setRuleError] = useState<RuleLoadError | null>(null);
+  // Launch-local, deliberately not persisted. Skipping the prompt writes
+  // nothing (#168's "ask again next launch"), so this is the ONLY thing that
+  // stops it re-appearing within a single launch. It also covers the save
+  // path: setSettings does not re-render this component, so the gate below
+  // would otherwise still read a keyless snapshot after a successful save.
+  const [keyPromptAnswered, setKeyPromptAnswered] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -109,6 +118,21 @@ export default function RootLayout() {
     return (
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
+      </ThemeProvider>
+    );
+  }
+
+  // Ask for a provider key before the tabs mount. Placed after the rules gate
+  // so it cannot precede loadSettings(), and before the Stack so a brand-new
+  // user meets it instead of a coach that silently does nothing. The decision
+  // itself lives in `shouldShowFirstRunKeyPrompt`, which jest covers; this is
+  // only the placement.
+  if (!keyPromptAnswered && shouldShowFirstRunKeyPrompt(getSettings())) {
+    return (
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <SafeAreaProvider>
+          <FirstRunKeyPrompt onDone={() => setKeyPromptAnswered(true)} />
+        </SafeAreaProvider>
       </ThemeProvider>
     );
   }
