@@ -827,7 +827,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   drop branch — the only other path that invalidates the join: inside the same
   `database.write`, stamp every attached null-stamped set with the row's outgoing
   identity *before* re-pointing or destroying the row. Any future path that does
-  either owes the same stamp. `deleteRoutine` is exempt only because it
+  either owes the same stamp. The *single-write* half of that is pinned
+  behaviorally (#225), not just by review: WatermelonDB's writer is a
+  serialization primitive over a FIFO queue rather than a rollback-capable
+  transaction, so "one write" means "no other writer ever sees the row
+  half-swapped" — and `replaceRoutineExercise.test.ts` asserts exactly that by
+  queueing a competing writer behind an un-awaited swap. Hoisting any of the
+  three effects (stamp, clear `target_weight_kg`, re-point) into a second
+  `database.write` fails it; before that test all three splits left the suite
+  green. `deleteRoutine` is exempt only because it
   deliberately retains the rows as history carriers rather than destroying them.
   A new reader that resolves a set's exercise through the row alone reintroduces
   the PR #65 history-corruption bug. One rendering consequence: a swapped row's
