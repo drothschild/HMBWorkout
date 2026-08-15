@@ -712,6 +712,24 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   Verify layout changes in the simulator, or model the node tree with Yoga, before
   calling them done.
 - `watchman: false` is required — watchman's crawl hangs jest startup on this machine.
+- **The intermittent "A worker process has failed to exit gracefully" warning is
+  cosmetic, and the obvious explanation for it is measured-wrong.** WatermelonDB's
+  `WorkQueue.enqueue` does register a 1500ms dev-mode timer on every *contended*
+  enqueue that is never cleared or `.unref()`ed (`NODE_ENV !== 'production'`, and
+  jest sets `test`), and it does hold a worker's event loop open ~1497ms — that
+  much is proven (#186, `scripts/repro-workqueue-timer.mjs`). But it is **not**
+  the source of the warning: a 16-run interleaved A/B of the full suite
+  (`scripts/measure-worker-exit-warning.mjs`), load spanning 22–75, produced
+  **0/8 warnings in both arms** — with and without the timer unref'ed. The
+  harness was positive-controlled in the same session (a deliberately leaked
+  ref'd timer makes it report 1/1 in both arms), so that is a real negative and
+  not a dead detector. The 1497ms hold simply stays under jest's force-exit
+  threshold. The warning is real but rare and tracks ambient machine load; its
+  actual cause is unattributed and nothing is broken. Do **not** "fix" this by
+  running jest with `NODE_ENV=production` — that gates 41 executed sites across
+  20 files in WatermelonDB (schema, query, migration and model invariant checks;
+  `scripts/count-watermelondb-node-env-gates.mjs` derives it), trading 40 dev-mode
+  checks for one cosmetic message. See #129, closed with this measurement.
 - ts-jest transform pins `useDefineForClassFields: false` + `experimentalDecorators`/
   `emitDecoratorMetadata`. WatermelonDB models rely on legacy decorator semantics;
   class-fields-define would shadow the `@field`/`@relation` getters and silently break
