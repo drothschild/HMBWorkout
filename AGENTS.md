@@ -438,13 +438,27 @@ keeps its sets. Those orphaned groups are emitted from the
 no `order` to interleave by), without the row-supplied plan flags `superset`/`rest`,
 which died with it. A set with neither a stamp nor a surviving row is genuinely
 unidentifiable and throws, so no partial session document is ever produced and the
-data stays intact on-device. Note where that guarantee currently stops: the only
-caller, `exportService.exportSessionHistory`, wraps each session in a `catch` that
-skips it and continues, so the *aggregate* export is silently short at session
-granularity — the very failure this rule prevents at set granularity. Wiring an
-export UI means surfacing that swallow, not relying on it. Do not
-restore a `continue` on the unresolved-exercise path: silently skipping a set is the
-data-loss bug itself.
+data stays intact on-device. That guarantee used to stop dead at the caller:
+`exportService.exportSessionHistory` caught per session and continued, so the
+*aggregate* export was silently short at session granularity — the very failure
+this rule prevents at set granularity, one level up. Resolved in #212 by keeping
+the resilience and deleting the silence: it returns `SessionHistoryExport`
+(`{ markdown, failures }`), skipping a session that cannot be serialized but
+naming it in `failures`. For a backup, 47 of 48 sessions beats 0 of 48; what was
+wrong was that the caller could not tell. **A UI that writes `markdown` and drops
+`failures` on the floor reinstates the bug** — a non-empty `failures` must reach
+the user. Do not restore a `continue` on the unresolved-exercise path: silently
+skipping a set is the data-loss bug itself.
+
+`exportRoutine` took the opposite fix, because a single-item export has no
+partial to salvage — it renders or it doesn't, so swallowing bought nothing and
+cost the user a file that looked like an empty routine. Its blanket `catch` is
+gone and failures propagate. "Routine not found" keeps its own distinct `''`,
+now decided by an explicit `Q.where('id', ...)` query rather than by catching
+`find()`'s rejection. Worth knowing why the two halves differ: `serialize.ts`
+has exactly **one** `throw`, on the session path (`buildSessionSetLine`, an
+unresolvable set identity). `serializeRoutine` cannot throw at all, so that
+`catch` was only ever masking DB-layer errors.
 
 Separately, every flag guard in that same line-building path (both the row-driven and
 the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
