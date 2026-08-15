@@ -125,6 +125,65 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
       expect(row._raw.routine_id).toBe(ROUTINE_ID);
     });
 
+    // #225. The swap's three effects — stamp attached sets, clear the
+    // prescription, re-point the row — must all land in ONE `database.write`.
+    // The code is correct; nothing pinned it. Splitting the clear into a second
+    // write left the whole suite green.
+    //
+    // Fault injection is the obvious way to test this and the repo has no
+    // harness for it. But WatermelonDB's writer is a serialization primitive
+    // over a FIFO queue, not a rollback-capable transaction, so the single-write
+    // property has a *directly observable* consequence: no other writer can ever
+    // see the row half-swapped. That is what this asserts.
+    //
+    // The interleaving is deterministic, not a race. The swap is started and
+    // deliberately NOT awaited, then a competing writer is queued in the same
+    // tick. Queue order is therefore [swap, observer] when the swap is one
+    // write — the observer runs after it and sees the finished row. Split the
+    // swap in two and the second write is only queued from the continuation
+    // after the first resolves, i.e. AFTER the observer: order becomes
+    // [swap-part-1, observer, swap-part-2] and the observer lands squarely in
+    // the gap. Either half being deferred fails this, in both directions.
+    it('never lets another writer observe a half-applied swap', async () => {
+      // Legacy (null-stamped) sets, so all THREE effects have something to do.
+      // Without them the stamping step is a no-op and hoisting it into its own
+      // write would slip past this test.
+      await logPastSessions(undefined);
+      await database.write(async () => {
+        const row = await database.get('routine_exercises').find(rowId);
+        await row.update((r: any) => {
+          r.targetWeightKg = 60;
+        });
+      });
+
+      const observed: {
+        exerciseId: string | null;
+        targetWeightKg: number | null;
+        stampedSets: number;
+      }[] = [];
+
+      const swap = updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+      const observer = database.write(async () => {
+        const row = (await database.get('routine_exercises').find(rowId)) as any;
+        const sets = await database.get('session_sets').query().fetch();
+        observed.push({
+          exerciseId: row._raw.exercise_id ?? null,
+          targetWeightKg: row._raw.target_weight_kg ?? null,
+          stampedSets: sets.filter((s: any) => (s._raw.exercise_id ?? null) !== null).length,
+        });
+      });
+
+      await Promise.all([swap, observer]);
+
+      // All of it, or none of it. Never the re-point without the clear (a stale
+      // prescribed load on a substitute, the case the clear exists to prevent),
+      // never the clear without the re-point, and never the re-point without
+      // the stamps (the PR #65 history-corruption shape).
+      expect(observed).toStrictEqual([
+        { exerciseId: REPLACEMENT_EXERCISE, targetWeightKg: null, stampedSets: 6 },
+      ]);
+    });
+
     it('does not add or remove rows', async () => {
       await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
 
