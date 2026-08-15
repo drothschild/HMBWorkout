@@ -100,6 +100,11 @@ export function FirstRunKeyPrompt({ onDone }: { onDone: () => void }) {
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
+          // The keyboard covers "Save and continue" while this field is
+          // focused, so return is the way out. "done" says so; the default
+          // glyph does not. Deliberately NOT a KeyboardAvoidingView — that is
+          // #130's territory, where PR #109 failed three approaches.
+          returnKeyType="done"
           style={[styles.input, { borderColor: theme.backgroundSelected, color: theme.text }]}
         />
 
