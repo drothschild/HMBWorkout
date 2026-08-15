@@ -54,6 +54,33 @@ describe('exportService', () => {
       expect(markdown).toBe('');
     });
 
+    // #212, the single-item half — narrower than the aggregate one, because of
+    // what the serializer can actually do. `serialize.ts` has exactly ONE throw
+    // and it is on the SESSION path (`buildSessionSetLine`, unresolvable set
+    // identity); `serializeRoutine` has no throw at all. So this catch was never
+    // masking a routine contract violation — it was masking `find()`'s rejection
+    // on a missing id (now an explicit query, so "not found" keeps its own
+    // distinct empty-string answer above) and any DB-layer error underneath.
+    //
+    // Those are what must stop posing as "here is your routine, it is empty".
+    // There is no partial routine to salvage, so swallowing buys nothing.
+    it('propagates a database failure instead of returning an empty routine', async () => {
+      const failingDb = {
+        get: (table: string) => ({
+          query: () => ({
+            fetch: async () => {
+              if (table === 'routines') {
+                return [{ id: 'routine-legs2', name: 'Legs' }];
+              }
+              throw new Error('db unavailable');
+            },
+          }),
+        }),
+      } as unknown as Database;
+
+      await expect(exportRoutine(failingDb, 'routine-legs2')).rejects.toThrow('db unavailable');
+    });
+
     it('exports routine with no exercises', async () => {
       await upsertRoutine(db, 'routine-empty', 'Empty Routine', []);
 
@@ -134,7 +161,7 @@ describe('exportService', () => {
       await flush();
 
       // Export history
-      const markdown = await exportSessionHistory(db);
+      const { markdown } = await exportSessionHistory(db);
 
       // Should contain the session
       expect(markdown).toContain('type: workout-session');
@@ -143,11 +170,78 @@ describe('exportService', () => {
     });
 
     it('handles empty history gracefully', async () => {
-      const markdown = await exportSessionHistory(db);
+      const { markdown, failures } = await exportSessionHistory(db);
 
       // Empty history should return empty string
       expect(typeof markdown).toBe('string');
       expect(markdown).toBe('');
+      expect(failures).toStrictEqual([]);
+    });
+
+    // #212. `serializeSession` guarantees it never emits a PARTIAL session —
+    // every logged set produces a line or the call throws. That guarantee used
+    // to stop dead at this caller, which caught per session and continued, so
+    // the aggregate was silently short at session granularity: exactly the
+    // data-loss shape the set-level rule exists to prevent, one level up.
+    //
+    // The fix is not to drop the resilience — for a backup, 47 of 48 sessions
+    // beats 0 of 48 — it is to remove the SILENCE, so a caller can say
+    // "47 of 48" instead of handing the user a short file that looks whole.
+    it('reports a session it could not serialize instead of silently dropping it', async () => {
+      await upsertExercise(db, 'ex-row', 'Row', 'strength');
+      await upsertRoutine(db, 'routine-pull', 'Pull', [
+        { exerciseId: 'ex-row', order: 0, warmupSets: 0, targetSets: 3, targetReps: 8 },
+      ]);
+      const reId = ((await db.get('routine_exercises').query().fetch()) as any[])[0].id;
+
+      // A good session, and a doomed one. Both must be accounted for.
+      await createSession(db, {
+        sessionId: 'session-good',
+        routineId: 'routine-pull',
+        startedAtMs: 1000,
+      });
+      await appendSet(db, 'session-good', reId, {
+        setType: 'working',
+        reps: 8,
+        exerciseId: 'ex-row',
+      });
+
+      await createSession(db, {
+        sessionId: 'session-doomed',
+        routineId: 'routine-pull',
+        startedAtMs: 2000,
+      });
+      // No stamp: the pre-v3 shape.
+      await appendSet(db, 'session-doomed', reId, { setType: 'working', reps: 8 });
+
+      for (const id of ['session-good', 'session-doomed']) {
+        await db.write(async () => {
+          const session = await db.get('sessions').find(id);
+          await session.update((s: any) => {
+            s._raw.ended_at = Date.now();
+          });
+        });
+      }
+      await flush();
+
+      // Destroy the row WITHOUT stamping first. `upsertRoutine`'s drop branch
+      // would have stamped these sets; going around it is what leaves a set
+      // with neither a stamp nor a surviving row — genuinely unidentifiable,
+      // and the documented case where `serializeSession` throws.
+      await db.write(async () => {
+        const row = await db.get('routine_exercises').find(reId);
+        await row.destroyPermanently();
+      });
+      await flush();
+
+      const { markdown, failures } = await exportSessionHistory(db);
+
+      // The failure is named, not swallowed...
+      expect(failures.map((f) => f.sessionId)).toStrictEqual(['session-doomed']);
+      expect(failures[0].reason).toBeTruthy();
+      // ...and the export is not abandoned over one bad session.
+      expect(markdown).toContain('type: workout-session');
+      expect(markdown).not.toContain('session-doomed');
     });
 
     it('exports multiple sessions separately', async () => {
@@ -177,7 +271,7 @@ describe('exportService', () => {
 
       await flush();
 
-      const markdown = await exportSessionHistory(db);
+      const { markdown } = await exportSessionHistory(db);
 
       // Should contain sessions
       expect(markdown).toContain('type: workout-session');
@@ -212,7 +306,7 @@ describe('exportService', () => {
       await flush();
 
       // Export should still work because sets have exercise_id stamp
-      const markdown = await exportSessionHistory(db);
+      const { markdown } = await exportSessionHistory(db);
 
       // Should still contain the set data via the stamp (exercise ID and weight)
       expect(markdown).toContain('ex-squat');
