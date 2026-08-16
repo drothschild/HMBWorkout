@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { StyleSheet, View, TextInput, ScrollView, Pressable, Modal } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  TextInput,
+  ScrollView,
+  Pressable,
+  Modal,
+  Keyboard,
+} from 'react-native';
 import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -10,7 +18,31 @@ import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
+
 import { snapRpe, rpeHint, RPE_MIN, RPE_MAX, RPE_STEP } from '@/state/rpe';
+
+/**
+ * The set-logging inputs are all `decimal-pad`, and a decimal-pad has NO return
+ * key, so before this there was no way at all to dismiss the keyboard mid-workout
+ * (#130).
+ *
+ * This is a touch responder on an EXISTING container, not a new wrapper view: it
+ * adds no node to the tree and changes no flex, which is the constraint that
+ * matters here — PR #109 was cancelled after layout fixes in this component put
+ * chrome over 46 of the button row's 48pt and tapping Stop logged a set.
+ *
+ * Returning false is load-bearing: we react to the touch but decline to become
+ * the responder, so every button underneath keeps working normally.
+ *
+ * `InputAccessoryView` was tried first and is EMPIRICALLY DEAD in this app —
+ * it renders nothing under RN 0.86's New Architecture, verified on-device with
+ * live code in both modal and non-modal presentation. Don't retry it without
+ * first checking that upstream gap.
+ */
+const dismissKeyboardOnTouch = () => {
+  Keyboard.dismiss();
+  return false;
+};
 
 // The numeric inputs carry raw text; numbers exist only past
 // buildLogSetValues at the Log Set boundary. Parsing keystrokes into numeric
@@ -97,7 +129,7 @@ export function SetLogger({
   });
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={styles.container} onStartShouldSetResponder={dismissKeyboardOnTouch}>
       <View style={styles.exerciseTitleRow}>
         <ThemedText style={styles.exerciseTitle}>
           {presenter.currentExerciseTitle || 'Exercise'}
@@ -207,7 +239,7 @@ export function SetLogger({
               placeholder="Reps"
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
-              value={repsText}
+                value={repsText}
               onChangeText={onRepsTextChange}
             />
           </View>
@@ -219,7 +251,7 @@ export function SetLogger({
               placeholder="Weight"
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
-              value={weightText}
+                value={weightText}
               onChangeText={onWeightTextChange}
             />
           </View>
@@ -293,7 +325,11 @@ export function SetLogger({
 
       {/* The one scroller on the session screen: only the current exercise's
           sets, newest first, bounded by the fixed chrome around it. */}
-      <ScrollView style={styles.loggedSets}>
+      {/* Dragging the logged-set list also dismisses the keyboard — the
+          gesture iOS users reach for without looking. This screen has no
+          whole-screen scroller (it is a fixed column), so this list is where
+          it belongs. */}
+      <ScrollView style={styles.loggedSets} keyboardDismissMode="on-drag">
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
