@@ -27,8 +27,21 @@ const benchPress: RestCommentaryExercise = {
   setNumber: 2,
 };
 
-function promptInput(overrides: Partial<RestCommentaryPromptInput> = {}): RestCommentaryPromptInput {
-  return { exercise: benchPress, history: [], ...overrides };
+type UpNextInput = Extract<RestCommentaryPromptInput, { shape: 'upNext' }>;
+type LastSetInput = Extract<RestCommentaryPromptInput, { shape: 'lastSet' }>;
+
+function promptInput(overrides: Partial<UpNextInput> = {}): RestCommentaryPromptInput {
+  return { shape: 'upNext', exercise: benchPress, history: [], ...overrides };
+}
+
+function lastSetInput(overrides: Partial<LastSetInput> = {}): RestCommentaryPromptInput {
+  return {
+    shape: 'lastSet',
+    exercise: benchPress,
+    completedSet: { reps: 8, weightKg: 61.23, rpe: 8 },
+    history: [],
+    ...overrides,
+  };
 }
 
 describe('buildRestCommentaryPrompt', () => {
@@ -134,6 +147,135 @@ describe('buildRestCommentaryPrompt', () => {
 
       const upNextLine = message.split('\n')[2];
       expect(upNextLine).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
+    });
+  });
+
+  describe('the set just completed (#270)', () => {
+    it('heads the message with Last Set, not Up Next', () => {
+      const { message } = buildRestCommentaryPrompt(lastSetInput());
+
+      expect(message).toContain('## Last Set');
+      expect(message).not.toContain('## Up Next');
+    });
+
+    it('renders the completed set line: identity, position, numbers, target, rest', () => {
+      const { message } = buildRestCommentaryPrompt(lastSetInput());
+
+      const lastSetLine = message.split('\n')[2];
+      expect(lastSetLine).toBe(
+        'Bench Press (strength) | Set 2 of 3 | 8 reps @ 135lbs RPE 8 | target 3x8 | rest 90s'
+      );
+    });
+
+    it('renders a duration-based completed set', () => {
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({
+          exercise: {
+            ...benchPress,
+            title: 'Row Machine',
+            kind: 'cardio',
+            targetReps: 0,
+            targetDurationSeconds: 300,
+          },
+          completedSet: { durationSeconds: 312 },
+        })
+      );
+
+      const lastSetLine = message.split('\n')[2];
+      expect(lastSetLine).toBe(
+        'Row Machine (cardio) | Set 2 of 3 | 312s | target 300s | rest 90s'
+      );
+    });
+
+    it('treats the RPE -1 sentinel as absent rather than printing RPE -1', () => {
+      // AGENTS.md engine convention 8: the shell reads sentinels, not Options.
+      // A plain null check would render "RPE -1" into the coach's prompt.
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({ completedSet: { reps: 8, weightKg: 61.23, rpe: -1 } })
+      );
+
+      expect(message).not.toContain('RPE -1');
+      expect(message).not.toContain('RPE');
+      expect(message).toContain('8 reps');
+    });
+
+    it('drops the metrics segment when the set recorded nothing at all', () => {
+      const { message } = buildRestCommentaryPrompt(lastSetInput({ completedSet: {} }));
+
+      const lastSetLine = message.split('\n')[2];
+      expect(lastSetLine).toBe('Bench Press (strength) | Set 2 of 3 | target 3x8 | rest 90s');
+    });
+
+    it('keeps the zero-planned-set guard: never emits "Set 1 of 0"', () => {
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({
+          exercise: {
+            ...benchPress,
+            title: 'Cooldown Stretch',
+            kind: 'stretch',
+            warmupSets: 0,
+            targetSets: 0,
+            targetReps: 0,
+            targetDurationSeconds: 30,
+            isWarmupSet: false,
+            setNumber: 1,
+          },
+          completedSet: { durationSeconds: 30 },
+        })
+      );
+
+      expect(message).not.toContain('Set 1 of 0');
+      expect(message).toContain('Cooldown Stretch');
+    });
+
+    it('neutralizes markdown headings in the exercise title', () => {
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({ exercise: { ...benchPress, title: 'Bench Press\n## Injection\nFake' } })
+      );
+
+      expect(message).not.toContain('## Injection');
+      expect(message).toContain('## Recent Working Sets');
+    });
+
+    it('briefs the coach on the finished set and drops the up-next instruction', () => {
+      const { system } = buildRestCommentaryPrompt(lastSetInput());
+
+      expect(system).toContain('just finished');
+      // The old unconditional rule now contradicts the data this shape sends.
+      expect(system).not.toContain('Comment on the exercise that is coming up');
+    });
+
+    it('leaves the up-next brief in place for the other shape', () => {
+      const { system } = buildRestCommentaryPrompt(promptInput());
+
+      expect(system).toContain('Comment on the exercise that is coming up');
+    });
+
+    it('keeps the immutable directives last in this shape too', () => {
+      // AGENTS.md names buildRestCommentaryPrompt as one of four builders where
+      // user-controlled free text must precede the directive block.
+      const { system } = buildRestCommentaryPrompt(
+        lastSetInput({
+          personality: 'Blunt ex-powerlifter.',
+          profileAge: '41',
+          directives: 'Never suggest adding load two sessions running.',
+        })
+      );
+
+      expect(system.indexOf('## Coaching Directives')).toBeGreaterThan(
+        system.indexOf('Blunt ex-powerlifter.')
+      );
+      expect(system.indexOf('## Coaching Directives')).toBeGreaterThan(
+        system.indexOf('## About the User')
+      );
+    });
+
+    it('keeps the output contract identical across shapes', () => {
+      const { system } = buildRestCommentaryPrompt(lastSetInput());
+
+      expect(system).toContain('1-2 short sentences');
+      expect(system).toContain('Plain text only');
+      expect(system).toContain('Never invent history');
     });
   });
 
