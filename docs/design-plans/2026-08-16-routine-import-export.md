@@ -25,15 +25,29 @@ bad export is a bad file rather than a corrupted database. Second, **the wire fo
 existing vault markdown grammar**, extended by exactly one new flag key (`target_weight=`) rather
 than replaced by JSON; `parse.ts` is the maintained half of a symmetric pair that has been kept
 alive for precisely this, and a routine importer finally gives it the production consumer it has
-lacked since #203. Third, **the Hevy path imports workout *history*, and derives a routine from a
-past workout as a separate, explicitly-labelled act** — because that is the only shape the
-available data supports, and pretending otherwise would ship a feature that silently invents the
-plan it claims to have imported.
+lacked since #203. Third, **the Hevy path reads the authenticated
+`/v1/routines` API rather than the file export** — a user decision taken after the research below,
+and the right one, because the API returns the actual routine while the CSV would only support
+guessing a plan from past performance.
+
+**Revision, 2026-08-16.** The user settled the open decisions: Phase 4 imports from the Hevy API,
+all four phases proceed, and the entry point is Settings → Data. API access is **confirmed, not
+assumed** — a read-only `get-routines` against the real account returns three routines (Legs,
+Pull, Push) and `get-routine` returns full detail, so the Hevy Pro prerequisite is satisfied and
+is not a risk. Phase 4 was rewritten against the real "Push" payload. Phases 1–3 are unchanged
+except for one grammar defect the regrounding exposed (see "The `@hint` flag cannot hold a
+sentence"). The CSV material in Findings is retained as background for a path not taken.
 
 ## Findings
 
 Lead finding, stated plainly: **an account-level export from Hevy produces completed workout
-history, not routines.**
+history, not routines.** This is what moved Phase 4 off the file export and onto the API. The
+first four subsections below record the file-export research; they remain accurate but describe
+**a path not taken**, and are kept because they are the evidence for that choice. The live Phase 4
+contract is the API subsection at the end, and the mapping table in Architecture is built from a
+real API payload, not from the CSV.
+
+### The CSV path (background — not the implementation route)
 
 ### What the export produces
 
@@ -51,7 +65,9 @@ automation: it returns HTTP 403 to both WebFetch and the Defuddle CLI, and a rea
 is redirected to the help-centre root with an empty body. Everything above therefore rests on
 three independent third-party migration guides that agree with each other, not on Hevy's own
 words. **Someone with the app in hand should confirm the exact menu labels and, critically,
-whether a routines export has appeared since these guides were written.** That is Open Decision 1.
+whether a routines export has appeared since these guides were written.** This was Open Decision 1
+and is now **moot** — Phase 4 reads the API — but it is the reason Phase 4 reads the API, so the
+gap is recorded rather than erased.
 
 ### That the export is workouts-only, from three independent directions
 
@@ -94,28 +110,57 @@ either explanation, but the ambiguity is real and is recorded rather than smooth
 `set_type` values, per openweight.dev's mapping table: `normal`, `warmup`, `dropset`, `failure`,
 also appearing as the integers `1`–`4`. Not independently corroborated.
 
-### Hevy's routine model, grounded against the real API
+### The API path — the live Phase 4 contract
 
-The Hevy MCP server connected to this session is the authenticated API, not the file export, so it
-answers a different question — but it answers it definitively, and it is the right reference for
-any future field mapping. A read-only `get-routine` against the user's own "Legs" routine returns
-per-set records shaped like this (abridged, real values):
+**Access is confirmed, not assumed.** A read-only `get-routines` against the user's real account
+returns three routines (Legs, Pull, Push); `get-routine` returns full detail for each. The **Hevy
+Pro** prerequisite is therefore already satisfied for this user and is *not* a risk this plan needs
+to flag. The key is minted at `hevy.com/settings?developer`.
 
-- `title`, `index`, `exercise_template_id`, `notes`, `rest_seconds`, optional `supersets_id`
-- `sets[]`, each with `index`, `type` (`"warmup"` | `"normal"`), and optional `weight_kg`,
-  `reps`, `rep_range: { start, end }`, `distance_meters`, `duration_seconds`
+Transport, from two independent sources — Serval's integration docs state the key is "sent in the
+`api-key` HTTP header" ([docs.serval.com](https://docs.serval.com/sections/integrations/hevy)),
+corroborated by published client usage (`curl -H "api-key: $HEVY_API_KEY"`). Base host
+`api.hevyapp.com`; `GET /v1/routines` lists and `GET /v1/routines/{routineId}` fetches one.
 
-Four structural facts follow that matter for any mapping. Hevy stores **weight in kg** as a float
-(`13.607787283069193` — a 30 lb dumbbell round-tripped), so the API and the CSV disagree about
-units. Hevy plans **rep ranges**, not rep targets. Hevy's supersets are an **integer group id on
-the exercise**, and in the sampled routine the groups are contiguous runs (indices 2–3 share
-`supersets_id: 4`; indices 6–8 share `supersets_id: 3`) but the ids themselves are unordered.
-And a Hevy routine holds **one record per planned set**, where our `routine_exercises` row holds
-one aggregate plan per exercise.
+**Could not determine: the exact pagination parameter names and their maximum page size.** Hevy's
+Swagger UI at `api.hevyapp.com/docs/` is a JavaScript SPA — WebFetch retrieves only the string
+"Swagger UI", and `swagger.json` under that path returns the same shell. Published examples show
+both `?page=1&pageSize=5` and a `page_size` spelling, and I could not establish which is
+authoritative or what the ceiling is. **Phase 4's implementer must read the spec in a real browser
+before writing the client**; it is a five-minute task and getting it wrong is a 400, not a silent
+error.
 
-The API route also has a hard gate: API access requires a **Hevy Pro** subscription, and the key
-is minted at `hevy.com/settings?developer`. That is a real alternative to file import and it is
-Open Decision 2, but it is not free.
+The shape, taken from a real `get-routine` on the "Push" routine
+(`760bdf23-0a80-4df3-a36d-4af1d55f370b`, 12 exercises), re-fetched for this revision rather than
+summarised second-hand:
+
+- **exercise**: `title`, `index`, `exercise_template_id`, `notes`, `rest_seconds`, optional
+  `supersets_id`
+- **set**: `index`, `type` (`"warmup"` | `"normal"`), and optional `weight_kg`, `reps`,
+  `rep_range: { start, end }`, `distance_meters`, `duration_seconds`
+
+Five structural facts, each of which drives a mapping decision in Architecture:
+
+1. **`weight_kg` is a float carrying an exact pound value.** This account logs in lbs and Hevy
+   converts: `22.67964547178199` is 50 lb and `13.607787283069193` is 30 lb, to the exact
+   `0.45359237` factor. Good for us — kg is canonical — but see the rounding analysis below,
+   because the app's own `LBS_PER_KG` is the *truncated* `2.20462`.
+2. **Rep plans come in three shapes, and all three occur in one routine.** `rep_range` alone
+   (Bench Press normal sets, `{8,10}`); plain `reps` alone (Russian Twist, `reps: 20`, no range);
+   and **both at once** (Dead Bug, `reps: 12` *and* `rep_range {12,12}`). Any mapping needs a rule
+   for all three.
+3. **Set types map cleanly, and this is the cleanest part of the mapping.** Counting `type` per
+   exercise gives our fields directly: Bench Press has 3 `warmup` + 4 `normal` → `warmupSets: 3,
+   targetSets: 4`. The corollary is a real loss: Hevy's warmup sets carry **per-set ascending
+   weights** (9.07 → 11.34 → 18.14 kg) and our model stores only a count. That ramp is
+   unrecoverable.
+4. **`supersets_id` is an arbitrary integer and its ordering is not sorted.** In Push the runs are
+   indices 2–3 → id 5, 4–5 → id 6, 6–7 → id 7, 8–10 → id 4. Every run is **contiguous**, which is
+   exactly what engine convention 9 requires. But the ids ascend out of position order, so
+   **sorting by `supersets_id` would reorder the routine.** Highest-risk item in the phase.
+5. **`weight_kg: 0` occurs** (Cycling's warmup set) and must map to *absent*, not to a stored zero —
+   `computeSetPrefill` treats a non-positive weight as absent, so a stored 0 is a value nothing
+   honours.
 
 ## Definition of Done
 
@@ -132,20 +177,23 @@ Open Decision 2, but it is not free.
 4. **A markdown routine file can be read back in.** A file picked from the Files app is parsed by
    `parseRoutine` and written through `upsertRoutine`, creating missing exercises and never
    mutating existing ones. Export → import round-trips a routine.
-5. **A Hevy workout CSV is parsed, and the user is told exactly what it did and did not contain.**
-   The import surfaces that the file holds workout history and no routines, and offers to derive a
-   routine from one selected past workout as a distinct, labelled action.
+5. **A Hevy routine is imported from the API.** The user stores a Hevy API key, picks from their
+   real routine list, and the selected routine lands as a native routine with every lossy
+   conversion named in a summary shown before anything is written.
 6. **`npx tsc --noEmit` is clean, `npm test` is green, and `npm run lint` passes** at every phase
    boundary.
+7. **A routine's per-exercise notes survive a markdown round-trip.** Today they do not — see
+   "The `@hint` flag cannot hold a sentence".
 
-**Out of scope:** the Hevy `/v1/routines` API and any Hevy API key storage; importing Hevy body
-measurements; importing session *history* into `session_sets` (only routine derivation is in
-scope — see Open Decision 2); a manual routine builder; re-importing our own session-history
-markdown; Strong, Fitbod or any other app's format; iCloud or any cloud destination.
+**Out of scope:** the Hevy workout CSV (superseded by the API — the research is retained in
+Findings as the reasoning); importing Hevy body measurements; importing Hevy *workout history*
+into `session_sets`; writing anything back to Hevy (no `create-*`/`update-*` call is ever made);
+Hevy routine *folders*; a manual routine builder; re-importing our own session-history markdown;
+Strong, Fitbod or any other app's format; iCloud or any cloud destination.
 
 ## Acceptance Criteria
 
-### routine-import-export.AC1: The grammar carries a prescribed weight, symmetrically
+### routine-import-export.AC1: The grammar carries a routine's plan, symmetrically
 
 - **routine-import-export.AC1.1 Success:** `parseFlags('target_weight=61.23')` returns
   `{ targetWeightKg: 61.23 }`, and `formatFlags({ targetWeightKg: 61.23 })` returns
@@ -169,6 +217,21 @@ markdown; Strong, Fitbod or any other app's format; iCloud or any cloud destinat
 - **routine-import-export.AC1.6 Structural:** `serializeRoutine`'s routine-exercise parameter is
   the shared `RoutineExerciseRow` type, not the inline object literal it declares today
   (`serialize.ts:261-272`). This is the drift hazard `coach-prescribed-weights` logged and left.
+- **routine-import-export.AC1.7 Failure:** a routine exercise whose `notes` is the real Hevy
+  sentence `"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"` survives `serializeRoutine` →
+  `parseRoutine` **intact**. Today it does not: `formatFlags` emits `@<notes>` and `parseFlags`
+  splits the flag string on `/\s+/`, so the hint becomes `"↑"` and every remaining word is
+  silently discarded as an unknown non-flag token (`format.ts:225-241`).
+  *Discrimination: the fixture note must contain a space. Every existing hint fixture in the suite
+  is single-token, which is exactly why this has never failed — a single-word fixture passes
+  against both the broken and the fixed implementation.*
+- **routine-import-export.AC1.8 Failure:** a routine exercise whose `notes` contains an `=`
+  (`"3x12 = the goal"`) also round-trips intact. Today it throws `ContractError: Unknown flag key`,
+  because the tokeniser reaches `the` … `=` … and treats the fragment as a malformed flag.
+  *Discrimination: AC1.7's fixture alone cannot catch this — a space-only note fails by truncation,
+  an `=`-bearing note fails by exception. Different failure modes, different fixtures.*
+- **routine-import-export.AC1.9 Edge:** a routine exercise with no notes emits no `@` token, and a
+  note that is only whitespace is treated as absent rather than emitting a bare `@`.
 
 ### routine-import-export.AC2: A routine line cannot carry a logged weight
 
@@ -244,36 +307,66 @@ markdown; Strong, Fitbod or any other app's format; iCloud or any cloud destinat
   Routine opens the Files picker, and selecting a previously exported `.md` file produces a routine
   visible and startable on the Routines tab.
 
-### routine-import-export.AC5: A Hevy CSV is read honestly
+### routine-import-export.AC5: A Hevy API routine maps faithfully, and names what it loses
 
-- **routine-import-export.AC5.1 Success:** the pure Hevy CSV parser, given the published header row
-  and the published sample row verbatim (both quoted in Findings), returns one workout titled
-  `Thursday- Upper Reps` containing one exercise `Band Pullaparts` with one `normal` set carrying
-  `reps: 20`, no weight, and no RPE — i.e. the fixture *is* the real published row, not a
-  hand-written approximation. Note that this row has an empty `weight_lbs` and a `duration_seconds`
-  of `0`, so it also pins that an absent weight is `undefined` rather than `0`.
-- **routine-import-export.AC5.2 Edge:** the parser resolves weight from `weight_kg` when that column
-  is present and populated, and from `weight_lbs` via `lbsToKg` when it is not. Fixtures for both
-  header shapes.
-  *Discrimination: this is the unresolved units discrepancy in Findings. A single-header fixture
-  cannot fail a mutant that hardcodes either column.*
-- **routine-import-export.AC5.3 Failure:** a CSV with no recognised weight column at all yields a
-  named error, not a silent zero.
-- **routine-import-export.AC5.4 Success:** the parser reports, as structured data, that the file
-  contained N workouts and **zero routines**. The screen renders that count.
-- **routine-import-export.AC5.5 Success:** deriving a routine from one parsed workout produces
-  `RoutineExerciseEntry[]` where `warmupSets` is the count of that exercise's `warmup` sets,
-  `targetSets` is the count of its `normal` sets, and `targetReps` is the modal `reps` across its
-  normal sets.
-- **routine-import-export.AC5.6 Edge:** a Hevy exercise whose sets carry differing weights derives a
-  single `targetWeightKg` from the heaviest normal set, and the derivation is reported as lossy in
-  the returned summary.
-- **routine-import-export.AC5.7 Edge:** a `superset_id` group whose rows are non-contiguous in the
-  CSV is dropped to standalone entries rather than emitted as a broken group, and reported.
-- **routine-import-export.AC5.8 Edge:** two Hevy exercises whose titles slugify to the same id
-  collapse to one entry, and the collision is named in the returned summary.
-- **routine-import-export.AC5.9:** *(human-only)* Importing the user's own real Hevy export in the
-  simulator completes without a crash, and the reported workout count matches what Hevy shows.
+The fixture for AC5.1–AC5.8 is **the real "Push" payload**, checked in verbatim as JSON
+(`src/interop/__tests__/fixtures/hevy-push-routine.json`). Using the real payload rather than a
+hand-written approximation is what makes several of these discriminating at all — three of the
+shapes below were discovered *in* it and would not have appeared in a synthetic fixture.
+
+- **routine-import-export.AC5.1 Success:** mapping the Push payload yields 12 entries whose `order`
+  is `0…11` **in Hevy's `index` order**, not sorted by `supersets_id`.
+  *Discrimination: Push's superset ids run 5, 6, 7, 4 down the routine, so a mutant that sorts by
+  `supersets_id` reorders the last group to the front and this assertion fails. A fixture whose
+  group ids happened to ascend could not detect it — this is Findings fact 4, and it is the reason
+  the real payload is the fixture.*
+- **routine-import-export.AC5.2 Success:** Bench Press maps to `warmupSets: 3, targetSets: 4` —
+  counted from `type`, not from `sets.length`.
+  *Discrimination: an exercise with both types is required. Every all-`normal` exercise in the
+  routine (Chest Fly, Plank, …) passes against a mutant that returns `sets.length` as `targetSets`
+  and `0` as `warmupSets`. Bench Press is the only entry in Push that distinguishes them.*
+- **routine-import-export.AC5.3 Success:** the three rep shapes each map by the stated rule —
+  Bench Press (`rep_range {8,10}`, no `reps`) → `targetReps: 8`; Russian Twist (`reps: 20`, no
+  range) → `targetReps: 20`; Dead Bug (`reps: 12` **and** `rep_range {12,12}`) → `targetReps: 12`.
+  *Discrimination: Dead Bug alone cannot discriminate the precedence rule, because its two sources
+  agree. A fourth synthetic case where they disagree (`reps: 12`, `rep_range {8,10}`) is required
+  and is asserted to follow the documented precedence.*
+- **routine-import-export.AC5.4 Success:** weights normalise to two-decimal kg —
+  `22.67964547178199 → 22.68` — and `formatWeightLbs` renders that as `50lbs`.
+  *Discrimination: assert the rendered lbs string, not just the kg. A mutant storing the raw float
+  also renders `50lbs`, so the kg assertion is the one that catches it; a mutant that normalises
+  via `lbsToKg(kgToLbs(kg))` also gives `22.68` here — that path is separated by AC5.5.*
+- **routine-import-export.AC5.5 Edge:** a metric-native input (`weight_kg: 20`) normalises to
+  `20`, not `19.96`.
+  *Discrimination: this is the only assertion that separates "round kg to 2dp" from "round-trip
+  through lbs". Every imperial-native value in Push gives an identical answer under both rules, so
+  without a metric fixture the choice is untested. Computed: `lbsToKg(kgToLbs(20)) === 19.96`.*
+- **routine-import-export.AC5.6 Edge:** Cycling's `weight_kg: 0` maps to `targetWeightKg:
+  undefined`, and the written row's `target_weight_kg` is `null`.
+  *Discrimination: asserting `!== 0` passes a mutant emitting `undefined` for every weight. Assert
+  Cycling is absent **and** Bench Press is `22.68` in the same test.*
+- **routine-import-export.AC5.7 Success:** Push's four superset runs produce `supersetGroup` labels
+  that are contiguous in the emitted entry order, and the three distinct groups plus the standalone
+  entries are labelled such that `h.group_end_idx`'s contiguity assumption holds.
+- **routine-import-export.AC5.8 Failure:** a synthetic payload whose `supersets_id` run is
+  **non-contiguous** in `index` order is **rejected** with a named error, and nothing is written.
+  *Discrimination: Push contains no such case, so this AC requires a hand-built payload — which is
+  the point. Our engine cannot represent a non-contiguous group, so leaving this undefined is how a
+  silently mis-grouped routine ships.*
+- **routine-import-export.AC5.9 Success:** the mapper returns a structured lossiness report naming,
+  for the Push payload: the discarded warmup weight ramp, the collapsed rep ranges, Cycling's
+  dropped `distance_meters`, and the dropped `exercise_template_id`s. Asserted by content, not by
+  count.
+- **routine-import-export.AC5.10 Success:** the Hevy client sends the key in an `api-key` header,
+  never in a query string or a URL path, and a non-200 response produces a distinct
+  `HevyHttpError` while a thrown `fetch` produces `HevyUnreachable`. Asserted with an injected
+  `fetchFn`, mirroring `anthropicClient.ts`.
+- **routine-import-export.AC5.11 Failure:** no test, log line, or error message contains the API
+  key. A regression test asserts this against a client constructed with a sentinel key, mirroring
+  the secret-leak tests in `contextBuilder.test.ts`.
+- **routine-import-export.AC5.12:** *(human-only)* In the simulator, entering a real Hevy key lists
+  the three real routines, and importing "Push" produces a startable 12-exercise routine whose
+  superset grouping matches Hevy's.
 
 ### routine-import-export.AC6: Cross-cutting gates
 
@@ -292,8 +385,12 @@ markdown; Strong, Fitbod or any other app's format; iCloud or any cloud destinat
 ## Glossary
 
 - **Hevy workout vs. Hevy routine**: a *workout* is a completed session with logged sets; a
-  *routine* is a reusable template. The file export contains only the former. The whole shape of
-  this design follows from that distinction, and the ticket's wording conflates them.
+  *routine* is a reusable template. The file export contains only the former; the API serves both.
+  The whole shape of this design follows from that distinction, and the ticket's wording conflates
+  them — it is why Phase 4 reads the API.
+- **`@hint` truncation**: `serializeRoutine` writes a routine exercise's `notes` into the hint flag,
+  and `parseFlags` tokenises the flag string on whitespace, so a hint is one token. Multi-word notes
+  lose everything after the first word; notes containing `=` throw. Fixed in Phase 1 (AC1.7–AC1.9).
 - **`target_weight=`**: the new routine-line flag key, carrying kg. Deliberately *not* `weight=`,
   which already means logged kg on a session line — reusing it would create the same overload
   hazard the `<sets>x<reps>` slot already documents, and would be unresolvable by a parser that
@@ -310,9 +407,10 @@ markdown; Strong, Fitbod or any other app's format; iCloud or any cloud destinat
 - **`SessionHistoryExport`** (`exportService.ts:90`): `{ markdown, failures }`. Its docstring states
   that a caller writing `markdown` and dropping `failures` "reinstates the bug". Phase 2 is the
   first caller, so Phase 2 is where that sentence is either honoured or falsified.
-- **Continuous Native Generation**: `ios/` is generated and gitignored. Three of the four packages
-  this design adds are native modules, and per AGENTS.md the failure mode of skipping
-  `npx expo prebuild -p ios --clean` is a crash at launch, not a build error.
+- **Continuous Native Generation**: `ios/` is generated and gitignored. All three packages this
+  design adds are native modules and all land in Phases 2–3 (Phase 4 adds none), and per AGENTS.md
+  the failure mode of skipping `npx expo prebuild -p ios --clean` is a crash at launch, not a build
+  error.
 
 ## Architecture
 
@@ -365,9 +463,10 @@ flag-to-`WorkoutLine` projection.
 Units are kg, matching `weight=` and matching storage. This is load-bearing against a rule AGENTS.md
 states sharply: there is exactly one write-side lbs→kg conversion, `lbsToKg` in `acceptDraft`, and
 "a second conversion site is how a value gets converted twice". A markdown importer reading kg and
-writing kg adds no conversion site at all. The Hevy adapter in Phase 4 genuinely does need one,
-because the CSV may speak lbs — it must call the same `lbsToKg` from `src/state/weightUnits`, not
-reimplement it.
+writing kg adds no conversion site at all. **The Hevy API path adds none either** — Hevy serves
+`weight_kg`, so Phase 4 normalises kg to two decimals (Rule B below) and never converts units. The
+CSV path would have needed `lbsToKg`; dropping it removed a conversion site the rule would have had
+to accommodate.
 
 ### Closing the `weight=` leak is a prerequisite, not a cleanup
 
@@ -383,13 +482,53 @@ The mirror rule (AC2.3) matters equally: `target_weight=` must be rejected on se
 the two contexts drift apart in the opposite direction and the next reader has to guess which
 flags belong where.
 
+### The `@hint` flag cannot hold a sentence
+
+Found while regrounding Phase 4, and it is a live data-loss bug in the round-trip that both Phase 3
+and Phase 4 depend on.
+
+`serializeRoutine` puts a routine exercise's `notes` into the hint flag (`serialize.ts:329-331`),
+`formatFlags` emits it as `@${hint}` (`format.ts:312-314`), and `parseFlags` tokenises the flag
+string by splitting on `/\s+/` (`format.ts:225`). A hint is therefore **one whitespace-delimited
+token**. Given the real Hevy note `"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"`, the round trip
+returns `"↑"`, and every remaining word is dropped on the floor — tokens without an `=` hit the
+`continue` at `format.ts:239-241` and vanish silently. Worse, a note containing an `=` throws
+`ContractError: Unknown flag key`, because such a token *does* reach the allowlist check.
+
+This has never mattered for the same reason every other `src/interop` defect has never mattered:
+nothing in production calls either half. Phase 3 makes `parseRoutine` live and Phase 4 feeds it
+prose written by a human in another app, so it has to be fixed in Phase 1 with the rest of the
+grammar work. AC1.7–AC1.9 are the criteria, and the discrimination notes there explain why the
+existing single-token hint fixtures cannot catch it.
+
+The fix belongs in the grammar, not in the importer. The two workable shapes are moving the hint to
+a trailing rest-of-line position (it is already emitted last by `formatFlags`) or quoting it. The
+trailing form is simpler and matches what `formatFlags` already does; the implementer should
+confirm no other flag can follow it before committing to that.
+
+### Per-exercise notes have a home, and it is not `exercises.description`
+
+Worth stating explicitly because the natural assumption is wrong in a way that would cause real
+damage. `routine_exercises` **has its own `notes` column** — `schema.ts:44`,
+`{ name: 'notes', type: 'string', isOptional: true }` — carried by `RoutineExerciseEntry.notes`
+(`repository.ts:1175`) and written by `upsertRoutine` (`repository.ts:1253`). Hevy's rich
+per-exercise notes map straight onto it, one row per row, with no loss.
+
+What must **not** happen is routing them into `exercises.description`. That record is **global and
+shared by every routine**, and AGENTS.md's Boundaries make the accept path create-only precisely
+so an import cannot rewrite an exercise out from under other routines. Importing Push's Bench Press
+note into the shared `bench-press-dumbbell` description would rewrite it for every other routine
+using that exercise, and re-importing a second Hevy routine would overwrite it again. The
+per-row column avoids the question entirely, and is also the column that already round-trips
+through the grammar — once AC1.7 makes that round trip actually work.
+
 ### The import write path is `acceptDraft`, restated
 
 `src/ai/acceptDraft.ts` is 63 lines and it is the exact template. It slugifies titles to exercise
 ids, queries before creating so an existing exercise is never mutated, mints
 `routine-${Date.now()}` in create mode, maps to `RoutineExerciseEntry[]`, and calls `upsertRoutine`
-once. A markdown importer differs in precisely one place — the source of the entries — and a Hevy
-importer differs in two, adding a derivation step.
+once. A markdown importer differs in precisely one place — the source of the entries — and the Hevy
+importer differs in two, adding a mapping step between the API payload and `RoutineExerciseEntry[]`.
 
 Both importers must inherit its create-only exercise rule, which is an AGENTS.md Boundary and not
 a stylistic preference: exercises are global and shared by every routine, so an imported file that
@@ -402,65 +541,98 @@ produces a second routine rather than overwriting the first (AC4.5). Overwrite-o
 the kind of default that is convenient nine times and catastrophic the tenth, and the app has no
 undo.
 
-### Hevy: what can actually be built
+### Weight normalisation: round kg, do not round-trip through pounds
 
-Given a CSV of completed workouts, three things are constructible, and they are not equally
-honest.
+Hevy hands us `22.67964547178199` kg. Storing that float verbatim is wrong — it lands in the DB and
+in exported markdown as `target_weight=22.67964547178199`, against an existing convention that
+`lbsToKg` rounds to two decimals "so vault markdown keeps readable values"
+(`weightUnits.ts:14-22`). So it must be normalised, and there are two candidate rules. They are not
+equivalent, and the difference was computed rather than reasoned about:
 
-**Import workout history into `session_sets`.** Faithful to the data, and the largest piece of work
-in the design — it means synthesising `sessions` and `session_sets` rows for foreign workouts, and
-every such set needs a `routine_exercise_id`, a column that references a row no imported workout
-has. AGENTS.md's schema-v3 stamp rule means the *set's* identity is its own `exercise_id`, which
-helps, but the row reference is not nullable in the current shape. This is out of scope for this
-design and is Open Decision 2.
-
-**Derive a routine from one past workout.** Constructible today, small, and directly serves what
-the ticket-writer most plausibly wants — "get my Hevy plan into this app". It is honest provided
-it is labelled as a derivation: the sets a user *performed* are strong evidence of the plan they
-*intended*, but they are not that plan, and warmups, missed sets and improvisation all appear as
-plan. This is what Phase 4 builds.
-
-**Nothing at all, and tell the user to use the Hevy API.** The `/v1/routines` endpoint returns the
-real routine, `rep_range` and all. It needs Hevy Pro and an API key in settings, which the app
-already has a pattern for. Open Decision 2.
-
-The derivation's lossiness is not incidental and must be surfaced rather than absorbed: Hevy plans
-rep *ranges* and the app has a single `targetReps`; Hevy carries per-set weights and the app
-carries one per entry; Hevy has no exercise `kind`. Each is a named row in the mapping table below
-with a named rule, and each rule is reported back to the user in the import summary rather than
-applied silently.
-
-### Field mapping, Hevy → this app
-
-Source column names are the CSV's; the API's equivalents are noted where they differ, since a
-future API path would map from those instead.
-
-| Hevy (CSV / API) | This app | Rule | Lossy? |
+| Hevy `weight_kg` | A: `lbsToKg(kgToLbs(kg))` | B: round kg to 2dp | Displayed |
 |---|---|---|---|
-| `title` / `title` | `routines.name` | Direct | No |
-| `exercise_title` / `title` | `exercises.id` via `slugifyTitle`, `exercises.title` | Create-only; existing exercise wins | **Yes** — two titles can collide on one slug (AC5.8) |
-| — / `exercise_template_id` | *(dropped)* | No column to hold it | **Yes** — re-import cannot match by Hevy identity |
-| row order | `routine_exercises.order` | First appearance of each exercise | No |
-| `superset_id` / `supersets_id` | `routine_exercises.superset_group` | Integer stringified; non-contiguous groups dropped (AC5.7) | **Yes** in the non-contiguous case |
-| `set_type == 'warmup'` | `warmup_sets` | Count of warmup rows | No |
-| `set_type == 'normal'` | `target_sets` | Count of normal rows | No |
-| `set_type == 'dropset' \| 'failure'` | *(dropped)* | No app concept | **Yes** — silently absent from the plan; reported |
-| `reps` | `target_reps` | Modal reps across normal sets | **Yes** — variable reps collapse to one |
-| — / `rep_range {start,end}` | `target_reps` | `start` (the number the set must reach) | **Yes** — the range is destroyed |
-| `weight_lbs` / `weight_kg` | `target_weight_kg` | Heaviest normal set; `lbsToKg` if lbs (AC5.2) | **Yes** — per-set variation collapses |
-| `duration_seconds` | `target_duration_seconds` | Direct | No |
-| `distance_miles` / `distance_meters` | *(dropped)* | `routine_exercises` has no distance column | **Yes** — cardio distance targets are unrepresentable |
-| `rpe` | *(dropped)* | RPE is a logged value; routines have no RPE column | **Yes**, correctly — not a plan field |
-| `exercise_notes` / `notes` | `routine_exercises.notes` | Direct | No |
-| `description` | `routines.notes` | Direct | No |
-| `start_time`, `end_time` | *(dropped)* | Routine has no time | **Yes**, correctly |
-| — | `exercises.kind` | `distance` present → `cardio`; else `strength` | **Yes** — `stretch` is never inferred |
-| — / `rest_seconds` | `routine_exercises.rest_seconds` | Direct from API only | **Yes** — **the CSV has no rest column at all**; derived routines get no rest targets |
+| `22.67964547178199` (50 lb) | `22.68` | `22.68` | `50lbs` |
+| `13.607787283069193` (30 lb) | `13.61` | `13.61` | `30lbs` |
+| `20` (a metric account) | **`19.96`** | **`20`** | `44lbs` |
+| `17.5` (a metric account) | **`17.46`** | **`17.5`** | `38.5lbs` |
 
-Two rows in that table deserve emphasis because they are the ones a reader will assume work. The
-CSV carries **no rest interval**, so a routine derived from a CSV has no rest timing — a
-noticeable regression against the source app for a user who set rest per exercise. And Hevy's rep
-*ranges* exist only in the API; the CSV has logged reps, which is a different thing again.
+**Rule B.** Identical to A for every value in the real payload, and strictly better for a
+metric-native Hevy account, where A introduces a silent ~0.05 kg drift for no display benefit —
+both render the same pounds. B is one line and has no such failure mode. AC5.5 is the criterion,
+and it is the *only* assertion that separates the two, which is why it needs a metric fixture that
+the real Push payload does not supply.
+
+Two related notes. The app's `LBS_PER_KG` is the truncated `2.20462`, not the exact
+`1/0.45359237`, so Hevy's exact-pound values compute as `50.000059` lb before rounding; the 0.5 lb
+rounding step in `kgToLbs` absorbs that entirely, but the mismatch is real and worth knowing about
+before anyone tightens the rounding. And **`validateRoutineDraft`'s positive-multiple-of-0.5-lbs
+bound does not apply on this path at all**: `validateHalfStepWeight` (`draftSchema.ts:197-209`)
+validates `targetWeightLbs` on an *AI draft*, and the importer writes `targetWeightKg` straight
+into `RoutineExerciseEntry` → `upsertRoutine`, which enforces no bound. The bound is also
+unreachable-by-construction downstream, since `kgToLbs` rounds to the 0.5 grid by definition, so
+any stored kg displays on it. The importer should still reject a non-finite or negative
+`weight_kg` explicitly rather than relying on that.
+
+### Hevy: what Phase 4 builds
+
+The user chose the API over the CSV, which changes the phase from *deriving a plausible plan out of
+past performance* to *reading the actual plan*. That is a substantially better feature and a
+slightly smaller one: no CSV tokeniser, no workout-picking UI, no "this is a derivation" caveat.
+What it adds is an API key in settings and a network client.
+
+The client follows `src/ai`'s established shape exactly, and that precedent is load-bearing rather
+than stylistic: hand-rolled `fetch`, **no SDK**, an injectable `fetchFn` so it tests in the node
+jest project, and distinct `HevyUnreachable` vs `HevyHttpError` types for network versus HTTP
+failure. The API key joins the existing `bridge_settings` blob alongside `anthropicKey` and
+`openaiKey` — **the storage key must not be renamed**, per AGENTS.md, since it holds every user's
+existing keys and onboarding state.
+
+Unlike every AI failure in this app, an import failure **must not be swallowed**. The "swallow
+everything" rule exists because a workout must never depend on the AI; an import is a deliberate
+user action whose only output is the thing that failed, so silence would leave the user staring at
+nothing. This matches `exportRoutine`'s reasoning for propagating rather than catching.
+
+Read-only, always: Phase 4 calls `GET /v1/routines` and `GET /v1/routines/{id}` and nothing else.
+No `create-*` or `update-*` endpoint is ever called, so an import cannot modify the user's Hevy
+account.
+
+### Field mapping, Hevy API → this app
+
+Built from the real Push payload. The CSV columns are gone from this table; that path was not taken.
+
+| Hevy API | This app | Rule | Lossy? |
+|---|---|---|---|
+| `routine.title` | `routines.name` | Direct | No |
+| `exercise.title` | `exercises.id` via `slugifyTitle`, `exercises.title` | Create-only; an existing exercise wins | **Yes** — distinct titles can collide on one slug |
+| `exercise_template_id` | *(dropped)* | No column to hold it | **Yes** — a re-import cannot match by Hevy identity, only by slug |
+| `exercise.index` | `routine_exercises.order` | Direct. **Never sort by `supersets_id`** | No |
+| `supersets_id` | `routine_exercises.superset_group` | Integer stringified; contiguity **verified**, non-contiguous rejected (AC5.8) | No, when accepted |
+| `sets[].type == 'warmup'` (count) | `warmup_sets` | Count, not `sets.length` | No |
+| `sets[].type == 'normal'` (count) | `target_sets` | Count | No |
+| warmup `weight_kg` per set | *(dropped)* | We store a count, Hevy stores a ramp (9.07 → 11.34 → 18.14) | **Yes** — the ramp is unrecoverable |
+| `rep_range {start,end}` | `target_reps` | `start`, unless a plain `reps` is also present | **Yes** — the range is destroyed (Open Decision 5) |
+| `reps` (no range) | `target_reps` | Direct | No |
+| `reps` **and** `rep_range` | `target_reps` | `reps` wins | **Yes** if they disagree; they agree in the real payload |
+| normal-set `weight_kg` | `target_weight_kg` | Heaviest normal set, rounded to 2dp (Rule B); `0` → absent | **Yes** — per-set variation collapses |
+| `duration_seconds` | `target_duration_seconds` | Direct | No |
+| `distance_meters` | *(dropped)* | **Confirmed against `schema.ts:28-45`: `routine_exercises` has no distance column.** Cycling's `2000` is lost | **Yes** |
+| `rest_seconds` | `routine_exercises.rest_seconds` | Direct | No |
+| `exercise.notes` | `routine_exercises.notes` | Direct — the column exists (`schema.ts:44`). **Not** `exercises.description` | No |
+| `routine.created_at` / `updated_at` | *(dropped)* | Our rows get their own timestamps | **Yes**, correctly |
+| — | `exercises.kind` | `distance_meters` present → `cardio`; else `strength` | **Yes** — `stretch` is never inferred, so "Stretching" imports as strength-with-duration |
+
+**Exercise identity checks out.** All twelve Push titles slugify cleanly with no intra-routine
+collisions — `Bench Press (Dumbbell)` → `bench-press-dumbbell`, `Russian Twist (Weighted)` →
+`russian-twist-weighted`; parentheses collapse to hyphens and trailing hyphens are stripped
+(`draftSchema.ts:127-133`). Cross-routine sharing works correctly and by design: `Plank` appears in
+both Legs and Push under the same template id and produces the same slug, so importing both
+routines shares one exercise record. The create-only rule then means the second import will not
+overwrite the first's description — correct, and the reason notes must go to the per-row column.
+
+The residual risk is the reverse direction: two *different* Hevy exercises whose titles differ only
+in punctuation (`Bench Press - Dumbbell` vs `Bench Press (Dumbbell)`) collapse onto one slug. Not
+present in this account, and the create-only rule makes the consequence a shared record rather
+than a corrupted one, so it is recorded rather than defended against.
 
 ### Native dependencies, and the crash this design is trying not to ship
 
@@ -483,6 +655,11 @@ present a share sheet.** Its `ios.enabled: true` option is documented as adding 
 target to the project" — that is for *receiving* shares into the app, which this design does not
 do. The plugin block is omitted. And **`expo-document-picker`'s config plugin is optional**, needed
 only for the iCloud container entitlement; a plain Files-app picker needs no `app.json` entry.
+
+**Phase 4 adds no native dependency at all.** Moving it from the CSV to the API removed the only
+candidate — a CSV tokeniser was going to be hand-rolled anyway, and the API client uses the
+built-in `fetch`, exactly as `src/ai` does. So the prebuild obligation is entirely Phase 2's and
+Phase 3's.
 
 The AGENTS.md hazard applies in full and is the reason AC6.6 exists: `ios/` is gitignored and is
 not refreshed by `npm run ios`, so these pods will be absent from `Podfile.lock` until
@@ -524,8 +701,8 @@ This design follows patterns already established in the codebase:
 
 - **Pure core, screen holds nothing.** `aiProviderSettings.ts` exists because `src/app` has no jest
   coverage, so the decisions live in testable pure functions and the screen only calls them. Every
-  import/export decision here — the failure message, the parse, the derivation, the mapping — lives
-  in `src/export`, `src/interop` or `src/state`, and the screens call in.
+  import/export decision here — the failure message, the parse, the Hevy mapping — lives
+  in `src/export`, `src/interop`, `src/state` or `src/hevy`, and the screens call in.
 - **Resilient but never silent.** `exportSessionHistory` returns `{ markdown, failures }` (#212)
   rather than either throwing on the first bad session or swallowing it. The Hevy import takes the
   same shape: a summary object naming every dropped and lossy field, not a boolean.
@@ -565,6 +742,11 @@ break.
   (line 171).
 - `src/interop/serialize.ts` — emit `target_weight=` from `serializeRoutine`, and replace its
   inline routine-exercise parameter shape (lines 261-272) with the shared `RoutineExerciseRow`.
+- `src/interop/format.ts` (second change) — **fix the `@hint` tokeniser** so a note can hold a
+  sentence. `formatFlags` already emits the hint last, so a trailing rest-of-line form is the
+  natural fix; confirm no flag can follow it before committing to that. This is the AC1.7–AC1.9
+  work, and it is in Phase 1 rather than Phase 3 because it is a grammar defect, and because
+  Phase 4 feeds it multi-sentence prose written in another app.
 - `src/export/exportService.ts` — pass `targetWeightKg` through the row-to-serializer mapping,
   normalising `null` to `undefined` as it already does for every other optional column.
 - `src/interop/__tests__/roundtrip.test.ts` — the round-trip assertion, next to the existing
@@ -575,11 +757,12 @@ break.
 
 **Dependencies:** None.
 
-**Covers:** `routine-import-export.AC1.1` – `routine-import-export.AC1.6`,
+**Covers:** `routine-import-export.AC1.1` – `routine-import-export.AC1.9`,
 `routine-import-export.AC2.1` – `routine-import-export.AC2.3`
 
-**Done when:** the nine criteria above pass in `npm test`; `grep -n "target_weight" src/interop/*.ts`
-shows the key in `format.ts`, `parse.ts` and `serialize.ts`; `tsc`, `jest` and `lint` are green.
+**Done when:** the twelve criteria above pass in `npm test`; `grep -n "target_weight" src/interop/*.ts`
+shows the key in `format.ts`, `parse.ts` and `serialize.ts`; a routine note containing spaces **and**
+an `=` round-trips intact; `tsc`, `jest` and `lint` are green.
 <!-- END_PHASE_1 -->
 
 <!-- START_PHASE_2 -->
@@ -656,34 +839,42 @@ in Phase 2 and re-imported produces an equal routine; `tsc`, `jest` and `lint` a
 <!-- END_PHASE_3 -->
 
 <!-- START_PHASE_4 -->
-### Phase 4: Read Hevy's file, and say what it actually contained
+### Phase 4: Import a routine from the Hevy API
 
-**Goal:** A Hevy workout CSV is parsed, the user is told it holds N workouts and zero routines, and
-one selected workout can be turned into a routine with every lossy conversion named.
-
-**Gated on Open Decision 2.** If the answer is "use the Hevy API instead", this phase is replaced
-rather than amended, and Phases 1–3 stand unchanged. That independence is why it is last.
+**Goal:** The user stores a Hevy API key, sees their real routine list, picks one, reviews a
+lossiness summary, and gets a native routine. Read-only against Hevy throughout.
 
 **Components:**
-- `src/interop/hevyCsv.ts` (new, pure) — CSV → `{ workouts, summary }`. Hand-rolled RFC 4180
-  parsing (quoted fields containing commas are certain in `exercise_notes` and `description`); **no
-  new CSV dependency**, matching the no-SDK precedent in `src/ai`. Detects which weight and
-  distance columns are present rather than assuming a header (AC5.2) — the unresolved discrepancy
-  in Findings makes a fixed header unsafe.
-- `src/interop/hevyRoutine.ts` (new, pure) — one parsed workout → `RoutineExerciseEntry[]` plus a
-  lossiness report. Calls `lbsToKg` from `src/state/weightUnits`; does not reimplement it.
-- `src/app/(tabs)/settings/data.tsx` — an Import from Hevy action reusing Phase 3's picker with
-  `type: 'text/csv'`, a workout list to choose from, and the summary rendered before anything is
-  written.
-- Test fixtures — the published header and sample row **verbatim** (AC5.1), plus a synthetic
-  multi-workout file and a `weight_kg` variant.
+- `src/state/settings.ts` — add `hevyApiKey` to the existing `BridgeSettings` blob. **Do not rename
+  the `'bridge_settings'` storage key**; it holds every user's existing API keys and onboarding
+  state.
+- `src/ai/provider/`-style client at `src/hevy/hevyClient.ts` (new) — `fetch` against
+  `api.hevyapp.com` with the key in an **`api-key` header**, injectable `fetchFn`, distinct
+  `HevyUnreachable` / `HevyHttpError`. No SDK. **Read the pagination parameter names off the
+  Swagger UI in a browser first** — this design could not determine them (see Findings).
+- `src/hevy/hevyRoutineMap.ts` (new, pure) — Hevy routine JSON → `{ entries: RoutineExerciseEntry[],
+  name, lossiness }`. Owns rep-shape precedence, set-type counting, Rule B weight normalisation,
+  the `weight_kg: 0` → absent rule, and the **contiguity check that rejects a non-contiguous
+  superset run**. Never sorts by `supersets_id`.
+- `jest.config.js` — **add `hevy` to `testMatch`**, or the new directory gets no coverage at all.
+  This is the AGENTS.md rule that a new `src/` domain is invisible until it is listed. Alternatively
+  place both files under `src/interop/`, which is already covered; the plan prefers the explicit
+  `testMatch` edit so the domain boundary stays honest.
+- `src/app/(tabs)/settings/data.tsx` — key entry, routine list, lossiness summary shown **before**
+  the write, then `upsertRoutine` via Phase 3's `applyRoutineImport`.
+- `src/interop/__tests__/fixtures/hevy-push-routine.json` — the real payload, verbatim.
 
-**Dependencies:** Phase 3 (reuses the picker, the file read, and `applyRoutineImport`).
+**Dependencies:** Phase 3 (`applyRoutineImport` and the Data screen). Not dependent on Phase 2's
+share/file machinery — this phase touches no file system, which is why it adds no native module.
 
-**Covers:** `routine-import-export.AC5.1` – `routine-import-export.AC5.9`
+**Leaves `main` green on its own:** it adds a new directory, one settings field (optional, so no
+existing construction site breaks), and one screen section. It widens no shared type and changes no
+existing signature.
 
-**Done when:** AC5.1–AC5.8 pass in `npm test`; AC5.9 is walked against the user's own real export;
-`tsc`, `jest` and `lint` are green.
+**Covers:** `routine-import-export.AC5.1` – `routine-import-export.AC5.12`
+
+**Done when:** AC5.1–AC5.11 pass in `npm test`; AC5.12 is walked in the simulator against the real
+account; `tsc`, `jest` and `lint` are green.
 <!-- END_PHASE_4 -->
 
 ### AC × phase matrix
@@ -692,20 +883,25 @@ rather than amended, and Phases 1–3 stand unchanged. That independence is why 
 |---|---|---|
 | AC1.1 – AC1.5 | 1 | automated (`src/interop`) |
 | AC1.6 | 1 | structural (read `serialize.ts`'s signature) |
+| AC1.7 – AC1.9 | 1 | automated (`src/interop`) — the `@hint` fix |
 | AC2.1 – AC2.3 | 1 | automated (`src/interop`) |
 | AC3.1 – AC3.3, AC3.6 | 2 | automated (`src/export`) |
 | AC3.4 | 2 | structural (read `data.tsx`) |
 | AC3.5 | 2 | **human — simulator** |
 | AC4.1 – AC4.8 | 3 | automated (`src/interop`, `src/state`) |
 | AC4.9 | 3 | **human — simulator** |
-| AC5.1 – AC5.8 | 4 | automated (`src/interop`) |
-| AC5.9 | 4 | **human — needs the user's own Hevy export** |
+| AC5.1 – AC5.11 | 4 | automated (`src/hevy`, once added to `testMatch`) |
+| AC5.12 | 4 | **human — simulator, real Hevy account** |
 | AC6.1 – AC6.3 | **gate on every phase** | automated (`tsc`, `jest`, `lint`) |
 | AC6.4 | 3 | structural (read AGENTS.md) |
 | AC6.5, AC6.6 | 2 | AC6.5 structural; AC6.6 **human — device/simulator** |
 
-**Totals: 39 criteria — 31 automated, 4 structural, 4 human.** (AC1: 6, AC2: 3, AC3: 6, AC4: 9,
-AC5: 9, AC6: 6.)
+**Totals: 45 criteria — 37 automated, 4 structural, 4 human.** (AC1: 9, AC2: 3, AC3: 6, AC4: 9,
+AC5: 12, AC6: 6.)
+
+The human count did not rise when Phase 4 grew from 9 criteria to 12: moving to the API replaced a
+file-shaped feature with a data-shaped one, and pure mapping code is fixture-testable in a way that
+CSV-file handling was not.
 
 Every AC belongs to exactly one phase's *Covers* list, with one deliberate exception: AC6.1–AC6.3
 are per-phase **gates**, not deliverables of any single phase, so they appear in every phase's
@@ -727,16 +923,25 @@ phase's files, and are assigned deliberately:
   change but lands in `src/export`, which is otherwise Phase 2's territory. Assigned to **Phase 1**,
   because `serializeRoutine`'s parameter type widens in Phase 1 and its only caller must widen with
   it or `tsc` fails.
+- **`jest.config.js`'s `testMatch`** must gain `hevy` in **Phase 4**, in the same commit that
+  creates `src/hevy/`. A new `src/` domain is invisible to the runner until it is listed, so
+  splitting these would land eleven passing-in-principle tests that never execute — the worst
+  possible failure mode, because the suite stays green.
 
 ## Additional Considerations
 
-**The ticket's premise does not survive research, and the plan says so rather than quietly
-substituting.** "It should be able to import what hevy exports" was written on the reasonable
-assumption that what Hevy exports includes routines. It does not. Phases 1–3 deliver routine
-export and import in our own format — real value, and probably most of what was wanted — and Phase
-4 delivers the honest version of the Hevy ask. If the author's actual need was "get my Hevy
-routines onto my phone without retyping them", the API route in Open Decision 2 serves it better
-than any file ever will, and that is worth settling before Phase 4 is built rather than after.
+**The ticket's premise did not survive research, and the resolution was to change the mechanism,
+not the goal.** "It should be able to import what hevy exports" assumed the export includes
+routines. It does not. Rather than ship a routine *derived* from past workouts and call it an
+import, Phase 4 now reads the API, which returns the actual plan. The user's goal — "get my Hevy
+routines onto my phone without retyping them" — is met more completely than the literal ticket
+would have managed.
+
+**One consequence of that switch worth stating plainly:** Phase 4 now requires a live Hevy Pro
+subscription to be useful at all. That is fine for this user (access is confirmed) but it means the
+feature is not exercisable by anyone else, including a future contributor without a Hevy account.
+The checked-in real payload fixture is what keeps Phase 4 maintainable regardless — it is the only
+artifact that lets someone without Hevy Pro modify the mapper with confidence.
 
 **Three native modules land across two phases, and none of them can fail in CI.** `ios/` is
 gitignored, `npm test` runs in node, and there is no CI job running `tsc`. The entire defence
@@ -752,59 +957,83 @@ false and are rewritten in the phases that falsify them (AC6.4). A third stateme
 "session sets only" restriction on `weight=` is "a comment, not a rule", becomes false in Phase 1.
 
 **Test coverage is genuinely good for this feature, and that is unusual here.** Everything
-load-bearing is pure: parsing, serializing, mapping, deriving, and the failure-message decision all
-live in `src/interop`, `src/export` and `src/state`, every one of which is in `jest.config.js`'s
-`testMatch`. Only four criteria need a human. That is a deliberate consequence of putting the
-`exportOutcome` presenter in `src/export` rather than in the screen — the single design choice that
-moves AC3.2 from unverifiable to automated.
+load-bearing is pure: parsing, serializing, mapping and the failure-message decision all live in
+`src/interop`, `src/export`, `src/state` and (once listed) `src/hevy`. Only four of forty-five
+criteria need a human. That is a deliberate consequence of putting the `exportOutcome` presenter in
+`src/export` rather than in the screen — the single design choice that moves AC3.2 from
+unverifiable to automated.
 
-**What the four human criteria cost.** AC5.9 in particular cannot be satisfied by anyone but the
-user: it needs a real Hevy export from a real account, and the units discrepancy in Findings means
-that file is also the only way to settle which weight columns Hevy actually writes today. Obtaining
-it early would de-risk Phase 4 substantially and could correct the Findings section before any code
-is written.
+**A precision note on what "no coverage" means here.** AGENTS.md says layout in
+`src/components`/`src/app` "is invisible to every suite". The conclusion is right and the stated
+reason is not: `jest.config.js:12` *does* list `components` in `testMatch`. The actual constraint is
+narrower — the pattern is `**/*.test.ts`, not `.test.tsx`, so JSX components cannot be tested there
+at all, and in practice only two non-JSX files are covered (`src/components/restAlert.test.ts`,
+`timerSoundPlayer.test.ts`). `src/app` is genuinely absent from the list. Nothing in this design
+depends on the difference, but a reader planning where to put testable logic should know that
+adding a `src/components` helper *is* coverable if it is plain TS.
+
+**What the four human criteria cost.** AC5.12 needs the real Hevy account, but the risk it carries
+is much lower than in the previous revision: access is confirmed, and the mapping is pinned by the
+real payload as a checked-in fixture, so the simulator pass is confirming integration rather than
+discovering the data model. The one genuinely unresolved item Phase 4 must settle before writing
+code is the pagination parameter naming (Findings), which needs a browser and five minutes.
 
 ## Open decisions
 
-**1. Has Hevy shipped a routines export since these sources were written, and which weight columns
-does your export actually contain?**
-Hevy's own help-centre article is unreadable by automation (403 to WebFetch and Defuddle; a browser
-session is redirected to the help-centre root), so every claim in Findings rests on third-party
-migration guides that agree with each other but are not primary. Separately, one real 2025 sample
-has only `weight_lbs`/`distance_miles` while a converter's docs claim both metric and imperial
-columns exist.
-*Options:* (a) run the export yourself and attach the header row plus one workout to the issue;
-(b) proceed on the third-party sources and let Phase 4 discover the truth.
-**Recommendation: (a), and before Phase 4 rather than during it.** It is a two-minute task that
-either confirms the design's central finding or invalidates Phase 4 entirely, and it doubles as the
-AC5.9 fixture. Phases 1–3 do not depend on the answer and can start immediately.
+### Resolved
 
-**2. For Hevy, do you want a routine derived from a past workout, real routines via the Hevy API,
-or workout history imported as history?**
-These are three different features and only the first is in this plan.
-*Options:* (a) **derive a routine from one past workout** — what Phase 4 builds; works from the free
-export; honest but lossy, and notably the CSV carries no rest intervals at all; (b) **Hevy API
-`/v1/routines`** — returns the real routine including rep ranges and rest, but requires a Hevy Pro
-subscription and an API key in settings; (c) **import workout history into `session_sets`** — the
-most faithful to the file, and the largest piece of work, because every imported set needs a
-`routine_exercise_id` referencing a row no foreign workout has.
-**Recommendation: (a) now, and (b) later if you have Pro.** (a) is small, ships on the free tier,
-and gets your Hevy plans into the app. (b) is strictly better data but is a different design and
-should be its own card. (c) is a large project whose value is mostly historical charts the app does
-not yet draw — it should not block routine import.
+**1. ~~Which weight columns does the Hevy CSV export contain?~~ — resolved by obsolescence.**
+Retained rather than deleted, because the reasoning still matters. The question was whether the CSV
+carries `weight_lbs`, `weight_kg`, or both, since a real 2025 sample showed only imperial columns
+while a converter's docs claimed both with auto-detection. It also asked whether a routines export
+had appeared since those sources. **Both are now moot: Phase 4 reads the API, not the file.** The
+API is unambiguous — `weight_kg` only, as a float. Had decision 2 gone the other way, this would
+have been a blocking prerequisite, and Findings keeps the evidence so a future CSV path does not
+have to redo it.
 
-**3. Should export and import ship as separate PRs, or as one feature?**
-*Options:* (a) four PRs as phased above; (b) export-only now, defer import.
-**Recommendation: (a).** Each phase is independently mergeable and leaves `main` green, and Phase 2
-alone is already useful — it is the first backup path the app has ever had. But (b) is a real
-option if Open Decision 2 stalls: Phases 1–2 stand entirely on their own and answer the "export"
-half of the ticket without touching Hevy at all.
+**2. CSV, API, or workout history? — resolved: the API.** Phase 4 reads `GET /v1/routines`. Access
+is confirmed against the real account, so the Hevy Pro prerequisite is satisfied and is not a
+project risk. The two rejected options: deriving a routine from a past workout would have shipped a
+guess dressed as an import, and importing history into `session_sets` remains a genuinely large
+separate project (every imported set needs a `routine_exercise_id` referencing a row no foreign
+workout has) whose value is mostly charts the app does not yet draw. Neither should block routine
+import; both can be their own card later.
 
-**4. Where does the entry point live — Settings, or the Routines tab?**
-This plan puts both actions on a new Settings → Data screen.
-*Options:* (a) Settings → Data for both; (b) export on the routine detail screen where the routine
-already is, import on the Routines tab.
-**Recommendation: (a) for Phase 2, and add (b)'s per-routine export button later if you find
-yourself exporting often.** Settings keeps the first version to one new screen and one new route,
-and (b) is additive afterwards. This one is close to a judgement call rather than a real fork, so
-it is listed last and no phase depends on the answer.
+**3. Separate PRs? — resolved: all four phases, as planned.**
+
+**4. Entry point? — resolved: Settings → Data**, for both export and import. A per-routine export
+button on the routine detail screen stays available as a later additive change.
+
+### Still open
+
+**5. When Hevy gives a rep *range*, which end becomes our single `targetReps`?**
+This is the one genuinely lossy mapping decision left, and it is user-visible on every imported
+strength exercise. Push's real ranges are `{8,10}`, `{10,12}`, `{12,15}` — so the choice changes
+what the session screen shows as the target on most sets. Three input shapes occur in one routine
+and the rule must cover all of them: `rep_range` alone, plain `reps` alone (Russian Twist: 20), and
+both together (Dead Bug: `reps: 12` with `rep_range {12,12}`, which agree).
+*Options:* (a) **`rep_range.start`** — the floor; "8" for a `{8,10}` range. Conservative: the
+number you have committed to hitting on every set; (b) **`rep_range.end`** — the ceiling; "10".
+Aspirational: the number that triggers a load increase in most progression schemes; (c) **the
+midpoint, rounded** — "9". Splits the difference and matches neither end of how anyone actually
+programs.
+**Recommendation: (a) `rep_range.start`, with `reps` taking precedence when both are present.**
+The floor is the commitment, and undershooting a target reads as a miss while overshooting reads as
+a good day — better to render the number you must hit. It also degrades more gracefully: the
+SetLogger prefills reps from history anyway, so `targetReps` is mostly a display target, and a low
+one is less likely to be quietly wrong. (c) is not recommended — it invents a number that appears
+nowhere in the source. Whichever you pick, AC5.3 pins it with a fixture where the two sources
+disagree, so changing your mind later is a one-line change with a failing test to guide it.
+
+**6. What should a non-contiguous Hevy superset do?**
+Our engine requires a superset group to be a **contiguous** run of entries (convention 9;
+`h.group_end_idx` depends on it). Every group in the real Push routine is contiguous, so this may
+never fire — but leaving it undefined is how a silently mis-grouped routine ships, and this is the
+highest-risk item in Phase 4.
+*Options:* (a) **reject the whole import** with a named error; (b) **drop the offending group to
+standalone entries** and report it; (c) **reorder** the entries to make the group contiguous.
+**Recommendation: (a) reject.** It is what AC5.8 specifies. (c) silently rewrites the user's
+routine order, which is exactly the class of surprise the export/import path should never produce.
+(b) is defensible and is the natural fallback if (a) ever proves annoying in practice — but since
+the case is not known to occur at all, failing loudly the first time it does is worth more than
+guessing correctly. Easy to soften to (b) later; hard to notice if (b) is wrong from the start.
