@@ -26,11 +26,37 @@ export interface SupersetGroupDetail {
   exercises: ExerciseDetail[];
 }
 
+/**
+ * An order-preserving view of a routine's rows: a standalone exercise, or a
+ * contiguous run of entries sharing a `superset_group` label (engine
+ * convention 9). A superset item occupies the position of its first member.
+ *
+ * Per `helpers.lv`'s `h.group_end_idx` docstring, labels are contiguous but
+ * NOT routine-unique — a later run can legitimately reuse an earlier run's
+ * label. Two `items` entries can therefore share a `label` while remaining
+ * distinct groups; never merge same-label items that aren't adjacent.
+ */
+export type RoutineDetailItem =
+  | { type: 'superset'; label: string; exercises: ExerciseDetail[] }
+  | { type: 'exercise'; exercise: ExerciseDetail };
+
 export interface RoutineDetail {
   id: string;
   name: string;
   /** Routine-level description (the routines.notes column); null when absent. */
   notes: string | null;
+  /** Ascending `order`, superset runs occupying their first member's position. */
+  items: RoutineDetailItem[];
+  /**
+   * Derived from `items`, kept for `src/ai/contextBuilder.ts`. Its first site
+   * (`routinesSection`) flattens and re-sorts by `exercise.order` regardless
+   * of grouping, so that reshaping is behavior-preserving there. Its second
+   * site (`historySection`) builds a title `Map` with no re-sort, so
+   * insertion order can shift when a superset label is reused non-adjacently
+   * — cosmetic prompt-line reordering only (the new order is routine order),
+   * never a content change. Do not read these for display ordering — they
+   * discard routine order across the two buckets. Use `items` instead.
+   */
   supersetGroups: SupersetGroupDetail[];
   standaloneExercises: ExerciseDetail[];
   /**
@@ -75,9 +101,12 @@ export async function routineDetailPresenter(
       });
     }
 
-    // Group by superset
-    const supersetGroups: Map<string, ExerciseDetail[]> = new Map();
-    const standaloneExercises: ExerciseDetail[] = [];
+    // Build an order-preserving item list: a superset item is a *contiguous
+    // run* of rows sharing a label — walking the order-sorted rows and only
+    // extending the most-recently-pushed item when it is a superset with the
+    // same label keeps that contiguity, so a later run reusing an earlier
+    // label starts a new, distinct item instead of merging into it.
+    const items: RoutineDetailItem[] = [];
 
     for (const re of routineExercises) {
       const exerciseId = re._raw.exercise_id;
@@ -100,22 +129,26 @@ export async function routineDetailPresenter(
 
       const supersetLabel = re._raw.superset_group;
       if (supersetLabel) {
-        if (!supersetGroups.has(supersetLabel)) {
-          supersetGroups.set(supersetLabel, []);
+        const lastItem = items[items.length - 1];
+        if (lastItem?.type === 'superset' && lastItem.label === supersetLabel) {
+          lastItem.exercises.push(detail);
+        } else {
+          items.push({ type: 'superset', label: supersetLabel, exercises: [detail] });
         }
-        supersetGroups.get(supersetLabel)!.push(detail);
       } else {
-        standaloneExercises.push(detail);
+        items.push({ type: 'exercise', exercise: detail });
       }
     }
 
-    // Convert superset groups to array
-    const supersetGroupsArray: SupersetGroupDetail[] = Array.from(supersetGroups.entries()).map(
-      ([label, exercises]) => ({
-        label,
-        exercises,
-      })
-    );
+    const supersetGroupsArray: SupersetGroupDetail[] = items
+      .filter((item): item is { type: 'superset'; label: string; exercises: ExerciseDetail[] } =>
+        item.type === 'superset'
+      )
+      .map((item) => ({ label: item.label, exercises: item.exercises }));
+
+    const standaloneExercises: ExerciseDetail[] = items
+      .filter((item): item is { type: 'exercise'; exercise: ExerciseDetail } => item.type === 'exercise')
+      .map((item) => item.exercise);
 
     const hasActiveExercise = routineExercises.some(
       (re) => (re._raw.warmup_sets || 0) + (re._raw.target_sets || 0) > 0
@@ -127,6 +160,7 @@ export async function routineDetailPresenter(
       // Whitespace-only notes normalize to null, matching the exercise
       // description convention, so read sites can treat null as "absent".
       notes: normalizeNotes((routine as any).notes as string | undefined),
+      items,
       supersetGroups: supersetGroupsArray,
       standaloneExercises,
       hasActiveExercise,

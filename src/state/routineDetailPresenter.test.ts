@@ -431,4 +431,133 @@ describe('routineDetailPresenter', () => {
     // Zero-prescribed entry: 0 is distinct from null — kills ?? 0 and truthiness-guard mutants
     expect(detail!.standaloneExercises[2].targetWeightKg).toBe(0);
   });
+
+  it('preserves routine order via items, and keeps a reused superset label as a separate contiguous group rather than merging (#268)', async () => {
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-interleaved';
+        r.name = 'Interleaved';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+
+      for (const [id, title] of [
+        ['squat', 'Squat'],
+        ['bench', 'Bench'],
+        ['row', 'Row'],
+        ['plank', 'Plank'],
+        ['curl', 'Curl'],
+        ['lunge', 'Lunge'],
+      ]) {
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = id;
+          e.title = title;
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      }
+
+      // order 0: standalone
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'squat';
+        re._raw.order = 0;
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 5;
+      });
+      // order 1-2: superset "ss1"
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'bench';
+        re._raw.order = 1;
+        re._raw.superset_group = 'ss1';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 8;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'row';
+        re._raw.order = 2;
+        re._raw.superset_group = 'ss1';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 8;
+      });
+      // order 3: standalone
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'plank';
+        re._raw.order = 3;
+        re._raw.target_duration_seconds = 60;
+      });
+      // order 4-5: superset "ss1" AGAIN — same label, non-contiguous with the
+      // first "ss1" run. Per AGENTS.md engine convention 9, labels are
+      // contiguous but not routine-unique; a later group may reuse an
+      // earlier label. This must stay a distinct group, not merge with it.
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'curl';
+        re._raw.order = 4;
+        re._raw.superset_group = 'ss1';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 12;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'lunge';
+        re._raw.order = 5;
+        re._raw.superset_group = 'ss1';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 12;
+      });
+      // order 6-7: superset "ss2" — a DIFFERENT label, immediately ADJACENT to
+      // the ss1 run above. Two back-to-back supersets must stay two items.
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'squat';
+        re._raw.order = 6;
+        re._raw.superset_group = 'ss2';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 10;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'bench';
+        re._raw.order = 7;
+        re._raw.superset_group = 'ss2';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 10;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-interleaved');
+
+    expect(detail).not.toBeNull();
+    expect(detail!.items).toHaveLength(5);
+
+    expect(detail!.items[0].type).toBe('exercise');
+    expect((detail!.items[0] as any).exercise.exerciseId).toBe('squat');
+
+    expect(detail!.items[1].type).toBe('superset');
+    expect((detail!.items[1] as any).label).toBe('ss1');
+    expect((detail!.items[1] as any).exercises.map((e: any) => e.exerciseId)).toEqual(['bench', 'row']);
+
+    expect(detail!.items[2].type).toBe('exercise');
+    expect((detail!.items[2] as any).exercise.exerciseId).toBe('plank');
+
+    expect(detail!.items[3].type).toBe('superset');
+    expect((detail!.items[3] as any).label).toBe('ss1');
+    expect((detail!.items[3] as any).exercises.map((e: any) => e.exerciseId)).toEqual(['curl', 'lunge']);
+
+    // The two same-label groups are distinct objects — not merged into one.
+    expect(detail!.items[1]).not.toBe(detail!.items[3]);
+
+    expect(detail!.items[4].type).toBe('superset');
+    expect((detail!.items[4] as any).label).toBe('ss2');
+    expect((detail!.items[4] as any).exercises.map((e: any) => e.exerciseId)).toEqual(['squat', 'bench']);
+
+    // The derived buckets stay in routine order too (contextBuilder reads them).
+    expect(detail!.supersetGroups.map((g) => g.exercises[0].exerciseId)).toEqual(['bench', 'curl', 'squat']);
+  });
 });

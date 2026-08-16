@@ -8,10 +8,51 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
-import { routineDetailPresenter, RoutineDetail } from '@/state/routineDetailPresenter';
+import { routineDetailPresenter, RoutineDetail, ExerciseDetail } from '@/state/routineDetailPresenter';
 import { startSessionFromRoutine } from '@/state/startSessionFromRoutine';
 import { activeSessionStore } from '@/state/activeSession';
 import { routineStartMode } from '@/state/routineStartMode';
+
+/**
+ * A single exercise row, shared by both the standalone and superset render
+ * paths so the two can't drift — the markup used to be duplicated verbatim
+ * in each branch.
+ */
+function ExerciseRow({ exercise, onPress }: { exercise: ExerciseDetail; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${exercise.title}`}
+    >
+      <View style={styles.exerciseInfo}>
+        <ThemedText type="default" style={styles.exerciseName}>
+          {exercise.title}
+        </ThemedText>
+        <ThemedText type="default" style={styles.exerciseDetails}>
+          {exercise.targetSets != null &&
+            exercise.targetReps != null &&
+            `${exercise.targetSets}x${exercise.targetReps}`}
+          {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
+            `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
+              exercise.targetDurationSeconds % 60
+            ).padStart(2, '0')}`}
+          {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
+          {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+        </ThemedText>
+        {exercise.description && (
+          <ThemedText type="small" style={styles.exerciseDescription}>
+            {exercise.description}
+          </ThemedText>
+        )}
+      </View>
+      <ThemedText type="default" style={styles.exerciseChevron}>
+        ›
+      </ThemedText>
+    </Pressable>
+  );
+}
 
 export default function RoutineDetailScreen() {
   const router = useRouter();
@@ -118,94 +159,30 @@ export default function RoutineDetailScreen() {
             </ThemedText>
           )}
 
-          {routine.supersetGroups.length > 0 && (
+          {routine.items.length > 0 && (
             <View style={styles.section}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Supersets
-              </ThemedText>
-              {routine.supersetGroups.map((group, idx) => (
-                <View key={`${group.label}-${idx}`} style={styles.supersetGroup}>
-                  <ThemedText type="default" style={styles.supersetLabel}>
-                    Superset: {group.label}
-                  </ThemedText>
-                  {group.exercises.map((exercise) => (
-                    <Pressable
-                      key={exercise.routineExerciseId}
-                      style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
-                      onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${exercise.title}`}
-                    >
-                      <View style={styles.exerciseInfo}>
-                        <ThemedText type="default" style={styles.exerciseName}>
-                          {exercise.title}
-                        </ThemedText>
-                        <ThemedText type="default" style={styles.exerciseDetails}>
-                          {exercise.targetSets != null &&
-                            exercise.targetReps != null &&
-                            `${exercise.targetSets}x${exercise.targetReps}`}
-                          {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                            `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                              exercise.targetDurationSeconds % 60
-                            ).padStart(2, '0')}`}
-                          {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                          {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                        </ThemedText>
-                        {exercise.description && (
-                          <ThemedText type="small" style={styles.exerciseDescription}>
-                            {exercise.description}
-                          </ThemedText>
-                        )}
-                      </View>
-                      <ThemedText type="default" style={styles.exerciseChevron}>
-                        ›
-                      </ThemedText>
-                    </Pressable>
-                  ))}
-                </View>
-              ))}
-            </View>
-          )}
-
-          {routine.standaloneExercises.length > 0 && (
-            <View style={styles.section}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>
-                Exercises
-              </ThemedText>
-              {routine.standaloneExercises.map((exercise) => (
-                <Pressable
-                  key={exercise.routineExerciseId}
-                  style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
-                  onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Edit ${exercise.title}`}
-                >
-                  <View style={styles.exerciseInfo}>
-                    <ThemedText type="default" style={styles.exerciseName}>
-                      {exercise.title}
+              {routine.items.map((item) =>
+                item.type === 'superset' ? (
+                  <View key={item.exercises[0].routineExerciseId} style={styles.supersetGroup}>
+                    <ThemedText type="default" style={styles.supersetLabel}>
+                      Superset: {item.label}
                     </ThemedText>
-                    <ThemedText type="default" style={styles.exerciseDetails}>
-                      {exercise.targetSets != null &&
-                        exercise.targetReps != null &&
-                        `${exercise.targetSets}x${exercise.targetReps}`}
-                      {exercise.targetDurationSeconds != null && exercise.targetDurationSeconds > 0 &&
-                        `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(
-                          exercise.targetDurationSeconds % 60
-                        ).padStart(2, '0')}`}
-                      {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                      {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                    </ThemedText>
-                    {exercise.description && (
-                      <ThemedText type="small" style={styles.exerciseDescription}>
-                        {exercise.description}
-                      </ThemedText>
-                    )}
+                    {item.exercises.map((exercise) => (
+                      <ExerciseRow
+                        key={exercise.routineExerciseId}
+                        exercise={exercise}
+                        onPress={() => router.push(`/exercise/${exercise.exerciseId}`)}
+                      />
+                    ))}
                   </View>
-                  <ThemedText type="default" style={styles.exerciseChevron}>
-                    ›
-                  </ThemedText>
-                </Pressable>
-              ))}
+                ) : (
+                  <ExerciseRow
+                    key={item.exercise.routineExerciseId}
+                    exercise={item.exercise}
+                    onPress={() => router.push(`/exercise/${item.exercise.exerciseId}`)}
+                  />
+                )
+              )}
             </View>
           )}
         </ScrollView>
@@ -312,10 +289,6 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: Spacing.four,
-  },
-  sectionTitle: {
-    marginBottom: Spacing.two,
-    fontWeight: '600',
   },
   supersetGroup: {
     marginBottom: Spacing.three,
