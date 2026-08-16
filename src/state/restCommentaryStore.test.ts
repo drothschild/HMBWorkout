@@ -1007,6 +1007,37 @@ describe('restCommentaryTarget', () => {
 
       expect(result).toMatchObject({ shape: 'lastSet', entryIdx: 0, exerciseId: 'bench-press' });
     });
+
+    it('reads activity at the round just completed, not the round coming up', () => {
+      // Round 1 of a 3-set/2-set group. The row is still owed a set at round 1
+      // (so it closed the round) but not at round 2, so a performer lookup that
+      // asked about the upcoming round would name the bench instead and then
+      // reject the row's set as belonging to someone else.
+      const entries = [
+        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', targetSets: 3 }),
+        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', targetSets: 2 }),
+      ];
+      const rowSet = logged({ exerciseId: 'barbell-row' });
+
+      const result = restCommentaryTarget(
+        state({
+          entries,
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 2,
+          loggedSets: [logged(), logged({ exerciseId: 'barbell-row' }), logged(), rowSet],
+          lastLoggedSet: rowSet,
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        entryIdx: 1,
+        exerciseId: 'barbell-row',
+        // Its own second set, counted on its own entry.
+        setNumber: 2,
+      });
+    });
   });
 
   describe('#270: the same exercise listed twice', () => {

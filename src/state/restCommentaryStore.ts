@@ -140,6 +140,16 @@ interface RestCommentaryState {
  *
  * This is display derivation, not session flow: nothing it returns can change
  * what the engine does next.
+ *
+ * `supersetPosition` earns its place here only as a defensive one. On every
+ * state the engine can actually produce at `setIndex >= 1`, `exerciseIndex` is
+ * the first member active at the NEXT round, and a member active at round + 1
+ * is necessarily active at round too — so `exerciseIndex` can never sit past the
+ * member being looked for, and starting the backwards scan from `exerciseIndex`
+ * would find the same entry. It is kept because `hydrate` restores a stored
+ * position that no rule ever validates (AGENTS.md engine convention 5), and
+ * because the true group start is the honest thing to scan. A mutation that
+ * drops it therefore survives the suite, and that is expected.
  */
 function performedEntryIndex(sessionState: SessionState): number | null {
   const round = sessionState.setIndex - 1;
