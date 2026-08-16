@@ -1,6 +1,28 @@
 /**
- * Parser: markdown → structured (Task 3).
- * AC3.3, AC3.4, AC8.1, AC8.3: strict workout block parsing; malformed blocks throw.
+ * Parser: vault markdown → structured. Strict — malformed blocks throw
+ * `ContractError` rather than degrading.
+ *
+ * **This module has no production caller, by design (#262). Do not delete it as
+ * dead code.** Vault import was removed in #203 and the export path
+ * (`src/export`) uses `serialize` only, so a dead-code sweep will find nothing
+ * importing this outside tests. It is kept deliberately, as a *maintained
+ * contract*, because it is still doing two real jobs:
+ *
+ * 1. **It is what enforces the grammar's symmetry.** `format.ts` is the single
+ *    source of truth and `serialize.ts` must stay symmetric with it; the
+ *    roundtrip tests are the mechanism that holds that true. Delete the parser
+ *    and the enforcement goes with it — `serialize` could then drift from the
+ *    documented grammar with nothing to notice. 42 of the interop suite's 59
+ *    tests involve parsing.
+ * 2. **It is the test oracle for the one interop path that IS
+ *    production-bound.** `exportService.test.ts` verifies `exportRoutine`'s
+ *    output by parsing it back rather than string-matching, so the parser
+ *    directly guards the export feature.
+ *
+ * The consequence for maintenance: changes to `format.ts` or `serialize.ts` must
+ * keep this in step, exactly as if it had callers. That is the cost of the
+ * option chosen in #262, and it is the point — the alternative was losing the
+ * symmetry guard.
  */
 
 import { parseFlags, ContractError, ParsedDoc, WorkoutLine, SupersetGroup } from './format';
