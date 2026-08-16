@@ -533,15 +533,23 @@ in `src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onb
 settings, and no bridge settings at all — kept because renaming the *type* is churn and
 renaming the *key* is forbidden.
 
-**The settings split.** `/settings/ai-provider` (provider, key) and `/settings/ai`
+**The settings split.** `/settings/ai-provider` (provider, key, models) and `/settings/ai`
 (goals, equipment, coaching style, age, experience). The provider/key/model decisions live
 in `src/state/aiProviderSettings.ts` and the screen holds none of them, because `src/app`
 has no jest coverage — the patch/selection builders are `initialProviderSelection`,
 `providerSwitchPlan`, `apiKeyPatch` and `modelSelectionPatch`.
 
-**Per-surface model selection is not yet exposed.** `modelSelectionPatch` exists, is tested,
-and has **no production caller**; the provider screen has no model picker. Wiring one is the
-remaining work on #122.
+**Model selection IS exposed, as two pickers over four surfaces.** `modelSelectionPatch`
+has a production caller — `applyModelSelection` in `ai-provider.tsx` — and the screen
+renders **Coach Model** and **Quick Replies Model**. (This paragraph previously said the
+opposite, and stayed wrong for the whole of #246's life; the wiring landed in PR #251.)
+
+The asymmetry is deliberate and is why the picker count does not match the surface count:
+`AiModelConfig` has exactly two fields, `chat` and `oneShot`, so `applyModelSelection`'s
+field union is `'chat' | 'oneShot'`. `chat` drives the conversation and routine drafting;
+`oneShot` drives all three one-shot features (alternates, exercise question, rest
+commentary) from a single choice. Adding a third picker means widening `AiModelConfig`
+and `resolveModels`, not just adding UI.
 
 **One key per install.** Switching provider clears the outgoing provider's key, to `''`
 rather than `undefined` because `setSettings` persists through `JSON.stringify`, which drops
