@@ -404,6 +404,18 @@ emits for a set logged with zero reps. Not every value is exercised by existing
 fixtures, so test coverage is incomplete by construction; add targeted roundtrip tests
 when you discover or fix a case the current suite misses.
 
+**`parse.ts` has no production caller and is kept deliberately (#262) — it is a
+maintained contract, not dead code.** Vault import went away with #203 and
+`src/export` uses `serialize` only, so a dead-code sweep finds nothing importing it
+outside tests. It stays because it is still load-bearing twice over: it is the
+mechanism that enforces the symmetry asserted in the paragraph above (delete it and
+`serialize` can drift from the grammar with nothing to notice — 42 of the interop
+suite's 59 tests involve parsing), and it is the test oracle for the one interop path
+that *is* production-bound, since `exportService.test.ts` verifies `exportRoutine` by
+parsing its output back rather than string-matching. The cost of that choice, and it
+is a real one: a change to `format.ts` or `serialize.ts` must keep `parse.ts` in step
+exactly as if it had callers.
+
 One overload to know: the `<sets>x<reps>` slot means **target** sets×reps in a routine,
 but in a logged session it is emitted as `1x<logged-reps>` (one logged set). Session
 lines therefore expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read
