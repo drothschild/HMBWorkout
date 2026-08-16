@@ -2,10 +2,23 @@
  * Rest-screen coach commentary: the prompt half.
  *
  * This is deliberately NOT `buildSystem`. The commentary call runs against a
- * ticking rest countdown and is budgeted at one call per upcoming routine entry
- * per session, so the prompt carries exactly one exercise, its targets, and its
- * own recent working sets — not every routine, every recent workout, and every
- * exercise's history.
+ * ticking rest countdown, so the prompt carries exactly one exercise, its
+ * targets, and its own recent working sets — not every routine, every recent
+ * workout, and every exercise's history.
+ *
+ * TWO SHAPES, chosen by the caller from where the rest landed (#270):
+ *
+ *  - `lastSet` — the rest sits inside an exercise or superset group, so the
+ *    remark is about the set the athlete just finished: its own numbers, read
+ *    against that exercise's recent history.
+ *  - `upNext` — the rest sits between two different exercises, so there is no
+ *    "just finished" set worth talking about in the same breath as what is
+ *    coming; the remark previews the upcoming exercise instead.
+ *
+ * The system half changes with the shape too. The old rule line "Comment on the
+ * exercise that is coming up, not the one they just finished" is true for
+ * `upNext` and flatly contradicts the data `lastSet` sends, so it is now
+ * per-shape rather than unconditional.
  *
  * Like `contextBuilder`, this prompt carries data and never secrets: it is
  * handed a personality string and a history list, and has no access to
@@ -38,7 +51,12 @@ export interface RestCommentaryHistorySet {
   loggedDate?: string | null;
 }
 
-/** The exercise the athlete is about to perform, resolved shell-side. */
+/**
+ * The exercise the remark is about, resolved shell-side. For `upNext` that is
+ * the exercise about to be performed; for `lastSet` it is the one the completed
+ * set was performed on, which in a superset group is NOT the entry the engine
+ * has already advanced to.
+ */
 export interface RestCommentaryExercise {
   title: string;
   kind: ExerciseKind;
@@ -47,13 +65,28 @@ export interface RestCommentaryExercise {
   targetReps: number;
   targetDurationSeconds: number;
   restSeconds: number;
-  /** True when the upcoming set is a warmup set of this entry. */
+  /** True when the set this remark is about is a warmup set of this entry. */
   isWarmupSet: boolean;
   /** 1-based position within the warmup or working segment. */
   setNumber: number;
 }
 
-export interface RestCommentaryPromptInput {
+/**
+ * What the athlete actually recorded on the set just finished. Every metric is
+ * optional — the engine's sentinels (`rpe: -1`) are resolved to null by the
+ * caller, and `formatSetMetrics` guards them a second time.
+ */
+export interface RestCommentaryCompletedSet {
+  reps?: number | null;
+  weightKg?: number | null;
+  durationSeconds?: number | null;
+  rpe?: number | null;
+}
+
+/** Which of the two remarks this prompt asks for. */
+export type RestCommentaryShape = 'upNext' | 'lastSet';
+
+interface RestCommentaryPromptCommon {
   exercise: RestCommentaryExercise;
   /** Most recent first; anything past REST_COMMENTARY_HISTORY_SETS is dropped. */
   history: RestCommentaryHistorySet[];
@@ -66,6 +99,13 @@ export interface RestCommentaryPromptInput {
   /** `profileExperience` from settings. */
   profileExperience?: string;
 }
+
+export type RestCommentaryPromptInput =
+  | (RestCommentaryPromptCommon & { shape: 'upNext' })
+  | (RestCommentaryPromptCommon & {
+      shape: 'lastSet';
+      completedSet: RestCommentaryCompletedSet;
+    });
 
 export interface RestCommentaryPrompt {
   system: string;
@@ -108,20 +148,33 @@ function setPosition(exercise: RestCommentaryExercise): string {
 }
 
 /**
- * Render whatever a prior set actually recorded. Every metric can be blank, in
- * which case this is the empty string and the caller drops the line rather than
- * printing a dangling separator.
+ * Render whatever a set actually recorded — shared by the history list and by
+ * the completed-set line, so the two can never disagree about how a set reads.
+ * Every metric can be blank, in which case this is the empty string and the
+ * caller drops the segment rather than printing a dangling separator.
+ *
+ * The `rpe > 0` half of the RPE guard is not redundant with `!= null`: a
+ * completed set arrives from engine state where an unset RPE is the -1 sentinel
+ * (AGENTS.md engine convention 8), and a plain null check would put "RPE -1"
+ * in front of the coach. The caller normalizes it too; this is layer two.
  */
-function formatHistorySet(set: RestCommentaryHistorySet): string {
+function formatSetMetrics(set: RestCommentaryCompletedSet): string {
   const parts: string[] = [];
 
   if (set.reps != null) parts.push(`${set.reps} reps`);
   // Storage is canonical kg; the prompt speaks the display lbs the user sees.
   if (set.weightKg != null) parts.push(`@ ${formatWeightLbs(set.weightKg)}`);
   if (set.durationSeconds != null) parts.push(`${set.durationSeconds}s`);
-  if (set.rpe != null) parts.push(`RPE ${set.rpe}`);
+  if (set.rpe != null && set.rpe > 0) parts.push(`RPE ${set.rpe}`);
 
-  const metrics = parts.join(' ');
+  return parts.join(' ');
+}
+
+/**
+ * A history set is its metrics plus the day it was logged.
+ */
+function formatHistorySet(set: RestCommentaryHistorySet): string {
+  const metrics = formatSetMetrics(set);
   if (metrics === '') return '';
 
   return set.loggedDate ? `${metrics} (${set.loggedDate})` : metrics;
@@ -147,7 +200,32 @@ ${lines.join('\n')}`;
 }
 
 /**
- * Build the one-shot commentary prompt for the upcoming exercise.
+ * The coach's brief. Shared preamble and output contract; the closing rule and
+ * the framing sentence are the only things the shape changes.
+ */
+const UP_NEXT_BRIEF = `You are a strength-training coach in a workout-logging app. The athlete is resting between sets and is about to perform the exercise described in the next message.
+
+Reply with 1-2 short sentences about that upcoming exercise: a cue, a target to hit, or a read on their recent numbers. Speak to them directly.
+
+Rules:
+- Plain text only. No headings, lists, markdown, quotation marks, or preamble.
+- Two sentences at most. They are reading this on a countdown screen.
+- Only reference numbers that appear in the next message. Never invent history.
+- Comment on the exercise that is coming up, not the one they just finished.`;
+
+const LAST_SET_BRIEF = `You are a strength-training coach in a workout-logging app. The athlete has just finished the set described in the next message and is resting before the next one.
+
+Reply with 1-2 short sentences about that set: a read on the numbers they just put up, or a cue to carry into the next one. Speak to them directly.
+
+Rules:
+- Plain text only. No headings, lists, markdown, quotation marks, or preamble.
+- Two sentences at most. They are reading this on a countdown screen.
+- Only reference numbers that appear in the next message. Never invent history.
+- Comment on the set they just finished, not on some other exercise.
+- The recent-sets list is this same exercise's history and may already include the set above. Never read it as a separate set or compare that set against itself.`;
+
+/**
+ * Build the one-shot commentary prompt for whichever remark the rest calls for.
  *
  * The system half is the coach's brief and the output contract; the message
  * half is the data. Splitting them this way keeps the stable part stable, so
@@ -158,15 +236,7 @@ export function buildRestCommentaryPrompt(input: RestCommentaryPromptInput): Res
   const directives = input.directives?.trim();
 
   const sections = [
-    `You are a strength-training coach in a workout-logging app. The athlete is resting between sets and is about to perform the exercise described in the next message.
-
-Reply with 1-2 short sentences about that upcoming exercise: a cue, a target to hit, or a read on their recent numbers. Speak to them directly.
-
-Rules:
-- Plain text only. No headings, lists, markdown, quotation marks, or preamble.
-- Two sentences at most. They are reading this on a countdown screen.
-- Only reference numbers that appear in the next message. Never invent history.
-- Comment on the exercise that is coming up, not the one they just finished.`,
+    input.shape === 'lastSet' ? LAST_SET_BRIEF : UP_NEXT_BRIEF,
     `## Coaching Style
 
 ${personality ? neutralizeForPrompt(personality) : 'Not specified.'}`,
@@ -192,20 +262,25 @@ ${neutralizeForPrompt(directives)}`);
   const exercise = input.exercise;
   const metricSegments = [
     setPosition(exercise),
+    // The `lastSet` shape leads with what was actually recorded; the plan
+    // (target, rest) follows it as context rather than being the subject.
+    input.shape === 'lastSet' ? formatSetMetrics(input.completedSet) : '',
     targetSummary(exercise),
     `rest ${exercise.restSeconds}s`,
   ].filter((segment) => segment.length > 0);
 
   // Neutralize the title like personality/directives: model-authored titles
   // could contain newlines that fabricate prompt sections.
-  const upNext = [
+  const exerciseLine = [
     `${neutralizeForPrompt(exercise.title)} (${exercise.kind})`,
     ...metricSegments,
   ].join(' | ');
 
-  const message = `## Up Next
+  const heading = input.shape === 'lastSet' ? '## Last Set' : '## Up Next';
 
-${upNext}
+  const message = `${heading}
+
+${exerciseLine}
 
 ${historySection(input.history)}`;
 

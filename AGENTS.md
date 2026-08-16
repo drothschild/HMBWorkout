@@ -695,6 +695,34 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   routine; the screen's `accepting` state is cosmetic, so the latch also looks removable
   and is not. Deps are injected (`AiChatDeps`) so the whole turn path tests without
   network or DB.
+- **Rest commentary has two remark shapes and the engine snapshot picks which.**
+  `ScheduleRest` leaves `advance_after_set` from exactly two sites that differ in
+  `setIndex`: the round-repeat rest writes `setIndex + 1` (always >= 1, position
+  stays inside the superset group), the group-exhausted rest writes `0` and moves
+  to a fresh landing. So during Resting, **`setIndex >= 1` means the rest landed
+  inside an exercise/group and `setIndex === 0` means it landed between two** —
+  a positional test, correct where an `exerciseId` comparison is not, since a
+  routine may list the same exercise twice. `restCommentaryTarget` builds the
+  `lastSet` shape from `lastLoggedSet` for the first and keeps the `upNext` shape
+  for the second, and `buildRestCommentaryPrompt` carries the shape: its closing
+  rule line is per-shape, because "comment on the exercise coming up" contradicts
+  the data the `lastSet` message sends. The `lastSet` shape yields **silence** —
+  never a fallback to `upNext` — on three guards: no `lastLoggedSet`, a
+  `setType === 'warmup'` (the test must be `!== 'warmup'`, since transition.lv
+  stamps the entry's own `kind` for cardio/stretch and an equality test kills the
+  feature on every non-strength exercise), or a `lastLoggedSet` that does not
+  belong to the entry the round just left. That last guard exists because
+  `SetDone` ("Skip Set") never writes `lastLoggedSet`, so a rest reached by
+  skipping still carries the previous set. It is **two layers, and both are
+  needed**: the pure comparison against the performed entry catches the
+  cross-member superset case, while the store's `claimLogIndex` latch (one remark
+  per logged-set index, re-readable by the rest that owns it) catches the
+  same-entry case, which no snapshot-only test can see. The cache key moved from
+  `sessionId#entryIdx` to the rest's own position, `sessionId#exerciseIndex:setIndex`,
+  so each working set gets its own remark — a deliberate ~4x call-count increase,
+  accepted in #270. `restCommentaryKey` is exported and **`src/app/session.tsx`
+  must call it** rather than rebuilding the key; that screen is jest-invisible, so
+  a structural test in `restCommentaryStore.test.ts` is the only guard.
 - **Three one-shot AI features share the conversation slice's conventions without
   its store.** Rest commentary (`restCommentary*`), the exercise Question button
   (`exerciseQuestion*` — ephemeral per-entry cache keyed by
@@ -942,7 +970,8 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   presenter — so a guard on one does not cover the other. Both return `''` when
   `warmupSets + targetSets === 0`, and both consumers read that as *hide*
   (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
-  from its "Up Next" line). The sum is the exact condition, not a conservative one:
+  from its "Up Next" *and* "Last Set" line — one guard, both shapes, since the
+  two share `setPosition`). The sum is the exact condition, not a conservative one:
   both activity predicates in `helpers.lv` key on that sum — `h.next_active_idx`
   treats an entry as active for round `r` iff `r < warmupSets + targetSets`, and
   `h.next_active_landing` iff the sum is nonzero — so only a zero total can reach a

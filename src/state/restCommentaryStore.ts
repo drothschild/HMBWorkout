@@ -8,12 +8,17 @@
  *
  * Three rules, and they are the whole design:
  *
- *  1. ONE call per upcoming routine entry per session. The cache is keyed by
- *     `sessionId#entryIdx`, so every rest between sets of the same exercise
- *     reuses the first answer. `pendingRequests` dedupes the in-flight case, so
- *     a rest that restarts before the first response lands does not double-bill.
+ *  1. ONE call per REST per session. The cache is keyed by the rest's own
+ *     engine position (`sessionId#exerciseIndex:setIndex`), which is unique per
+ *     rest within a session, so re-entering the same rest — a remount, a
+ *     pause/resume — reuses the first answer while a genuinely new rest gets its
+ *     own. Before #270 the key was `sessionId#entryIdx`, one call per exercise;
+ *     commenting on the set just completed needs a fresh call per working set,
+ *     and the user accepted that cost (roughly 4x on a 4x4 workout).
+ *     `pendingRequests` dedupes the in-flight case, so a rest that restarts
+ *     before the first response lands does not double-bill.
  *  2. A stale answer is discarded, never shown. `generation` advances on every
- *     `show` for a new entry and on every `hide`, the `aiChatStore` pattern; a
+ *     `show` for a new rest and on every `hide`, the `aiChatStore` pattern; a
  *     response resolving under an old generation is dropped from the UI. It is
  *     still written to the cache — it cost a call either way, and rule 1 says we
  *     do not pay for it twice.
@@ -27,6 +32,7 @@ import { create } from 'zustand';
 import {
   buildRestCommentaryPrompt,
   normalizeCommentaryText,
+  type RestCommentaryCompletedSet,
   type RestCommentaryHistorySet,
 } from '@/ai/restCommentaryPrompt';
 import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
@@ -35,18 +41,25 @@ import { getSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
-import type { ExerciseKind, SessionState } from '@/engine/types';
+import type { ExerciseKind, LoggedSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /**
- * The exercise the athlete is about to perform, plus the ids that scope the
- * cache. Built by `restCommentaryTarget` from engine state; display data
- * (`exerciseTitle`) is resolved shell-side, since engine entries carry ids only.
+ * The exercise the remark is about, plus the ids that scope the cache. Built by
+ * `restCommentaryTarget` from engine state; display data (`exerciseTitle`) is
+ * resolved shell-side, since engine entries carry ids only.
  */
-export interface RestCommentaryTarget {
+interface RestCommentaryTargetBase {
   sessionId: string;
-  /** 0-based routine entry index — the cache key within a session. */
+  /**
+   * 0-based routine entry index of the exercise this remark is about. For
+   * `lastSet` that is the entry the completed set was performed on, which in a
+   * superset group is NOT `exerciseIndex`.
+   */
   entryIdx: number;
+  /** The engine's own position at this rest. Together with `setIndex`, the cache identity. */
+  exerciseIndex: number;
+  setIndex: number;
   exerciseId: string;
   exerciseTitle: string;
   kind: ExerciseKind;
@@ -57,6 +70,31 @@ export interface RestCommentaryTarget {
   restSeconds: number;
   isWarmupSet: boolean;
   setNumber: number;
+}
+
+export type RestCommentaryTarget =
+  | (RestCommentaryTargetBase & { shape: 'upNext' })
+  | (RestCommentaryTargetBase & {
+      shape: 'lastSet';
+      completedSet: RestCommentaryCompletedSet;
+      /**
+       * Index of `lastLoggedSet` within `loggedSets`. Identifies the logged set
+       * this remark is about, so a second rest arriving with the same index —
+       * which means the visit in between was skipped, not logged — can be
+       * refused. See `claimLogIndex`.
+       */
+      logIndex: number;
+    });
+
+/**
+ * The cache identity of a rest. Exported because `src/app/session.tsx` needs
+ * exactly the same string to decide when its commentary effect re-fires, and a
+ * screen-side copy would silently go stale the moment this changed. `src/app`
+ * has no jest coverage, so a structural test in the sibling spec asserts the
+ * screen calls this rather than rebuilding it.
+ */
+export function restCommentaryKey(target: RestCommentaryTarget): string {
+  return `${target.sessionId}#${target.exerciseIndex}:${target.setIndex}`;
 }
 
 export interface RestCommentaryDeps {
@@ -88,20 +126,90 @@ interface RestCommentaryState {
 }
 
 /**
- * Derive the upcoming exercise from engine state, or null when there is none to
- * comment on.
+ * Which entry the round that just ended was actually performed on, or null when
+ * the position does not identify one.
  *
- * What "upcoming" means during rest, verified against `transition.lv`'s
- * `advance_after_set`: resting between sets of one exercise advances `setIndex`
- * and leaves `exerciseIndex` alone, and resting between exercises advances
- * `exerciseIndex` to the next entry before entering Resting. Either way the
- * entry at `exerciseIndex` IS the upcoming one — the same entry the presenter
- * exposes as `currentEntry`. A finished workout goes straight to Done with no
- * rest, so "rest before done" does not occur; the missing-entry guard below
- * covers a stranded index anyway, by showing nothing and making no call.
+ * Read off `transition.lv`/`helpers.lv` rather than re-deciding anything: a
+ * round visits the members of the current superset group in index order and
+ * skips any member whose own `warmupSets + targetSets` is already exhausted
+ * (`h.next_active_idx` is active at round r iff `r < total`), so the LAST member
+ * visited in round `setIndex - 1` is the highest-indexed member of the group
+ * still active at that round. A standalone entry is a group of exactly one —
+ * `h.group_end_idx` compares labels and `None` (the `""` sentinel here) never
+ * matches, so two adjacent unlabelled entries are two groups, not one.
  *
- * The resting / paused-mid-rest test mirrors `createSessionPresenter`'s
- * `isResting` / `isRestPaused`, including the 0 sentinel on `restRemainingMs`.
+ * This is display derivation, not session flow: nothing it returns can change
+ * what the engine does next.
+ */
+function performedEntryIndex(sessionState: SessionState): number | null {
+  const round = sessionState.setIndex - 1;
+  if (round < 0) return null;
+
+  const entries = sessionState.entries ?? [];
+  const groupStart = sessionState.exerciseIndex - (sessionState.supersetPosition ?? 0);
+  const groupLabel = entries[groupStart]?.supersetGroup;
+  if (groupLabel === undefined) return null;
+
+  let groupEnd = groupStart;
+  // "" is the no-superset sentinel and can never join a run (see above).
+  if (groupLabel !== '') {
+    while (entries[groupEnd + 1]?.supersetGroup === groupLabel) groupEnd += 1;
+  }
+
+  for (let idx = groupEnd; idx >= groupStart; idx -= 1) {
+    const entry = entries[idx];
+    if (entry && entry.warmupSets + entry.targetSets > round) return idx;
+  }
+
+  return null;
+}
+
+/** The engine hands RPE back as -1 when unset (AGENTS.md engine convention 8). */
+function withoutRpeSentinel(set: LoggedSet): RestCommentaryCompletedSet {
+  return {
+    reps: set.reps ?? null,
+    weightKg: set.weightKg ?? null,
+    durationSeconds: set.durationSeconds ?? null,
+    rpe: set.rpe == null || set.rpe < 0 ? null : set.rpe,
+  };
+}
+
+/**
+ * Derive what the rest screen's coach should talk about, or null when there is
+ * nothing to say.
+ *
+ * THE DISCRIMINATOR, verified against `transition.lv`'s `advance_after_set`:
+ * `ScheduleRest` is emitted from exactly two sites, and they differ in
+ * `setIndex`. The round-repeat rest (transition.lv:66-70) writes
+ * `setIndex: s.setIndex + 1`, so it is always >= 1 and `exerciseIndex` stays
+ * inside the current superset group. The group-exhausted rest
+ * (transition.lv:103-107) writes `setIndex: 0` and moves `exerciseIndex` to a
+ * fresh landing. So during Resting, `setIndex >= 1` means the rest landed
+ * INSIDE an exercise or group and `setIndex === 0` means it landed BETWEEN two
+ * different exercises. This is snapshot-only and stays correct when a routine
+ * lists the same exercise twice, which an `exerciseId` comparison would not.
+ * Resume/AppForegrounded re-enter Resting without touching `setIndex`, so a
+ * rehydrated or foregrounded rest reads the same as the one it recovers.
+ *
+ * `setIndex === 0` keeps today's behaviour: the entry at `exerciseIndex` is the
+ * upcoming one, and the remark previews it.
+ *
+ * `setIndex >= 1` comments on the set just completed, subject to three guards,
+ * each of which yields SILENCE rather than falling back to the up-next shape:
+ *
+ *  - `lastLoggedSet` must exist. A session whose first set was skipped has none.
+ *  - Its `setType` must not be `'warmup'` — working sets only. The test is
+ *    `!== 'warmup'`, never `=== 'working'`: transition.lv:190 stamps the entry's
+ *    own `kind` for non-strength entries, so a cardio set is `'cardio'` and a
+ *    stretch set `'stretch'`, and an equality test would kill the feature on
+ *    every non-strength exercise.
+ *  - It must belong to the entry the round actually just left. `SetDone`
+ *    ("Skip Set", transition.lv:208-210) routes straight to `advance_after_set`
+ *    and never writes `lastLoggedSet`, so a rest reached by skipping still
+ *    carries the previous set. Comparing against `performedEntryIndex` catches
+ *    the cross-member case (skip one superset partner after logging the other);
+ *    the store's `claimLogIndex` latch catches the same-entry case, where the
+ *    exercise id alone cannot tell the two apart.
  */
 export function restCommentaryTarget(
   sessionState: SessionState | null | undefined,
@@ -112,24 +220,69 @@ export function restCommentaryTarget(
   // Use shared predicate: true during resting or paused-mid-rest
   if (!isRestingPhase(sessionState)) return null;
 
-  const entry = sessionState.entries?.[sessionState.exerciseIndex];
-  if (!entry) return null;
+  const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
+  if (!currentEntry) return null;
+
+  const position = {
+    sessionId: sessionState.sessionId,
+    exerciseIndex: sessionState.exerciseIndex,
+    setIndex: sessionState.setIndex,
+  };
+
+  if (sessionState.setIndex >= 1) {
+    const lastSet = sessionState.lastLoggedSet;
+    if (!lastSet) return null;
+    if (lastSet.setType === 'warmup') return null;
+
+    const performedIdx = performedEntryIndex(sessionState);
+    if (performedIdx === null) return null;
+
+    const performed = sessionState.entries[performedIdx];
+    if (performed.exerciseId !== lastSet.exerciseId) return null;
+
+    // The completed set sat one round back; the shared derivation reads the
+    // position off setIndex, so hand it the round that was actually performed.
+    const setPos = deriveSetPosition(
+      { ...sessionState, setIndex: sessionState.setIndex - 1 },
+      performed
+    );
+    if (!setPos) return null;
+
+    return {
+      ...position,
+      shape: 'lastSet',
+      entryIdx: performed.idx,
+      exerciseId: performed.exerciseId,
+      exerciseTitle: exerciseTitles?.[performed.exerciseId] || performed.exerciseId,
+      kind: performed.kind,
+      warmupSets: performed.warmupSets,
+      targetSets: performed.targetSets,
+      targetReps: performed.targetReps,
+      targetDurationSeconds: performed.targetDurationSeconds,
+      restSeconds: performed.restSeconds,
+      isWarmupSet: setPos.isWarmupSet,
+      setNumber: setPos.setNumber,
+      completedSet: withoutRpeSentinel(lastSet),
+      logIndex: sessionState.loggedSets.length - 1,
+    };
+  }
 
   // Use shared derivation for set position (same calculation as presenter)
-  const setPos = deriveSetPosition(sessionState, entry);
+  const setPos = deriveSetPosition(sessionState, currentEntry);
   if (!setPos) return null;
 
   return {
-    sessionId: sessionState.sessionId,
-    entryIdx: entry.idx,
-    exerciseId: entry.exerciseId,
-    exerciseTitle: exerciseTitles?.[entry.exerciseId] || entry.exerciseId,
-    kind: entry.kind,
-    warmupSets: entry.warmupSets,
-    targetSets: entry.targetSets,
-    targetReps: entry.targetReps,
-    targetDurationSeconds: entry.targetDurationSeconds,
-    restSeconds: entry.restSeconds,
+    ...position,
+    shape: 'upNext',
+    entryIdx: currentEntry.idx,
+    exerciseId: currentEntry.exerciseId,
+    exerciseTitle: exerciseTitles?.[currentEntry.exerciseId] || currentEntry.exerciseId,
+    kind: currentEntry.kind,
+    warmupSets: currentEntry.warmupSets,
+    targetSets: currentEntry.targetSets,
+    targetReps: currentEntry.targetReps,
+    targetDurationSeconds: currentEntry.targetDurationSeconds,
+    restSeconds: currentEntry.restSeconds,
     isWarmupSet: setPos.isWarmupSet,
     setNumber: setPos.setNumber,
   };
@@ -138,16 +291,37 @@ export function restCommentaryTarget(
 export function createRestCommentaryStore(deps: RestCommentaryDeps) {
   const log = deps.logError ?? ((message: string, error: unknown) => console.warn(message, error));
 
-  /** `sessionId#entryIdx` → comment. In-memory only; never persisted. */
+  /** Rest position key → comment. In-memory only; never persisted. */
   const cache = new Map<string, string>();
   /** Same key → the single in-flight request, so a restart cannot double-bill. */
   const pendingRequests = new Map<string, Promise<string | null>>();
+  /**
+   * Logged-set index → the rest that already commented on it. A logged set
+   * earns exactly one remark; a second rest naming the same set means the visit
+   * in between was skipped rather than logged (`SetDone` never advances
+   * `lastLoggedSet`), so the snapshot is stale and the athlete gets silence.
+   *
+   * This is the half of the skip guard the snapshot cannot supply on its own:
+   * for a standalone exercise, log-then-skip leaves an engine state that is
+   * indistinguishable from log-then-log by exercise id alone. Re-entering the
+   * SAME rest re-reads its own claim and is allowed through, so a remount or a
+   * pause/resume still shows the comment it already paid for.
+   */
+  const claimedLogIndex = new Map<number, string>();
 
   let cachedSessionId: string | null = null;
   let currentKey: string | null = null;
   let generation = 0;
 
-  const keyOf = (target: RestCommentaryTarget) => `${target.sessionId}#${target.entryIdx}`;
+  /** True when `key` owns the remark for `logIndex` — either already, or now. */
+  function claimLogIndex(logIndex: number, key: string): boolean {
+    const owner = claimedLogIndex.get(logIndex);
+    if (owner === undefined) {
+      claimedLogIndex.set(logIndex, key);
+      return true;
+    }
+    return owner === key;
+  }
 
   async function requestComment(key: string, target: RestCommentaryTarget): Promise<string | null> {
     const inFlight = pendingRequests.get(key);
@@ -165,19 +339,26 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
       // Check if any key is configured
       if (!hasAiKey(settings)) return null;
 
+      // `target.exerciseId` is whichever exercise the remark is about — the
+      // performed one for `lastSet`, the upcoming one for `upNext` — so the
+      // history shown always belongs to the exercise being discussed.
       const history = await deps.loadHistory(target.exerciseId);
+      const exercise = {
+        title: target.exerciseTitle,
+        kind: target.kind,
+        warmupSets: target.warmupSets,
+        targetSets: target.targetSets,
+        targetReps: target.targetReps,
+        targetDurationSeconds: target.targetDurationSeconds,
+        restSeconds: target.restSeconds,
+        isWarmupSet: target.isWarmupSet,
+        setNumber: target.setNumber,
+      };
       const prompt = buildRestCommentaryPrompt({
-        exercise: {
-          title: target.exerciseTitle,
-          kind: target.kind,
-          warmupSets: target.warmupSets,
-          targetSets: target.targetSets,
-          targetReps: target.targetReps,
-          targetDurationSeconds: target.targetDurationSeconds,
-          restSeconds: target.restSeconds,
-          isWarmupSet: target.isWarmupSet,
-          setNumber: target.setNumber,
-        },
+        ...(target.shape === 'lastSet'
+          ? { shape: 'lastSet' as const, completedSet: target.completedSet }
+          : { shape: 'upNext' as const }),
+        exercise,
         history,
         personality: settings.aiPersonality,
         // The non-negotiable tier only, matching exerciseReplaceStore's
@@ -239,16 +420,26 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
       if (cachedSessionId !== target.sessionId) {
         cache.clear();
         pendingRequests.clear();
+        claimedLogIndex.clear();
         cachedSessionId = target.sessionId;
       }
 
-      const key = keyOf(target);
-      // Same upcoming entry: the answer on screen is still the right one, and
-      // re-entering must not re-request or disturb an in-flight response.
+      const key = restCommentaryKey(target);
+      // Same rest: the answer on screen is still the right one, and re-entering
+      // must not re-request or disturb an in-flight response.
       if (key === currentKey) return;
 
       currentKey = key;
       const gen = ++generation;
+
+      // The set this remark would be about already had its rest, so the visit
+      // since then was a skip and `lastLoggedSet` no longer describes what the
+      // athlete just did. Silence, and no reserved slot — the same shape the
+      // no-key path takes, because rest never depends on the AI either way.
+      if (target.shape === 'lastSet' && !claimLogIndex(target.logIndex, key)) {
+        set({ text: null, pending: false, attempted: false });
+        return;
+      }
 
       const cached = cache.get(key);
       if (cached !== undefined) {

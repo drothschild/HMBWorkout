@@ -21,7 +21,11 @@ import {
 } from '@/state/sessionPresenter';
 import { formatSetInputValue, buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry } from '@/state/exerciseStopwatch';
-import { restCommentaryStore, restCommentaryTarget } from '@/state/restCommentaryStore';
+import {
+  restCommentaryKey,
+  restCommentaryStore,
+  restCommentaryTarget,
+} from '@/state/restCommentaryStore';
 import { exerciseQuestionStore, exerciseQuestionTarget, exerciseQuestionKey } from '@/state/exerciseQuestionStore';
 import { exerciseReplaceStore } from '@/state/exerciseReplaceStore';
 import { getSettings } from '@/state/settings';
@@ -357,19 +361,20 @@ export default function SessionScreen() {
   }, [sessionState?.sessionId]);
 
   // Rest-screen coach commentary. The engine owns when rest happens; this only
-  // mirrors the upcoming exercise into the commentary store, which caches one
-  // comment per entry and swallows every failure — the rest screen renders the
+  // mirrors whatever the coach should talk about — the set just finished, or
+  // the exercise coming up — into the commentary store, which caches one
+  // comment per rest and swallows every failure; the rest screen renders the
   // same with or without it.
   const commentaryTarget = restCommentaryTarget(sessionState, exerciseTitles);
   // Identity, not the object: the target is rebuilt every render, and the store
-  // no-ops on a repeat of the same entry. Titles are async-loaded; skip the show
-  // if the title hasn't resolved yet to avoid caching a comment keyed by raw id.
-  // The effect will re-fire once titles load and commentaryKey includes the real
-  // title. (Titles resolve at session start, so the id fallback here is the same
-  // one currentExerciseTitle already has once resolved.)
-  const commentaryKey = commentaryTarget
-    ? `${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`
-    : null;
+  // no-ops on a repeat of the same rest. The key comes from the store so the two
+  // can never disagree about what counts as a new rest (a hand-rolled copy here
+  // went stale when the key gained the set position in #270). Titles are
+  // async-loaded; skip the show if the title hasn't resolved yet to avoid
+  // caching a comment keyed by raw id. The effect will re-fire once titles load.
+  // (Titles resolve at session start, so the id fallback here is the same one
+  // currentExerciseTitle already has once resolved.)
+  const commentaryKey = commentaryTarget ? restCommentaryKey(commentaryTarget) : null;
   const shouldShowCommentary =
     commentaryTarget &&
     // Skip if title hasn't resolved yet (async load in flight at rehydration)
