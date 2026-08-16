@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -68,74 +78,114 @@ export function FirstRunKeyPrompt({ onDone }: { onDone: () => void }) {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedText type="title" style={styles.title}>
-          Add an AI key
-        </ThemedText>
-        <ThemedText type="default" style={styles.blurb}>
-          The coach writes routines, answers questions and comments between sets. It runs on your
-          own API key, which stays on this device. You can skip this and add one later in Settings.
-        </ThemedText>
+      {/* Two layers, each doing a different job. The KeyboardAvoidingView
+          SHRINKS the column so the buttons rise above the keyboard — that is
+          what #259 is actually about, and it works here for the reason it
+          failed in settings/ai.tsx: this screen renders instead of the Stack,
+          with no tab-navigator header or tab bar to absorb the compression
+          (that screen measured only ~12%). Same situation as session.tsx,
+          minus the modal offset, since this is not a modal-presented route.
+          The ScrollView underneath is the overflow net: shrinking cannot help
+          when the rigid content is simply taller than what is left, and
+          `automaticallyAdjustKeyboardInsets` scrolls the focused field into
+          view. Verified in the simulator — the ScrollView ALONE left the
+          button behind the keyboard (insets the content, does not shrink the
+          frame), which is why both layers are here. */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <SafeAreaView style={styles.safeArea}>
+        {/* The keyboard used to cover "Save and continue" outright (#259), and
+            this screen's rigid content (title, blurb, picker, field) can exceed
+            a small phone once the keyboard is up — so a KeyboardAvoidingView
+            alone would not be enough even where it works.
 
-        <ThemedText type="default" style={styles.label}>
-          Provider
-        </ThemedText>
-        <Pressable
-          onPress={() => setPickerOpen(true)}
-          style={[styles.picker, { borderColor: theme.backgroundSelected }]}>
-          <ThemedText type="default">{PROVIDER_LABEL[provider]}</ThemedText>
-          <ThemedText type="default" style={styles.chevron}>
-            ›
+            `automaticallyAdjustKeyboardInsets` is the pattern already proven for
+            a form in this app (settings/ai.tsx): it insets the bottom and scrolls
+            the focused field into view. A KeyboardAvoidingView was rejected there
+            because tab-navigator chrome shrank the column by only ~12%; this
+            screen has no tab chrome, but it does have the content-overflow
+            problem a KAV cannot solve, so the ScrollView is the better fit here
+            for a different reason.
+
+            `flexGrow: 1` on the content container is load-bearing: `flex: 1` on
+            a ScrollView CHILD is inert, so without it the spacer collapses and
+            the buttons ride up under the blurb. That exact shape shipped once
+            already in PR #66. */}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          showsVerticalScrollIndicator={false}>
+          <ThemedText type="title" style={styles.title}>
+            Add an AI key
           </ThemedText>
-        </Pressable>
+          <ThemedText type="default" style={styles.blurb}>
+            The coach writes routines, answers questions and comments between sets. It runs on your
+            own API key, which stays on this device. You can skip this and add one later in Settings.
+          </ThemedText>
 
-        <ThemedText type="default" style={styles.label}>
-          {PROVIDER_LABEL[provider]} API Key
-        </ThemedText>
-        <TextInput
-          value={keyText}
-          onChangeText={setKeyText}
-          placeholder={keyPlaceholder(provider)}
-          placeholderTextColor={theme.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          // The keyboard covers "Save and continue" while this field is
-          // focused, so return is the way out. "done" says so; the default
-          // glyph does not. Deliberately NOT a KeyboardAvoidingView — that is
-          // #130's territory, where PR #109 failed three approaches.
-          returnKeyType="done"
-          style={[styles.input, { borderColor: theme.backgroundSelected, color: theme.text }]}
-        />
+          <ThemedText type="default" style={styles.label}>
+            Provider
+          </ThemedText>
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            style={[styles.picker, { borderColor: theme.backgroundSelected }]}>
+            <ThemedText type="default">{PROVIDER_LABEL[provider]}</ThemedText>
+            <ThemedText type="default" style={styles.chevron}>
+              ›
+            </ThemedText>
+          </Pressable>
 
-        {warning && (
-          <ThemedView style={styles.warningBox}>
-            <ThemedText style={styles.warningText}>{warning}</ThemedText>
-          </ThemedView>
-        )}
+          <ThemedText type="default" style={styles.label}>
+            {PROVIDER_LABEL[provider]} API Key
+          </ThemedText>
+          <TextInput
+            value={keyText}
+            onChangeText={setKeyText}
+            placeholder={keyPlaceholder(provider)}
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            // The keyboard covers "Save and continue" while this field is
+            // focused, so return is the way out. "done" says so; the default
+            // glyph does not. Deliberately NOT a KeyboardAvoidingView — that is
+            // #130's territory, where PR #109 failed three approaches.
+            returnKeyType="done"
+            style={[styles.input, { borderColor: theme.backgroundSelected, color: theme.text }]}
+          />
 
-        <View style={styles.spacer} />
-
-        <Pressable
-          accessibilityRole="button"
-          disabled={checking || keyText.trim().length === 0}
-          onPress={save}
-          style={[
-            styles.primary,
-            { backgroundColor: ActionButtonColor.primary },
-            (checking || keyText.trim().length === 0) && styles.disabled,
-          ]}>
-          {checking ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <ThemedText style={styles.primaryText}>Save and continue</ThemedText>
+          {warning && (
+            <ThemedView style={styles.warningBox}>
+              <ThemedText style={styles.warningText}>{warning}</ThemedText>
+            </ThemedView>
           )}
-        </Pressable>
 
-        <Pressable accessibilityRole="button" onPress={onDone} style={styles.skip}>
-          <ThemedText type="default">I don&apos;t have a key</ThemedText>
-        </Pressable>
-      </SafeAreaView>
+          <View style={styles.spacer} />
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={checking || keyText.trim().length === 0}
+            onPress={save}
+            style={[
+              styles.primary,
+              { backgroundColor: ActionButtonColor.primary },
+              (checking || keyText.trim().length === 0) && styles.disabled,
+            ]}>
+            {checking ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.primaryText}>Save and continue</ThemedText>
+            )}
+          </Pressable>
+
+            <Pressable accessibilityRole="button" onPress={onDone} style={styles.skip}>
+              <ThemedText type="default">I don&apos;t have a key</ThemedText>
+            </Pressable>
+        </ScrollView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={pickerOpen}
@@ -174,7 +224,10 @@ export function FirstRunKeyPrompt({ onDone }: { onDone: () => void }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  safeArea: { flex: 1, paddingHorizontal: 24, gap: 12 },
+  flex: { flex: 1 },
+  safeArea: { flex: 1 },
+  // flexGrow (not flex) — see the ScrollView comment above.
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, gap: 12 },
   title: { marginTop: 32 },
   blurb: { marginBottom: 12 },
   label: { fontWeight: '600', marginTop: 8 },
