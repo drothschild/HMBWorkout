@@ -511,12 +511,30 @@ describe('routineDetailPresenter', () => {
         re._raw.target_sets = 3;
         re._raw.target_reps = 12;
       });
+      // order 6-7: superset "ss2" — a DIFFERENT label, immediately ADJACENT to
+      // the ss1 run above. Two back-to-back supersets must stay two items.
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'squat';
+        re._raw.order = 6;
+        re._raw.superset_group = 'ss2';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 10;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-interleaved';
+        re._raw.exercise_id = 'bench';
+        re._raw.order = 7;
+        re._raw.superset_group = 'ss2';
+        re._raw.target_sets = 3;
+        re._raw.target_reps = 10;
+      });
     });
 
     const detail = await routineDetailPresenter(db, 'routine-interleaved');
 
     expect(detail).not.toBeNull();
-    expect(detail!.items).toHaveLength(4);
+    expect(detail!.items).toHaveLength(5);
 
     expect(detail!.items[0].type).toBe('exercise');
     expect((detail!.items[0] as any).exercise.exerciseId).toBe('squat');
@@ -534,5 +552,12 @@ describe('routineDetailPresenter', () => {
 
     // The two same-label groups are distinct objects — not merged into one.
     expect(detail!.items[1]).not.toBe(detail!.items[3]);
+
+    expect(detail!.items[4].type).toBe('superset');
+    expect((detail!.items[4] as any).label).toBe('ss2');
+    expect((detail!.items[4] as any).exercises.map((e: any) => e.exerciseId)).toEqual(['squat', 'bench']);
+
+    // The derived buckets stay in routine order too (contextBuilder reads them).
+    expect(detail!.supersetGroups.map((g) => g.exercises[0].exerciseId)).toEqual(['bench', 'curl', 'squat']);
   });
 });

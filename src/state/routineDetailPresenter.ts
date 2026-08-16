@@ -48,11 +48,14 @@ export interface RoutineDetail {
   /** Ascending `order`, superset runs occupying their first member's position. */
   items: RoutineDetailItem[];
   /**
-   * Derived from `items`, kept for `src/ai/contextBuilder.ts` (which flattens
-   * and re-sorts by `exercise.order` regardless of grouping, so this
-   * reshaping is behavior-preserving for that consumer). Do not read these
-   * for display ordering — they discard routine order across the two
-   * buckets. Use `items` instead.
+   * Derived from `items`, kept for `src/ai/contextBuilder.ts`. Its first site
+   * (`routinesSection`) flattens and re-sorts by `exercise.order` regardless
+   * of grouping, so that reshaping is behavior-preserving there. Its second
+   * site (`historySection`) builds a title `Map` with no re-sort, so
+   * insertion order can shift when a superset label is reused non-adjacently
+   * — cosmetic prompt-line reordering only (the new order is routine order),
+   * never a content change. Do not read these for display ordering — they
+   * discard routine order across the two buckets. Use `items` instead.
    */
   supersetGroups: SupersetGroupDetail[];
   standaloneExercises: ExerciseDetail[];

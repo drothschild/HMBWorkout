@@ -290,10 +290,6 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: Spacing.four,
   },
-  sectionTitle: {
-    marginBottom: Spacing.two,
-    fontWeight: '600',
-  },
   supersetGroup: {
     marginBottom: Spacing.three,
     paddingLeft: Spacing.two,
