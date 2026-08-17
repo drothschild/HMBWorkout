@@ -50,6 +50,7 @@ function target(overrides: Partial<UpNextTarget> = {}): RestCommentaryTarget {
     restSeconds: 90,
     isWarmupSet: false,
     setNumber: 2,
+    totalOfType: 3,
     ...overrides,
   };
 }
@@ -1176,6 +1177,112 @@ describe('restCommentaryTarget', () => {
       // Same exerciseId on both sides; only setIndex differs.
       expect(between).toMatchObject({ shape: 'upNext', entryIdx: 1 });
       expect(within).toMatchObject({ shape: 'lastSet', entryIdx: 1, logIndex: 3 });
+    });
+  });
+
+  // ---- #276 Phase 3: the target carries the per-set denominator ------------
+
+  describe('per-set position (#276 AC3.4, AC3.5)', () => {
+    /** RAMP: three warmups at ascending loads, then four working sets. */
+    const RAMP = [
+      { setType: 'warmup' as const, reps: 5, weightKg: 9.07 },
+      { setType: 'warmup' as const, reps: 5, weightKg: 11.34 },
+      { setType: 'warmup' as const, reps: 3, weightKg: 18.14 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+    ];
+
+    it('reads the denominator off the set list, not the aggregate counts', () => {
+      // Aggregates say 1 warmup / 1 working; the list says 3 and 4.
+      const ramped = entry({ warmupSets: 1, targetSets: 1, sets: RAMP });
+      const upNext = restCommentaryTarget(
+        state({ exerciseIndex: 0, setIndex: 0, entries: [ramped] })
+      );
+
+      expect(upNext).toMatchObject({ isWarmupSet: true, setNumber: 1, totalOfType: 3 });
+    });
+
+    it('INTERLEAVE: the third set is Warmup 2 of 2, which no count pair gives', () => {
+      const interleaved = entry({
+        warmupSets: 1,
+        targetSets: 2,
+        sets: [
+          { setType: 'warmup', reps: 5 },
+          { setType: 'normal', reps: 8 },
+          { setType: 'warmup', reps: 5 },
+        ],
+      });
+      const target = restCommentaryTarget(
+        state({
+          exerciseIndex: 0,
+          setIndex: 3,
+          entries: [interleaved],
+          loggedSets: [logged(), logged(), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      // setIndex 3 means the round that just ended was 2 — INTERLEAVE's warmup.
+      expect(target).toMatchObject({ isWarmupSet: true, setNumber: 2, totalOfType: 2 });
+    });
+
+    it('EMPTY: an entry prescribing nothing yields totalOfType 0, which hides the segment', () => {
+      const nothing = entry({ warmupSets: 0, targetSets: 0, targetReps: 0, sets: [] });
+      expect(restCommentaryTarget(state({ exerciseIndex: 0, entries: [nothing] }))).toMatchObject({
+        totalOfType: 0,
+      });
+    });
+
+    it('performedEntryIndex skips a superset partner whose own list is exhausted', () => {
+      // Member A prescribes 3 sets, member B 2. At setIndex 2 the round that
+      // just ended is round 1, which B was still active for; at setIndex 3 the
+      // round was 2, which only A was active for, so the remark is A's.
+      const memberA = entry({
+        idx: 0,
+        exerciseId: 'member-a',
+        supersetGroup: 'G5',
+        warmupSets: 0,
+        targetSets: 99,
+        sets: [
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+        ],
+      });
+      const memberB = entry({
+        idx: 1,
+        exerciseId: 'member-b',
+        supersetGroup: 'G5',
+        warmupSets: 0,
+        targetSets: 99,
+        sets: [
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+        ],
+      });
+
+      const mismatchState = (setIndex: number, exerciseId: string) =>
+        state({
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex,
+          entries: [memberA, memberB],
+          loggedSets: [logged({ exerciseId })],
+          lastLoggedSet: logged({ exerciseId }),
+        });
+
+      expect(restCommentaryTarget(mismatchState(2, 'member-b'))).toMatchObject({
+        entryIdx: 1,
+        exerciseId: 'member-b',
+        totalOfType: 2,
+      });
+      expect(restCommentaryTarget(mismatchState(3, 'member-a'))).toMatchObject({
+        entryIdx: 0,
+        exerciseId: 'member-a',
+        totalOfType: 3,
+      });
     });
   });
 });

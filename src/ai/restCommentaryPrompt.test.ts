@@ -25,6 +25,22 @@ const benchPress: RestCommentaryExercise = {
   restSeconds: 90,
   isWarmupSet: false,
   setNumber: 2,
+  totalOfType: 3,
+};
+
+/**
+ * An entry that prescribes nothing (#276 EMPTY). Spelled as its own fixture so
+ * the zero-denominator cases below cannot be satisfied by a leftover non-zero
+ * total on `benchPress`.
+ */
+const prescribesNothing: RestCommentaryExercise = {
+  ...benchPress,
+  warmupSets: 0,
+  targetSets: 0,
+  targetReps: 0,
+  isWarmupSet: false,
+  setNumber: 1,
+  totalOfType: 0,
 };
 
 type UpNextInput = Extract<RestCommentaryPromptInput, { shape: 'upNext' }>;
@@ -87,37 +103,35 @@ describe('buildRestCommentaryPrompt', () => {
     it('states which warmup set is coming up', () => {
       const { message } = buildRestCommentaryPrompt(
         promptInput({
-          exercise: { ...benchPress, warmupSets: 2, isWarmupSet: true, setNumber: 1 },
+          exercise: {
+            ...benchPress,
+            warmupSets: 2,
+            isWarmupSet: true,
+            setNumber: 1,
+            totalOfType: 2,
+          },
         })
       );
 
       expect(message).toContain('Warmup 1 of 2');
     });
 
-    it('omits the set position label for duration-only entries with zero total sets', () => {
+    it('omits the set position label for an entry that prescribes no sets', () => {
       const { message } = buildRestCommentaryPrompt(
         promptInput({
           exercise: {
-            ...benchPress,
+            ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            warmupSets: 0,
-            targetSets: 0,
-            targetReps: 0,
             targetDurationSeconds: 30,
-            isWarmupSet: false,
-            setNumber: 1,
           },
         })
       );
 
-      // The Up Next line should not contain "Set 1 of 0" — that is nonsensical
-      expect(message).not.toContain('Set 1 of 0');
-      // But the exercise, duration target, and rest should still be there
-      expect(message).toContain('Cooldown Stretch');
-      expect(message).toContain('stretch');
-      expect(message).toContain('target 30s');
-      expect(message).toContain('rest 90s');
+      // Whole-line equality, not a `not.toContain('Set 1 of 0')`: the negative
+      // form passes just as happily when the guard emits some OTHER wrong
+      // position, so it cannot tell a working guard from a broken one.
+      expect(message.split('\n')[2]).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
     });
 
     it('formats the Up Next line correctly for working sets: title and kind stay together', () => {
@@ -132,21 +146,49 @@ describe('buildRestCommentaryPrompt', () => {
       const { message } = buildRestCommentaryPrompt(
         promptInput({
           exercise: {
-            ...benchPress,
+            ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            warmupSets: 0,
-            targetSets: 0,
-            targetReps: 0,
             targetDurationSeconds: 30,
-            isWarmupSet: false,
-            setNumber: 1,
           },
         })
       );
 
       const upNextLine = message.split('\n')[2];
       expect(upNextLine).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
+    });
+
+    // ---- #276 Phase 3 (AC3.5): the second, independent label builder --------
+
+    it('AC3.4: renders the denominator the set list gives, not a warmup count', () => {
+      // RAMP's second warmup. `warmupSets`/`targetSets` here are the aggregate
+      // pair the caller no longer derives the label from; a builder that still
+      // read them would say "Warmup 2 of 1".
+      const { message } = buildRestCommentaryPrompt(
+        promptInput({
+          exercise: {
+            ...benchPress,
+            title: 'Bench Press (Dumbbell)',
+            warmupSets: 1,
+            targetSets: 99,
+            isWarmupSet: true,
+            setNumber: 2,
+            totalOfType: 3,
+          },
+        })
+      );
+
+      expect(message.split('\n')[2]).toContain('| Warmup 2 of 3 |');
+    });
+
+    it('AC3.3: renders INTERLEAVE’s third set as "Warmup 2 of 2"', () => {
+      const { message } = buildRestCommentaryPrompt(
+        promptInput({
+          exercise: { ...benchPress, isWarmupSet: true, setNumber: 2, totalOfType: 2 },
+        })
+      );
+
+      expect(message.split('\n')[2]).toContain('| Warmup 2 of 2 |');
     });
   });
 
@@ -206,26 +248,24 @@ describe('buildRestCommentaryPrompt', () => {
       expect(lastSetLine).toBe('Bench Press (strength) | Set 2 of 3 | target 3x8 | rest 90s');
     });
 
-    it('keeps the zero-planned-set guard: never emits "Set 1 of 0"', () => {
+    it('keeps the zero-planned-set guard on the Last Set line too (#276 AC3.5)', () => {
       const { message } = buildRestCommentaryPrompt(
         lastSetInput({
           exercise: {
-            ...benchPress,
+            ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            warmupSets: 0,
-            targetSets: 0,
-            targetReps: 0,
             targetDurationSeconds: 30,
-            isWarmupSet: false,
-            setNumber: 1,
           },
           completedSet: { durationSeconds: 30 },
         })
       );
 
-      expect(message).not.toContain('Set 1 of 0');
-      expect(message).toContain('Cooldown Stretch');
+      // One guard, both shapes — `setPosition` is shared, and the segment is
+      // dropped rather than emitted empty (which would leave "| | ").
+      expect(message.split('\n')[2]).toBe(
+        'Cooldown Stretch (stretch) | 30s | target 30s | rest 90s'
+      );
     });
 
     it('neutralizes markdown headings in the exercise title', () => {

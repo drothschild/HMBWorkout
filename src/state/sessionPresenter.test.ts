@@ -586,12 +586,20 @@ describe('createSessionPresenter', () => {
   describe('computeSetPrefill — coach-prescribed weight', () => {
     // Conversion pairs for testing: lbsToKg(185) = 83.91, kgToLbs(83.91) = 185
     // kgToLbs(79.38) = 175
+    //
+    // #276 Phase 3 turned the third parameter from one per-EXERCISE prescription
+    // into the entry's per-SET list, indexed by setIndex. Every fixture in this
+    // block sits at setIndex 0, so the prescription rides on the first element
+    // and each assertion below keeps meaning exactly what it did before.
+    // Per-set-specific behaviour (a different load per index) lives in
+    // sessionPresenter.perSet.test.ts.
+    const prescribedAt = (kg: number) => [{ targetWeightKg: kg }];
 
     test('AC4.1: prescription overrides history — weight field', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(83.91));
 
       expect(prefill?.weightLbs).toBe(185);
     });
@@ -600,7 +608,7 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(83.91));
 
       expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
@@ -609,7 +617,7 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [workingSet('ex-1', 6, 79.38)]; // 175 lbs
 
-      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(83.91));
 
       expect(prefill?.weightLbs).toBe(175);
     });
@@ -620,7 +628,7 @@ describe('createSessionPresenter', () => {
         { exerciseId: 'ex-1', setType: 'working', reps: null, weightKg: 79.38, durationSeconds: null, rpe: null },
       ];
 
-      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(83.91));
 
       expect(prefill?.weightLbs).toBe(175);
       expect(prefill).not.toHaveProperty('reps');
@@ -631,7 +639,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.entries[0].targetReps = 5;
 
-      const prefill = computeSetPrefill(state, undefined, 83.91);
+      const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
       expect(prefill).toEqual({ weightLbs: 185, reps: 5 });
     });
@@ -641,7 +649,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.entries[0].targetReps = 0;
 
-      const withPrescription = computeSetPrefill(state, undefined, 83.91);
+      const withPrescription = computeSetPrefill(state, undefined, prescribedAt(83.91));
       const withoutPrescription = computeSetPrefill(state, undefined);
 
       expect(withPrescription).toEqual({ weightLbs: 185 });
@@ -654,7 +662,7 @@ describe('createSessionPresenter', () => {
       state.entries[0].targetDurationSeconds = 50;
       state.loggedSets = [];
 
-      const prefill = computeSetPrefill(state, undefined, 83.91);
+      const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
       expect(prefill).toEqual({ durationSeconds: 50 });
       expect(prefill).not.toHaveProperty('weightLbs');
@@ -667,7 +675,7 @@ describe('createSessionPresenter', () => {
         { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: 45, rpe: null },
       ];
 
-      const prefill = computeSetPrefill(state, undefined, 83.91);
+      const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
       expect(prefill).toEqual({ durationSeconds: 45 });
     });
@@ -686,7 +694,7 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      const withZero = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 0);
+      const withZero = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(0));
       const withoutParam = computeSetPrefill(state, { reps: 8, weightLbs: 175 });
 
       expect(withZero).toEqual(withoutParam);
@@ -696,7 +704,7 @@ describe('createSessionPresenter', () => {
       const state = createMockState();
       state.loggedSets = [];
 
-      const prefill = computeSetPrefill(state, undefined, 83.91);
+      const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
       expect(prefill?.weightLbs).toBe(185);
       expect(prefill?.weightLbs).not.toBe(83.91);
@@ -708,7 +716,7 @@ describe('createSessionPresenter', () => {
         { exerciseId: 'ex-1', setType: 'working', reps: 0, weightKg: null, durationSeconds: null, rpe: null },
       ];
 
-      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8, weightLbs: 175 }, prescribedAt(83.91));
 
       expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
@@ -718,7 +726,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.entries[0].targetReps = 5;
 
-      const prefill = computeSetPrefill(state, { reps: 0 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 0 }, prescribedAt(83.91));
 
       expect(prefill).toEqual({ weightLbs: 185, reps: 5 });
     });
@@ -728,7 +736,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.entries[0].targetReps = 5;
 
-      const prefill = computeSetPrefill(state, { reps: 8 }, 83.91);
+      const prefill = computeSetPrefill(state, { reps: 8 }, prescribedAt(83.91));
 
       expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
@@ -738,7 +746,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.entries[0].targetReps = 5;
 
-      const withPrescription = computeSetPrefill(state, { weightLbs: 175 }, 83.91);
+      const withPrescription = computeSetPrefill(state, { weightLbs: 175 }, prescribedAt(83.91));
       const withoutPrescription = computeSetPrefill(state, { weightLbs: 175 });
 
       expect(withPrescription).toEqual({ weightLbs: 185 });
@@ -753,7 +761,7 @@ describe('createSessionPresenter', () => {
         { exerciseId: 'ex-1', setType: 'working', reps: 8, weightKg: null, durationSeconds: null, rpe: null },
       ];
 
-      const prefill = computeSetPrefill(state, undefined, 83.91);
+      const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
       expect(prefill).toEqual({ reps: 8, weightLbs: 185 });
     });
