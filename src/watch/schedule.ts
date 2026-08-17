@@ -36,7 +36,15 @@ export interface Stop {
   phase: 'warmup' | 'working';
   /** 1-based set number within this entry (a shared round number in a superset). */
   setNumber: number;
-  /** How many sets this entry prescribes — the length of its own set list. */
+  /**
+   * How many sets this entry prescribes — the length of its own set list.
+   *
+   * Reading the list rather than `warmupSets + targetSets` cannot be told apart
+   * by a test today: `fromRillState` re-derives those counts FROM the list, so
+   * on engine-produced state the two agree by construction and a mutation to
+   * the sum survives the suite. It stops being equivalent in Phase 6, when
+   * `countsFromSets` and the count fields go.
+   */
   totalSets: number;
   /**
    * The prescription for THIS set, not a single value repeated across the

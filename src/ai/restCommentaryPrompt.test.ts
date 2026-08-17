@@ -190,6 +190,26 @@ describe('buildRestCommentaryPrompt', () => {
 
       expect(message.split('\n')[2]).toContain('| Warmup 2 of 2 |');
     });
+
+    it('AC3.4: the WORKING denominator is the list’s too, not targetSets', () => {
+      // The warmup branch has its own fixture above; this one covers the other
+      // half of the ternary. `targetSets` is deliberately wrong — a builder
+      // still reading it says "Set 2 of 99". (Mutation M24 survived until this
+      // fixture existed: every other fixture had totalOfType === targetSets.)
+      const { message } = buildRestCommentaryPrompt(
+        promptInput({
+          exercise: {
+            ...benchPress,
+            targetSets: 99,
+            isWarmupSet: false,
+            setNumber: 2,
+            totalOfType: 4,
+          },
+        })
+      );
+
+      expect(message.split('\n')[2]).toContain('| Set 2 of 4 |');
+    });
   });
 
   describe('the set just completed (#270)', () => {

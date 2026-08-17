@@ -242,8 +242,13 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
 
   test('the routine-description gate skips a leading empty-set entry', () => {
     // startingExerciseIndex must find the first entry the engine can land on,
-    // which under per-set is the first with a non-empty list.
-    const ghost = perSetEntry([], { idx: 0, exerciseId: 'ghost', warmupSets: 0, targetSets: 0 });
+    // which under per-set is the first with a non-EMPTY LIST. The ghost's
+    // counts are nonzero on purpose: a findIndex still summing them stops at
+    // index 0, decides the session is not at its beginning, and hides the
+    // routine description. (Mutation M12 survived until this fixture said so.)
+    const ghost = perSetEntry([], { idx: 0, exerciseId: 'ghost' });
+    expect(ghost.warmupSets + ghost.targetSets).toBeGreaterThan(0);
+
     const real = perSetEntry(RAMP, { idx: 1, exerciseId: 'real' });
     const presenter = createSessionPresenter(
       perSetState([ghost, real], { exerciseIndex: 1 }),

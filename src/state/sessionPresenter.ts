@@ -520,6 +520,12 @@ export function createSessionPresenter(
   // sets.length - 1 correctly identifies a superset member's own last visit
   // (engine convention 9) without needing extra group logic: a member is
   // visited once per round up to its own list length and never after.
+  //
+  // The `> 0` half is defensive only and provably so: `setIndex` is never
+  // negative, so an empty list makes the comparison `setIndex === -1`, which is
+  // already false. A mutation that drops it therefore survives the suite, and
+  // that is expected — it is kept because reading "is the last set" off an
+  // entry with no sets should be false by statement, not by arithmetic luck.
   const isLastSetOfExercise = Boolean(
     currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1
   );
