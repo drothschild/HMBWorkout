@@ -285,7 +285,9 @@ describe('projectSchedule', () => {
     it('each stop carries its own set’s target reps, not one value for the entry', async () => {
       const stops = await projectSchedule({
         id: 'r-ramp',
-        entries: [entry({ warmupSets: 3, targetSets: 4, targetReps: 99, sets: RAMP })],
+        // 3/4 is exactly RAMP's own composition, so the phase sequence
+        // below would be reproduced by count expansion. 99s cannot be.
+        entries: [entry({ warmupSets: 99, targetSets: 99, targetReps: 99, sets: RAMP })],
       });
 
       expect(stops.map((s) => s.targetReps)).toEqual([5, 5, 3, 8, 8, 8, 8]);

@@ -105,7 +105,7 @@ describe('deriveSetPosition (#276 AC3.3)', () => {
   });
 
   test('EMPTY: an entry prescribing nothing reports a zero denominator, not a crash', () => {
-    const entry = perSetEntry([], { warmupSets: 0, targetSets: 0, targetReps: 0 });
+    const entry = perSetEntry([]);
     expect(deriveSetPosition(perSetState([entry]), entry)).toEqual({
       isWarmupSet: false,
       setNumber: 1,
@@ -167,7 +167,7 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
   });
 
   test('AC3.5: EMPTY suppresses the label entirely', () => {
-    const entry = perSetEntry([], { warmupSets: 0, targetSets: 0 });
+    const entry = perSetEntry([]);
     const presenter = present(entry, 0);
     expect(presenter.setPositionLabel).toBe('');
     expect(presenter.totalSetsForEntry).toBe(0);
@@ -216,7 +216,7 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
   });
 
   test('AC3.6: EMPTY is never the last set (there is no set to be last)', () => {
-    expect(present(perSetEntry([], { warmupSets: 0, targetSets: 0 }), 0).isLastSetOfExercise).toBe(
+    expect(present(perSetEntry([]), 0).isLastSetOfExercise).toBe(
       false
     );
   });
@@ -236,7 +236,7 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
   test('currentSetDurationSeconds is undefined for a set that prescribes none', () => {
     expect(present(perSetEntry(RAMP), 0).currentSetDurationSeconds).toBeUndefined();
     expect(
-      present(perSetEntry([], { warmupSets: 0, targetSets: 0 }), 0).currentSetDurationSeconds
+      present(perSetEntry([]), 0).currentSetDurationSeconds
     ).toBeUndefined();
   });
 
@@ -447,7 +447,14 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
   });
 
   test('AC3.9: a null (not undefined) prescribed weight is absent too', () => {
-    const entry = perSetEntry([{ setType: 'normal', reps: 8 }]);
+    // The entry's OWN set carries a load and the DB read says null — the one
+    // fixture in this file where the two sources disagree, which is precisely
+    // the disagreement the fresh-DB-read decision exists to handle. Everywhere
+    // else `prescribedRamp` is derived from RAMP, so a reader that took the
+    // load off engine state would pass unnoticed. `updateRoutineExerciseExerciseId`
+    // clears the DB column on a swap while the engine keeps `entry.sets`
+    // intact, so 50 lb here is the outgoing exercise's stale prescription.
+    const entry = perSetEntry([{ setType: 'normal', reps: 8, weightKg: 22.68 }]);
     expect(
       computeSetPrefill(perSetState([entry]), { reps: 10, weightLbs: 95 }, [
         { targetWeightKg: null },
@@ -485,12 +492,71 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
   });
 
   test('EMPTY: an entry prescribing nothing prefills nothing', () => {
-    const entry = perSetEntry([], { warmupSets: 0, targetSets: 0, targetReps: 0 });
+    const entry = perSetEntry([]);
     expect(computeSetPrefill(perSetState([entry]))).toBeUndefined();
   });
 
   test('an out-of-range setIndex prescribes nothing rather than reading set 0', () => {
     expect(computeSetPrefill(perSetState([ramp()], { setIndex: 99 }), undefined, prescribedRamp))
       .toBeUndefined();
+  });
+
+  // ---- An explicit 0 in a routine_sets column ------------------------------
+  // `getRoutineSets` filters only `null`, and `entrySetsFromRows` passes the
+  // value through unchanged (unlike the count path, where `setsFromCounts`
+  // maps 0 to undefined), so a literal 0 reaches the planned set intact. A
+  // prefilled 0 is then silently dropped on dispatch — the bug class this
+  // function's docstring says it has already produced twice — so every metric
+  // guard here must be `> 0`, not `!= null`.
+
+  test('a planned set with 0 reps prefills no reps at all', () => {
+    const entry = perSetEntry([{ setType: 'normal', reps: 0 }], { targetReps: 0 });
+    expect(computeSetPrefill(perSetState([entry]))).toBeUndefined();
+  });
+
+  test('a planned set with a 0 duration prefills no duration at all', () => {
+    const entry = perSetEntry([{ setType: 'normal', durationSeconds: 0 }], {
+      kind: 'stretch',
+      targetDurationSeconds: 0,
+    });
+    expect(computeSetPrefill(perSetState([entry]))).toBeUndefined();
+  });
+
+  test('a planned load of 0 is no prescription, not a prescribed zero', () => {
+    const entry = perSetEntry([{ setType: 'normal', reps: 8 }]);
+    expect(
+      computeSetPrefill(perSetState([entry]), undefined, [{ targetWeightKg: 0 }])
+    ).toEqual({ reps: 8 });
+  });
+});
+
+describe('the presenter’s own per-set guards (#276)', () => {
+  const present = (entry: RoutineEntry, setIndex: number) =>
+    createSessionPresenter(perSetState([entry], { setIndex }), jest.fn(async () => null));
+
+  test('an out-of-range setIndex suppresses the label even though the list is non-empty', () => {
+    // The `hydrate` shape (engine convention 5): a session persisted by an
+    // older build comes back sitting past the end of its own list. The guard
+    // is `totalOfType > 0` rather than `sets.length > 0` precisely so this
+    // renders nothing; reading the list length instead renders "Set 1 of 0",
+    // the exact string the guard exists to prevent.
+    const entry = perSetEntry(RAMP);
+    const presenter = present(entry, 99);
+
+    expect(presenter.totalSetsForEntry).toBe(7);
+    expect(presenter.setPositionLabel).toBe('');
+  });
+
+  test('a 0-second planned duration gives the stopwatch no target', () => {
+    const entry = perSetEntry(
+      [
+        { setType: 'normal', durationSeconds: 0 },
+        { setType: 'normal', durationSeconds: 45 },
+      ],
+      { kind: 'stretch', targetDurationSeconds: 0 }
+    );
+
+    expect(present(entry, 0).currentSetDurationSeconds).toBeUndefined();
+    expect(present(entry, 1).currentSetDurationSeconds).toBe(45);
   });
 });

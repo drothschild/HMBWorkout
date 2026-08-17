@@ -300,9 +300,12 @@ describe('startSessionFromRoutine', () => {
           row._raw.routine_id = routineId;
           row._raw.exercise_id = 'bench-press-dumbbell';
           row._raw.order = 0;
-          row._raw.warmup_sets = 3;
-          row._raw.target_sets = 4;
-          row._raw.target_reps = 8;
+          // 3/4/8 is EXACTLY what RAMP expands to, which would let count
+          // expansion reproduce the length and set-type assertions below
+          // character for character. 99s cannot be mistaken for the list.
+          row._raw.warmup_sets = 99;
+          row._raw.target_sets = 99;
+          row._raw.target_reps = 99;
           row._raw.rest_seconds = 120;
         });
         await addRoutineSets(db, re.id, RAMP_SETS);

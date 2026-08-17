@@ -1089,10 +1089,18 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   has two halves: bump strictly after `applyToRoutine` resolves, and never on a
   rejected swap or a thrown write. **The store mechanism is pinned by AC6.7 tests in
   `src/state/exerciseReplaceStore.test.ts`. The screen's consumption of it —
-  `session.tsx:303` depending on `routineRevision` — has zero automated cover: no
+  the prefill effect's dependency array in `session.tsx` depending on
+  `routineRevision` — has zero automated cover from any suite that can execute it: no
   test suite can load the screen, and deleting the dependency array entry passes all
-  tests. AC6.9 is the only safeguard: a structural read verifying the entry is
-  present.** Its scope is explicit and load-bearing: it bumps
+  tests. AC6.9 is the only safeguard, and since #276 it is
+  `src/state/sessionPrefillWiring.static.test.ts`: a structural read that extracts
+  that array and compares it AS A SET against the entries it must hold
+  (`sessionId`, `exerciseIndex`, `setIndex`, the exercise id, `routineRevision`).
+  Match on the identifiers, never on a line number — the citation here used to be
+  `session.tsx:303` and was wrong twice over within one issue. The set comparison is
+  the load-bearing part: a `toContain` is satisfied by the `const routineRevision = …`
+  selector line alone, and a four-entry expectation is how the missing `setIndex`
+  stayed invisible through a whole phase.** Its scope is explicit and load-bearing: it bumps
   on exercise swaps only. `upsertRoutine` is the other writer of `target_weight_kg`,
   so a coach revising a routine through `acceptDraft` can change or clear a
   prescription and bump nothing — a session screen that stays mounted across such an

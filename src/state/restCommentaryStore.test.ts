@@ -44,7 +44,12 @@ function target(overrides: Partial<UpNextTarget> = {}): RestCommentaryTarget {
     exerciseTitle: 'Bench Press',
     kind: 'strength',
     warmupSets: 0,
-    targetSets: 3,
+    // Deliberately NOT equal to `totalOfType`. `restCommentaryStore` is the
+    // single line by which the per-set denominator reaches the prompt, and a
+    // fixture where the aggregate and the list-derived count agree cannot tell
+    // a regression to the aggregate apart from the correct read. 99 is not a
+    // number any real routine plans.
+    targetSets: 99,
     targetReps: 8,
     targetDurationSeconds: 0,
     restSeconds: 90,
@@ -200,6 +205,12 @@ describe('createRestCommentaryStore', () => {
       expect(body.messages[0].content).toContain('Bench Press');
       expect(body.messages[0].content).toContain('135lbs');
       expect(body.messages[0].content).toContain('2026-07-28');
+      // The set position the coach is told about comes from the entry's own
+      // list (`totalOfType`), never the aggregate. No other test in this file
+      // asserts the rendered position, so without this line the one store
+      // statement that forwards the denominator has no cover at all.
+      expect(body.messages[0].content).toContain('Set 2 of 3');
+      expect(body.messages[0].content).not.toContain('Set 2 of 99');
     });
 
     it('carries the coaching personality from settings', async () => {
@@ -1229,7 +1240,7 @@ describe('restCommentaryTarget', () => {
     });
 
     it('EMPTY: an entry prescribing nothing yields totalOfType 0, which hides the segment', () => {
-      const nothing = entry({ warmupSets: 0, targetSets: 0, targetReps: 0, sets: [] });
+      const nothing = entry({ sets: [] });
       expect(restCommentaryTarget(state({ exerciseIndex: 0, entries: [nothing] }))).toMatchObject({
         totalOfType: 0,
       });

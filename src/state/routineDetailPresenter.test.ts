@@ -754,9 +754,13 @@ describe('routineDetailPresenter', () => {
           row._raw.routine_id = 'routine-ramp';
           row._raw.exercise_id = 'bench-press-dumbbell';
           row._raw.order = 0;
-          // Vestigial and deliberately wrong: the list is the plan.
-          row._raw.warmup_sets = 0;
-          row._raw.target_sets = 0;
+          // Vestigial and deliberately wrong: the list is the plan. NON-ZERO
+          // on purpose — with 0/0 the aggregate fallback would produce an
+          // empty list too, so "rows win, counts ignored" would be
+          // indistinguishable from "counts win when non-zero".
+          row._raw.warmup_sets = 99;
+          row._raw.target_sets = 99;
+          row._raw.target_reps = 99;
           row._raw.rest_seconds = 120;
         });
         for (const [order, set] of RAMP_ROWS.entries()) {

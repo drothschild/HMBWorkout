@@ -140,7 +140,52 @@ describe('hasVaryingSets', () => {
   });
 
   it('is false for zero or one set', () => {
+    // The empty case is not cosmetic: `routine/[id].tsx` calls this
+    // unconditionally on `exercise.sets`, which is `[]` for every entry that
+    // prescribes nothing, so a guard that lets an empty list through
+    // dereferences `sets[0]` and crashes the routine screen.
+    expect(() => hasVaryingSets([])).not.toThrow();
     expect(hasVaryingSets([])).toBe(false);
     expect(hasVaryingSets([{ setType: 'normal', targetReps: 8 }])).toBe(false);
+  });
+});
+
+describe('formatReps collapses a degenerate range (#276)', () => {
+  it('renders a single number when the range bounds are equal', () => {
+    // `target_reps_max === target_reps` is a range of one. Rendering it as a
+    // range gives "8–8", which reads as a mistake in the plan.
+    expect(
+      formatPlannedSetLine(
+        { setType: 'normal', targetReps: 8, targetRepsMax: 8 },
+        0,
+        [{ setType: 'normal', targetReps: 8, targetRepsMax: 8 }]
+      )
+    ).toBe('Set 1 · 8 reps');
+  });
+
+  it('still renders a genuine range', () => {
+    expect(
+      formatPlannedSetLine(
+        { setType: 'normal', targetReps: 8, targetRepsMax: 10 },
+        0,
+        [{ setType: 'normal', targetReps: 8, targetRepsMax: 10 }]
+      )
+    ).toBe('Set 1 · 8–10 reps');
+  });
+});
+
+describe('the summary quotes the FIRST working set (#276)', () => {
+  it('reports the first working set’s prescription, not the last', () => {
+    // A drop-set shape: the working sets genuinely differ. Every other fixture
+    // in this file has uniform working sets, which makes `working[0]` and
+    // `working[working.length - 1]` interchangeable and the choice untestable.
+    const sets: RoutineSetEntry[] = [
+      { setType: 'warmup', targetReps: 10 },
+      { setType: 'normal', targetReps: 8 },
+      { setType: 'normal', targetReps: 6 },
+      { setType: 'normal', targetReps: 4 },
+    ];
+
+    expect(formatPlannedSetsSummary(sets)).toBe('1 warmup + 3×8');
   });
 });
