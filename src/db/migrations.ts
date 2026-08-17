@@ -85,5 +85,61 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    // v5 -> v6: THERE IS DELIBERATELY NO ENTRY HERE WHILE THE SCHEMA IS AT v6.
+    // The omission is the mechanism. Do not add one to "fix" the wipe.
+    //
+    // This prohibition expires at Phase 6, which MUST add one — see the Phase 6
+    // note at the end of this comment. The two are not in conflict: adding an
+    // entry now defeats the wipe, and adding one then is what ends it.
+    //
+    // #276 moves a routine entry from a per-exercise aggregate to a per-set
+    // list (the routine_sets table added in schema.ts at v6). A back-fill is
+    // impossible in the lossy direction: the count `3` cannot be turned back
+    // into the warmup ramp 9.07 → 11.34 → 18.14 kg, so every routine
+    // reconstructed from aggregates would be a flat ramp that lies about the
+    // plan. Losing the stored routines is accepted (the user said so on #276);
+    // a half-migrated database carrying aggregate routines with no routine_sets
+    // rows would be worse, because nothing downstream would ever notice.
+    //
+    // Bumping the schema past migrations.maxVersion makes stepsForMigration
+    // return null (Schema/migrations/stepsForMigration.js: `toVersion >
+    // maxVersion`), and both adapters treat null as "reset": they log
+    // "Migrations not available for this version range, resetting database
+    // instead" and set up from schema (adapters/sqlite/index.js:132,
+    // adapters/lokijs/worker/DatabaseDriver.js:354). The wipe is the
+    // framework's own documented fallback and needs no unsafeResetDatabase.
+    //
+    // Two consequences the code around this acts on:
+    //
+    //  1. It is SILENT — a logger.warn, nothing user-facing. src/state/
+    //     schemaResetNotice.ts decides when to tell the user, and _layout.tsx
+    //     shows it.
+    //  2. The fallback is unreachable in a Debug build on its own. Whenever
+    //     NODE_ENV is not 'production', validateAdapter
+    //     (adapters/common.js:29) asserts `maxVersion === schema.version` and
+    //     throws "Missing migration" straight out of the adapter constructor,
+    //     before any reset can run. src/db/adapterMigrations.ts is the gate
+    //     that keeps dev and production on the same path.
+    //
+    // migrations.test.ts pins the null, so adding an entry here goes red.
+    //
+    // PHASE 6 MUST ADD A toVersion: 6 ENTRY *AND* A toVersion: 7 ENTRY.
+    //
+    // Phase 6 bumps the schema to v7, and schemaMigrations refuses a gapped
+    // list: a lone toVersion: 7 entry throws "Migrations must be listed without
+    // gaps, or duplicates" at MODULE INIT, in every non-production build only
+    // (the check is gated on NODE_ENV, exactly like validateAdapter above).
+    // Leaving the migrations withheld at v7 instead is not the way out either —
+    // that resets the database a second time and destroys whatever the user
+    // rebuilt after this wipe. Both readings were executed; both are real.
+    //
+    // The toVersion: 6 entry should carry the real createTable for
+    // routine_sets, mirroring schema.ts, rather than steps: []. The numbered
+    // note at the end of ./adapterMigrations.ts has the full reasoning and the
+    // exact failure text.
+    //
+    // When that lands, migrations.test.ts's AC1.7 pins — `maxVersion === 5` and
+    // the "null for every upgrade path into v6" loop — go red BY DESIGN.
+    // Rewrite them for the new coverage; do not delete them.
   ],
 });

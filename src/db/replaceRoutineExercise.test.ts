@@ -15,7 +15,7 @@
  * fixture would hide exactly that.
  */
 
-import { Database } from '@nozbe/watermelondb';
+import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
 import {
   appendSet,
@@ -98,6 +98,39 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     }
   }
 
+  /**
+   * Hang a three-set prescription off the entry: two warmups and a working set,
+   * each with its own load. A warmup ramp is the thing the per-set model exists
+   * for and the thing a substitute must not inherit.
+   */
+  async function seedRamp(): Promise<void> {
+    await database.write(async () => {
+      const sets: [number, string, number, number][] = [
+        [0, 'warmup', 5, 40],
+        [1, 'warmup', 5, 60],
+        [2, 'normal', 8, 80],
+      ];
+      for (const [order, setType, reps, weightKg] of sets) {
+        await database.get('routine_sets').create((s: any) => {
+          s._raw.routine_exercise_id = rowId;
+          s._raw.order = order;
+          s._raw.set_type = setType;
+          s._raw.target_reps = reps;
+          s._raw.target_weight_kg = weightKg;
+        });
+      }
+    });
+  }
+
+  /** The entry's own set rows, in `order`. */
+  async function rampRows(): Promise<any[]> {
+    const rows = (await database
+      .get('routine_sets')
+      .query(Q.where('routine_exercise_id', rowId))
+      .fetch()) as any[];
+    return rows.sort((a, b) => a._raw.order - b._raw.order);
+  }
+
   describe('updateRoutineExerciseExerciseId', () => {
     it('rewrites exercise_id and keeps the row id', async () => {
       const updated = await updateRoutineExerciseExerciseId(
@@ -145,7 +178,7 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     // [swap-part-1, observer, swap-part-2] and the observer lands squarely in
     // the gap. Either half being deferred fails this, in both directions.
     it('never lets another writer observe a half-applied swap', async () => {
-      // Legacy (null-stamped) sets, so all THREE effects have something to do.
+      // Legacy (null-stamped) sets, so all FOUR effects have something to do.
       // Without them the stamping step is a no-op and hoisting it into its own
       // write would slip past this test.
       await logPastSessions(undefined);
@@ -155,21 +188,32 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           r.targetWeightKg = 60;
         });
       });
+      // #276: the entry now also owns a prescribed set list whose weights the
+      // swap must clear. Seeded here so the fourth effect is observable too.
+      await seedRamp();
 
       const observed: {
         exerciseId: string | null;
         targetWeightKg: number | null;
         stampedSets: number;
+        setWeights: (number | null)[];
       }[] = [];
 
       const swap = updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
       const observer = database.write(async () => {
         const row = (await database.get('routine_exercises').find(rowId)) as any;
         const sets = await database.get('session_sets').query().fetch();
+        const routineSets = (await database
+          .get('routine_sets')
+          .query(Q.where('routine_exercise_id', rowId))
+          .fetch()) as any[];
         observed.push({
           exerciseId: row._raw.exercise_id ?? null,
           targetWeightKg: row._raw.target_weight_kg ?? null,
           stampedSets: sets.filter((s: any) => (s._raw.exercise_id ?? null) !== null).length,
+          setWeights: routineSets
+            .sort((a, b) => a._raw.order - b._raw.order)
+            .map((s) => s._raw.target_weight_kg ?? null),
         });
       });
 
@@ -178,10 +222,85 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
       // All of it, or none of it. Never the re-point without the clear (a stale
       // prescribed load on a substitute, the case the clear exists to prevent),
       // never the clear without the re-point, and never the re-point without
-      // the stamps (the PR #65 history-corruption shape).
+      // the stamps (the PR #65 history-corruption shape). The set weights are
+      // the same hazard multiplied across a list, so they are in the same
+      // all-or-nothing observation.
       expect(observed).toStrictEqual([
-        { exerciseId: REPLACEMENT_EXERCISE, targetWeightKg: null, stampedSets: 6 },
+        {
+          exerciseId: REPLACEMENT_EXERCISE,
+          targetWeightKg: null,
+          stampedSets: 6,
+          setWeights: [null, null, null],
+        },
       ]);
+    });
+
+    describe('the prescribed set list keeps its shape and loses its loads (#276 AC1.6)', () => {
+      it('clears every set’s target_weight_kg, not just the first', async () => {
+        // A substitute inheriting a seven-step ramp is the stale-prescription
+        // bug the per-exercise clear exists to prevent, multiplied across a
+        // list. Clearing only one row leaves the rest lying.
+        await seedRamp();
+
+        await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+        expect((await rampRows()).map((s) => s._raw.target_weight_kg ?? null)).toEqual([
+          null,
+          null,
+          null,
+        ]);
+      });
+
+      it('leaves set_type, target_reps and order untouched', async () => {
+        // Structure is near-dimensionless across substitutes; load is not. The
+        // plan survives the swap, the prescription does not.
+        await seedRamp();
+
+        await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+        expect(
+          (await rampRows()).map((s) => [s._raw.order, s._raw.set_type, s._raw.target_reps])
+        ).toEqual([
+          [0, 'warmup', 5],
+          [1, 'warmup', 5],
+          [2, 'normal', 8],
+        ]);
+      });
+
+      it('adds and removes no set rows', async () => {
+        await seedRamp();
+
+        await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+        expect(await database.get('routine_sets').query().fetch()).toHaveLength(3);
+      });
+
+      it('does not touch another entry’s prescribed loads', async () => {
+        await seedRamp();
+        const otherRowId = await database.write(async () => {
+          const other = await database.get('routine_exercises').create((re: any) => {
+            re.routineId = ROUTINE_ID;
+            re.exerciseId = REPLACEMENT_EXERCISE;
+            re.order = 1;
+            re.warmupSets = 0;
+          });
+          await database.get('routine_sets').create((s: any) => {
+            s._raw.routine_exercise_id = (other as any).id;
+            s._raw.order = 0;
+            s._raw.set_type = 'normal';
+            s._raw.target_weight_kg = 42;
+          });
+          return (other as any).id;
+        });
+
+        await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+
+        const [untouched] = (await database
+          .get('routine_sets')
+          .query(Q.where('routine_exercise_id', otherRowId))
+          .fetch()) as any[];
+        expect(untouched._raw.target_weight_kg).toBe(42);
+      });
     });
 
     it('does not add or remove rows', async () => {

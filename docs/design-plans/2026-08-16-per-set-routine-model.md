@@ -507,10 +507,22 @@ Fixtures referenced by name throughout:
 
 - **AC6.1 Success:** `src/db/schema.ts` declares `version: 7`, `routine_exercises` no longer lists
   `warmup_sets`, `target_sets`, `target_reps`, `target_duration_seconds` or `target_weight_kg`, and
-  `migrations.ts` gains a `toVersion: 7` entry with `steps: []` and a comment citing the v4
-  precedent. *Fails on regression:* a v6 database must open at v7 without wiping — the v1-walk test
-  from AC1.7 still returns `null` (min/max range), but a purpose-built `fromVersion: 6, toVersion: 7`
-  assertion returns a non-null `[]`.
+  `migrations.ts` gains **both a `toVersion: 6` entry and a `toVersion: 7` entry**. The
+  `toVersion: 7` entry carries `steps: []` with a comment citing the v4 precedent (columns are
+  undeclared, not dropped); the `toVersion: 6` entry carries the real
+  `createTable({ name: 'routine_sets', … })` mirroring `schema.ts`.
+  **Both entries are mandatory, and this supersedes Phase 1's "do not add a `toVersion: 6` entry".**
+  `schemaMigrations` refuses a gapped list, so a lone `toVersion: 7` throws *"Migrations must be
+  listed without gaps, or duplicates"* at module init — in non-production builds only, the same
+  `NODE_ENV` asymmetry Phase 1 fixed for `validateAdapter`, and a module-init throw crashes before
+  `RuleErrorScreen` can render. Leaving the migrations withheld at v7 instead is not the
+  alternative: that resets the database a **second** time and destroys whatever the user rebuilt
+  after Phase 1. Both readings were verified by execution; the numbered note at the end of
+  `src/db/adapterMigrations.ts` carries the detail. *Fails on regression:* a v6 database must open
+  at v7 without wiping — a purpose-built `fromVersion: 6, toVersion: 7` assertion returns a non-null
+  `[]`. **AC1.7's pins invert here and must be rewritten rather than deleted:** with coverage
+  spanning 1–7, `migrations.maxVersion` is `7` not `5`, and `stepsForMigration(1 → 6)` returns 5
+  steps rather than `null`.
 - **AC6.2 Success:** `rg 'targetSets|warmupSets|target_sets|warmup_sets' src --glob '!*.test.ts'`
   returns **zero** matches. *Fails on regression:* this is the criterion that catches a forgotten
   fallback branch, and it is mechanical.

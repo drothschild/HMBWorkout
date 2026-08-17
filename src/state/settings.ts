@@ -34,6 +34,17 @@ export interface BridgeSettings {
    * Each provider has defaults if not specified.
    */
   aiModel?: AiModelConfig;
+
+  /**
+   * The `databaseSchema.version` this install last came up at (#276).
+   *
+   * Lives here rather than in the database because it has to survive the
+   * database being destroyed — a schema bump with no covering migration drops
+   * and recreates it. `src/state/schemaResetNotice.ts` compares this against
+   * the current version to decide whether to tell the user their data went.
+   * Absent on any install that predates v6.
+   */
+  lastSchemaVersion?: number;
 }
 
 interface StorageBackend {

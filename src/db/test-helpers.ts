@@ -4,6 +4,7 @@ import { databaseSchema } from './schema';
 import Routine from './models/Routine';
 import Exercise from './models/Exercise';
 import RoutineExercise from './models/RoutineExercise';
+import RoutineSet from './models/RoutineSet';
 import Session from './models/Session';
 import SessionSet from './models/SessionSet';
 
@@ -23,7 +24,7 @@ export function createTestDatabase(): Database {
 
   return new Database({
     adapter,
-    modelClasses: [Routine, Exercise, RoutineExercise, Session, SessionSet],
+    modelClasses: [Routine, Exercise, RoutineExercise, RoutineSet, Session, SessionSet],
   });
 }
 
