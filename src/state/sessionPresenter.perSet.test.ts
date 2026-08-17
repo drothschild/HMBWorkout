@@ -221,6 +221,25 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
     );
   });
 
+  test('currentSetDurationSeconds is the current set’s own target, not the entry’s', () => {
+    const entry = perSetEntry(
+      [
+        { setType: 'normal', durationSeconds: 30 },
+        { setType: 'normal', durationSeconds: 45 },
+      ],
+      { kind: 'stretch', targetDurationSeconds: 999 }
+    );
+    expect(present(entry, 0).currentSetDurationSeconds).toBe(30);
+    expect(present(entry, 1).currentSetDurationSeconds).toBe(45);
+  });
+
+  test('currentSetDurationSeconds is undefined for a set that prescribes none', () => {
+    expect(present(perSetEntry(RAMP), 0).currentSetDurationSeconds).toBeUndefined();
+    expect(
+      present(perSetEntry([], { warmupSets: 0, targetSets: 0 }), 0).currentSetDurationSeconds
+    ).toBeUndefined();
+  });
+
   test('the routine-description gate skips a leading empty-set entry', () => {
     // startingExerciseIndex must find the first entry the engine can land on,
     // which under per-set is the first with a non-empty list.

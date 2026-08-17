@@ -143,4 +143,95 @@ describe('routineListPresenter', () => {
     expect(routines[1].id).toBe('routine-1');
     expect(routines[2].id).toBe('routine-2');
   });
+
+  // ---- #276 Phase 3: "active" is a non-empty set list ---------------------
+
+  it('reports hasActiveExercise: true from routine_sets rows alone, with zero counts', async () => {
+    // The whole point of per-set: the plan is the set list. A row that
+    // prescribes seven sets but whose (now vestigial) aggregate columns say
+    // zero IS startable, and a presenter still summing the counts calls it
+    // dead — which would render the routine as un-startable in Today.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-ramp';
+        r.name = 'Push';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'bench-press-dumbbell';
+        e.title = 'Bench Press (Dumbbell)';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+      const re = await db.get('routine_exercises').create((row: any) => {
+        row._raw.routine_id = 'routine-ramp';
+        row._raw.exercise_id = 'bench-press-dumbbell';
+        row._raw.order = 0;
+        row._raw.warmup_sets = 0;
+        row._raw.target_sets = 0;
+      });
+      for (const [order, setType] of ['warmup', 'warmup', 'normal'].entries()) {
+        await db.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = re.id;
+          row._raw.order = order;
+          row._raw.set_type = setType;
+        });
+      }
+    });
+
+    const routines = await routineListPresenter(db);
+
+    expect(routines[0]).toEqual({
+      id: 'routine-ramp',
+      name: 'Push',
+      exerciseCount: 1,
+      hasActiveExercise: true,
+    });
+  });
+
+  it('does not credit one exercise’s sets to a different exercise’s row', async () => {
+    // The set rows are keyed by routine_exercise_id; a presenter that queried
+    // them by routine alone (or ignored the key) would report the empty
+    // routine as startable.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      for (const id of ['routine-has', 'routine-hasnt']) {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = id;
+          r.name = id;
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      }
+      await db.get('exercises').create((e: any) => {
+        e._raw.id = 'squat';
+        e.title = 'Squat';
+        e._raw.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+      const withSets = await db.get('routine_exercises').create((row: any) => {
+        row._raw.routine_id = 'routine-has';
+        row._raw.exercise_id = 'squat';
+        row._raw.order = 0;
+      });
+      await db.get('routine_exercises').create((row: any) => {
+        row._raw.routine_id = 'routine-hasnt';
+        row._raw.exercise_id = 'squat';
+        row._raw.order = 0;
+      });
+      await db.get('routine_sets').create((row: any) => {
+        row._raw.routine_exercise_id = withSets.id;
+        row._raw.order = 0;
+        row._raw.set_type = 'normal';
+      });
+    });
+
+    const byId = new Map((await routineListPresenter(db)).map((r) => [r.id, r]));
+    expect(byId.get('routine-has')?.hasActiveExercise).toBe(true);
+    expect(byId.get('routine-hasnt')?.hasActiveExercise).toBe(false);
+  });
 });

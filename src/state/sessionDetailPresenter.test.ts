@@ -512,4 +512,72 @@ describe('sessionDetailPresenter', () => {
 
     expect(detail!.otherSets).toEqual([]);
   });
+
+  // ---- #276 Phase 3: the plan lookup moves to routine_sets ----------------
+
+  it('carries the row’s prescribed set list, keyed by row id and not shared between rows', async () => {
+    await seedRoutine();
+    await database.write(async () => {
+      // A ramp on the bench row; a single flat set on the row row. If the
+      // presenter looked the plan up by anything other than the row id, the
+      // two would cross.
+      for (const [order, weight] of [9.07, 11.34, 18.14].entries()) {
+        await database.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = 're-bench';
+          row._raw.order = order;
+          row._raw.set_type = 'warmup';
+          row._raw.target_reps = 5;
+          row._raw.target_weight_kg = weight;
+        });
+      }
+      await database.get('routine_sets').create((row: any) => {
+        row._raw.routine_exercise_id = 're-bench';
+        row._raw.order = 3;
+        row._raw.set_type = 'normal';
+        row._raw.target_reps = 8;
+        row._raw.target_weight_kg = 22.68;
+      });
+      await database.get('routine_sets').create((row: any) => {
+        row._raw.routine_exercise_id = 're-row';
+        row._raw.order = 0;
+        row._raw.set_type = 'normal';
+        row._raw.target_reps = 10;
+      });
+    });
+
+    await createSession(database, {
+      sessionId: 'session-plan',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-plan', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-plan');
+    const bench = detail!.exercises.find((e) => e.routineExerciseId === 're-bench')!;
+    const row = detail!.exercises.find((e) => e.routineExerciseId === 're-row')!;
+
+    expect(bench.plannedSets.map((s) => s.targetWeightKg)).toEqual([9.07, 11.34, 18.14, 22.68]);
+    expect(row.plannedSets).toEqual([{ setType: 'normal', targetReps: 10 }]);
+  });
+
+  it('reports plannedSets: [] for a row with no prescribed sets', async () => {
+    await seedRoutine();
+    await createSession(database, {
+      sessionId: 'session-noplan',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-noplan', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-noplan');
+    expect(detail!.exercises.every((e) => e.plannedSets.length === 0)).toBe(true);
+  });
 });
