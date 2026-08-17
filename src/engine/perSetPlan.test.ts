@@ -237,6 +237,60 @@ describe('per-set routine plan: set types come from the list (AC2.4, AC2.5)', ()
     expect(state.phase).toBe('warmup');
   });
 
+  it('AC2.5: an expired rest reconciles to the phase of the set actually landed on', async () => {
+    // reconcile_resting_deadline is the boot-Resume / AppForegrounded recovery,
+    // and it is a THIRD phase_for call site distinct from RestElapsed and
+    // SkipRest. Reconciling at RAMP's index 3 must give Working; reading set 0
+    // instead — which every count-shaped fixture cannot tell apart, because a
+    // ramp's set 0 and set 3 differ only per-set — gives Warmup.
+    const engine = createEngine(makeExecutors());
+    engine.setState({
+      sessionId: 'session-reconcile',
+      routineId: 'routine-reconcile',
+      phase: 'resting',
+      exerciseIndex: 0,
+      setIndex: 3,
+      supersetPosition: 0,
+      restDeadlineMs: 5000,
+      restRemainingMs: 0,
+      loggedSets: [],
+      lastLoggedSet: undefined,
+      startedAtMs: 1000,
+      prePausePhase: '',
+      entries: [perSetEntry(0, 'bench-press-dumbbell', RAMP, { restSeconds: 120 })],
+    });
+
+    const state = await engine.dispatch({ tag: 'AppForegrounded', nowMs: 9000 });
+    expect(state.phase).toBe('working');
+    expect(state.restDeadlineMs).toBe(0);
+  });
+
+  it('AC2.5: a rehydrated setIndex past the end of the list does not stamp a warmup', async () => {
+    // set_type_at must stay total (phase_for's Ok/Err form), and its Err
+    // default is reachable: `hydrate` is not validated by any rule (convention
+    // 5), so a session persisted by an older build can come back sitting on an
+    // index its set list no longer covers. The inert answer is "not a warmup".
+    const engine = createEngine(makeExecutors());
+    engine.setState({
+      sessionId: 'session-stale',
+      routineId: 'routine-stale',
+      phase: 'working',
+      exerciseIndex: 0,
+      setIndex: 9,
+      supersetPosition: 0,
+      restDeadlineMs: 0,
+      restRemainingMs: 0,
+      loggedSets: [],
+      lastLoggedSet: undefined,
+      startedAtMs: 1000,
+      prePausePhase: '',
+      entries: [perSetEntry(0, 'bench-press-dumbbell', RAMP)],
+    });
+
+    const state = await engine.dispatch({ tag: 'LogSet', reps: 8, nowMs: 2000 });
+    expect(state.loggedSets.map((s) => s.setType)).toEqual(['working']);
+  });
+
   it('AC2.4: a non-strength entry still stamps its kind for a non-warmup set', async () => {
     const { engine, start } = startedEngine([
       perSetEntry(0, 'hamstring-stretch', [{ setType: 'warmup', durationSeconds: 20 }, { setType: 'normal', durationSeconds: 30 }], { kind: 'stretch' }),
