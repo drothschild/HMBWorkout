@@ -480,7 +480,9 @@ Fixtures referenced by name throughout:
   with an ordered set list, and `parse(serialize(RAMP))` returns seven sets with the original seven
   weights in order. *Fails on regression:* a parser that keeps one-line-per-exercise returns one set
   or seven separate exercises.
-- **AC5.3 Success:** `target_weight` and `reps_max` join `knownFlags` (`format.ts:247`), and the
+- **AC5.3 Success:** `target_weight` and `reps_max` join `knownFlags` (`format.ts:424` — this plan
+  originally cited `:247`, which #282's quoted-flag work moved twice in one day; re-verify by grep
+  rather than by line number when Phase 5 starts), and the
   `weight=`-on-a-routine-line leak recorded in AGENTS.md is closed — the allowlist becomes
   context-aware, the second and third consultations of `parse.ts`'s `context` parameter.
 - **AC5.4 Success:** The context-dependent zero-reps rule is **deleted**, not ported. With routine
@@ -1097,7 +1099,7 @@ per-set weight (settled by you), rep ranges, superset representation, grammar sh
 2. **Should the routine markdown carry a rep range as `8-10` in the reps slot, or as a `reps_max=`
    flag?**
    - *(a)* `1x8 reps_max=10` — the flag form assumed in Phase 5 and AC5.3.
-   - *(b)* `1x8-10` — compact, but it changes the `<n>x<n>` token's shape, which `parse.ts:141`
+   - *(b)* `1x8-10` — compact, but it changes the `<n>x<n>` token's shape, which `parse.ts:151`
      matches with `/^\d+x\d+$/` and which session lines share.
    - **Recommendation: (a).** The whole point of the grammar change is to make routine and session
      lines the *same* shape; (b) reintroduces a routine-only token variant, which is the fork this
