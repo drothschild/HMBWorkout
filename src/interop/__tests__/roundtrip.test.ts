@@ -1241,6 +1241,9 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       { rpe: 0, legal: false },
       { rpe: 0.5, legal: false },
       { rpe: 1, legal: true },
+      // A quarter step: rejected for the step SIZE, not merely for being
+      // fractional. Nothing else in the suite discriminates the two.
+      { rpe: 7.25, legal: false },
       { rpe: 7.3, legal: false },
       { rpe: 7.5, legal: true },
       { rpe: 10, legal: true },

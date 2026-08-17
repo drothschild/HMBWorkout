@@ -1181,6 +1181,34 @@ describe('serialize', () => {
       expect(markdown).not.toContain('rpe=');
     });
 
+    test('a null rpe — what WatermelonDB returns for an unset column — writes nothing', () => {
+      // AGENTS.md's `!= null` rule for this line: an unset optional column
+      // arrives as null, not undefined. No interop fixture carried a null rpe
+      // before this, which is why mutating the guard to `!== undefined`
+      // survived the whole suite. It still survives — `isValidRpe(null)` is
+      // false, so the new guard subsumes the null case for this field — but
+      // the case is now covered rather than merely masked.
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-press',
+            exerciseId: 'barbell-bench-press',
+            setType: 'working' as const,
+            reps: 6,
+            rpe: null,
+            position: 0,
+          },
+        ] as any,
+        rows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6 set_type=working');
+      expect(markdown).not.toContain('rpe=');
+      expect(markdown).not.toContain('null');
+    });
+
     test('an in-scale rpe is still written on both paths', () => {
       // The guard must not be a blanket drop: this is the assertion that
       // fails if someone "fixes" the asymmetry by deleting the flag.

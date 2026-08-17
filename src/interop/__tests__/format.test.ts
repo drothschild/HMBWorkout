@@ -231,14 +231,21 @@ describe('format: quoted flag values (#277)', () => {
 describe('format: the RPE scale (#284)', () => {
   /**
    * Every value named in the issue's boundary list plus the ones that bracket
-   * it. `emitted` is what the grammar considers a legal RPE — the writer emits
+   * it. `legal` is what the grammar admits as an RPE — the writer emits
    * exactly these and the reader accepts exactly these.
+   *
+   * `7.25` is here because of a surviving mutant, not because the issue named
+   * it: widening the step check from `(v * 2) % 1` to `(v * 4) % 1` passed the
+   * whole suite, since `7.3` is rejected by a quarter-step rule too and no
+   * other fixture sat on a quarter step. It is the only value in this table
+   * that discriminates the step SIZE rather than the step's existence.
    */
   const BOUNDARIES: readonly { value: number; legal: boolean }[] = [
     { value: 0, legal: false },
     { value: 0.5, legal: false },
     { value: 1, legal: true },
     { value: 1.5, legal: true },
+    { value: 7.25, legal: false },
     { value: 7.3, legal: false },
     { value: 7.5, legal: true },
     { value: 10, legal: true },
