@@ -299,7 +299,7 @@ export function serializeRoutine(
     const exerciseData = exercises.find(e => e.id === re.exerciseId);
     if (!exerciseData) continue;
 
-    const flags: Record<string, any> = {};
+    const flags: ParsedFlags = {};
 
     // Add kind if not strength
     if (exerciseData.kind !== 'strength') {

@@ -147,8 +147,24 @@ export function formatDuration(seconds: number): string {
  * The grammar therefore allows a value to be **double-quoted**, and a quoted
  * value may contain whitespace, `=`, `@`, and escapes. Quoting is applied by
  * the serializer only when the value needs it (`quoteFlagValue`), so a value
- * that was previously emitted bare is still emitted bare, byte for byte, and
- * every document written before this change parses exactly as it did.
+ * that was previously emitted bare is still emitted bare, byte for byte.
+ *
+ * On the *reading* side the compatibility is near-total but NOT absolute, and
+ * the exception is deliberate. `"` opens a quoted value only in value-opening
+ * position (`opensQuotedValue`), so a `"` appearing mid-value — an inch mark
+ * like `@Go 2" deep` — stays literal and the value still tokenizes on
+ * whitespace exactly as it did before. What changes is a value that *opens*
+ * with a quote: `@"squeeze at the top" - coach` used to parse as `"squeeze`
+ * and now yields the whole phrase, and its unbalanced sibling
+ * `@"squeeze at the top - coach` now raises a contract violation where it
+ * used to truncate. Closing that gap would mean relaxing `decodeFlagValue`'s
+ * unterminated-quote check, which is the second half of a defence-in-depth
+ * pair, in exchange for a note shape far rarer than an inch mark — so the
+ * trade was refused and the exception is recorded here instead.
+ *
+ * Do not restate this as "every prior document parses identically". That
+ * absolute was written once, was false, and the review that caught it (#277,
+ * round 1) found it recorded in AGENTS.md as settled fact.
  *
  * Escapes inside a quoted value: `\\` `\"` `\n` `\r`. Anything else after a
  * backslash is a contract violation rather than a silent literal.
