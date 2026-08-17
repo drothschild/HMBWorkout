@@ -12,8 +12,12 @@
  *    source of truth and `serialize.ts` must stay symmetric with it; the
  *    roundtrip tests are the mechanism that holds that true. Delete the parser
  *    and the enforcement goes with it — `serialize` could then drift from the
- *    documented grammar with nothing to notice. 42 of the interop suite's 59
- *    tests involve parsing.
+ *    documented grammar with nothing to notice. 123 of the interop suite's 210
+ *    tests involve parsing — all of `parse.test.ts` and `roundtrip.test.ts`,
+ *    while `serialize.test.ts` and `format.test.ts` call neither entry point.
+ *    (Was "42 of 59", stale since well before #276; re-derive rather than trust
+ *    these, since a hardcoded count in prose goes stale by construction. The
+ *    same stale pair is still in AGENTS.md and is AC6.5 item 6's job.)
  * 2. **It is the test oracle for the one interop path that IS
  *    production-bound.** `exportService.test.ts` verifies `exportRoutine`'s
  *    output by parsing it back rather than string-matching, so the parser

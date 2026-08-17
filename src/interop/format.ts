@@ -35,6 +35,21 @@
  * a routine line is one prescribed set unless it says `sets=0` — and keeps
  * every storable shape both writable and readable.
  *
+ * That last clause was FALSE when it was first written, and is recorded here
+ * because the way it was wrong is a repeating shape rather than a one-off. It
+ * was asserted as "no export can throw" on the strength of the two Criticals
+ * the marker fixed, without enumerating the storable shapes — and 64 of the 192
+ * of them still threw, every cardio or stretch set carrying `target_reps`. The
+ * cause was that the fix moved the cardio/stretch DURATION requirement into the
+ * session-only tail and left its sibling, the sets-slot PROHIBITION,
+ * unconditional above the split; the claim was checked against the rule that
+ * moved, not against the shapes. It is true as of the round-2 fix (#293),
+ * measured by round-tripping the full 192-shape `routine_sets` lattice through
+ * a real database and the production `exportRoutine`: 192/192, zero throws and
+ * zero silent losses. Re-measure it that way before restating it — this file
+ * family has now had the same "a fix reached one of two paths" defect four
+ * times (#277, #282, and both rounds of #293).
+ *
  * `sets=0` is a routine-only flag; it is meaningless in a session, where a
  * line is a measurement that happened.
  */
