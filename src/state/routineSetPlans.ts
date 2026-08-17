@@ -35,6 +35,13 @@ export interface RoutineExerciseCounts {
   target_sets?: number | null;
   target_reps?: number | null;
   target_duration_seconds?: number | null;
+  /**
+   * The row's coach-prescribed load. An aggregate row DOES carry one — this is
+   * the column `acceptDraft` writes today — and it applies to every set the
+   * counts expand into, which is exactly what the pre-#276 per-exercise
+   * prescription did with it.
+   */
+  target_weight_kg?: number | null;
 }
 
 /**
@@ -75,10 +82,19 @@ export function prescribedSets(
 ): RoutineSetEntry[] {
   if (rows.length > 0) return [...rows];
 
+  // The row's own prescribed load rides along on every derived set. It is the
+  // one thing an aggregate row genuinely knows about load, and dropping it is
+  // how Phase 3 silently killed the coach-prescribed weight for every routine
+  // in the app (`acceptDraft` writes this column and no `routine_sets` rows
+  // until Phase 4). A uniform load across a uniform list reproduces the
+  // pre-#276 behaviour exactly — that code applied the one value to every set.
+  const load = (counts.target_weight_kg ?? 0) > 0 ? (counts.target_weight_kg as number) : undefined;
+
   return setsFromCounts(fromColumns(counts)).map((set) => {
     const entry: RoutineSetEntry = { setType: set.setType };
     if (set.reps != null) entry.targetReps = set.reps;
     if (set.durationSeconds != null) entry.targetDurationSeconds = set.durationSeconds;
+    if (load != null) entry.targetWeightKg = load;
     return entry;
   });
 }
@@ -110,10 +126,16 @@ function fromColumns(counts: RoutineExerciseCounts) {
  * a row id. Keying on `exercise_id` would be wrong — a routine may list the same
  * exercise twice with different prescriptions.
  *
- * Returns `[]` when the entry is gone or prescribes nothing. The aggregate
- * fallback is deliberately NOT applied here: this feeds the prefill's load
- * lookup, and an aggregate row has no per-set load to offer, so expanding it
- * would only manufacture empty sets.
+ * Returns `[]` when the entry is gone or prescribes nothing.
+ *
+ * The aggregate fallback IS applied, through the same `prescribedSets` every
+ * other shell reader uses. An earlier version declined it, reasoning that "an
+ * aggregate row has no per-set load to offer" — which is false: the row's own
+ * `target_weight_kg` is precisely a load, it is the column `acceptDraft`
+ * writes, and until Phase 4 gives `acceptDraft` a `sets` list it is the ONLY
+ * place a coach's prescription lives. Declining the fallback here therefore did
+ * not avoid manufacturing empty sets; it deleted the prescribed-weight prefill
+ * for every routine in the app.
  */
 export async function getPrescribedSetsForEntry(
   database: Database,
@@ -128,5 +150,30 @@ export async function getPrescribedSetsForEntry(
   const row = rows[0];
   if (!row) return [];
 
-  return getRoutineSets(database, row.id);
+  return getPrescribedSetsForRow(database, row.id, (row as any)._raw);
+}
+
+/**
+ * The same resolution keyed by `routine_exercises` row id, for readers that
+ * already hold one (the finished-workout detail screen).
+ *
+ * `counts` is the row's raw columns when the caller already has them; omitted,
+ * the row is looked up. A row that no longer exists prescribes nothing.
+ */
+export async function getPrescribedSetsForRow(
+  database: Database,
+  routineExerciseId: string,
+  counts?: RoutineExerciseCounts
+): Promise<RoutineSetEntry[]> {
+  const rows = await getRoutineSets(database, routineExerciseId);
+  if (counts) return prescribedSets(rows, counts);
+
+  const found = await database
+    .get('routine_exercises')
+    .query(Q.where('id', routineExerciseId))
+    .fetch();
+  const row = found[0];
+  if (!row) return prescribedSets(rows, {});
+
+  return prescribedSets(rows, (row as any)._raw);
 }

@@ -69,16 +69,35 @@ describe('session.tsx set-prefill effect wiring (#276 AC3.10)', () => {
     // Spelled out so dropping any one of them — the exercise id in particular,
     // which a swap changes without touching sessionId or exerciseIndex — is a
     // failure rather than a silent behaviour change.
+    //
+    // `setIndex` was ADDED to this expectation deliberately, as the review fix
+    // for C1. The four-entry version of this set was correct for a per-exercise
+    // prescription and became wrong the moment the plan went per-set: without
+    // it the effect ran once per exercise, `computeSetPrefill`'s
+    // `prescribedSets[setIndex]` indexing was evaluated at whatever set the
+    // effect happened to fire on, and the athlete saw one flat load for a whole
+    // warmup ramp. Widening this to `toContain` would have hidden that; the set
+    // comparison is what forced the omission into the open.
     const deps = dependencyArrayAfter(source(), 'computeSetPrefill(fresh, fallback,');
 
     expect(new Set(deps)).toEqual(
       new Set([
         'sessionState?.sessionId',
         'sessionState?.exerciseIndex',
+        'sessionState?.setIndex',
         'currentEntryExerciseId',
         'routineRevision',
       ])
     );
+  });
+
+  it('re-reads the prescription for the set being performed, not just the exercise', () => {
+    // The C1 half of the pair, pinned on its own so a future edit that drops
+    // `setIndex` fails with a message naming what broke rather than as a
+    // generic set mismatch.
+    const deps = dependencyArrayAfter(source(), 'computeSetPrefill(fresh, fallback,');
+
+    expect(deps).toContain('sessionState?.setIndex');
   });
 
   it('reads the prescription per set from the database, not off engine state', () => {

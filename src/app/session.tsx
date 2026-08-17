@@ -203,8 +203,9 @@ export default function SessionScreen() {
   // them after rehydration): the exercise's own last in-session set wins, then
   // cross-session history (strength only, fetched async), then the routine
   // targets — all decided by the pure computeSetPrefill. RPE always resets.
-  // Keyed on sessionId+exerciseIndex only, so it never clobbers values the
-  // user types between sets of the same exercise.
+  // Keyed on the position being performed (session, exercise, SET), so a
+  // per-set plan is re-read for each set while nothing re-runs it under the
+  // user's fingers mid-set.
   useEffect(() => {
     if (!sessionState) return;
     let cancelled = false;
@@ -291,6 +292,7 @@ export default function SessionScreen() {
             sessionId: sessionState.sessionId,
             exerciseIndex: sessionState.exerciseIndex,
             exerciseId: entry.exerciseId,
+            setIndex: sessionState.setIndex,
           })
         ) {
           return;
@@ -309,9 +311,17 @@ export default function SessionScreen() {
     // Primitive deps on purpose (see the progression-hint effect above). The
     // exercise id is one of them, so a swap re-prefills for the substitute
     // instead of leaving the replaced exercise's numbers in the inputs.
+    //
+    // `setIndex` is one of them too, since #276: the prescription is per-set,
+    // so an effect keyed on the exercise alone evaluates the indexing once and
+    // leaves the athlete looking at the previous set's numbers for a whole
+    // warmup ramp. It cannot clobber in-progress typing — `setIndex` moves only
+    // on LogSet/SetDone, which is the athlete leaving the set they were typing
+    // into, and the sync pass already reset the fields on that same dispatch.
   }, [
     sessionState?.sessionId,
     sessionState?.exerciseIndex,
+    sessionState?.setIndex,
     currentEntryExerciseId,
     routineRevision,
   ]);

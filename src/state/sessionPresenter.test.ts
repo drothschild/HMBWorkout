@@ -1,7 +1,6 @@
 import {
   computeSetPrefill,
   createSessionPresenter,
-  currentExerciseHasLoggedSet,
   currentExerciseId,
   formatLoggedSetLine,
   historyPrefillStillApplies,
@@ -767,31 +766,6 @@ describe('createSessionPresenter', () => {
     });
   });
 
-  describe('currentExerciseHasLoggedSet', () => {
-    test('true when the current exercise has an in-session set', () => {
-      // createMockState logs one warmup set for ex-1, the current exercise
-      expect(currentExerciseHasLoggedSet(createMockState())).toBe(true);
-    });
-
-    test('false when only other exercises have sets', () => {
-      const state = createMockState();
-      state.entries = [
-        state.entries[0],
-        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
-      ];
-      state.exerciseIndex = 1;
-
-      expect(currentExerciseHasLoggedSet(state)).toBe(false);
-    });
-
-    test('false when the exercise index is out of bounds', () => {
-      const state = createMockState();
-      state.exerciseIndex = 5;
-
-      expect(currentExerciseHasLoggedSet(state)).toBe(false);
-    });
-  });
-
   describe('currentExerciseId', () => {
     // The session screen's per-exercise effects (prefill, progression hint)
     // key on this. exerciseIndex alone is not enough: ReplaceExercise rewrites
@@ -824,7 +798,12 @@ describe('createSessionPresenter', () => {
     // The cross-session history prefill is fetched async. By the time it
     // resolves the workout may have moved on, so the result is applied only if
     // the state it was fetched for is still the state on screen.
-    const target = { sessionId: 'session-1', exerciseIndex: 0, exerciseId: 'ex-1' };
+    const target = {
+      sessionId: 'session-1',
+      exerciseIndex: 0,
+      exerciseId: 'ex-1',
+      setIndex: 0,
+    };
 
     const untouched = (): SessionState => {
       const state = createMockState();
@@ -864,10 +843,37 @@ describe('createSessionPresenter', () => {
       expect(historyPrefillStillApplies(state, target)).toBe(false);
     });
 
-    test('does not apply once a set has been logged for the exercise', () => {
-      // createMockState logs a warmup for ex-1: the user is mid-exercise and
-      // whatever is in the inputs is theirs, not ours to overwrite.
-      expect(historyPrefillStillApplies(createMockState(), target)).toBe(false);
+    test('does not apply once the workout moved to the next set', () => {
+      // The in-flight race: a set was logged while the read was outstanding, so
+      // the position the read was made for is no longer on screen. Since #276
+      // the prescription is per-set, so a result fetched for set 0 applied to
+      // set 1 would show the previous set's numbers.
+      const state = untouched();
+      state.setIndex = 1;
+
+      expect(state.sessionId).toBe(target.sessionId);
+      expect(state.exerciseIndex).toBe(target.exerciseIndex);
+      expect(historyPrefillStillApplies(state, target)).toBe(false);
+    });
+
+    test('applies again once the effect re-runs for the new set', () => {
+      // The other half: the position check must not become a permanent bail.
+      // The effect re-runs on `setIndex` and its read is made for set 1, which
+      // is what keeps the per-set prescription reaching the athlete at all.
+      const state = untouched();
+      state.setIndex = 1;
+      state.loggedSets = [
+        {
+          exerciseId: 'ex-1',
+          setType: 'warmup',
+          reps: 5,
+          weightKg: 20,
+          durationSeconds: null,
+          rpe: null,
+        },
+      ];
+
+      expect(historyPrefillStillApplies(state, { ...target, setIndex: 1 })).toBe(true);
     });
   });
 

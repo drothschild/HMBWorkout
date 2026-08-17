@@ -5,10 +5,10 @@ import {
   getSessionSets,
   getSessionExerciseLog,
   getRoutineDisplay,
-  getRoutineSets,
   type RoutineSetEntry,
 } from '@/db/repository';
 import { formatSetLine } from './sessionPresenter';
+import { getPrescribedSetsForRow } from './routineSetPlans';
 
 /**
  * One logged set formatted for display, keyed by its own row id (stable
@@ -153,9 +153,14 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
   // The plan now lives in `routine_sets`, so the lookup is by row id. One read
   // per distinct row — `log` can list a row twice when a swap split its sets
   // across two performed identities, and both halves share the same plan.
+  //
+  // Through `getPrescribedSetsForRow`, so a row with no `routine_sets` behind
+  // it still resolves to its aggregate counts. Reading `routine_sets` alone
+  // made `plannedSets` empty for every routine in the app — `acceptDraft`
+  // writes no set rows until Phase 4 — and the screen's target label vanished.
   const plansByRow = new Map<string, RoutineSetEntry[]>();
   for (const rowId of new Set(log.map((entry) => entry.routineExerciseId))) {
-    plansByRow.set(rowId, await getRoutineSets(db, rowId));
+    plansByRow.set(rowId, await getPrescribedSetsForRow(db, rowId));
   }
 
   const accountedForSetIds = new Set<string>();

@@ -212,18 +212,6 @@ export function formatLoggedSetLine(set: LoggedSet): string {
 }
 
 /**
- * True when the current exercise already has a set logged this session
- * (matched by exerciseId, same as computeSetPrefill). The session screen's
- * async history-upgrade uses this on fresh store state to bail out instead
- * of clobbering a prefill derived from a set logged while it was in flight.
- */
-export function currentExerciseHasLoggedSet(sessionState: SessionState): boolean {
-  const entry = sessionState.entries?.[sessionState.exerciseIndex];
-  if (!entry) return false;
-  return (sessionState.loggedSets ?? []).some((set) => set.exerciseId === entry.exerciseId);
-}
-
-/**
  * The exercise currently being performed, or '' when there is none.
  *
  * The session screen's per-exercise effects (set prefill, progression hint)
@@ -245,6 +233,7 @@ export interface PrefillTarget {
   sessionId: string;
   exerciseIndex: number;
   exerciseId: string;
+  setIndex: number;
 }
 
 /**
@@ -256,10 +245,24 @@ export interface PrefillTarget {
  * result is applied only if the state it was fetched for is still the state on
  * screen.
  *
- * All three keys matter, and the exerciseId is the one that is easy to miss: a
- * swap leaves sessionId and exerciseIndex identical while changing what is
- * being performed, so checking only the first two would prefill the
- * substitute's inputs with the original's last set.
+ * All four keys matter, and two of them are easy to miss:
+ *
+ *  - the exerciseId, because a swap leaves sessionId and exerciseIndex
+ *    identical while changing what is being performed, so checking only the
+ *    first two would prefill the substitute's inputs with the original's last
+ *    set;
+ *  - the setIndex, because the prefill is now per-set (#276): a result fetched
+ *    for set 1 must not be applied to set 2.
+ *
+ * The setIndex check REPLACED an older "and the current exercise has no logged
+ * set" clause, which existed for the same reason — a set logged while the query
+ * was in flight — but expressed it as a property of the whole exercise rather
+ * than of the position. That was harmless while the prescription was one value
+ * per exercise; per-set it was fatal, because it meant the DB-backed upgrade
+ * silently stopped applying after an exercise's very first set and the athlete
+ * saw set 0's numbers for the entire ramp. Every LogSet moves `setIndex` or
+ * `exerciseIndex` (a superset hop changes the latter, engine convention 9), so
+ * the position pair detects the same race exactly, and detects nothing else.
  */
 export function historyPrefillStillApplies(
   fresh: SessionState,
@@ -269,18 +272,19 @@ export function historyPrefillStillApplies(
     fresh.sessionId === target.sessionId &&
     fresh.exerciseIndex === target.exerciseIndex &&
     currentExerciseId(fresh) === target.exerciseId &&
-    !currentExerciseHasLoggedSet(fresh)
+    fresh.setIndex === target.setIndex
   );
 }
 
 /**
  * Default input values for the next set of the current exercise.
  *
- * THE PRECEDENCE, PER-SET (#276 AC3.8). Three terms became two: the middle term
- * used to be a per-exercise prescription applied to every set, and is now the
- * prescription attached to the set actually being performed.
+ * THE PRECEDENCE, PER-SET (#276 AC3.8, revised). Three terms became four, and
+ * the new top term is the one that makes a per-set plan mean anything:
  *
- *   weight    1. the exercise's own last set **this session** (matched by
+ *   weight    0. the current set's own `target_weight_kg`, WHEN THE PLAN
+ *                INTENDS A CHANGE HERE (see below)
+ *             1. the exercise's own last set **this session** (matched by
  *                exerciseId — the engine's LoggedSet carries no entry row id,
  *                and duplicate entries of the same movement sharing a prefill
  *                is the desired behavior)
@@ -288,23 +292,55 @@ export function historyPrefillStillApplies(
  *             3. the caller's cross-session history fallback
  *             (no terminal: a plan with no load prefills no weight)
  *
- *   reps      1. the exercise's own last set this session
+ *   reps      0. the current set's own `target_reps`, when the plan intends a
+ *                change here
+ *             1. the exercise's own last set this session
  *             2. the cross-session history fallback
  *             3. the current set's own `target_reps` (a range prefills its
  *                lower bound; `target_reps_max` is guidance, not a default)
  *
- *   duration  1. the exercise's own last set this session
+ *   duration  0. the current set's own `target_duration_seconds`, when the plan
+ *                intends a change here
+ *             1. the exercise's own last set this session
  *             2. the current set's own `target_duration_seconds`
  *             (no history — the history query returns working sets only)
  *
- * The prescription outranking history is the point of the feature: a coach that
- * programs 185 must not be silently overruled by last week's 175, because the
- * case where they differ is the only case that matters. It does **not** outrank
- * a set logged minutes ago in this same session — that is the athlete actively
- * correcting the plan, and re-offering the prescribed load on the next set would
- * fight them. The asymmetry between weight and reps survives per-set: with a
- * prescribed 185 and a history set of 8 x 175, the right prefill is still 8 reps
- * at 185.
+ * **"The plan intends a change here" is decided FIELD BY FIELD, not set by
+ * set.** For field F at set i, the plan asserts itself iff F's planned value at
+ * i differs from F's planned value at i-1. At i = 0 there is no previous set to
+ * inherit from, so the plan asserts itself iff F is not uniform across the
+ * entry — i.e. iff this is a genuinely per-set plan at all.
+ *
+ * Why field-wise, and why the uniformity clause. Three scenarios, and only this
+ * rule gets all three right:
+ *
+ *   RAMP 5x20 / 5x25 / 3x40 / 8x50 — the loads and reps must ramp. Rank 1 alone
+ *   flattens the whole thing to set 0's numbers.
+ *
+ *   FLAT 3x8 @ 50, athlete drops to 45 — the deviation must stick. A rule that
+ *   let the plan win unconditionally would re-offer 50 on every set and fight
+ *   the athlete, which is rank 1's entire reason for existing.
+ *
+ *   REPS DROP 8/8/6 @ 50, athlete drops to 45 — the planned rep change must
+ *   land AND the deviated load must survive. Comparing whole SETS fails here:
+ *   set 2 differs as a set, so a set-wise rule drags the weight back to 50.
+ *
+ * The uniformity clause at set 0 is what keeps this free of regression on every
+ * routine that exists today. An aggregate-derived list is uniform in every
+ * field by construction, so the override never fires on one and the ranks below
+ * behave byte-identically to the pre-#276 code — including the documented
+ * weight/reps asymmetry there ("the coach programs the load, the reps come from
+ * what the athlete does"): with a prescribed 185 and a history set of 8 x 175,
+ * a flat plan still prefills 8 reps at 185. What changes is that a per-set plan
+ * — a ramp — now owns its own rep counts from the very first set instead of
+ * inheriting last week's.
+ *
+ * Not repaired here, and pre-existing: `lastMatch` matches by exerciseId across
+ * the whole session, so a routine listing the same movement twice shares one
+ * prefill between the two entries. With a uniform plan the second entry's set 0
+ * therefore still inherits the first entry's logged values. That sharing is
+ * deliberate (see rank 1) and changing it needs an entry identity on
+ * `LoggedSet`, which the engine does not carry.
  *
  * `prescribedSets` is the current entry's set list read FRESH from the database
  * by the caller, indexed here by `setIndex`. It is deliberately not taken off
@@ -352,6 +388,34 @@ export function historyToSetInputValues(historySet: {
  */
 export type PrescribedSets = readonly { targetWeightKg?: number | null }[];
 
+/** A metric's value, with the codebase's "0 and null both mean absent" reading. */
+function positiveOrUndefined(value: number | null | undefined): number | undefined {
+  return value != null && value > 0 ? value : undefined;
+}
+
+/**
+ * Whether the plan asserts field F at `index` — the (b′) rule, applied to one
+ * field's values across an entry's prescribed sets.
+ *
+ * `values[i]` is F's planned value at set i, already normalized so that absent
+ * and zero compare equal. Returns false when the plan says nothing at `index`:
+ * there is no value to assert, and "the plan intends to REMOVE the load here"
+ * is not a thing a routine can express.
+ */
+function planAssertsField(
+  values: readonly (number | undefined)[],
+  index: number
+): boolean {
+  const here = values[index];
+  if (here === undefined) return false;
+  if (index > 0) return values[index - 1] !== here;
+
+  // Set 0 has no previous set to inherit from. The plan asserts itself only if
+  // it is per-set at all; a uniform list (every aggregate-derived one) leaves
+  // the ranks below exactly as they were before #276.
+  return values.some((value) => value !== here);
+}
+
 export function computeSetPrefill(
   sessionState: SessionState,
   historyFallback?: SetInputValues,
@@ -362,21 +426,47 @@ export function computeSetPrefill(
 
   const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
+  const setIndex = sessionState.setIndex;
 
   // The set actually being performed. Out of range — reachable through
   // `hydrate`, which no rule validates (convention 5) — means no plan, not
   // set 0's plan.
-  const plannedSet: RoutineSet | undefined = entrySets(entry)[sessionState.setIndex];
+  const plannedSets = entrySets(entry);
+  const plannedSet: RoutineSet | undefined = plannedSets[setIndex];
 
   // The prescribed load for THAT set, converted to display lbs once, here.
   // Absent for a duration-based entry (there is no weight input to fill) and
   // for any non-positive value (0 means "no prescription", matching the > 0
   // absence convention every other metric in this function uses).
-  const prescribedWeightKg = prescribedSets?.[sessionState.setIndex]?.targetWeightKg;
+  const prescribedWeightKg = prescribedSets?.[setIndex]?.targetWeightKg;
   const prescribedLbs =
     !isDurationBased && prescribedWeightKg != null && prescribedWeightKg > 0
       ? kgToLbs(prescribedWeightKg)
       : undefined;
+
+  // ---- R0: the fields where the plan intends a change AT THIS SET ---------
+  // Two source arrays, one index. The load comes from the DB list the caller
+  // read (a swap clears those, and engine state would not know); reps and
+  // duration come from engine state's own list, which a swap deliberately
+  // preserves. See this function's docstring and `routineSetPlans.ts`.
+  const plannedReps = positiveOrUndefined(plannedSet?.reps);
+  const plannedDuration = positiveOrUndefined(plannedSet?.durationSeconds);
+
+  const planAssertsWeight =
+    prescribedLbs !== undefined &&
+    planAssertsField(
+      (prescribedSets ?? []).map((set) => positiveOrUndefined(set.targetWeightKg)),
+      setIndex
+    );
+  const planAssertsReps =
+    !isDurationBased &&
+    planAssertsField(plannedSets.map((set) => positiveOrUndefined(set.reps)), setIndex);
+  const planAssertsDuration =
+    isDurationBased &&
+    planAssertsField(
+      plannedSets.map((set) => positiveOrUndefined(set.durationSeconds)),
+      setIndex
+    );
 
   let lastMatch: LoggedSet | undefined;
   for (let i = sets.length - 1; i >= 0; i--) {
@@ -388,6 +478,13 @@ export function computeSetPrefill(
 
   const prefill: SetInputValues = {};
 
+  // A field the plan asserts is claimed here, before any lower rank can write
+  // it. Every rank below fills only what is still undefined, which is what
+  // makes the override field-wise rather than set-wise.
+  if (planAssertsWeight) prefill.weightLbs = prescribedLbs;
+  if (planAssertsReps) prefill.reps = plannedReps;
+  if (planAssertsDuration) prefill.durationSeconds = plannedDuration;
+
   // ---- R2: this session's own last set for this exercise ----------------
   if (lastMatch) {
     // `contributed` is computed from the LOGGED SET ALONE, never from
@@ -398,16 +495,18 @@ export function computeSetPrefill(
 
     if (isDurationBased) {
       if (lastMatch.durationSeconds != null && lastMatch.durationSeconds > 0) {
-        prefill.durationSeconds = lastMatch.durationSeconds;
+        if (prefill.durationSeconds === undefined) {
+          prefill.durationSeconds = lastMatch.durationSeconds;
+        }
         contributed = true;
       }
     } else {
       if (lastMatch.reps != null && lastMatch.reps > 0) {
-        prefill.reps = lastMatch.reps;
+        if (prefill.reps === undefined) prefill.reps = lastMatch.reps;
         contributed = true;
       }
       if (lastMatch.weightKg != null && lastMatch.weightKg > 0) {
-        prefill.weightLbs = kgToLbs(lastMatch.weightKg);
+        if (prefill.weightLbs === undefined) prefill.weightLbs = kgToLbs(lastMatch.weightKg);
         contributed = true;
       }
     }
@@ -430,14 +529,21 @@ export function computeSetPrefill(
   // ---- R3: duration entries have no weight and no cross-session history --
   if (isDurationBased) {
     // The history query returns working-type sets only, so the planned set is
-    // the only fallback here.
-    const planned = plannedSet?.durationSeconds;
-    return planned != null && planned > 0 ? { durationSeconds: planned } : undefined;
+    // the only fallback here. A duration entry's prefill can hold nothing but
+    // this one field, so returning it alone loses nothing.
+    if (prefill.durationSeconds === undefined && plannedDuration !== undefined) {
+      prefill.durationSeconds = plannedDuration;
+    }
+    return prefill.durationSeconds !== undefined
+      ? { durationSeconds: prefill.durationSeconds }
+      : undefined;
   }
 
   // ---- The override: the prescription claims the weight field ahead of
   // ---- history. Reps are untouched and still come from history below.
-  if (prescribedLbs !== undefined) prefill.weightLbs = prescribedLbs;
+  if (prefill.weightLbs === undefined && prescribedLbs !== undefined) {
+    prefill.weightLbs = prescribedLbs;
+  }
 
   // ---- R4: cross-session history ----------------------------------------
   if (historyFallback) {
@@ -447,7 +553,7 @@ export function computeSetPrefill(
     const historyHasWeight =
       historyFallback.weightLbs != null && historyFallback.weightLbs > 0;
 
-    if (historyHasReps) prefill.reps = historyFallback.reps;
+    if (prefill.reps === undefined && historyHasReps) prefill.reps = historyFallback.reps;
     if (prefill.weightLbs === undefined && historyHasWeight) {
       prefill.weightLbs = historyFallback.weightLbs;
     }
@@ -458,8 +564,7 @@ export function computeSetPrefill(
   // ---- R5: the planned set's own reps (terminal) -------------------------
   // A range prefills its lower bound; `repsMax` is guidance for the athlete,
   // not a default to type into the input.
-  const plannedReps = plannedSet?.reps;
-  if (plannedReps != null && plannedReps > 0) prefill.reps = plannedReps;
+  if (prefill.reps === undefined && plannedReps !== undefined) prefill.reps = plannedReps;
   return Object.keys(prefill).length > 0 ? prefill : undefined;
 }
 

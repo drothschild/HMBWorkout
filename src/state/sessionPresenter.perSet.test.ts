@@ -9,7 +9,7 @@
  */
 
 import { computeSetPrefill, createSessionPresenter, deriveSetPosition } from './sessionPresenter';
-import type { RoutineEntry, RoutineSet, SessionState } from '@/engine/types';
+import type { LoggedSet, RoutineEntry, RoutineSet, SessionState } from '@/engine/types';
 
 /**
  * RAMP: three warmups at ascending loads, then four working sets in a rep
@@ -262,21 +262,30 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
 });
 
 /**
- * THE NEW PRECEDENCE (#276 AC3.7–AC3.9). Three terms became two, and the
- * middle term moved from the exercise to the set.
+ * THE NEW PRECEDENCE (#276 AC3.7–AC3.9, revised in review). The middle term
+ * moved from the exercise to the set, and a new top term was added: a field
+ * the plan changes AT THIS SET outranks everything.
  *
- *   weight   1. this session's own last set for this exercise
+ *   weight   0. THE CURRENT SET'S OWN target_weight_kg, when it differs from
+ *               the previous set's (at set 0: when the plan is per-set at all)
+ *            1. this session's own last set for this exercise
  *            2. THE CURRENT SET'S OWN target_weight_kg   <- was a per-exercise
  *                                                           prescription
  *            3. cross-session history
  *            (no terminal — a plan with no load prefills no weight)
  *
- *   reps     1. this session's own last set for this exercise
+ *   reps     0. the current set's own target_reps, on the same condition
+ *            1. this session's own last set for this exercise
  *            2. cross-session history
  *            3. the current set's own target_reps
  *
- *   duration 1. this session's own last set (duration-based entries only)
+ *   duration 0. the current set's own target_duration_seconds, same condition
+ *            1. this session's own last set (duration-based entries only)
  *            2. the current set's own target_duration_seconds
+ *
+ * Rank 0 is decided FIELD BY FIELD. Comparing whole sets is not the same rule
+ * and gets REPS_DROP wrong — see `sessionPrefillWalk.test.ts`, which walks all
+ * three discriminating scenarios end to end.
  *
  * `prescribedSets` is the caller's FRESH read of `routine_sets`, indexed by
  * `setIndex` here so the index arithmetic is under test. It is not taken off
@@ -310,19 +319,22 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
     ).toBe(3);
   });
 
-  test('AC3.8 rank 1: this session’s own last set outranks the prescribed set', () => {
+  const wentUpTo = (weightKg: number, reps: number): LoggedSet => ({
+    exerciseId: 'bench-press-dumbbell',
+    setType: 'working',
+    reps,
+    weightKg,
+    durationSeconds: null,
+    rpe: null,
+  });
+
+  test('AC3.8 rank 1: this session’s own last set outranks a plan that intends no change', () => {
+    // Index 4 of RAMP prescribes exactly what index 3 did (8 x 22.68), so the
+    // plan asserts nothing here and the athlete's own 6 x 60 stands. This is
+    // rank 1's whole reason for existing.
     const state = perSetState([ramp()], {
-      setIndex: 3,
-      loggedSets: [
-        {
-          exerciseId: 'bench-press-dumbbell',
-          setType: 'working',
-          reps: 6,
-          weightKg: 27.22, // 60 lb — the athlete went up
-          durationSeconds: null,
-          rpe: null,
-        },
-      ],
+      setIndex: 4,
+      loggedSets: [wentUpTo(27.22, 6)], // 60 lb — the athlete went up
     });
 
     expect(computeSetPrefill(state, undefined, prescribedRamp)).toEqual({
@@ -331,15 +343,87 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
     });
   });
 
+  test('AC3.8 rank 0: a planned change at THIS set outranks the last set logged', () => {
+    // Index 3 is where RAMP leaves the warmups: 3 x 18.14 becomes 8 x 22.68.
+    // Both fields change, so both come from the plan even though the athlete
+    // just logged something else. Without this the ramp flattens to set 0.
+    const state = perSetState([ramp()], {
+      setIndex: 3,
+      loggedSets: [wentUpTo(27.22, 6)],
+    });
+
+    expect(computeSetPrefill(state, undefined, prescribedRamp)).toEqual({
+      reps: 8,
+      weightLbs: 50,
+    });
+  });
+
+  test('AC3.8 rank 0 is field-wise: an unchanged field keeps the athlete’s value', () => {
+    // The REPS DROP shape in miniature: the reps change at this set, the load
+    // does not. A set-wise comparison would see "this set differs" and drag
+    // the load back to the plan's, overwriting the athlete's deviation.
+    const entry = perSetEntry([
+      { setType: 'normal', reps: 8, weightKg: 22.68 },
+      { setType: 'normal', reps: 8, weightKg: 22.68 },
+      { setType: 'normal', reps: 6, weightKg: 22.68 },
+    ]);
+    const prescribed = [
+      { targetWeightKg: 22.68 },
+      { targetWeightKg: 22.68 },
+      { targetWeightKg: 22.68 },
+    ];
+    const state = perSetState([entry], {
+      setIndex: 2,
+      loggedSets: [wentUpTo(20.41, 8)], // 45 lb — the athlete came down
+    });
+
+    expect(computeSetPrefill(state, undefined, prescribed)).toEqual({
+      reps: 6,
+      weightLbs: 45,
+    });
+  });
+
   test('AC3.8 rank 2: the prescribed set outranks cross-session history for weight', () => {
+    // Index 4 again: the plan intends no change there, so rank 0 is silent and
+    // the original two-term asymmetry is what is under test.
     const history = { reps: 12, weightLbs: 35 };
     expect(
-      computeSetPrefill(perSetState([ramp()], { setIndex: 3 }), history, prescribedRamp)
+      computeSetPrefill(perSetState([ramp()], { setIndex: 4 }), history, prescribedRamp)
     ).toEqual({
       // Weight is the plan's; reps still come from what the athlete does.
       reps: 12,
       weightLbs: 50,
     });
+  });
+
+  test('AC3.8 rank 0 vs history: a per-set plan owns its own reps on set 0', () => {
+    // No previous set to compare against, so the tie-break is whether the plan
+    // is per-set at all. RAMP is, so its 5 reps beat last week's 12.
+    const history = { reps: 12, weightLbs: 35 };
+    expect(
+      computeSetPrefill(perSetState([ramp()], { setIndex: 0 }), history, prescribedRamp)
+    ).toEqual({ reps: 5, weightLbs: 20 });
+  });
+
+  test('a UNIFORM plan still defers to history for reps on set 0', () => {
+    // The zero-regression half of the same rule: an aggregate-derived list is
+    // uniform in every field, so rank 0 never fires on one and the documented
+    // weight/reps asymmetry survives untouched for every routine in the app.
+    const flat = perSetEntry([
+      { setType: 'normal', reps: 8, weightKg: 83.91 },
+      { setType: 'normal', reps: 8, weightKg: 83.91 },
+      { setType: 'normal', reps: 8, weightKg: 83.91 },
+    ]);
+    const prescribed = [
+      { targetWeightKg: 83.91 },
+      { targetWeightKg: 83.91 },
+      { targetWeightKg: 83.91 },
+    ];
+    const history = { reps: 12, weightLbs: 175 };
+
+    expect(
+      computeSetPrefill(perSetState([flat], { setIndex: 0 }), history, prescribed)
+    ).toEqual({ reps: 12, weightLbs: 185 });
   });
 
   test('AC3.9: a set with no target_weight_kg falls through to history', () => {
