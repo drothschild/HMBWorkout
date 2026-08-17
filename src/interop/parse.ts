@@ -120,9 +120,11 @@ function extractWorkoutBlock(markdown: string): string {
  * @param context - 'routine' for author-written targets, 'session' for logged
  *   measurements. It is consulted three times, and only three (#276 Phase 5):
  *   which flag keys are legal (`parseFlagTokens`), whether the sets slot may be
- *   anything other than 1, and whether a line with no set content at all is an
- *   exercise-with-no-sets or malformed. The zero-REPS asymmetry that used to be
- *   a fourth is gone — `1x0` now means the same thing in both documents.
+ *   anything other than 1, and which tail the line takes — a routine line is
+ *   one prescribed set (or the `sets=0` entry marker) and every field on it is
+ *   independently optional, while a session line is a measurement and must say
+ *   what was measured. The zero-REPS asymmetry that used to be a third of these
+ *   is gone — `1x0` now means the same thing in both documents.
  */
 function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null {
   line = line.trim();
@@ -145,14 +147,14 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
   // `@"3x12 = the goal"` is one token and is never mistaken for the sets slot
   // nor scattered across the flag scan below.
   const parts = tokenizeFlagString(rest);
-  if (parts.length === 0) {
-    // `- <exercise-id>:` with nothing after it. In a ROUTINE that is the
-    // wire form of an entry prescribing no sets — a shape the DB can hold
-    // (convention 10) and therefore one the grammar must be able to say.
-    // In a SESSION there is no such thing: a line records a set that happened.
-    if (context === 'routine') {
-      return { exerciseId, kind: 'strength', sets: [] };
-    }
+  if (parts.length === 0 && context === 'session') {
+    // `- <exercise-id>:` with nothing after it. A session line records a set
+    // that happened, and a set that says nothing about itself is not a
+    // measurement. A ROUTINE line falls through instead: there it is one
+    // prescribed set that prescribes nothing in particular, which is a
+    // `routine_sets` row the DB can hold (all five columns are independently
+    // nullable). The entry that has no sets AT ALL is a different statement
+    // and says so with `sets=0` (#293 review).
     throw new ContractError(`Empty spec after colon in line: ${line}`);
   }
 
@@ -244,60 +246,6 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     throw new ContractError(`${kind} exercise cannot have sets×reps: ${line}`);
   }
 
-  // For cardio/stretch, must have duration
-  if ((kind === 'cardio' || kind === 'stretch') && parsedFlags.durationSeconds === undefined) {
-    throw new ContractError(`${kind} exercise missing duration: ${line}`);
-  }
-
-  // Nothing set-like on the line at all — no sets slot, no duration.
-  //
-  // In a ROUTINE that is the same statement as the empty spec handled at the
-  // top, just with entry-level flags attached: `- bench-press-db: rest=1:30`
-  // names an exercise and prescribes nothing. It reaches here rather than
-  // there because the flags made the spec non-empty. Note this arm also
-  // swallows what were two separate errors — a strength line missing its sets
-  // and a cardio/stretch line missing its duration — but only in the case
-  // where the line says nothing about sets at all; a cardio line WITH a sets
-  // slot, or a strength line with neither but inside a session, still throws.
-  //
-  // The arm applies only to a line the parser understands ENTIRELY. A stray
-  // token — `4x`, which is neither a sets slot nor a `key=value` nor a `@hint`
-  // — is skipped by `parseFlagTokens` as an "unknown non-flag", so without this
-  // check a typo'd sets slot would read as "prescribes nothing" instead of
-  // failing. That is the same laundering the zero-sets and non-1-sets rules
-  // above refuse. Routine-only, like the arm it guards: tightening the session
-  // side would change a document shape this phase is not touching.
-  const hasSetContent = targetReps !== undefined || parsedFlags.durationSeconds !== undefined;
-  const strayTokens = flagParts.filter(
-    (part) => !part.startsWith('@') && !part.includes('=')
-  );
-  if (context === 'routine' && !hasSetContent && strayTokens.length > 0) {
-    throw new ContractError(
-      `Unrecognized token${strayTokens.length > 1 ? 's' : ''} ` +
-        `${strayTokens.join(', ')} in line: ${line}`
-    );
-  }
-  if (context === 'routine' && !hasSetContent) {
-    return {
-      exerciseId,
-      kind,
-      sets: [],
-      restSeconds: parsedFlags.restSeconds,
-      supersetLabel: parsedFlags.supersetLabel,
-      hint: parsedFlags.hint,
-    };
-  }
-
-  // For strength without sets×reps, must either have duration (error) or be malformed
-  if (kind === 'strength' && targetSets === undefined && targetReps === undefined && parsedFlags.durationSeconds === undefined) {
-    // Check if we have any flags - if not, this is malformed
-    if (flagParts.length === 0) {
-      throw new ContractError(`Expected sets×reps for strength exercise: ${line}`);
-    }
-    // If we have flags but no sets×reps and no duration, this is an error for strength
-    throw new ContractError(`Strength exercise missing sets×reps: ${line}`);
-  }
-
   // Build workout line
   const workoutLine: WorkoutLine = {
     exerciseId,
@@ -317,8 +265,106 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     setType: parsedFlags.setType,
   };
 
+  if (context === 'routine') {
+    return finishRoutineLine(line, workoutLine, flagParts, parsedFlags.noSets === true);
+  }
+
+  // A SESSION line is a measurement, so it must say what was measured. These
+  // two requirements are the session's alone (#293 review): on a routine line
+  // every prescribed field is independently optional, and demanding a duration
+  // of a cardio entry that prescribes nothing is what made a bare cardio line
+  // unparseable.
+  if ((kind === 'cardio' || kind === 'stretch') && parsedFlags.durationSeconds === undefined) {
+    throw new ContractError(`${kind} exercise missing duration: ${line}`);
+  }
+
+  if (kind === 'strength' && targetReps === undefined && parsedFlags.durationSeconds === undefined) {
+    // `targetSets` is not tested alongside: the sets slot sets both numbers or
+    // neither, so `targetReps === undefined` already means "no sets slot".
+    throw new ContractError(`Strength exercise missing sets×reps: ${line}`);
+  }
+
   return workoutLine;
 }
+
+/**
+ * The routine tail: decide whether this line IS a prescribed set or is the
+ * entry saying it has none, and refuse anything that is neither (#293 review).
+ *
+ * A routine line is one prescribed set, and every field of that set is
+ * independently optional — all five `routine_sets` columns are nullable, so
+ * `- bench-press-db: target_weight=50` is a real prescription and used to
+ * vanish, read as an exercise line instead. The only line that is NOT a set is
+ * the one that says `sets=0`.
+ *
+ * Two things are still refused, both because the alternative is a silent
+ * misread of an author's plan:
+ * - a stray token on a line that prescribes nothing else — `4x`, neither a sets
+ *   slot nor a `key=value` nor a `@hint`, which `parseFlagTokens` skips as an
+ *   "unknown non-flag". A typo'd sets slot must not launder into a set that
+ *   prescribes nothing. The condition is now "prescribes nothing" over all five
+ *   set fields rather than over reps-or-duration alone, which is the same rule
+ *   the rest of this function moved to. A stray token on a line that DOES
+ *   prescribe something is still ignored — that relaxation predates #276 in
+ *   both documents, and narrowing it would break the #277 legacy-tokenizer
+ *   fixtures, whose whole point is that a multi-token note truncates rather
+ *   than throwing.
+ * - a `sets=0` line that also carries set content, which asserts both that the
+ *   entry has no sets and that here is one of them.
+ */
+function finishRoutineLine(
+  line: string,
+  workoutLine: WorkoutLine,
+  flagParts: string[],
+  noSets: boolean
+): WorkoutLine {
+  const prescribed = SET_LEVEL_FIELDS.filter((field) => workoutLine[field] !== undefined);
+
+  if (prescribed.length === 0) {
+    const strayTokens = flagParts.filter(
+      (part) => !part.startsWith('@') && !part.includes('=')
+    );
+    if (strayTokens.length > 0) {
+      throw new ContractError(
+        `Unrecognized token${strayTokens.length > 1 ? 's' : ''} ` +
+          `${strayTokens.join(', ')} in line: ${line}`
+      );
+    }
+  }
+
+  if (!noSets) return workoutLine;
+
+  if (prescribed.length > 0) {
+    throw new ContractError(
+      `sets=0 says the entry prescribes no sets, but the line also prescribes ` +
+        `${prescribed.join(', ')}: ${line}`
+    );
+  }
+
+  return {
+    exerciseId: workoutLine.exerciseId,
+    kind: workoutLine.kind,
+    sets: [],
+    restSeconds: workoutLine.restSeconds,
+    supersetLabel: workoutLine.supersetLabel,
+    hint: workoutLine.hint,
+  };
+}
+
+/**
+ * What a routine line says about ONE set, as opposed to about its entry. A
+ * `sets=0` line may carry the entry-level flags (rest, superset, hint, kind)
+ * and none of these.
+ */
+const SET_LEVEL_FIELDS = [
+  'targetSets',
+  'targetReps',
+  'targetRepsMax',
+  'targetWeightKg',
+  'targetDurationSeconds',
+  'targetDistanceM',
+  'setType',
+] as const satisfies readonly (keyof WorkoutLine)[];
 
 /**
  * Fold one parsed routine line into the prescribed set it describes.
@@ -395,9 +441,9 @@ function groupRoutineSets(lines: WorkoutLine[]): WorkoutLine[] {
       }
     }
 
-    // A bare exercise line inside a run contributes no set, and neither does
-    // the run contribute one to it: `sets: []` on either side simply appends
-    // nothing. That keeps `- ex:` followed by `- ex: 1x5` from inventing a
+    // A `sets=0` line inside a run contributes no set, and neither does the run
+    // contribute one to it: `sets: []` on either side simply appends nothing.
+    // That keeps `- ex: sets=0` followed by `- ex: 1x5` from inventing a
     // phantom set, without needing a special case.
     previous.sets = [...(previous.sets ?? []), ...(line.sets ?? [toRoutineSet(line)])];
   }

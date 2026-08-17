@@ -278,6 +278,8 @@ export function serializeSession(
  *
  * An entry with no sets still emits its exercise line (AC5.8) — the routine
  * names the exercise, and dropping it would say something the data does not.
+ * That line carries `sets=0`, which is what tells it apart from one of the
+ * entry's sets; see the grammar note in `format.ts`.
  *
  * `serializeSession` and `buildSessionSetLine` are untouched by this: a session
  * has always been one line per logged set, which is the shape the routine
@@ -379,7 +381,11 @@ export function serializeRoutine(
 
     const sets = re.sets ?? [];
     if (sets.length === 0) {
-      emit('', entryFlags());
+      // `sets=0`, explicitly (#293 review). A bare `- <id>:` line would be
+      // indistinguishable from a prescribed set carrying nothing but flags —
+      // a load, a rep-range top, a distance — and the parser resolved that
+      // ambiguity by dropping the set. The marker makes the two decidable.
+      emit('', { ...entryFlags(), noSets: true });
       continue;
     }
 

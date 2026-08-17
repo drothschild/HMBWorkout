@@ -20,9 +20,23 @@
  *     - bench-press-db: 1x3 rest=2:00 set_type=warmup target_weight=18.14
  *     - bench-press-db: 1x8 rest=2:00 reps_max=10 target_weight=22.68
  *
- * A routine line with no set content at all (`- bench-press-db:`) is an
- * exercise the routine names and prescribes nothing for — a real shape the DB
- * can hold, so the grammar has to be able to say it.
+ * An entry the routine NAMES but prescribes nothing for — a real shape the DB
+ * can hold (`getRoutineSets` answers `[]`) — says so with an explicit marker:
+ *
+ *     - bench-press-db: sets=0 rest=2:00
+ *
+ * The marker is not decoration (#293 review, C1/C2). Without it, "this entry
+ * has no sets" and "this set prescribes nothing in particular" are the same
+ * string, and the parser has to guess which one it is holding. Both guesses
+ * were wrong in a different direction: a bare cardio exercise line read as a
+ * set line that forgot its duration and threw, while a set carrying only a
+ * load (`- bench-press-db: target_weight=50`) read as an exercise line and
+ * VANISHED. Marking the rarer of the two shapes makes the grammar decidable —
+ * a routine line is one prescribed set unless it says `sets=0` — and keeps
+ * every storable shape both writable and readable.
+ *
+ * `sets=0` is a routine-only flag; it is meaningless in a session, where a
+ * line is a measurement that happened.
  */
 
 import { SetType } from '@/db/models/SessionSet';
@@ -176,6 +190,17 @@ export interface ParsedFlags {
   targetRepsMax?: number; // routine sets only: the top of a rep range
   targetWeightKg?: number; // kg, routine sets only: the prescribed load
   targetDistanceM?: number; // m, routine sets only
+  /**
+   * `sets=0` — routine lines only: this line is the ENTRY, not a set, and the
+   * entry prescribes nothing (#293 review). It is the one thing that tells an
+   * exercise line apart from a set line that happens to carry no reps and no
+   * duration; see the grammar note at the top of this file for why the
+   * distinction cannot be inferred.
+   *
+   * Boolean rather than a count: any other number is refused on the wire,
+   * because a count of prescribed sets is spelled by writing that many lines.
+   */
+  noSets?: boolean;
 }
 
 /**
@@ -517,6 +542,15 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
       return !isNaN(m) && m >= 0 ? ['targetDistanceM', m] : null;
     }
 
+    case 'sets': {
+      // `sets=0` and nothing else. The key exists to mark an entry that
+      // prescribes NO sets; a nonzero count has a spelling already — that many
+      // lines — so `sets=3` is a document written against a model this grammar
+      // does not have, and is refused rather than reinterpreted. Same reasoning
+      // as the sets-slot rule in `parse.ts`: loud beats a silent misread.
+      return valueStr === '0' ? ['noSets', true] : null;
+    }
+
     default:
       return null;
   }
@@ -541,7 +575,7 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
  */
 const SHARED_FLAGS = ['rest', 'superset', 'kind', 'duration', 'set_type'] as const;
 const SESSION_ONLY_FLAGS = ['rpe', 'weight', 'distance'] as const;
-const ROUTINE_ONLY_FLAGS = ['reps_max', 'target_weight', 'target_distance'] as const;
+const ROUTINE_ONLY_FLAGS = ['reps_max', 'target_weight', 'target_distance', 'sets'] as const;
 
 const KNOWN_FLAGS: Record<DocContext, readonly string[]> = {
   routine: [...SHARED_FLAGS, ...ROUTINE_ONLY_FLAGS],
@@ -616,6 +650,12 @@ export function parseFlagTokens(parts: string[], context: DocContext): ParsedFla
  */
 export function formatFlags(flags: ParsedFlags): string {
   const parts: string[] = [];
+
+  // First on the line, because it governs how the whole line reads: `sets=0`
+  // says this is the entry rather than one of its sets (#293 review).
+  if (flags.noSets) {
+    parts.push('sets=0');
+  }
 
   if (flags.restSeconds !== undefined) {
     if (flags.restSeconds >= 60) {
