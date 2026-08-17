@@ -1,5 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { normalizeNotes } from '@/db/repository';
+import { groupBySupersetRuns } from '@/domain/supersetGrouping';
 
 export interface ExerciseDetail {
   /** Unique routine_exercises row id — the only stable identity when a routine repeats an exercise. */
@@ -101,18 +102,11 @@ export async function routineDetailPresenter(
       });
     }
 
-    // Build an order-preserving item list: a superset item is a *contiguous
-    // run* of rows sharing a label — walking the order-sorted rows and only
-    // extending the most-recently-pushed item when it is a superset with the
-    // same label keeps that contiguity, so a later run reusing an earlier
-    // label starts a new, distinct item instead of merging into it.
-    const items: RoutineDetailItem[] = [];
-
-    for (const re of routineExercises) {
+    const toDetail = (re: any): ExerciseDetail => {
       const exerciseId = re._raw.exercise_id;
       const exerciseInfo = exerciseMap.get(exerciseId);
 
-      const detail: ExerciseDetail = {
+      return {
         routineExerciseId: re.id,
         exerciseId,
         title: exerciseInfo?.title || exerciseId,
@@ -126,19 +120,22 @@ export async function routineDetailPresenter(
         kind: exerciseInfo?.kind || 'strength',
         description: exerciseInfo?.description ?? null,
       };
+    };
 
-      const supersetLabel = re._raw.superset_group;
-      if (supersetLabel) {
-        const lastItem = items[items.length - 1];
-        if (lastItem?.type === 'superset' && lastItem.label === supersetLabel) {
-          lastItem.exercises.push(detail);
-        } else {
-          items.push({ type: 'superset', label: supersetLabel, exercises: [detail] });
-        }
-      } else {
-        items.push({ type: 'exercise', exercise: detail });
-      }
-    }
+    // Build an order-preserving item list. The contiguity rule itself lives in
+    // `@/domain/supersetGrouping` (#278) — a superset item is a *contiguous
+    // run* of rows sharing a label, so a later run reusing an earlier label
+    // comes back as a new, distinct run instead of merging into it, and a row
+    // with no label (null, absent, or the engine's '' sentinel) comes back as
+    // a singleton run whose label is null.
+    const items: RoutineDetailItem[] = groupBySupersetRuns<any, string>(
+      routineExercises,
+      (re) => re._raw.superset_group
+    ).map((run) =>
+      run.label === null
+        ? { type: 'exercise', exercise: toDetail(run.members[0]) }
+        : { type: 'superset', label: run.label, exercises: run.members.map(toDetail) }
+    );
 
     const supersetGroupsArray: SupersetGroupDetail[] = items
       .filter((item): item is { type: 'superset'; label: string; exercises: ExerciseDetail[] } =>

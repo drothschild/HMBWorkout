@@ -27,6 +27,7 @@ import { getSettings, setSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
+import { groupBySupersetRuns } from '@/domain/supersetGrouping';
 
 const HEADER_TITLES = {
   create: 'AI Coach',
@@ -551,28 +552,14 @@ interface DraftCardProps {
 function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
   const theme = useTheme();
 
-  // Group exercises by supersetGroup
-  const groupedExercises: Array<{
-    label: string | null;
-    exercises: DraftExercise[];
-  }> = [];
-
-  let currentGroup: { label: string | null; exercises: DraftExercise[] } | null = null;
-
-  for (const exercise of draft.exercises) {
-    const groupLabel = exercise.supersetGroup ?? null;
-    if (currentGroup !== null && currentGroup.label === groupLabel) {
-      currentGroup.exercises.push(exercise);
-    } else {
-      if (currentGroup) {
-        groupedExercises.push(currentGroup);
-      }
-      currentGroup = { label: groupLabel, exercises: [exercise] };
-    }
-  }
-  if (currentGroup) {
-    groupedExercises.push(currentGroup);
-  }
+  // Group the draft's exercises into contiguous superset runs. The rule is
+  // shared with every other site that groups supersets (#278) — a run of
+  // entries sharing a label, with `null`/absent/`''` all meaning "no superset"
+  // and each unlabelled exercise its own singleton run.
+  const groupedExercises = groupBySupersetRuns<DraftExercise, string>(
+    draft.exercises,
+    (exercise) => exercise.supersetGroup
+  );
 
   return (
     <View style={[styles.draftCard, { backgroundColor: theme.backgroundElement }]}>
@@ -590,7 +577,7 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
                 Superset: {group.label}
               </ThemedText>
             )}
-            {group.exercises.map((exercise, exIdx) => (
+            {group.members.map((exercise, exIdx) => (
               <View key={`${groupIdx}-${exIdx}`} style={[styles.draftExerciseItem, group.label && styles.draftExerciseItemIndented]}>
                 <View style={styles.exerciseTitleRow}>
                   <ThemedText type="default" style={styles.exerciseTitle}>

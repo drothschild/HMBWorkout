@@ -560,4 +560,165 @@ describe('routineDetailPresenter', () => {
     // The derived buckets stay in routine order too (contextBuilder reads them).
     expect(detail!.supersetGroups.map((g) => g.exercises[0].exerciseId)).toEqual(['bench', 'curl', 'squat']);
   });
+
+  // The two tests below were carried over from `getSupersetGroups` when #278
+  // retired it: it was dead code (no production caller) whose tests were the
+  // most valuable thing about it. Re-homed onto the live presenter, which now
+  // shares the same contiguity helper, so they guard production code.
+
+  it('isolates a routine from a second routine that reuses the same order AND superset label (cross-routine isolation, issue #223)', async () => {
+    // The read is filtered by Q.where('routine_id', routineId). Labels are
+    // "contiguous, not routine-unique" (AGENTS.md engine convention 10), so an
+    // unfiltered read does not merely return extra rows — it can silently MERGE
+    // two different routines' entries into one superset group when their labels
+    // collide. This fixture collides on both axes at once: same order values and
+    // the same label 'shared'.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      for (const id of ['routine-sg-iso-1', 'routine-sg-iso-2']) {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = id;
+          r.name = id;
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+      }
+      for (const id of ['sg-iso-a1', 'sg-iso-b1', 'sg-iso-a2', 'sg-iso-b2']) {
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = id;
+          e.title = id;
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      }
+
+      // Routine 1: a1 standalone at order 0, b1 in group 'shared' at order 1.
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-sg-iso-1';
+        re._raw.exercise_id = 'sg-iso-a1';
+        re._raw.order = 0;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-sg-iso-1';
+        re._raw.exercise_id = 'sg-iso-b1';
+        re._raw.order = 1;
+        re._raw.superset_group = 'shared';
+      });
+      // Routine 2: same order values, same label.
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-sg-iso-2';
+        re._raw.exercise_id = 'sg-iso-b2';
+        re._raw.order = 0;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-sg-iso-2';
+        re._raw.exercise_id = 'sg-iso-a2';
+        re._raw.order = 1;
+        re._raw.superset_group = 'shared';
+      });
+    });
+
+    const detail1 = await routineDetailPresenter(db, 'routine-sg-iso-1');
+    const ids1 = detail1!.items.flatMap((item) =>
+      item.type === 'superset'
+        ? item.exercises.map((e) => e.exerciseId)
+        : [item.exercise.exerciseId]
+    );
+    expect(ids1).toEqual(['sg-iso-a1', 'sg-iso-b1']);
+    expect(ids1).not.toContain('sg-iso-a2');
+    expect(ids1).not.toContain('sg-iso-b2');
+
+    const detail2 = await routineDetailPresenter(db, 'routine-sg-iso-2');
+    const ids2 = detail2!.items.flatMap((item) =>
+      item.type === 'superset'
+        ? item.exercises.map((e) => e.exerciseId)
+        : [item.exercise.exerciseId]
+    );
+    expect(ids2).toEqual(['sg-iso-b2', 'sg-iso-a2']);
+  });
+
+  it("treats an empty-string superset_group as no superset, matching the engine's '' sentinel (#278)", async () => {
+    // The column is isOptional, so a row can hold null OR ''. The engine's own
+    // RoutineEntry uses '' to mean "no superset" (engine/types.ts), and
+    // startSessionFromRoutine maps `superset_group || ''`. Two adjacent ''
+    // rows must therefore come back as two standalone items, never as a
+    // two-member superset labelled ''.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-empty-label';
+        r.name = 'Empty Label';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+      for (const id of ['el-a', 'el-b']) {
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = id;
+          e.title = id;
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      }
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-empty-label';
+        re._raw.exercise_id = 'el-a';
+        re._raw.order = 0;
+        re._raw.superset_group = '';
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-empty-label';
+        re._raw.exercise_id = 'el-b';
+        re._raw.order = 1;
+        re._raw.superset_group = '';
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-empty-label');
+
+    expect(detail!.items.map((item) => item.type)).toEqual(['exercise', 'exercise']);
+    expect(detail!.supersetGroups).toEqual([]);
+    expect(detail!.standaloneExercises.map((e) => e.exerciseId)).toEqual(['el-a', 'el-b']);
+  });
+
+  it('returns each standalone exercise as its own item, never coalescing two adjacent unlabelled rows', async () => {
+    // Carried from getSupersetGroups' "standalone (null) exercises are
+    // singleton groups". The helper's singleton-run rule is what keeps two
+    // adjacent label-less rows from unifying under a shared `null` key.
+    const db = await createTestDatabase();
+
+    await db.write(async () => {
+      await db.get('routines').create((r: any) => {
+        r._raw.id = 'routine-solo';
+        r.name = 'Solo Exercises';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+      for (const id of ['solo-1', 'solo-2']) {
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = id;
+          e.title = id;
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      }
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-solo';
+        re._raw.exercise_id = 'solo-1';
+        re._raw.order = 1;
+      });
+      await db.get('routine_exercises').create((re: any) => {
+        re._raw.routine_id = 'routine-solo';
+        re._raw.exercise_id = 'solo-2';
+        re._raw.order = 2;
+      });
+    });
+
+    const detail = await routineDetailPresenter(db, 'routine-solo');
+
+    expect(detail!.items).toHaveLength(2);
+    expect(detail!.items.every((item) => item.type === 'exercise')).toBe(true);
+    expect(detail!.standaloneExercises.map((e) => e.order)).toEqual([1, 2]);
+  });
 });
