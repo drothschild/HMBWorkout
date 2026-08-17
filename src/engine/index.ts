@@ -6,6 +6,7 @@
 
 import { createEngine as rillCreateEngine, TransitionError as RillTransitionError } from 'rill-lang';
 import { SessionState, Event, Effect, LoggedSet, RoutineSet } from './types';
+import { entrySets } from './entrySets';
 
 // Import rule sources via Jest .lv transformer
 import typesSource from './rules/types.lv';
@@ -73,33 +74,15 @@ function toRillRoutineSet(set: RoutineSet): any {
 }
 
 /**
- * DERIVATION SEAM (#276, deleted in Phase 6). Expand an aggregate entry's
- * counts into the flat set list the rules now require: `warmupSets` warmups
- * followed by `targetSets` normals, every one of them carrying the entry's
- * single `targetReps`/`targetDurationSeconds` because that is all an aggregate
- * knows. Lossless in this direction — a count says nothing a list cannot.
- *
- * A 0 in either target field means "unset" on the TS side (nothing plans zero
- * reps), so it crosses as absent rather than as `Some(0)`.
- */
-function setsFromCounts(entry: any): RoutineSet[] {
-  const reps = entry.targetReps > 0 ? entry.targetReps : undefined;
-  const durationSeconds = entry.targetDurationSeconds > 0 ? entry.targetDurationSeconds : undefined;
-  const make = (setType: RoutineSet['setType']): RoutineSet => ({ setType, reps, durationSeconds });
-  return [
-    ...Array.from({ length: Math.max(0, entry.warmupSets ?? 0) }, () => make('warmup')),
-    ...Array.from({ length: Math.max(0, entry.targetSets ?? 0) }, () => make('normal')),
-  ];
-}
-
-/**
  * Convert TypeScript RoutineEntry to Rill format (removing idx, handling supersetGroup as Option).
  *
  * `entry.sets` wins when present; the counts are the fallback for the shell
- * files that have not moved to per-set yet.
+ * files that have not moved to per-set yet. The expansion itself lives in
+ * `./entrySets` so the Rill boundary and the shell readers that share the same
+ * seam can never disagree about what a count-shaped entry means.
  */
 function toRillRoutineEntry(entry: any): any {
-  const sets: RoutineSet[] = Array.isArray(entry.sets) ? entry.sets : setsFromCounts(entry);
+  const sets: RoutineSet[] = entrySets(entry);
   return {
     exerciseId: entry.exerciseId,
     kind: entry.kind,

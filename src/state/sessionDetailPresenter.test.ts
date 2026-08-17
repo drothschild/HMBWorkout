@@ -2,6 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, updateRoutineExerciseExerciseId } from '@/db/repository';
 import { sessionDetailPresenter } from './sessionDetailPresenter';
+import { formatPlannedSetsSummary } from './plannedSetsFormat';
 
 describe('sessionDetailPresenter', () => {
   let database: Database;
@@ -511,5 +512,124 @@ describe('sessionDetailPresenter', () => {
     expect(detail!.exercises[2].sets[0].line).toBe('10 x 110lbs');
 
     expect(detail!.otherSets).toEqual([]);
+  });
+
+  // ---- #276 Phase 3: the plan lookup moves to routine_sets ----------------
+
+  it('carries the row’s prescribed set list, keyed by row id and not shared between rows', async () => {
+    await seedRoutine();
+    await database.write(async () => {
+      // A ramp on the bench row; a single flat set on the row row. If the
+      // presenter looked the plan up by anything other than the row id, the
+      // two would cross.
+      for (const [order, weight] of [9.07, 11.34, 18.14].entries()) {
+        await database.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = 're-bench';
+          row._raw.order = order;
+          row._raw.set_type = 'warmup';
+          row._raw.target_reps = 5;
+          row._raw.target_weight_kg = weight;
+        });
+      }
+      await database.get('routine_sets').create((row: any) => {
+        row._raw.routine_exercise_id = 're-bench';
+        row._raw.order = 3;
+        row._raw.set_type = 'normal';
+        row._raw.target_reps = 8;
+        row._raw.target_weight_kg = 22.68;
+      });
+      await database.get('routine_sets').create((row: any) => {
+        row._raw.routine_exercise_id = 're-row';
+        row._raw.order = 0;
+        row._raw.set_type = 'normal';
+        row._raw.target_reps = 10;
+      });
+    });
+
+    await createSession(database, {
+      sessionId: 'session-plan',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-plan', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-plan');
+    const bench = detail!.exercises.find((e) => e.routineExerciseId === 're-bench')!;
+    const row = detail!.exercises.find((e) => e.routineExerciseId === 're-row')!;
+
+    expect(bench.plannedSets.map((s) => s.targetWeightKg)).toEqual([9.07, 11.34, 18.14, 22.68]);
+    expect(row.plannedSets).toEqual([{ setType: 'normal', targetReps: 10 }]);
+  });
+
+  it('falls back to the row’s aggregate counts, so history keeps its target label', async () => {
+    // Every routine in the app is aggregate-only until Phase 4 gives
+    // `acceptDraft` a set list, so this — not the seeded-rows case above — is
+    // the shape the history screen actually meets. Reading `routine_sets`
+    // alone reported `[]` here and `workout/[id].tsx` rendered an empty target
+    // label where `main` rendered `3x8`.
+    await seedRoutine();
+    await createSession(database, {
+      sessionId: 'session-noplan',
+      routineId: 'routine-1',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-noplan', 're-bench', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-noplan');
+    const bench = detail!.exercises.find((e) => e.routineExerciseId === 're-bench')!;
+
+    expect(bench.plannedSets).toEqual([
+      { setType: 'warmup', targetReps: 8 },
+      { setType: 'normal', targetReps: 8 },
+      { setType: 'normal', targetReps: 8 },
+      { setType: 'normal', targetReps: 8 },
+    ]);
+    expect(formatPlannedSetsSummary(bench.plannedSets)).toBe('1 warmup + 3×8');
+  });
+
+  it('reports plannedSets: [] only when the row prescribes nothing at all', async () => {
+    await database.write(async () => {
+      await database.get('routines').create((r: any) => {
+        r._raw.id = 'routine-empty';
+        r.name = 'Empty';
+        r._raw.created_at = Date.now();
+        r._raw.updated_at = Date.now();
+      });
+      await database.get('exercises').create((e: any) => {
+        e._raw.id = 'ex-empty';
+        e.title = 'Nothing';
+        e.kind = 'strength';
+        e._raw.created_at = Date.now();
+      });
+      await database.get('routine_exercises').create((re: any) => {
+        re._raw.id = 're-empty';
+        re._raw.routine_id = 'routine-empty';
+        re._raw.exercise_id = 'ex-empty';
+        re._raw.order = 0;
+        re._raw.warmup_sets = 0;
+        re._raw.target_sets = 0;
+      });
+    });
+    await createSession(database, {
+      sessionId: 'session-empty',
+      routineId: 'routine-empty',
+      startedAtMs: Date.now() - 60000,
+    });
+    await appendSet(database, 'session-empty', 're-empty', {
+      setType: 'working',
+      reps: 8,
+      weightKg: 60,
+    });
+
+    const detail = await sessionDetailPresenter(database, 'session-empty');
+    expect(detail!.exercises.every((e) => e.plannedSets.length === 0)).toBe(true);
   });
 });

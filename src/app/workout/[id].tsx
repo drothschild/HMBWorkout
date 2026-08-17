@@ -10,19 +10,8 @@ import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import { sessionDetailPresenter, SessionDetail } from '@/state/sessionDetailPresenter';
 import { formatSessionDate } from '@/state/sessionHistoryPresenter';
+import { formatPlannedSetsSummary } from '@/state/plannedSetsFormat';
 
-function formatTargetLabel(targetSets?: number, targetReps?: number, targetDurationSeconds?: number): string {
-  const parts: string[] = [];
-  if (targetSets != null && targetReps != null) {
-    parts.push(`${targetSets}x${targetReps}`);
-  }
-  if (targetDurationSeconds != null && targetDurationSeconds > 0) {
-    const minutes = Math.floor(targetDurationSeconds / 60);
-    const seconds = String(targetDurationSeconds % 60).padStart(2, '0');
-    parts.push(`${minutes}:${seconds}`);
-  }
-  return parts.join(' | ');
-}
 
 export default function SessionDetailScreen() {
   const router = useRouter();
@@ -142,7 +131,10 @@ export default function SessionDetailScreen() {
           </ThemedText>
 
           {detail.exercises.map((exercise) => {
-            const targetLabel = formatTargetLabel(exercise.targetSets, exercise.targetReps, exercise.targetDurationSeconds);
+            // The plan is the routine's set list (#276); '' when the row
+            // prescribes nothing, which hides the label rather than showing
+            // "0 sets".
+            const targetLabel = formatPlannedSetsSummary(exercise.plannedSets);
             return (
               // The pair, not the row id alone: one routine entry can carry
               // sets from more than one exercise once it has been swapped.

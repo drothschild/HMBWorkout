@@ -721,4 +721,150 @@ describe('routineDetailPresenter', () => {
     expect(detail!.items.every((item) => item.type === 'exercise')).toBe(true);
     expect(detail!.standaloneExercises.map((e) => e.order)).toEqual([1, 2]);
   });
+
+  // ---- #276 Phase 3: the entry carries its prescribed set list ------------
+
+  describe('per-set prescription (#276)', () => {
+    /** RAMP: the real Hevy Bench Press (Dumbbell) payload. */
+    const RAMP_ROWS = [
+      { set_type: 'warmup', target_reps: 5, target_weight_kg: 9.07 },
+      { set_type: 'warmup', target_reps: 5, target_weight_kg: 11.34 },
+      { set_type: 'warmup', target_reps: 3, target_weight_kg: 18.14 },
+      { set_type: 'normal', target_reps: 8, target_reps_max: 10, target_weight_kg: 22.68 },
+      { set_type: 'normal', target_reps: 8, target_reps_max: 10, target_weight_kg: 22.68 },
+      { set_type: 'normal', target_reps: 8, target_reps_max: 10, target_weight_kg: 22.68 },
+      { set_type: 'normal', target_reps: 8, target_reps_max: 10, target_weight_kg: 22.68 },
+    ];
+
+    async function seedRamp(db: any): Promise<void> {
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = 'routine-ramp';
+          r.name = 'Push';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = 'bench-press-dumbbell';
+          e.title = 'Bench Press (Dumbbell)';
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+        const re = await db.get('routine_exercises').create((row: any) => {
+          row._raw.routine_id = 'routine-ramp';
+          row._raw.exercise_id = 'bench-press-dumbbell';
+          row._raw.order = 0;
+          // Vestigial and deliberately wrong: the list is the plan. NON-ZERO
+          // on purpose — with 0/0 the aggregate fallback would produce an
+          // empty list too, so "rows win, counts ignored" would be
+          // indistinguishable from "counts win when non-zero".
+          row._raw.warmup_sets = 99;
+          row._raw.target_sets = 99;
+          row._raw.target_reps = 99;
+          row._raw.rest_seconds = 120;
+        });
+        for (const [order, set] of RAMP_ROWS.entries()) {
+          await db.get('routine_sets').create((row: any) => {
+            row._raw.routine_exercise_id = re.id;
+            row._raw.order = order;
+            row._raw.set_type = set.set_type;
+            row._raw.target_reps = set.target_reps;
+            if (set.target_reps_max != null) row._raw.target_reps_max = set.target_reps_max;
+            row._raw.target_weight_kg = set.target_weight_kg;
+          });
+        }
+      });
+    }
+
+    it('ExerciseDetail carries the ordered set list with the ramp intact', async () => {
+      const db = await createTestDatabase();
+      await seedRamp(db);
+
+      const detail = await routineDetailPresenter(db, 'routine-ramp');
+      const exercise = detail!.standaloneExercises[0];
+
+      expect(exercise.sets.map((s) => s.targetWeightKg)).toEqual([
+        9.07, 11.34, 18.14, 22.68, 22.68, 22.68, 22.68,
+      ]);
+      expect(exercise.sets.map((s) => s.setType)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'normal',
+        'normal',
+        'normal',
+        'normal',
+      ]);
+      expect(exercise.sets[3].targetRepsMax).toBe(10);
+      expect(exercise.sets[0].targetRepsMax).toBeUndefined();
+    });
+
+    it('hasActiveExercise comes from the set list, not the aggregate columns', async () => {
+      const db = await createTestDatabase();
+      await seedRamp(db);
+
+      expect((await routineDetailPresenter(db, 'routine-ramp'))!.hasActiveExercise).toBe(true);
+    });
+
+    it('an entry with no prescribed sets and no counts carries sets: [] and is not active', async () => {
+      const db = await createTestDatabase();
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = 'routine-empty-entry';
+          r.name = 'Ghost';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = 'ghost';
+          e.title = 'Ghost';
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+        await db.get('routine_exercises').create((row: any) => {
+          row._raw.routine_id = 'routine-empty-entry';
+          row._raw.exercise_id = 'ghost';
+          row._raw.order = 0;
+        });
+      });
+
+      const detail = await routineDetailPresenter(db, 'routine-empty-entry');
+      expect(detail!.standaloneExercises[0].sets).toEqual([]);
+      expect(detail!.hasActiveExercise).toBe(false);
+    });
+
+    it('DERIVATION SEAM: a count-only row still reports a set list and stays active', async () => {
+      const db = await createTestDatabase();
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = 'routine-counts';
+          r.name = 'Counts';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await db.get('exercises').create((e: any) => {
+          e._raw.id = 'row';
+          e.title = 'Row';
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+        await db.get('routine_exercises').create((row: any) => {
+          row._raw.routine_id = 'routine-counts';
+          row._raw.exercise_id = 'row';
+          row._raw.order = 0;
+          row._raw.warmup_sets = 1;
+          row._raw.target_sets = 2;
+          row._raw.target_reps = 10;
+        });
+      });
+
+      const detail = await routineDetailPresenter(db, 'routine-counts');
+      expect(detail!.standaloneExercises[0].sets.map((s) => s.setType)).toEqual([
+        'warmup',
+        'normal',
+        'normal',
+      ]);
+      expect(detail!.hasActiveExercise).toBe(true);
+    });
+  });
 });

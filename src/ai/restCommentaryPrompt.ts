@@ -67,8 +67,19 @@ export interface RestCommentaryExercise {
   restSeconds: number;
   /** True when the set this remark is about is a warmup set of this entry. */
   isWarmupSet: boolean;
-  /** 1-based position within the warmup or working segment. */
+  /** 1-based position within the run of same-typed sets. */
   setNumber: number;
+  /**
+   * How many sets of that same type the entry prescribes — `setNumber`'s
+   * denominator (#276 AC3.4).
+   *
+   * Supplied by the caller from `deriveSetPosition`, which returns the pair
+   * together, rather than recomputed here: the numerator and the denominator
+   * must come from one reading of the plan or a label can claim "Set 3 of 2".
+   * 0 means the entry prescribes nothing at this position, and `setPosition`
+   * drops the segment.
+   */
+  totalOfType: number;
 }
 
 /**
@@ -139,12 +150,22 @@ function targetSummary(exercise: RestCommentaryExercise): string {
   return 'no target recorded';
 }
 
+/**
+ * The SECOND, independent set-position label builder (AGENTS.md names both).
+ * It reaches `deriveSetPosition` through `restCommentaryTarget` and never
+ * touches `sessionPresenter`, so a guard added there does not cover this one.
+ *
+ * PER-SET (#276 AC3.5): the denominator is the count of same-typed sets in the
+ * entry's own list, carried in as `totalOfType`, and the zero-total guard is
+ * now the empty-list guard transported. Both `## Up Next` and `## Last Set`
+ * build their line through here, so one guard covers both shapes; the caller
+ * drops an empty segment rather than printing a dangling separator.
+ */
 function setPosition(exercise: RestCommentaryExercise): string {
-  const totalPlanned = exercise.warmupSets + exercise.targetSets;
-  if (totalPlanned === 0) return '';
+  if (exercise.totalOfType <= 0) return '';
   return exercise.isWarmupSet
-    ? `Warmup ${exercise.setNumber} of ${exercise.warmupSets}`
-    : `Set ${exercise.setNumber} of ${exercise.targetSets}`;
+    ? `Warmup ${exercise.setNumber} of ${exercise.totalOfType}`
+    : `Set ${exercise.setNumber} of ${exercise.totalOfType}`;
 }
 
 /**

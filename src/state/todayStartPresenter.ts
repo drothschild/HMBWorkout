@@ -4,9 +4,9 @@ import { routineListPresenter } from './routineListPresenter';
 /**
  * A saved routine offered as a starting point on the Today screen.
  * `startable` is false when the routine has no exercises, or when it has
- * exercises but none plan any sets (warmupSets + targetSets === 0 for all of
- * them) — either way starting it would produce a session `startSessionFromRoutine`
- * rejects.
+ * exercises but every one of them prescribes an empty set list — either way
+ * starting it would produce a session `startSessionFromRoutine` rejects, and
+ * through the same `rowHasPrescribedSets` predicate (#276).
  */
 export interface TodayRoutineChoice {
   id: string;

@@ -255,4 +255,94 @@ describe('projectSchedule', () => {
     // 5 with mismatched per-member set counts (2 with two active members).
     expect(compared).toBeGreaterThan(30);
   }, 30000);
+
+  // ---- #276 Phase 3: the projection reads the set list --------------------
+
+  describe('per-set plan (#276)', () => {
+    /** RAMP: three warmups at ascending loads, then four working sets. */
+    const RAMP = [
+      { setType: 'warmup' as const, reps: 5, weightKg: 9.07 },
+      { setType: 'warmup' as const, reps: 5, weightKg: 11.34 },
+      { setType: 'warmup' as const, reps: 3, weightKg: 18.14 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
+    ];
+
+    it('totalSets is the entry’s list length, not the aggregate sum', async () => {
+      const stops = await projectSchedule({
+        id: 'r-ramp',
+        // Aggregates that disagree with the list, so a reader still summing
+        // them reports 4 rather than 7.
+        entries: [entry({ warmupSets: 1, targetSets: 3, sets: RAMP })],
+      });
+
+      expect(stops).toHaveLength(7);
+      expect(stops.every((s) => s.totalSets === 7)).toBe(true);
+    });
+
+    it('each stop carries its own set’s target reps, not one value for the entry', async () => {
+      const stops = await projectSchedule({
+        id: 'r-ramp',
+        // 3/4 is exactly RAMP's own composition, so the phase sequence
+        // below would be reproduced by count expansion. 99s cannot be.
+        entries: [entry({ warmupSets: 99, targetSets: 99, targetReps: 99, sets: RAMP })],
+      });
+
+      expect(stops.map((s) => s.targetReps)).toEqual([5, 5, 3, 8, 8, 8, 8]);
+      expect(stops.map((s) => s.phase)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'working',
+        'working',
+        'working',
+        'working',
+      ]);
+    });
+
+    it('INTERLEAVE: the phase per stop follows the set’s own type', async () => {
+      const stops = await projectSchedule({
+        id: 'r-interleave',
+        entries: [
+          entry({
+            warmupSets: 2,
+            targetSets: 1,
+            sets: [
+              { setType: 'warmup', reps: 5 },
+              { setType: 'normal', reps: 8 },
+              { setType: 'warmup', reps: 5 },
+            ],
+          }),
+        ],
+      });
+
+      expect(stops.map((s) => s.phase)).toEqual(['warmup', 'working', 'warmup']);
+      expect(stops.map((s) => s.totalSets)).toEqual([3, 3, 3]);
+    });
+
+    it('a duration entry reports its own set’s duration per stop', async () => {
+      const stops = await projectSchedule({
+        id: 'r-duration',
+        entries: [
+          entry({
+            exerciseId: 'plank',
+            kind: 'stretch',
+            warmupSets: 0,
+            targetSets: 2,
+            targetReps: 0,
+            targetDurationSeconds: 999,
+            sets: [
+              { setType: 'normal', durationSeconds: 30 },
+              { setType: 'normal', durationSeconds: 45 },
+            ],
+          }),
+        ],
+      });
+
+      expect(stops.map((s) => s.targetDurationSeconds)).toEqual([30, 45]);
+      expect(stops.map((s) => s.targetReps)).toEqual([undefined, undefined]);
+    });
+  });
 });

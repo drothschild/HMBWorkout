@@ -42,6 +42,7 @@ import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
 import { supersetRunEndIndex } from '@/domain/supersetGrouping';
+import { entrySets } from '@/engine/entrySets';
 import type { ExerciseKind, LoggedSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
@@ -71,6 +72,12 @@ interface RestCommentaryTargetBase {
   restSeconds: number;
   isWarmupSet: boolean;
   setNumber: number;
+  /**
+   * `setNumber`'s denominator: how many sets of the same type the entry's own
+   * list prescribes (#276 AC3.4). Carried alongside `setNumber` because both
+   * come out of one `deriveSetPosition` call and must not be re-derived apart.
+   */
+  totalOfType: number;
 }
 
 export type RestCommentaryTarget =
@@ -132,8 +139,9 @@ interface RestCommentaryState {
  *
  * Read off `transition.lv`/`helpers.lv` rather than re-deciding anything: a
  * round visits the members of the current superset group in index order and
- * skips any member whose own `warmupSets + targetSets` is already exhausted
- * (`h.next_active_idx` is active at round r iff `r < total`), so the LAST member
+ * skips any member whose own prescribed set list is already exhausted
+ * (`h.next_active_idx` is active at round r iff `r < length(entry.sets)`, #276),
+ * so the LAST member
  * visited in round `setIndex - 1` is the highest-indexed member of the group
  * still active at that round. A standalone entry is a group of exactly one —
  * `h.group_end_idx` compares labels and `None` (the `""` sentinel here) never
@@ -171,7 +179,7 @@ function performedEntryIndex(sessionState: SessionState): number | null {
 
   for (let idx = groupEnd; idx >= groupStart; idx -= 1) {
     const entry = entries[idx];
-    if (entry && entry.warmupSets + entry.targetSets > round) return idx;
+    if (entry && entrySets(entry).length > round) return idx;
   }
 
   return null;
@@ -275,6 +283,7 @@ export function restCommentaryTarget(
       restSeconds: performed.restSeconds,
       isWarmupSet: setPos.isWarmupSet,
       setNumber: setPos.setNumber,
+      totalOfType: setPos.totalOfType,
       completedSet: withoutRpeSentinel(lastSet),
       logIndex: sessionState.loggedSets.length - 1,
     };
@@ -298,6 +307,7 @@ export function restCommentaryTarget(
     restSeconds: currentEntry.restSeconds,
     isWarmupSet: setPos.isWarmupSet,
     setNumber: setPos.setNumber,
+    totalOfType: setPos.totalOfType,
   };
 }
 
@@ -366,6 +376,7 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         restSeconds: target.restSeconds,
         isWarmupSet: target.isWarmupSet,
         setNumber: target.setNumber,
+        totalOfType: target.totalOfType,
       };
       const prompt = buildRestCommentaryPrompt({
         ...(target.shape === 'lastSet'
