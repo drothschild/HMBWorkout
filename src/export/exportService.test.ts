@@ -400,6 +400,53 @@ describe('exportService', () => {
         { setType: 'normal', targetDistanceM: 5000 },
       ]);
     });
+
+    it('a cardio or stretch set prescribed in reps round-trips instead of throwing', async () => {
+      // C3 (#293 review round 2). Round 1 moved the cardio/stretch DURATION
+      // requirement into the session-only tail and left its sibling — the
+      // sets-slot PROHIBITION — unconditional above the split, so every cardio
+      // or stretch set carrying `target_reps` exported to a document
+      // `parseRoutine` threw on: 64 of the 192 exhaustively enumerated storable
+      // `routine_sets` shapes, 32 per kind.
+      //
+      // Nothing validates a set's fields against its parent exercise's kind, so
+      // the shape is ordinary rather than exotic: `replaceRoutineSets` writes
+      // it, `updateRoutineExerciseExerciseId` deliberately KEEPS reps across a
+      // substitution (so re-pointing a rep-prescribed entry at an existing
+      // cardio exercise produces exactly this), and "5 × cat-cow" is how a
+      // stretch is actually prescribed.
+      await upsertExercise(db, 'ex-erg2', 'Rowing Erg', 'cardio');
+      await upsertExercise(db, 'ex-catcow', 'Cat-Cow', 'stretch');
+      await upsertRoutine(db, 'routine-reps-cardio', 'Reps On Cardio', [
+        {
+          exerciseId: 'ex-erg2',
+          order: 0,
+          sets: [
+            { setType: 'normal', targetReps: 5 },
+            { setType: 'normal', targetReps: 8, targetDurationSeconds: 300 },
+          ],
+        },
+        {
+          exerciseId: 'ex-catcow',
+          order: 1,
+          sets: [{ setType: 'warmup', targetReps: 5, targetRepsMax: 10 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-reps-cardio'));
+      expect(parsed.exercises).toHaveLength(2);
+      expect((parsed.exercises[0] as any).kind).toBe('cardio');
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 5 },
+        { setType: 'normal', targetReps: 8, targetDurationSeconds: 300 },
+      ]);
+      expect((parsed.exercises[1] as any).kind).toBe('stretch');
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'warmup', targetReps: 5, targetRepsMax: 10 },
+      ]);
+    });
   });
 
   describe('exportSessionHistory', () => {

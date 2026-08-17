@@ -241,11 +241,6 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     // stop diverging on validation strictness, which is the point.
   }
 
-  // Validate: cardio/stretch cannot have sets×reps
-  if ((kind === 'cardio' || kind === 'stretch') && (targetSets !== undefined || targetReps !== undefined)) {
-    throw new ContractError(`${kind} exercise cannot have sets×reps: ${line}`);
-  }
-
   // Build workout line
   const workoutLine: WorkoutLine = {
     exerciseId,
@@ -270,12 +265,38 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
   }
 
   // A SESSION line is a measurement, so it must say what was measured. These
-  // two requirements are the session's alone (#293 review): on a routine line
-  // every prescribed field is independently optional, and demanding a duration
-  // of a cardio entry that prescribes nothing is what made a bare cardio line
-  // unparseable.
+  // THREE requirements are the session's alone (#293 review rounds 1 and 2): on
+  // a routine line every prescribed field is independently optional, and
+  // demanding a duration of a cardio entry that prescribes nothing is what made
+  // a bare cardio line unparseable.
   if ((kind === 'cardio' || kind === 'stretch') && parsedFlags.durationSeconds === undefined) {
     throw new ContractError(`${kind} exercise missing duration: ${line}`);
+  }
+
+  // The cardio/stretch sets-slot PROHIBITION is the duration requirement's
+  // sibling and moves with it (#293 review round 2). Round 1 moved only the
+  // duration half and left this one unconditional thirty lines above the split,
+  // which made `serializeRoutine` emit a document `parseRoutine` refused for 64
+  // of the 192 storable `routine_sets` shapes — every cardio or stretch set
+  // carrying `target_reps`.
+  //
+  // Nothing validates a set's fields against its parent exercise's kind:
+  // `replaceRoutineSets` stores `target_reps` on a cardio row without complaint,
+  // and `updateRoutineExerciseExerciseId` deliberately KEEPS reps across a
+  // substitution, so re-pointing a rep-prescribed entry at an existing cardio
+  // exercise produces exactly this row. A stretch prescribed in reps ("5 ×
+  // cat-cow") is an ordinary plan, not an exotic one. Refusing to export a shape
+  // the DB happily stores is the failure #262 keeps this parser alive to catch.
+  //
+  // In a routine the slot is `1x<reps>` — one prescribed set — so there is no
+  // multi-set plan to misread here; `3x8` is still refused above by the
+  // routine-only sets-slot rule. In a SESSION the slot means logged reps, which
+  // a cardio measurement genuinely cannot have, so the prohibition stays.
+  if (
+    (kind === 'cardio' || kind === 'stretch') &&
+    (targetSets !== undefined || targetReps !== undefined)
+  ) {
+    throw new ContractError(`${kind} exercise cannot have sets×reps: ${line}`);
   }
 
   if (kind === 'strength' && targetReps === undefined && parsedFlags.durationSeconds === undefined) {

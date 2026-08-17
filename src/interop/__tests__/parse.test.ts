@@ -4,7 +4,7 @@
  */
 
 import { parseRoutine, parseSession } from '../parse';
-import { ContractError } from '../format';
+import { ContractError, WorkoutLine } from '../format';
 
 describe('parse', () => {
   describe('AC3.3: Malformed block raises error', () => {
@@ -298,6 +298,14 @@ tags: []
     });
 
     test('rejects cardio/stretch with sets×reps', () => {
+      // Fixture re-pointed from `1x1` to `3x8` (#293 review round 2). The
+      // cardio/stretch sets-slot prohibition moved into the session-only tail,
+      // so `1x1` on a ROUTINE line is now a legitimate one-set prescription —
+      // and refusing it made `serializeRoutine` emit documents `parseRoutine`
+      // threw on for 64 of the 192 storable `routine_sets` shapes. `3x8` is
+      // still refused here, by the routine-only "a routine line is one set"
+      // rule, which is the multi-set misread this grammar change exists to end.
+      // The prohibition itself is still pinned on the session side below.
       const markdown = `---
 type: workout-routine
 id: test-routine
@@ -307,11 +315,59 @@ tags: []
 ---
 
 \`\`\`workout
-- cycling: 1x1 kind=cardio duration=5:00
+- cycling: 3x8 kind=cardio duration=5:00
 \`\`\`
 `;
 
       expect(() => parseRoutine(markdown)).toThrow(ContractError);
+    });
+
+    test('a SESSION line still refuses cardio/stretch with a sets slot', () => {
+      // The prohibition did not weaken, it relocated. On a session line the
+      // slot means LOGGED reps, which a cardio measurement genuinely cannot
+      // have, so `1x8` — the shape a routine now accepts — is still refused.
+      const markdown = `---
+type: workout-session
+id: test-session
+routine: test-routine
+date: 2026-07-08
+start: 2026-07-08T10:00:00Z
+end: 2026-07-08T11:00:00Z
+tags: []
+---
+
+\`\`\`workout
+- cycling: 1x8 kind=cardio duration=5:00
+\`\`\`
+`;
+
+      expect(() => parseSession(markdown)).toThrow(ContractError);
+      expect(() => parseSession(markdown)).toThrow(/cannot have sets×reps/);
+    });
+
+    test('a ROUTINE line may prescribe cardio/stretch in reps', () => {
+      // The 64-shape Critical, at the parser level: a cardio set carrying
+      // `target_reps` is storable (`replaceRoutineSets` writes it, nothing
+      // validates a set's fields against its exercise's kind) and must
+      // therefore be readable. The round-trip through the real DB and the
+      // production `exportRoutine` is in `exportService.test.ts`.
+      const markdown = `---
+type: workout-routine
+id: test-routine
+created: 2026-07-08
+updated: 2026-07-08
+tags: []
+---
+
+\`\`\`workout
+- cat-cow: 1x5 kind=stretch
+\`\`\`
+`;
+
+      const parsed = parseRoutine(markdown);
+      const entry = parsed.exercises[0] as WorkoutLine;
+      expect(entry.kind).toBe('stretch');
+      expect(entry.sets).toEqual([{ setType: 'normal', targetReps: 5 }]);
     });
   });
 
