@@ -1270,6 +1270,52 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(blank.markdown).not.toContain('@');
     });
 
+    test('a multi-word superset label survives too', () => {
+      // `superset=` is the other free-text value and had the identical latent
+      // truncation: nothing writes a label with a space today, which is
+      // precisely why nothing would notice if the serializer stopped quoting it.
+      const routineExercises = [
+        {
+          id: 're-ss-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: 'Group One',
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+        {
+          id: 're-ss-002',
+          exerciseId: 'bench-press-db',
+          order: 1,
+          supersetGroup: 'Group One',
+          warmupSets: 0,
+          targetSets: 3,
+          targetReps: 12,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        routineExercises as any,
+        exerciseData as any
+      );
+      const parsed = parseRoutine(markdown);
+
+      // Both lines carry the same label, so they collapse into one group.
+      expect(parsed.exercises).toHaveLength(1);
+      const group = parsed.exercises[0] as SupersetGroup;
+      expect(group.supersetLabel).toBe('Group One');
+      expect(group.exercises).toHaveLength(2);
+      expect(group.exercises[0].supersetLabel).toBe('Group One');
+    });
+
     test('a multi-line note round-trips its newline', () => {
       // Decision (#277): newlines are PRESERVED, escaped as `\n` inside the
       // quoted value, not normalized to spaces. The document stays line-based

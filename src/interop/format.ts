@@ -270,15 +270,15 @@ export function tokenizeFlagString(input: string): string[] {
 }
 
 /**
- * Parse a single flag value.
- * Handles: rest=<sec|m:ss>, warmup=<n>, superset=<label>, kind=<type>, duration=<m:ss>, rpe=<n>, @<hint>
+ * Parse a single `key=value` flag: rest=<sec|m:ss>, warmup=<n>,
+ * superset=<label>, kind=<type>, duration=<m:ss>, rpe=<n>, …
+ *
+ * Hints are NOT handled here: `parseFlagTokens` recognizes `@<hint>` and
+ * `continue`s before it ever dispatches to this function, so the `@` branch
+ * this used to carry was unreachable — a mutation of it changed nothing, which
+ * is how it was found (#277). Any future caller must keep that order.
  */
 function parseSingleFlag(flag: string): [key: string, value: any] | null {
-  if (flag.startsWith('@')) {
-    // Hint: @<text> or @"<text with spaces>"
-    return ['hint', decodeFlagValue(flag.substring(1))];
-  }
-
   const eqIndex = flag.indexOf('=');
   if (eqIndex === -1) return null;
 
