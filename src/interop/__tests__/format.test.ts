@@ -234,7 +234,7 @@ describe('format: the RPE scale (#284)', () => {
    * it. `emitted` is what the grammar considers a legal RPE — the writer emits
    * exactly these and the reader accepts exactly these.
    */
-  const BOUNDARIES: ReadonlyArray<{ value: number; legal: boolean }> = [
+  const BOUNDARIES: readonly { value: number; legal: boolean }[] = [
     { value: 0, legal: false },
     { value: 0.5, legal: false },
     { value: 1, legal: true },

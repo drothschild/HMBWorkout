@@ -115,6 +115,53 @@ export interface ParsedFlags {
 }
 
 /**
+ * The RPE scale the grammar admits: 1–10 inclusive, in exact 0.5 steps (#284).
+ *
+ * **This is the one place the bound is stated, and both halves read it.** The
+ * reader (`parseSingleFlag`) enforced the scale while the writer
+ * (`formatFlags`) enforced nothing, so a stored `rpe: 0` was emitted as
+ * `rpe=0` and then refused by `parseSession` — the serializer producing a
+ * document the parser rejects, which is exactly the drift `parse.ts` is kept
+ * alive to prevent (#262). Restating the bound at the writer would have
+ * reproduced the same hazard one fix later; a shared predicate cannot drift
+ * from itself.
+ *
+ * Why 0 is *not* the `reps: 0` case, which went the other way (PR #89): a set
+ * logged with zero reps is a real measurement, so the grammar carries it. RPE
+ * 0 is not a measurement — nothing in the app produces it and nothing means
+ * it. The app's own scale starts at 1 (`RPE_MIN`, `src/state/rpe.ts`), and its
+ * input path already reads a 0 off the slider as *cleared* rather than as an
+ * effort rating (`buildLogSetValues`, `src/state/setInputs.ts`). So a 0 that
+ * somehow reaches the serializer means "absent", and is written as absent.
+ *
+ * Out-of-scale values are dropped, not thrown on: RPE is an optional
+ * annotation, and `serializeSession` is all-or-nothing at *set* granularity
+ * (a set it cannot identify throws). Failing a whole session document — and
+ * with it a whole session's export, via `exportSessionHistory`'s `failures` —
+ * over one unusable annotation is the disproportionate outcome, not the safe
+ * one. The set's actual work still serializes.
+ *
+ * The same 1–10/0.5 rule is enforced independently upstream by `validate_set`
+ * (`src/engine/rules/helpers.lv`), `validateSet` (`src/db/validation.ts`) and
+ * the slider's `snapRpe` (`src/state/rpe.ts`). Those are the write path's own
+ * guards and are why a real `session_sets` row cannot hold a 0 today; this one
+ * is the grammar's, and owes them nothing.
+ */
+const RPE_MIN = 1;
+const RPE_MAX = 10;
+
+/**
+ * Is `value` a legal RPE on the wire? Used by both halves of the contract —
+ * `formatFlags` will not write one that fails, `parseSingleFlag` will not read
+ * one that fails.
+ */
+export function isValidRpe(value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  if (value < RPE_MIN || value > RPE_MAX) return false;
+  return (value * 2) % 1 === 0;
+}
+
+/**
  * Parse duration string (m:ss or mm:ss) to seconds.
  * Examples: "5:00" -> 300, "0:30" -> 30, "1:30" -> 90
  */
@@ -365,12 +412,9 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
     }
 
     case 'rpe': {
+      // The scale lives in `isValidRpe`, shared with `formatFlags` (#284).
       const rpe = parseFloat(valueStr);
-      // RPE must be 1-10 in 0.5 steps
-      if (isNaN(rpe) || rpe < 1 || rpe > 10) return null;
-      // Check 0.5 step
-      if ((rpe * 2) % 1 !== 0) return null;
-      return ['rpe', rpe];
+      return isValidRpe(rpe) ? ['rpe', rpe] : null;
     }
 
     case 'set_type': {
@@ -497,7 +541,12 @@ export function formatFlags(flags: ParsedFlags): string {
     parts.push(`set_type=${flags.setType}`);
   }
 
-  if (flags.rpe !== undefined) {
+  // Only a value the reader accepts is ever written (#284). This is the
+  // writer's half of the shared scale rule; see `isValidRpe` for why an
+  // out-of-scale value — 0 above all — is dropped rather than emitted or
+  // thrown on. The omission is scoped to this flag: every other flag on the
+  // line, and the set's reps/weight/duration, are untouched.
+  if (flags.rpe !== undefined && isValidRpe(flags.rpe)) {
     parts.push(`rpe=${flags.rpe}`);
   }
 
