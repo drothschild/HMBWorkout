@@ -1153,4 +1153,292 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.setType).toBe('working');
     });
   });
+
+  // #277: `serializeRoutine` writes `routine_exercises.notes` into the `@hint`
+  // flag, and the flag tokeniser split the whole flag string on whitespace — so
+  // a hint was one token by construction. A prose note lost everything after
+  // its first word *silently* (the remaining words fell through as unknown
+  // non-flag tokens), and a note containing `=` was worse: a stray `x=y` token
+  // reached the allowlist check and threw. Every pre-existing hint fixture in
+  // this suite is a single token, which is exactly why 59 interop tests never
+  // caught it — so every fixture below is deliberately multi-token.
+  describe('#277: routine notes survive the round-trip', () => {
+    const routineRow = {
+      id: 'push-notes-001',
+      name: 'Push Day',
+      notes: undefined,
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      updatedAt: new Date('2026-07-07T12:00:00Z'),
+    };
+
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    /**
+     * Round-trips one routine exercise carrying `notes`. The entry also carries
+     * warmup/rest/superset flags on purpose: they are emitted *before* the hint,
+     * so they prove the note neither swallows them nor is swallowed by them.
+     */
+    const roundTripNote = (notes: string | undefined): { markdown: string; line: WorkoutLine } => {
+      const routineExercises = [
+        {
+          id: 're-notes-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: 'A',
+          warmupSets: 2,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        routineExercises as any,
+        exerciseData as any
+      );
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      return { markdown, line: parsed.exercises[0] as WorkoutLine };
+    };
+
+    test('a real multi-word Hevy note survives intact', () => {
+      // The exact note off the user's Hevy "Push" routine that motivated #277.
+      // Before the fix this round-tripped to "↑" with error: null.
+      const note = '↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      // The flags emitted before the hint are unharmed.
+      expect(line.targetSets).toBe(4);
+      expect(line.targetReps).toBe(6);
+      expect(line.warmupSets).toBe(2);
+      expect(line.restSeconds).toBe(90);
+      expect(line.supersetLabel).toBe('A');
+    });
+
+    test('a note containing = survives intact instead of throwing', () => {
+      // Second failure mode: before the fix this threw
+      // `ContractError: Unknown flag key`, not silent truncation.
+      // The fixture also contains `3x12`, which the line tokeniser would grab
+      // as a sets×reps token if the hint were not held together as one token.
+      const note = '3x12 = the goal';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      expect(line.targetSets).toBe(4);
+      expect(line.targetReps).toBe(6);
+    });
+
+    test('a note containing the grammar delimiters survives intact', () => {
+      // The quote character is the new value delimiter, backslash is its escape,
+      // and `@` introduces the hint — a note made of nothing but delimiters is
+      // the case that catches an escaping bug on either side.
+      const note = 'He said "go heavy" \\ then rest=90 @cue';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      expect(line.restSeconds).toBe(90); // the real flag, not the one inside the note
+    });
+
+    test('a single-token note keeps its existing unquoted wire form', () => {
+      // Backward compatibility: previously-serialized documents carry bare
+      // `@token` hints, and this must stay byte-identical so they still parse.
+      const { markdown, line } = roundTripNote('progressive');
+
+      expect(line.hint).toBe('progressive');
+      expect(markdown).toContain('@progressive');
+      expect(markdown).not.toContain('@"progressive"');
+    });
+
+    test('an absent or blank note emits no hint at all', () => {
+      const absent = roundTripNote(undefined);
+      expect(absent.line.hint).toBeUndefined();
+      expect(absent.markdown).not.toContain('@');
+
+      // A note that is only whitespace is treated as absent rather than
+      // emitting a bare (or empty quoted) hint.
+      const blank = roundTripNote('   ');
+      expect(blank.line.hint).toBeUndefined();
+      expect(blank.markdown).not.toContain('@');
+    });
+
+    test('a multi-word superset label survives too', () => {
+      // `superset=` is the other free-text value and had the identical latent
+      // truncation: nothing writes a label with a space today, which is
+      // precisely why nothing would notice if the serializer stopped quoting it.
+      const routineExercises = [
+        {
+          id: 're-ss-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: 'Group One',
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+        {
+          id: 're-ss-002',
+          exerciseId: 'bench-press-db',
+          order: 1,
+          supersetGroup: 'Group One',
+          warmupSets: 0,
+          targetSets: 3,
+          targetReps: 12,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes: undefined,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        routineExercises as any,
+        exerciseData as any
+      );
+      const parsed = parseRoutine(markdown);
+
+      // Both lines carry the same label, so they collapse into one group.
+      expect(parsed.exercises).toHaveLength(1);
+      const group = parsed.exercises[0] as SupersetGroup;
+      expect(group.supersetLabel).toBe('Group One');
+      expect(group.exercises).toHaveLength(2);
+      expect(group.exercises[0].supersetLabel).toBe('Group One');
+    });
+
+    test('a multi-line note round-trips its newline', () => {
+      // (see the session-path sibling below: the same property, other document)
+      // Decision (#277): newlines are PRESERVED, escaped as `\n` inside the
+      // quoted value, not normalized to spaces. The document stays line-based
+      // because the escape means no literal newline is ever emitted inside a
+      // workout line.
+      const note = 'Cue: elbows tucked.\nLast week: 45 lb x 12.';
+
+      const { markdown, line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      // One workout line, not two.
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    });
+  });
+
+  /**
+   * The SESSION document's free-text value (#277 review, C1).
+   *
+   * `serializeSession` never writes a hint, so `superset=` is its whole exposure
+   * to free text — and it built its flag list by hand rather than through
+   * `formatFlags`, so the routine path's quoting never reached it. Nothing in
+   * the suite exercised a session label at all, which is why the asymmetry
+   * survived to review; these are that missing surface.
+   */
+  describe('#277: session superset labels survive the round-trip', () => {
+    const sessionRow = {
+      id: 'sess-ss-001',
+      routineId: 'push-ss-001',
+      startedAt: new Date('2026-07-07T10:00:00Z'),
+      endedAt: new Date('2026-07-07T11:00:00Z'),
+      createdAt: new Date('2026-07-07T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    /**
+     * Round-trips one logged set under a superset label. `restSeconds` is set
+     * on purpose: `superset=` is emitted before `rest=`, so a label that fails
+     * to hold together takes a real flag down with it rather than just losing
+     * its own tail.
+     */
+    const roundTripLabel = (
+      supersetGroup: string
+    ): { markdown: string; line: WorkoutLine } => {
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-ss-001',
+            exerciseId: 'bench-press-db',
+            setType: 'working' as const,
+            reps: 8,
+            weightKg: 60,
+            position: 0,
+          },
+        ] as any,
+        [
+          {
+            id: 're-ss-001',
+            exerciseId: 'bench-press-db',
+            order: 0,
+            supersetGroup,
+            warmupSets: 0,
+            targetSets: 4,
+            targetReps: 6,
+            restSeconds: 90,
+            notes: undefined,
+          },
+        ] as any,
+        exerciseData as any
+      );
+
+      const parsed = parseSession(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      const first = parsed.exercises[0];
+      const line = ('exercises' in first ? first.exercises[0] : first) as WorkoutLine;
+      return { markdown, line };
+    };
+
+    test('a multi-word label survives, and does not swallow the flag after it', () => {
+      // Before the session path went through formatFlags this emitted
+      // `superset=Group One rest=1:30`, which parsed back as label "Group" with
+      // rest silently gone.
+      const { line } = roundTripLabel('Group One');
+
+      expect(line.supersetLabel).toBe('Group One');
+      expect(line.restSeconds).toBe(90);
+      expect(line.loggedReps).toBe(8);
+      expect(line.weight).toBe(60);
+    });
+
+    test('a label containing a quote survives instead of throwing', () => {
+      // The regression the unquoted session path introduced: `"` is significant
+      // to the tokenizer now, so an unquoted `superset=A"B` made the whole
+      // session document unparseable.
+      const { line } = roundTripLabel('A"B');
+
+      expect(line.supersetLabel).toBe('A"B');
+      expect(line.restSeconds).toBe(90);
+    });
+
+    test('a label containing a newline stays on one workout line', () => {
+      // A literal newline in the label used to split the line in two and
+      // truncate it. Escaping it is the same mechanism as the routine path's
+      // multi-line note, reached now that both share a formatter.
+      const { markdown, line } = roundTripLabel('x\ny');
+
+      expect(line.supersetLabel).toBe('x\ny');
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    });
+
+    test('an ordinary label keeps its bare wire form', () => {
+      // Backward compatibility: quoting must stay the exception on this path
+      // too, or every previously-written session document changes shape.
+      const { markdown, line } = roundTripLabel('A');
+
+      expect(line.supersetLabel).toBe('A');
+      expect(markdown).toContain('superset=A');
+      expect(markdown).not.toContain('superset="A"');
+    });
+  });
 });

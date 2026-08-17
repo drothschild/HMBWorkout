@@ -5,7 +5,7 @@
 
 import SessionSet, { SetType } from '@/db/models/SessionSet';
 import Exercise, { ExerciseKind } from '@/db/models/Exercise';
-import { formatFlags, formatDuration, ContractError } from './format';
+import { formatFlags, ContractError, type ParsedFlags } from './format';
 
 type SessionSetRow = {
   routineExerciseId: string;
@@ -80,47 +80,50 @@ function buildSessionSetLine(
     );
   }
 
-  // Build flags manually for sessions to always include set_type
-  const flagParts: string[] = [];
+  // Both documents go through `formatFlags` (#277). This path used to hand-roll
+  // its own flag list, and that — not the missing call to `quoteFlagValue` — is
+  // the defect: `superset=` is free text, it is the only such value on a session
+  // line, and it kept being emitted bare after the routine path learned to quote
+  // it, because the two paths had no shared code to teach. Handing `formatFlags`
+  // a `ParsedFlags` makes the divergence structurally impossible instead of
+  // merely repaired: quoting, `rest`'s m:ss threshold and every other emission
+  // rule are applied once, in the file that owns the grammar. Anything a session
+  // line needs that a routine line does not belongs in `formatFlags`, not here.
+  const flags: ParsedFlags = {};
 
-  // Always add set_type for session sets
-  flagParts.push(`set_type=${set.setType}`);
+  // A session line always states its set type, `working` included: unlike a
+  // routine's plan flags, it is a measurement, and an absent one would read as
+  // "unknown" rather than "the default".
+  flags.setType = set.setType;
 
   // Add kind if not strength (C2)
   if (exerciseData.kind !== 'strength') {
-    flagParts.push(`kind=${exerciseData.kind}`);
+    flags.kind = exerciseData.kind;
   }
 
-  // Add rpe if present. `!= null` (not `!== undefined`): WatermelonDB returns
-  // null, not undefined, for an unset optional column, and a loose null check
-  // is the only guard that treats both as "absent" without also rejecting
-  // legitimate falsy values like 0.
+  // `!= null` (not `!== undefined`): WatermelonDB returns null, not undefined,
+  // for an unset optional column, and a loose null check is the only guard that
+  // treats both as "absent" without also rejecting legitimate falsy values
+  // like 0. Applies to every optional column read on this line.
   if (set.rpe != null) {
-    flagParts.push(`rpe=${set.rpe}`);
+    flags.rpe = set.rpe;
   }
 
-  // Add weight if present (C1)
   if (set.weightKg != null) {
-    flagParts.push(`weight=${set.weightKg}`);
+    flags.weight = set.weightKg;
   }
 
-  // Add distance if present (C1)
   if (set.distanceM != null) {
-    flagParts.push(`distance=${set.distanceM}`);
+    flags.distance = set.distanceM;
   }
 
-  // Add superset if applicable
+  // Plan-level flags, from the routine_exercises row when it still exists.
   if (re?.supersetGroup) {
-    flagParts.push(`superset=${re.supersetGroup}`);
+    flags.supersetLabel = re.supersetGroup;
   }
 
-  // Add rest (from routine_exercise level)
   if (re?.restSeconds != null) {
-    if (re.restSeconds >= 60) {
-      flagParts.push(`rest=${formatDuration(re.restSeconds)}`);
-    } else {
-      flagParts.push(`rest=${re.restSeconds}`);
-    }
+    flags.restSeconds = re.restSeconds;
   }
 
   // Build set description
@@ -131,10 +134,10 @@ function buildSessionSetLine(
     setDesc = `1x${set.reps}`;
   } else if (set.durationSeconds != null) {
     // Cardio/stretch: emit duration as flag (C2)
-    flagParts.push(`duration=${formatDuration(set.durationSeconds)}`);
+    flags.durationSeconds = set.durationSeconds;
   }
 
-  const flagStr = flagParts.join(' ');
+  const flagStr = formatFlags(flags);
   // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
   const parts = [setDesc, flagStr].filter((p) => p);
   return `- ${exerciseData.id}: ${parts.join(' ')}`;
@@ -296,7 +299,7 @@ export function serializeRoutine(
     const exerciseData = exercises.find(e => e.id === re.exerciseId);
     if (!exerciseData) continue;
 
-    const flags: Record<string, any> = {};
+    const flags: ParsedFlags = {};
 
     // Add kind if not strength
     if (exerciseData.kind !== 'strength') {
@@ -325,8 +328,12 @@ export function serializeRoutine(
       flags.restSeconds = re.restSeconds;
     }
 
-    // Add notes as hint if present
-    if (re.notes) {
+    // Add notes as hint if present. Blank-but-non-empty notes are treated as
+    // absent (#277) rather than emitting `@""`: a note of pure whitespace
+    // carries nothing, and round-tripping it as an empty hint would be a
+    // distinction the app has no use for. A note with *content* keeps its
+    // surrounding whitespace exactly — `format.ts` quotes it.
+    if (re.notes && re.notes.trim() !== '') {
       flags.hint = re.notes;
     }
 

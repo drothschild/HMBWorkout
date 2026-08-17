@@ -25,7 +25,14 @@
  * symmetry guard.
  */
 
-import { parseFlags, ContractError, ParsedDoc, WorkoutLine, SupersetGroup } from './format';
+import {
+  parseFlagTokens,
+  tokenizeFlagString,
+  ContractError,
+  ParsedDoc,
+  WorkoutLine,
+  SupersetGroup,
+} from './format';
 import { ExerciseKind } from '@/db/models/Exercise';
 
 /**
@@ -127,8 +134,11 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
   const exerciseId = content.substring(0, colonIdx).trim();
   const rest = content.substring(colonIdx + 1).trim();
 
-  // Split the rest into parts (sets×reps and flags)
-  const parts = rest.split(/\s+/);
+  // Split the rest into parts (sets×reps and flags). Quote-aware (#277): a
+  // quoted value holds its whitespace together, so a note reading
+  // `@"3x12 = the goal"` is one token and is never mistaken for the sets slot
+  // nor scattered across the flag scan below.
+  const parts = tokenizeFlagString(rest);
   if (parts.length === 0) {
     throw new ContractError(`Empty spec after colon in line: ${line}`);
   }
@@ -148,12 +158,20 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
     }
   }
 
-  const flagStr = flagParts.join(' ');
-
-  // Parse flags first to get kind
+  // Parse flags first to get kind, from the tokens produced above.
+  //
+  // What is load-bearing is the ORDER — tokenizing the whole spec before the
+  // sets×reps scan, so a quoted value holding `3x12` is never taken for the
+  // sets slot. Passing tokens rather than a re-joined string is not: tokenizer
+  // output has balanced quotes and no unquoted whitespace, which makes
+  // `tokenizeFlagString(tokens.join(' ')) === tokens` an identity, so
+  // `parseFlags(flagParts.join(' '))` would behave identically here. It is
+  // measured, not assumed (#277 review, I1: 0 counterexamples over 3,300
+  // inputs, reproduced independently). Passing tokens is simply the direct
+  // route; do not "preserve" it as a correctness invariant it is not.
   let parsedFlags: any;
   try {
-    parsedFlags = parseFlags(flagStr);
+    parsedFlags = parseFlagTokens(flagParts);
   } catch (e) {
     if (e instanceof ContractError) {
       throw e;
@@ -208,7 +226,7 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
   // For strength without sets×reps, must either have duration (error) or be malformed
   if (kind === 'strength' && targetSets === undefined && targetReps === undefined && parsedFlags.durationSeconds === undefined) {
     // Check if we have any flags - if not, this is malformed
-    if (flagStr.length === 0) {
+    if (flagParts.length === 0) {
       throw new ContractError(`Expected sets×reps for strength exercise: ${line}`);
     }
     // If we have flags but no sets×reps and no duration, this is an error for strength
