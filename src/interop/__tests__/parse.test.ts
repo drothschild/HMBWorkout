@@ -961,6 +961,32 @@ ${lines.join('\n')}
       expect(() => entries('- bench-press-db: rest=90 gibberish')).toThrow(ContractError);
     });
 
+    test('a stray token is refused beside a load, a rep-range top, a set type or a distance', () => {
+      // M8 (#293 review round 2). The guard's condition is reps-or-duration,
+      // NOT "prescribes nothing across all five set fields" — the wider version
+      // silently swallowed a typo'd sets slot on these four lines, which threw
+      // before. The width is a deliberate choice and not forced by any test:
+      // both widths pass the whole suite, and only making the guard
+      // UNCONDITIONAL breaks the five #277 legacy-tokenizer fixtures. The
+      // narrower one keeps `4x` loud in more places, which is the point of the
+      // rule, so it is what is pinned here.
+      expect(() => entries('- bench-press-db: target_weight=50 4x')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: reps_max=10 4x')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: set_type=warmup 4x')).toThrow(ContractError);
+      expect(() => entries('- rower: kind=cardio target_distance=100 4x')).toThrow(ContractError);
+
+      // The other side of the boundary, unchanged since before #276: a stray
+      // token beside a line that DOES prescribe reps or a duration is still
+      // ignored. Narrowing that is what breaks the #277 fixtures, whose whole
+      // point is that a multi-token note truncates rather than throwing.
+      expect(entries('- bench-press-db: 1x5 4x')[0].sets).toEqual([
+        { setType: 'normal', targetReps: 5 },
+      ]);
+      expect(entries('- rower: kind=cardio duration=5:00 4x')[0].sets).toEqual([
+        { setType: 'normal', targetDurationSeconds: 300 },
+      ]);
+    });
+
     test('an exercise line marked sets=0 is an entry with no sets', () => {
       const parsed = entries('- bench-press-db: sets=0');
 
@@ -975,6 +1001,28 @@ ${lines.join('\n')}
       expect(parsed[0].sets).toEqual([]);
       expect(parsed[0].restSeconds).toBe(90);
       expect(parsed[0].hint).toBe('easy');
+    });
+
+    test('a sets=0 line keeps its superset label, so it stays in its group', () => {
+      // P19 (#293 review round 2). `finishRoutineLine` rebuilds the entry
+      // field-by-field on the `sets=0` path, and dropping `supersetLabel` from
+      // that return passed every test. It is not a cosmetic field: the marker
+      // line is the ONLY line a zero-set entry has, `groupSupersets` keys on the
+      // label, and `helpers.lv`'s `group_end_idx` rests on that grouping being
+      // honest — so a zero-set entry silently leaving its group changes what the
+      // engine reads as a contiguous run.
+      const parsed = entries('- bench-press-db: sets=0 superset=A');
+      expect(parsed[0].supersetLabel).toBe('A');
+
+      // The consequence, not just the field: grouped with its partner rather
+      // than emitted as a standalone entry beside it.
+      const grouped = entries('- bench-press-db: sets=0 superset=A', '- row-db: 1x8 superset=A');
+      expect(grouped).toHaveLength(1);
+      expect(grouped[0].supersetLabel).toBe('A');
+      expect(grouped[0].exercises.map((e: any) => e.exerciseId)).toEqual([
+        'bench-press-db',
+        'row-db',
+      ]);
     });
 
     /**
@@ -1019,6 +1067,16 @@ ${lines.join('\n')}
       expect(() => entries('- bench-press-db: sets=0 target_weight=50')).toThrow(ContractError);
       expect(() => entries('- bench-press-db: sets=0 set_type=warmup')).toThrow(ContractError);
       expect(() => entries('- rower: sets=0 kind=cardio duration=5:00')).toThrow(ContractError);
+
+      // P23/P26 (#293 review round 2). The fixture above covers weight,
+      // `set_type` and duration, so dropping either `targetRepsMax` or
+      // `targetDistanceM` from SET_LEVEL_FIELDS survived every test. Every
+      // member of that list needs a case or the list is only partly pinned.
+      expect(() => entries('- bench-press-db: sets=0 reps_max=10')).toThrow(ContractError);
+      expect(() => entries('- rower: sets=0 kind=cardio target_distance=100')).toThrow(
+        ContractError
+      );
+
     });
 
     test('a set COUNT is not a thing the marker can say', () => {
@@ -1062,6 +1120,41 @@ tags: []
 \`\`\`
 `;
       expect(() => parseSession(sessionDoc)).toThrow(ContractError);
+    });
+
+    test('a SESSION cardio or stretch line still requires its duration', () => {
+      // P10 (#293 review round 2). This guard MOVED into the session-only tail
+      // and its only coverage was routine-side, which no longer reaches it —
+      // `if (false)` on the check passed all 238 interop/export tests. A logged
+      // cardio set with no duration is a measurement that measured nothing, and
+      // that is exactly the reading the routine side now deliberately allows,
+      // so the two need separate pins.
+      const sessionDoc = (spec: string): string => `---
+type: workout-session
+id: sess-cardio-01
+date: 2026-08-16
+created: 2026-08-16
+tags: []
+---
+
+\`\`\`workout
+- ${spec}
+\`\`\`
+`;
+
+      expect(() => parseSession(sessionDoc('rower: kind=cardio distance=5000'))).toThrow(
+        /cardio exercise missing duration/
+      );
+      expect(() => parseSession(sessionDoc('pigeon-pose: kind=stretch rpe=5'))).toThrow(
+        /stretch exercise missing duration/
+      );
+
+      // And it is satisfied by a duration, not merely by any content — the
+      // check has to be about the duration specifically or a `!== undefined`
+      // flipped to `=== undefined` reads the same.
+      expect(() =>
+        parseSession(sessionDoc('rower: kind=cardio duration=20:00 distance=5000'))
+      ).not.toThrow();
     });
   });
 

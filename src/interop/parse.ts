@@ -320,16 +320,17 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
  *
  * Two things are still refused, both because the alternative is a silent
  * misread of an author's plan:
- * - a stray token on a line that prescribes nothing else — `4x`, neither a sets
- *   slot nor a `key=value` nor a `@hint`, which `parseFlagTokens` skips as an
- *   "unknown non-flag". A typo'd sets slot must not launder into a set that
- *   prescribes nothing. The condition is now "prescribes nothing" over all five
- *   set fields rather than over reps-or-duration alone, which is the same rule
- *   the rest of this function moved to. A stray token on a line that DOES
- *   prescribe something is still ignored — that relaxation predates #276 in
- *   both documents, and narrowing it would break the #277 legacy-tokenizer
- *   fixtures, whose whole point is that a multi-token note truncates rather
- *   than throwing.
+ * - a stray token on a line that prescribes no reps and no duration — `4x`,
+ *   neither a sets slot nor a `key=value` nor a `@hint`, which
+ *   `parseFlagTokens` skips as an "unknown non-flag". A typo'd sets slot must
+ *   not launder into a set that prescribes nothing. The condition is
+ *   reps-or-duration, the same width it had before this phase, and NOT the
+ *   `prescribed` list this function's other rule uses — see the note at the
+ *   check itself for why the tidier-looking consistency is the weaker rule. A
+ *   stray token on a line that does prescribe reps or a duration is still
+ *   ignored — that relaxation predates #276 in both documents, and narrowing it
+ *   would break the #277 legacy-tokenizer fixtures, whose whole point is that a
+ *   multi-token note truncates rather than throwing.
  * - a `sets=0` line that also carries set content, which asserts both that the
  *   entry has no sets and that here is one of them.
  */
@@ -341,7 +342,23 @@ function finishRoutineLine(
 ): WorkoutLine {
   const prescribed = SET_LEVEL_FIELDS.filter((field) => workoutLine[field] !== undefined);
 
-  if (prescribed.length === 0) {
+  // Deliberately reps-or-duration, NOT `prescribed.length === 0` (M8, #293
+  // review round 2). The two differ on exactly four lines — `target_weight=50
+  // 4x`, `reps_max=10 4x`, `set_type=warmup 4x`, `target_distance=100 4x` —
+  // which the wider condition reads as "already prescribes something" and so
+  // silently swallows the typo'd sets slot on.
+  //
+  // Both widths pass the whole suite, so this is a choice, not a necessity, and
+  // it is recorded as one. The narrow test keeps `4x` loud on four more shapes,
+  // which is the entire point of the rule; matching `prescribed` would have
+  // been a tidier consistency argument and strictly less protective. Only
+  // making the guard UNCONDITIONAL is actually forced against — that breaks the
+  // five #277 legacy-tokenizer fixtures, whose point is that a multi-token note
+  // truncates rather than throwing.
+  const hasSetContent =
+    workoutLine.targetReps !== undefined || workoutLine.targetDurationSeconds !== undefined;
+
+  if (!hasSetContent) {
     const strayTokens = flagParts.filter(
       (part) => !part.startsWith('@') && !part.includes('=')
     );
@@ -409,7 +426,21 @@ function toRoutineSet(line: WorkoutLine): RoutineSetLine {
   return set;
 }
 
-/** The entry-level flags a run of set lines must agree on. */
+/**
+ * The entry-level flags a run of set lines must agree on.
+ *
+ * `supersetLabel` is a member that can never fire, and is kept deliberately
+ * (P35, #293 review round 2, confirmed a provably equivalent mutant — removing
+ * it changes no behavior). Label equality is already half of `continuesEntry`
+ * below, so two lines that disagree on it never reach the conflict check at
+ * all; they are two entries, not one entry contradicting itself.
+ *
+ * It stays because the list reads as "the entry-level flags", and a reader who
+ * finds the label missing has to re-derive that it is enforced elsewhere. If
+ * `continuesEntry` is ever narrowed to the exercise id alone, this member
+ * becomes live and load-bearing on its own — which is the second reason not to
+ * delete it as dead weight.
+ */
 const ENTRY_FLAGS = ['restSeconds', 'supersetLabel', 'hint', 'kind'] as const;
 
 /**
