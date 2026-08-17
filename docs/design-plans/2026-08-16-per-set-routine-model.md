@@ -503,6 +503,27 @@ Fixtures referenced by name throughout:
 - **AC5.8 Edge:** **EMPTY** serializes to an exercise line with no set lines and parses back to an
   entry with an empty set list — not to a dropped exercise, and not to a throw.
 
+  ⚠️ **Amended after the #293 review: this AC did not say how that line is SPELLED, and the
+  obvious spelling is unsound.** A bare `- <exercise-id>:` is byte-identical to a prescribed set
+  carrying only flags — a load, a rep-range top, a distance — because all five `routine_sets`
+  columns are independently nullable. Left ambiguous, the parser guessed, and both guesses were
+  wrong: a bare cardio entry line threw as a set missing its duration, and a load-only set was
+  silently DROPPED. The spelling is therefore **`- <exercise-id>: sets=0 [entry flags…]`**, and
+  the rule is: *a routine line is one prescribed set unless it says `sets=0`.* Its consequences,
+  which Phase 6 and #267 Phase 3 inherit:
+  - Every prescribed field on a routine line is independently optional. A set carrying only
+    `target_weight=50`, only `reps_max=12`, only `target_distance=5000`, only `set_type=warmup`,
+    or nothing at all is one set, and round-trips as one set.
+  - The cardio/stretch **duration** requirement and the strength **sets×reps** requirement are the
+    SESSION's alone. A session line is a measurement and must say what was measured; a routine
+    line is a plan and may prescribe as little as it likes.
+  - `sets=<n>` for nonzero `n` is **refused**, not reinterpreted — a count is spelled by writing
+    that many lines — and `sets=0` alongside set content is a contract violation. `sets` is a
+    routine-only flag key.
+  - A stray token (`4x`) is still refused on a line that prescribes nothing else, and still
+    ignored on a line that prescribes something. That relaxation predates #276 and narrowing it
+    would break the #277 legacy-tokenizer fixtures.
+
 ### per-set-routine.AC6: The aggregates are gone
 
 - **AC6.1 Success:** `src/db/schema.ts` declares `version: 7`, `routine_exercises` no longer lists
@@ -533,9 +554,32 @@ Fixtures referenced by name throughout:
 - **AC6.5 Success:** AGENTS.md is rewritten for the new model: conventions 3, 6, 8, 9 and 10 are
   restated in per-set terms; the `rillToJs`-omits-`None` test hazard is recorded; the destructive-bump
   mechanism and its `logger.warn` silence are recorded; the `target_weight_kg` three-way precedence
-  paragraph is replaced by the two-way rule; the `weight=`-leak paragraph is updated. "Last verified"
+  paragraph is replaced by the two-way rule. "Last verified"
   is bumped. *Fails on regression:* AGENTS.md describing the aggregate model after Phase 6 is a
   documentation bug of exactly the class #269 and #266 were filed for.
+
+  ⚠️ **The vault-markdown-contract section carries five false statements as of Phase 5, not
+  one.** The original wording of this AC named only "the `weight=`-leak paragraph", which is how
+  #269 and #282 happened — a rewrite list that names one instance of a class and misses the rest.
+  Each of these is now wrong and must be rewritten, not merely re-read (the first four were
+  enumerated by the #293 review; the fifth is Phase 5's own):
+  1. "the `<sets>x<reps>` slot means **target** sets×reps in a routine" — gone. The slot is
+     `1x<reps>` in both documents and a routine line is one prescribed set.
+  2. The whole **"Parse context and validation strictness"** subsection. The zero-reps divergence
+     is deleted (AC5.4); `context` is consulted three times, not once; and both cited line numbers
+     (`format.ts:247`, `parse.ts:171`) are stale.
+  3. "`serializeRoutine` **does not** emit `target_weight_kg` and the grammar was deliberately not
+     extended … wiring an export path means adding a **distinct** flag key" — it does emit it, and
+     the distinct key is `target_weight`. The `weight=`-on-a-routine-line leak that paragraph
+     records as open is closed: the flag allowlist is context-aware (AC5.3).
+  4. "a malformed `0x10` or `3x0` line … under the context-dependent rules" — `3x0` is refused by
+     the sets-slot rule now, and there are no context-dependent zero rules left.
+  5. Nothing yet records the **`sets=0` entry marker** (#293 review, C1/C2) — that a routine line
+     is one prescribed set unless it says `sets=0`, that all five prescribed fields are
+     independently optional on a routine line, and that the cardio/stretch duration requirement
+     and the strength sets×reps requirement are the SESSION's alone. This is the load-bearing half
+     of the grammar: without the marker, an exercise line and a content-only set line are the same
+     string, and the parser guessed — throwing on the first and silently dropping the second.
 
 ### per-set-routine.AC7: Cross-cutting gates
 
