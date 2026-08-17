@@ -33,7 +33,11 @@ function loggedDate(set: SessionSet): string | null {
  * testable without a database).
  *
  * @param database The database instance
- * @param exerciseId The exercise the athlete is about to perform
+ * @param exerciseId The exercise the remark is about — the one the completed
+ *   set was performed on for the `lastSet` shape, the one coming up for
+ *   `upNext`. `restCommentaryTarget` resolves which; this loader only follows
+ *   the id it is handed, so the history always belongs to the exercise being
+ *   discussed.
  * @returns At most REST_COMMENTARY_HISTORY_SETS sets, most recent first
  */
 export async function loadRestCommentaryHistory(

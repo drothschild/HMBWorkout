@@ -20,17 +20,26 @@ import {
   setSettings,
   getSettings,
 } from '@/state/settings';
-import type { SessionState, RoutineEntry } from '@/engine/types';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import type { SessionState, RoutineEntry, LoggedSet } from '@/engine/types';
 import {
   createRestCommentaryStore,
+  restCommentaryKey,
   restCommentaryTarget,
   type RestCommentaryTarget,
 } from './restCommentaryStore';
 
-function target(overrides: Partial<RestCommentaryTarget> = {}): RestCommentaryTarget {
+type UpNextTarget = Extract<RestCommentaryTarget, { shape: 'upNext' }>;
+type LastSetTarget = Extract<RestCommentaryTarget, { shape: 'lastSet' }>;
+
+function target(overrides: Partial<UpNextTarget> = {}): RestCommentaryTarget {
   return {
+    shape: 'upNext',
     sessionId: 'session-1',
     entryIdx: 0,
+    exerciseIndex: 0,
+    setIndex: 0,
     exerciseId: 'bench-press',
     exerciseTitle: 'Bench Press',
     kind: 'strength',
@@ -41,6 +50,18 @@ function target(overrides: Partial<RestCommentaryTarget> = {}): RestCommentaryTa
     restSeconds: 90,
     isWarmupSet: false,
     setNumber: 2,
+    ...overrides,
+  };
+}
+
+function lastSetTarget(overrides: Partial<LastSetTarget> = {}): RestCommentaryTarget {
+  return {
+    ...(target() as UpNextTarget),
+    shape: 'lastSet',
+    setIndex: 1,
+    setNumber: 1,
+    completedSet: { reps: 8, weightKg: 61.23, rpe: 8 },
+    logIndex: 0,
     ...overrides,
   };
 }
@@ -248,7 +269,7 @@ describe('createRestCommentaryStore', () => {
       const { store } = makeStore();
 
       await store.getState().show(target({ entryIdx: 0 }));
-      await store.getState().show(target({ entryIdx: 1, exerciseId: 'squat' }));
+      await store.getState().show(target({ entryIdx: 1, exerciseIndex: 1, exerciseId: 'squat' }));
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(store.getState().text).toBe('Second.');
@@ -325,7 +346,7 @@ describe('createRestCommentaryStore', () => {
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
       // Switch to a different entry before the first response lands
-      const second = store.getState().show(target({ entryIdx: 1, exerciseId: 'squat' }));
+      const second = store.getState().show(target({ entryIdx: 1, exerciseIndex: 1, exerciseId: 'squat' }));
       releaseFirst();
       await Promise.all([first, second]);
 
@@ -355,7 +376,7 @@ describe('createRestCommentaryStore', () => {
       const first = store.getState().show(target({ entryIdx: 0 }));
       await waitUntil(() => mockFetch.mock.calls.length === 1, 'first request');
 
-      const second = store.getState().show(target({ entryIdx: 1, exerciseId: 'squat' }));
+      const second = store.getState().show(target({ entryIdx: 1, exerciseIndex: 1, exerciseId: 'squat' }));
       releaseFirst();
       await Promise.all([first, second]);
 
@@ -595,6 +616,107 @@ describe('createRestCommentaryStore', () => {
     });
   });
 
+  describe('#270: one call per working set', () => {
+    it('requests a fresh comment for the next working set of the same exercise', async () => {
+      mockFetch
+        .mockResolvedValueOnce(commentResponse('Set one banked.'))
+        .mockResolvedValueOnce(commentResponse('Set two banked.'));
+      const { store } = makeStore();
+
+      await store.getState().show(lastSetTarget({ setIndex: 1, logIndex: 0 }));
+      store.getState().hide();
+      await store.getState().show(lastSetTarget({ setIndex: 2, setNumber: 2, logIndex: 1 }));
+
+      // Under the old `sessionId#entryIdx` key both rests share one comment.
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(store.getState().text).toBe('Set two banked.');
+    });
+
+    it('re-serves the same rest without a second call', async () => {
+      const { store } = makeStore();
+
+      await store.getState().show(lastSetTarget());
+      store.getState().hide();
+      // The session screen unmounts and remounts mid-rest: same rest, same set.
+      await store.getState().show(lastSetTarget());
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(store.getState().text).toBe('Same weight, one more rep.');
+    });
+
+    it('sends the Last Set message shape and the performed exercise history', async () => {
+      const { store } = makeStore();
+
+      await store.getState().show(
+        lastSetTarget({ exerciseId: 'barbell-row', exerciseTitle: 'Barbell Row' })
+      );
+
+      expect(loadHistory).toHaveBeenCalledWith('barbell-row');
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0].content).toContain('## Last Set');
+      expect(body.messages[0].content).toContain('Barbell Row');
+      expect(body.system).not.toContain('Comment on the exercise that is coming up');
+    });
+  });
+
+  describe('#270: a rest reached by skipping a set stays silent', () => {
+    it('makes no call when a later rest still names the same logged set', async () => {
+      const { store } = makeStore();
+
+      await store.getState().show(lastSetTarget({ setIndex: 1, logIndex: 0 }));
+      expect(store.getState().text).toBe('Same weight, one more rep.');
+      store.getState().hide();
+      mockFetch.mockClear();
+
+      // "Skip Set": setIndex advanced but nothing new was logged, so
+      // lastLoggedSet — and therefore logIndex — is unchanged.
+      await store.getState().show(lastSetTarget({ setIndex: 2, setNumber: 2, logIndex: 0 }));
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(loadHistory).toHaveBeenCalledTimes(1);
+      expect(store.getState().text).toBeNull();
+      expect(store.getState().pending).toBe(false);
+      expect(store.getState().attempted).toBe(false);
+    });
+
+    it('recovers on the next set that is actually logged', async () => {
+      mockFetch
+        .mockResolvedValueOnce(commentResponse('Set one banked.'))
+        .mockResolvedValueOnce(commentResponse('Back on it.'));
+      const { store } = makeStore();
+
+      await store.getState().show(lastSetTarget({ setIndex: 1, logIndex: 0 }));
+      store.getState().hide();
+      await store.getState().show(lastSetTarget({ setIndex: 2, setNumber: 2, logIndex: 0 }));
+      store.getState().hide();
+      await store.getState().show(lastSetTarget({ setIndex: 3, setNumber: 3, logIndex: 1 }));
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(store.getState().text).toBe('Back on it.');
+    });
+
+    it('does not carry a claim across sessions', async () => {
+      const { store } = makeStore();
+
+      await store.getState().show(lastSetTarget({ sessionId: 'session-1', logIndex: 0 }));
+      store.getState().hide();
+      await store.getState().show(lastSetTarget({ sessionId: 'session-2', logIndex: 0 }));
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves the up-next shape unlatched', async () => {
+      // Only the last-set shape reads lastLoggedSet, so only it can go stale.
+      const { store } = makeStore();
+
+      await store.getState().show(target({ exerciseIndex: 1, entryIdx: 1, exerciseId: 'squat' }));
+      store.getState().hide();
+      await store.getState().show(target({ exerciseIndex: 2, entryIdx: 2, exerciseId: 'deadlift' }));
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('Security: secrets regression guard', () => {
     it('coach-onboarding.AC6.5 Failure: never puts secrets in the prompt, even with profile', async () => {
       setSettings({
@@ -638,17 +760,39 @@ describe('restCommentaryTarget', () => {
     ...overrides,
   });
 
+  const logged = (overrides: Partial<LoggedSet> = {}): LoggedSet => ({
+    exerciseId: 'bench-press',
+    setType: 'working',
+    reps: 8,
+    weightKg: 61.23,
+    durationSeconds: null,
+    rpe: 8,
+    ...overrides,
+  });
+
+  /** Between exercises by default: setIndex 0, nothing logged. */
   const state = (overrides: Partial<SessionState> = {}): SessionState => ({
     sessionId: 'session-1',
     routineId: 'routine-1',
     phase: 'resting',
-    exerciseIndex: 0,
-    setIndex: 1,
+    exerciseIndex: 1,
+    setIndex: 0,
+    supersetPosition: 0,
     loggedSets: [],
     startedAtMs: 0,
     entries: [entry(), entry({ idx: 1, exerciseId: 'squat' })],
     ...overrides,
   });
+
+  /** Mid-exercise: one working set of entry 0 logged, resting before the next. */
+  const afterWorkingSet = (overrides: Partial<SessionState> = {}): SessionState =>
+    state({
+      exerciseIndex: 0,
+      setIndex: 1,
+      loggedSets: [logged()],
+      lastLoggedSet: logged(),
+      ...overrides,
+    });
 
   it('is null when there is no session', () => {
     expect(restCommentaryTarget(null)).toBeNull();
@@ -667,7 +811,7 @@ describe('restCommentaryTarget', () => {
   it('describes the upcoming exercise while paused mid-rest', () => {
     const result = restCommentaryTarget(state({ phase: 'paused', restRemainingMs: 30_000 }));
 
-    expect(result?.exerciseId).toBe('bench-press');
+    expect(result?.exerciseId).toBe('squat');
   });
 
   it('is null when there is no entry at the current index', () => {
@@ -677,38 +821,409 @@ describe('restCommentaryTarget', () => {
     expect(restCommentaryTarget(state({ entries: [] }))).toBeNull();
   });
 
-  it('points at the next set of the same exercise when resting between sets', () => {
-    // The engine advances setIndex and leaves exerciseIndex alone, so the
-    // current entry IS the upcoming one.
-    const result = restCommentaryTarget(state({ exerciseIndex: 0, setIndex: 1 }));
+  it('points at the next exercise when resting between exercises', () => {
+    // transition.lv:103-107 — the group-exhausted rest lands on a new entry
+    // with setIndex 0. Unchanged behaviour: the remark is about what is next.
+    const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
 
     expect(result).toMatchObject({
-      sessionId: 'session-1',
-      entryIdx: 0,
-      exerciseId: 'bench-press',
-      isWarmupSet: false,
-      setNumber: 2,
+      shape: 'upNext',
+      entryIdx: 1,
+      exerciseId: 'squat',
+      setNumber: 1,
     });
   });
 
-  it('points at the next exercise when resting between exercises', () => {
-    // The engine advances exerciseIndex before entering Resting.
-    const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
-
-    expect(result).toMatchObject({ entryIdx: 1, exerciseId: 'squat', setNumber: 1 });
-  });
-
-  it('reports an upcoming warmup set as a warmup', () => {
-    const result = restCommentaryTarget(
-      state({ entries: [entry({ warmupSets: 2 })], exerciseIndex: 0, setIndex: 1 })
-    );
-
-    expect(result).toMatchObject({ isWarmupSet: true, setNumber: 2 });
-  });
-
   it('resolves the exercise title shell-side, falling back to the id', () => {
-    expect(restCommentaryTarget(state(), { 'bench-press': 'Barbell Bench Press' })?.exerciseTitle)
-      .toBe('Barbell Bench Press');
-    expect(restCommentaryTarget(state())?.exerciseTitle).toBe('bench-press');
+    expect(restCommentaryTarget(state(), { squat: 'Back Squat' })?.exerciseTitle).toBe('Back Squat');
+    expect(restCommentaryTarget(state())?.exerciseTitle).toBe('squat');
+  });
+
+  describe('#270: resting inside an exercise comments on the set just completed', () => {
+    it('describes the completed set, not the upcoming one', () => {
+      // transition.lv:66-70 — the round-repeat rest carries setIndex = round + 1,
+      // so setIndex >= 1 means the rest landed inside the exercise/group.
+      const result = restCommentaryTarget(afterWorkingSet());
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        sessionId: 'session-1',
+        entryIdx: 0,
+        exerciseIndex: 0,
+        setIndex: 1,
+        exerciseId: 'bench-press',
+        isWarmupSet: false,
+        // The set just done was set 1 of 3, not the upcoming set 2.
+        setNumber: 1,
+        logIndex: 0,
+        completedSet: { reps: 8, weightKg: 61.23, rpe: 8 },
+      });
+    });
+
+    it('is silent after a warmup set rather than falling back to the up-next shape', () => {
+      const warmup = logged({ setType: 'warmup', weightKg: 20 });
+
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          entries: [entry({ warmupSets: 2 }), entry({ idx: 1, exerciseId: 'squat' })],
+          loggedSets: [warmup],
+          lastLoggedSet: warmup,
+        })
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('still comments after a cardio entry logged set', () => {
+      // transition.lv:190 stamps the entry's kind, not 'working', for
+      // non-strength entries — a `setType === "working"` guard would kill this.
+      const cardioSet = logged({
+        exerciseId: 'rower',
+        setType: 'cardio',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 300,
+        rpe: null,
+      });
+
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          entries: [entry({ exerciseId: 'rower', kind: 'cardio', targetDurationSeconds: 300 })],
+          loggedSets: [cardioSet],
+          lastLoggedSet: cardioSet,
+        })
+      );
+
+      expect(result).toMatchObject({ shape: 'lastSet', exerciseId: 'rower', kind: 'cardio' });
+    });
+
+    it('still comments after a stretch entry logged set', () => {
+      const stretchSet = logged({
+        exerciseId: 'couch-stretch',
+        setType: 'stretch',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 45,
+        rpe: null,
+      });
+
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          entries: [entry({ exerciseId: 'couch-stretch', kind: 'stretch', targetDurationSeconds: 45 })],
+          loggedSets: [stretchSet],
+          lastLoggedSet: stretchSet,
+        })
+      );
+
+      expect(result).toMatchObject({ shape: 'lastSet', exerciseId: 'couch-stretch' });
+    });
+
+    it('reads the RPE -1 sentinel as absent', () => {
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          loggedSets: [logged({ rpe: -1 })],
+          lastLoggedSet: logged({ rpe: -1 }),
+        })
+      );
+
+      expect(result).toMatchObject({ shape: 'lastSet' });
+      expect((result as Extract<RestCommentaryTarget, { shape: 'lastSet' }>).completedSet.rpe)
+        .toBeNull();
+    });
+
+    it('names the performer on a working set past the target-sets count in rounds', () => {
+      // The activity predicate mirrors `h.next_active_idx`: active at round r
+      // iff `r < warmupSets + targetSets`. With warmups 2 and targets 3, rounds
+      // 0-1 are the warmups and 2-4 the working sets, so the round just
+      // completed here (setIndex - 1 = 3) sits PAST `targetSets` on its own.
+      // Dropping the `warmupSets` term would go silent on working sets 2 and 3
+      // of every exercise that has warmups — the most ordinary routine shape
+      // there is — and every other fixture in this file has `warmupSets: 0`,
+      // where the two readings agree.
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          entries: [entry({ warmupSets: 2 })],
+          exerciseIndex: 0,
+          setIndex: 4,
+          loggedSets: [logged(), logged(), logged(), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        entryIdx: 0,
+        exerciseId: 'bench-press',
+        isWarmupSet: false,
+        // Round 3 of an entry with 2 warmups: working set 2.
+        setNumber: 2,
+      });
+    });
+
+    it('is silent when nothing has been logged yet', () => {
+      // A session whose very first set was skipped: setIndex advanced but
+      // lastLoggedSet is still absent.
+      expect(restCommentaryTarget(afterWorkingSet({ loggedSets: [], lastLoggedSet: undefined })))
+        .toBeNull();
+    });
+  });
+
+  describe('#270: superset groups', () => {
+    /**
+     * The two members disagree on EVERY field the target copies, not just
+     * `exerciseId`. A group whose members share their plan cannot tell a field
+     * read off the performed entry from the same field read off
+     * `entries[exerciseIndex]`, so the whole payload below would be silently
+     * interchangeable — the "fixture chosen so two readings agree" trap.
+     */
+    const supersetEntries = () => [
+      entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', warmupSets: 2 }),
+      entry({
+        idx: 1,
+        exerciseId: 'rower',
+        kind: 'cardio',
+        supersetGroup: 'A',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 0,
+        targetDurationSeconds: 60,
+        restSeconds: 30,
+      }),
+    ];
+
+    it('follows lastLoggedSet, not entries[exerciseIndex], on a round-repeat rest', () => {
+      // The round hands back to the group's first active member, so
+      // entries[exerciseIndex] is bench-press while the set just done was the
+      // rower. Every field must come off the rower: titling or planning this
+      // remark as the bench while printing the rower's numbers is the failure.
+      const rowerSet = logged({
+        exerciseId: 'rower',
+        setType: 'cardio',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 60,
+        rpe: null,
+      });
+
+      const result = restCommentaryTarget(
+        state({
+          entries: supersetEntries(),
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 1,
+          loggedSets: [logged(), rowerSet],
+          lastLoggedSet: rowerSet,
+        }),
+        { 'bench-press': 'Bench Press', rower: 'Rower' }
+      );
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        entryIdx: 1,
+        exerciseId: 'rower',
+        logIndex: 1,
+        // Read off the performed entry, never the one the engine advanced to.
+        exerciseTitle: 'Rower',
+        kind: 'cardio',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 0,
+        targetDurationSeconds: 60,
+        restSeconds: 30,
+      });
+    });
+
+    it('is silent when the round-ending member was skipped rather than logged', () => {
+      // SetDone (transition.lv:208-210) never writes lastLoggedSet, so the
+      // snapshot still names the partner logged earlier in the same round.
+      const result = restCommentaryTarget(
+        state({
+          entries: supersetEntries(),
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 1,
+          loggedSets: [logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('skips a group member whose own sets are exhausted when naming the performer', () => {
+      // Round 1 of a mismatched group: the row plans only one set, so round 1
+      // ends on the bench again.
+      const entries = [
+        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', targetSets: 3 }),
+        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', targetSets: 1 }),
+      ];
+
+      const result = restCommentaryTarget(
+        state({
+          entries,
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 2,
+          loggedSets: [logged(), logged({ exerciseId: 'barbell-row' }), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      expect(result).toMatchObject({ shape: 'lastSet', entryIdx: 0, exerciseId: 'bench-press' });
+    });
+
+    it('reads activity at the round just completed, not the round coming up', () => {
+      // Round 1 of a 3-set/2-set group. The row is still owed a set at round 1
+      // (so it closed the round) but not at round 2, so a performer lookup that
+      // asked about the upcoming round would name the bench instead and then
+      // reject the row's set as belonging to someone else.
+      const entries = [
+        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', targetSets: 3 }),
+        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', targetSets: 2 }),
+      ];
+      const rowSet = logged({ exerciseId: 'barbell-row' });
+
+      const result = restCommentaryTarget(
+        state({
+          entries,
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 2,
+          loggedSets: [logged(), logged({ exerciseId: 'barbell-row' }), logged(), rowSet],
+          lastLoggedSet: rowSet,
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        entryIdx: 1,
+        exerciseId: 'barbell-row',
+        // Its own second set, counted on its own entry.
+        setNumber: 2,
+      });
+    });
+  });
+
+  describe('#270: the warmup guard scopes to the last-set shape only', () => {
+    /**
+     * A decision, not an accident, and nothing else in the suite distinguishes
+     * it from its opposite. Spec rule 2 ("no remark after a warmup set") scopes
+     * the `lastSet` shape: it exists so warmup numbers are not coached and so
+     * the ~4x call increase stays bounded. Spec rule 1 is the shape selector,
+     * and a rest BETWEEN two exercises is definitionally an `upNext` rest that
+     * says nothing about the set just done — the entry it previews may not even
+     * be the one that was warming up.
+     *
+     * The degenerate routine below is where the two rules touch: an entry that
+     * plans warmups and no working sets, so the rest after its last warmup is a
+     * between-exercises rest whose `lastLoggedSet` is a warmup. It still
+     * previews the next exercise. Hoisting the warmup guard above the
+     * `setIndex >= 1` discriminator, or repeating it inside the `upNext`
+     * branch, would silence this rest instead; both survive the rest of the
+     * suite.
+     */
+    it('still previews the next exercise when a warmup ended the previous one', () => {
+      const warmup = logged({ setType: 'warmup', weightKg: 20 });
+
+      const result = restCommentaryTarget(
+        state({
+          entries: [
+            entry({ idx: 0, warmupSets: 2, targetSets: 0, targetReps: 0 }),
+            entry({ idx: 1, exerciseId: 'squat' }),
+          ],
+          exerciseIndex: 1,
+          setIndex: 0,
+          loggedSets: [warmup, warmup],
+          lastLoggedSet: warmup,
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'upNext',
+        entryIdx: 1,
+        exerciseId: 'squat',
+        setNumber: 1,
+      });
+    });
+  });
+
+  describe('#270: the same exercise listed twice', () => {
+    const twice = () => [
+      entry({ idx: 0, exerciseId: 'bench-press' }),
+      entry({ idx: 1, exerciseId: 'bench-press' }),
+    ];
+
+    it('uses the position, not the exercise id, to pick the shape', () => {
+      const between = restCommentaryTarget(
+        state({
+          entries: twice(),
+          exerciseIndex: 1,
+          setIndex: 0,
+          loggedSets: [logged(), logged(), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+      const within = restCommentaryTarget(
+        state({
+          entries: twice(),
+          exerciseIndex: 1,
+          setIndex: 1,
+          loggedSets: [logged(), logged(), logged(), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      // Same exerciseId on both sides; only setIndex differs.
+      expect(between).toMatchObject({ shape: 'upNext', entryIdx: 1 });
+      expect(within).toMatchObject({ shape: 'lastSet', entryIdx: 1, logIndex: 3 });
+    });
+  });
+});
+
+describe('restCommentaryKey', () => {
+  it('changes with the rest position, so each working set gets its own slot', () => {
+    const first = restCommentaryKey(lastSetTarget({ setIndex: 1, logIndex: 0 }));
+    const second = restCommentaryKey(lastSetTarget({ setIndex: 2, logIndex: 1 }));
+
+    expect(first).not.toBe(second);
+  });
+
+  it('scopes the key to the session', () => {
+    expect(restCommentaryKey(target({ sessionId: 'a' }))).not.toBe(
+      restCommentaryKey(target({ sessionId: 'b' }))
+    );
+  });
+
+  /**
+   * `src/app` has no jest coverage (AGENTS.md, Testing gotchas), and the session
+   * screen builds the same key to decide when its effect re-fires. A screen that
+   * rebuilt the key by hand would go stale the moment the store's key changed —
+   * exactly the "guard in two places, tested in one" failure this repo has
+   * shipped before. The only available check is a structural read.
+   */
+  it('is the single key builder: session.tsx imports it rather than rebuilding it', () => {
+    const source = readFileSync(join(__dirname, '..', 'app', 'session.tsx'), 'utf8');
+
+    expect(source).toContain('restCommentaryKey(commentaryTarget)');
+    // No hand-rolled reconstruction of the commentary key alongside it.
+    expect(source).not.toContain('`${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`');
+  });
+
+  /**
+   * Building the key correctly is worthless if the screen's effect does not
+   * depend on it. Dropping `commentaryKey` from the dep array leaves the effect
+   * firing once per rest-phase entry instead of once per rest, so every working
+   * set after the first re-serves the first set's remark — the feature half
+   * dead, with a green suite. That is the same failure the shared
+   * `restCommentaryKey` was introduced to prevent, one layer up.
+   *
+   * `src/app` is jest-invisible, so this is a structural read, the precedent
+   * AGENTS.md sets for `session.tsx:303` / `routineRevision` (AC6.9) and the
+   * same technique as `activeSession.callSites.test.ts`.
+   */
+  it('is wired into the screen effect: the dep array carries commentaryKey', () => {
+    const source = readFileSync(join(__dirname, '..', 'app', 'session.tsx'), 'utf8');
+
+    expect(source).toContain('}, [commentaryKey, shouldShowCommentary]);');
   });
 });

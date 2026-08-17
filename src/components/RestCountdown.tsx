@@ -12,7 +12,11 @@ interface RestCountdownProps {
   /** Remaining time frozen by the engine while the timer is paused */
   frozenRemainingMs: number | undefined;
   isPaused: boolean;
-  /** Coach comment about the upcoming exercise; absent when there is none */
+  /**
+   * Coach comment about this rest: the set just completed when the rest sits
+   * inside an exercise or superset group, the upcoming exercise when it sits
+   * between two (#270). Absent when there is none.
+   */
   commentary?: string | null;
   /**
    * True while the comment is still being fetched. Reserving the slot on this
