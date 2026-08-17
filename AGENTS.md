@@ -704,9 +704,12 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   a positional test, correct where an `exerciseId` comparison is not, since a
   routine may list the same exercise twice. `restCommentaryTarget` builds the
   `lastSet` shape from `lastLoggedSet` for the first and keeps the `upNext` shape
-  for the second, and `buildRestCommentaryPrompt` carries the shape: its closing
-  rule line is per-shape, because "comment on the exercise coming up" contradicts
-  the data the `lastSet` message sends. The `lastSet` shape yields **silence** —
+  for the second, and `buildRestCommentaryPrompt` carries the shape all the way
+  through: the **whole system brief** is per-shape — `UP_NEXT_BRIEF` and
+  `LAST_SET_BRIEF` differ in their opening sentence, their second paragraph and
+  two of their rules — and the message heading switches with it (`## Last Set`
+  vs `## Up Next`), because "comment on the exercise coming up" contradicts the
+  data the `lastSet` message sends. The `lastSet` shape yields **silence** —
   never a fallback to `upNext` — on three guards: no `lastLoggedSet`, a
   `setType === 'warmup'` (the test must be `!== 'warmup'`, since transition.lv
   stamps the entry's own `kind` for cardio/stretch and an equality test kills the
@@ -721,8 +724,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `sessionId#entryIdx` to the rest's own position, `sessionId#exerciseIndex:setIndex`,
   so each working set gets its own remark — a deliberate ~4x call-count increase,
   accepted in #270. `restCommentaryKey` is exported and **`src/app/session.tsx`
-  must call it** rather than rebuilding the key; that screen is jest-invisible, so
-  a structural test in `restCommentaryStore.test.ts` is the only guard.
+  must call it** rather than rebuilding the key — **and** the screen's commentary
+  effect must keep `commentaryKey` in its dep array, or the effect stops
+  re-firing per working set and every set after the first silently re-serves the
+  first one's remark. Those are two separate hazards and each has its own
+  structural test in `restCommentaryStore.test.ts`: one asserts the screen calls
+  the exported builder rather than a hand-rolled copy, the other asserts the
+  dep-array entry is present. Both are structural reads of the source, the AC6.9
+  precedent applied twice, because `src/app` is jest-invisible and nothing can
+  load the screen to test either behaviourally.
 - **Three one-shot AI features share the conversation slice's conventions without
   its store.** Rest commentary (`restCommentary*`), the exercise Question button
   (`exerciseQuestion*` — ephemeral per-entry cache keyed by

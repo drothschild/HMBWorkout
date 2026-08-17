@@ -931,6 +931,35 @@ describe('restCommentaryTarget', () => {
         .toBeNull();
     });
 
+    it('names the performer on a working set past the target-sets count in rounds', () => {
+      // The activity predicate mirrors `h.next_active_idx`: active at round r
+      // iff `r < warmupSets + targetSets`. With warmups 2 and targets 3, rounds
+      // 0-1 are the warmups and 2-4 the working sets, so the round just
+      // completed here (setIndex - 1 = 3) sits PAST `targetSets` on its own.
+      // Dropping the `warmupSets` term would go silent on working sets 2 and 3
+      // of every exercise that has warmups — the most ordinary routine shape
+      // there is — and every other fixture in this file has `warmupSets: 0`,
+      // where the two readings agree.
+      const result = restCommentaryTarget(
+        afterWorkingSet({
+          entries: [entry({ warmupSets: 2 })],
+          exerciseIndex: 0,
+          setIndex: 4,
+          loggedSets: [logged(), logged(), logged(), logged()],
+          lastLoggedSet: logged(),
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        entryIdx: 0,
+        exerciseId: 'bench-press',
+        isWarmupSet: false,
+        // Round 3 of an entry with 2 warmups: working set 2.
+        setNumber: 2,
+      });
+    });
+
     it('is silent when nothing has been logged yet', () => {
       // A session whose very first set was skipped: setIndex advanced but
       // lastLoggedSet is still absent.
@@ -940,15 +969,41 @@ describe('restCommentaryTarget', () => {
   });
 
   describe('#270: superset groups', () => {
+    /**
+     * The two members disagree on EVERY field the target copies, not just
+     * `exerciseId`. A group whose members share their plan cannot tell a field
+     * read off the performed entry from the same field read off
+     * `entries[exerciseIndex]`, so the whole payload below would be silently
+     * interchangeable — the "fixture chosen so two readings agree" trap.
+     */
     const supersetEntries = () => [
-      entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A' }),
-      entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A' }),
+      entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', warmupSets: 2 }),
+      entry({
+        idx: 1,
+        exerciseId: 'rower',
+        kind: 'cardio',
+        supersetGroup: 'A',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 0,
+        targetDurationSeconds: 60,
+        restSeconds: 30,
+      }),
     ];
 
     it('follows lastLoggedSet, not entries[exerciseIndex], on a round-repeat rest', () => {
       // The round hands back to the group's first active member, so
-      // entries[exerciseIndex] is bench-press while the set just done was the row.
-      const rowSet = logged({ exerciseId: 'barbell-row' });
+      // entries[exerciseIndex] is bench-press while the set just done was the
+      // rower. Every field must come off the rower: titling or planning this
+      // remark as the bench while printing the rower's numbers is the failure.
+      const rowerSet = logged({
+        exerciseId: 'rower',
+        setType: 'cardio',
+        reps: null,
+        weightKg: null,
+        durationSeconds: 60,
+        rpe: null,
+      });
 
       const result = restCommentaryTarget(
         state({
@@ -956,16 +1011,25 @@ describe('restCommentaryTarget', () => {
           exerciseIndex: 0,
           supersetPosition: 0,
           setIndex: 1,
-          loggedSets: [logged(), rowSet],
-          lastLoggedSet: rowSet,
-        })
+          loggedSets: [logged(), rowerSet],
+          lastLoggedSet: rowerSet,
+        }),
+        { 'bench-press': 'Bench Press', rower: 'Rower' }
       );
 
       expect(result).toMatchObject({
         shape: 'lastSet',
         entryIdx: 1,
-        exerciseId: 'barbell-row',
+        exerciseId: 'rower',
         logIndex: 1,
+        // Read off the performed entry, never the one the engine advanced to.
+        exerciseTitle: 'Rower',
+        kind: 'cardio',
+        warmupSets: 0,
+        targetSets: 2,
+        targetReps: 0,
+        targetDurationSeconds: 60,
+        restSeconds: 30,
       });
     });
 
@@ -1040,6 +1104,49 @@ describe('restCommentaryTarget', () => {
     });
   });
 
+  describe('#270: the warmup guard scopes to the last-set shape only', () => {
+    /**
+     * A decision, not an accident, and nothing else in the suite distinguishes
+     * it from its opposite. Spec rule 2 ("no remark after a warmup set") scopes
+     * the `lastSet` shape: it exists so warmup numbers are not coached and so
+     * the ~4x call increase stays bounded. Spec rule 1 is the shape selector,
+     * and a rest BETWEEN two exercises is definitionally an `upNext` rest that
+     * says nothing about the set just done — the entry it previews may not even
+     * be the one that was warming up.
+     *
+     * The degenerate routine below is where the two rules touch: an entry that
+     * plans warmups and no working sets, so the rest after its last warmup is a
+     * between-exercises rest whose `lastLoggedSet` is a warmup. It still
+     * previews the next exercise. Hoisting the warmup guard above the
+     * `setIndex >= 1` discriminator, or repeating it inside the `upNext`
+     * branch, would silence this rest instead; both survive the rest of the
+     * suite.
+     */
+    it('still previews the next exercise when a warmup ended the previous one', () => {
+      const warmup = logged({ setType: 'warmup', weightKg: 20 });
+
+      const result = restCommentaryTarget(
+        state({
+          entries: [
+            entry({ idx: 0, warmupSets: 2, targetSets: 0, targetReps: 0 }),
+            entry({ idx: 1, exerciseId: 'squat' }),
+          ],
+          exerciseIndex: 1,
+          setIndex: 0,
+          loggedSets: [warmup, warmup],
+          lastLoggedSet: warmup,
+        })
+      );
+
+      expect(result).toMatchObject({
+        shape: 'upNext',
+        entryIdx: 1,
+        exerciseId: 'squat',
+        setNumber: 1,
+      });
+    });
+  });
+
   describe('#270: the same exercise listed twice', () => {
     const twice = () => [
       entry({ idx: 0, exerciseId: 'bench-press' }),
@@ -1100,5 +1207,23 @@ describe('restCommentaryKey', () => {
     expect(source).toContain('restCommentaryKey(commentaryTarget)');
     // No hand-rolled reconstruction of the commentary key alongside it.
     expect(source).not.toContain('`${commentaryTarget.sessionId}#${commentaryTarget.entryIdx}`');
+  });
+
+  /**
+   * Building the key correctly is worthless if the screen's effect does not
+   * depend on it. Dropping `commentaryKey` from the dep array leaves the effect
+   * firing once per rest-phase entry instead of once per rest, so every working
+   * set after the first re-serves the first set's remark — the feature half
+   * dead, with a green suite. That is the same failure the shared
+   * `restCommentaryKey` was introduced to prevent, one layer up.
+   *
+   * `src/app` is jest-invisible, so this is a structural read, the precedent
+   * AGENTS.md sets for `session.tsx:303` / `routineRevision` (AC6.9) and the
+   * same technique as `activeSession.callSites.test.ts`.
+   */
+  it('is wired into the screen effect: the dep array carries commentaryKey', () => {
+    const source = readFileSync(join(__dirname, '..', 'app', 'session.tsx'), 'utf8');
+
+    expect(source).toContain('}, [commentaryKey, shouldShowCommentary]);');
   });
 });

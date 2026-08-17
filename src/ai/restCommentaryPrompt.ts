@@ -200,8 +200,11 @@ ${lines.join('\n')}`;
 }
 
 /**
- * The coach's brief. Shared preamble and output contract; the closing rule and
- * the framing sentence are the only things the shape changes.
+ * The coach's brief, one per shape. They share their skeleton — a framing
+ * paragraph, a "reply with" paragraph, a rule list opening on the same three
+ * output rules — but not their text: the opening sentence, the whole second
+ * paragraph and the closing rules all change with the shape. Read them as two
+ * briefs, not one brief with a swapped line.
  */
 const UP_NEXT_BRIEF = `You are a strength-training coach in a workout-logging app. The athlete is resting between sets and is about to perform the exercise described in the next message.
 
@@ -222,7 +225,7 @@ Rules:
 - Two sentences at most. They are reading this on a countdown screen.
 - Only reference numbers that appear in the next message. Never invent history.
 - Comment on the set they just finished, not on some other exercise.
-- The recent-sets list is this same exercise's history and may already include the set above. Never read it as a separate set or compare that set against itself.`;
+- The recent-sets list is this same exercise's own history and may already contain the set above. A listed set identical to it is that same set, not a second one: do not count it twice or treat it as prior evidence for itself. Every other set in the list, today's earlier sets included, is fair to compare against.`;
 
 /**
  * Build the one-shot commentary prompt for whichever remark the rest calls for.
