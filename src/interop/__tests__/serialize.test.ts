@@ -1097,4 +1097,147 @@ describe('serialize', () => {
       expect(lineFor(undefined)).toContain('set_type=working');
     });
   });
+
+  /**
+   * #284: an out-of-scale rpe is never written, on EITHER of the two paths
+   * that build a session line.
+   *
+   * `buildSessionSetLine` has two call sites — the row-ordered loop and the
+   * orphaned-group sweep — and #277's fix reached only one of its two paths
+   * before review caught it. Both are exercised here on purpose; the guard
+   * lives in `formatFlags`, which both reach, and this is what proves it.
+   */
+  describe('#284: out-of-scale rpe is dropped on both session-line paths', () => {
+    const sessionRow = {
+      id: 'sess-rpe-284',
+      routineId: 'push-06-01',
+      startedAt: new Date('2026-07-08T10:00:00Z'),
+      endedAt: new Date('2026-07-08T10:30:00Z'),
+      createdAt: new Date('2026-07-08T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+    const rows = [
+      {
+        id: 're-press',
+        exerciseId: 'barbell-bench-press',
+        order: 0,
+        supersetGroup: undefined,
+        warmupSets: 0,
+        targetSets: 4,
+        targetReps: 6,
+        targetDurationSeconds: undefined,
+        restSeconds: undefined,
+        notes: undefined,
+      },
+    ];
+    const exercises = [
+      { id: 'barbell-bench-press', title: 'Barbell Bench Press', kind: 'strength' as const },
+      { id: 'cable-fly', title: 'Cable Fly', kind: 'strength' as const },
+    ];
+
+    test('the row-ordered path drops rpe=0 and keeps the rest of the set', () => {
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-press',
+            exerciseId: 'barbell-bench-press',
+            setType: 'working' as const,
+            reps: 6,
+            weightKg: 80,
+            rpe: 0,
+            position: 0,
+          },
+        ] as any,
+        rows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6 set_type=working weight=80');
+      expect(markdown).not.toContain('rpe=');
+    });
+
+    test('the orphaned-group path drops rpe=0 too', () => {
+      // `re-fly`'s row was destroyed by a routine edit, so this set is only
+      // reached by the second call site.
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-fly',
+            exerciseId: 'cable-fly',
+            setType: 'working' as const,
+            reps: 12,
+            weightKg: 15,
+            rpe: 0,
+            position: 0,
+          },
+        ] as any,
+        rows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- cable-fly: 1x12 set_type=working weight=15');
+      expect(markdown).not.toContain('rpe=');
+    });
+
+    test('a null rpe — what WatermelonDB returns for an unset column — writes nothing', () => {
+      // AGENTS.md's `!= null` rule for this line: an unset optional column
+      // arrives as null, not undefined. No interop fixture carried a null rpe
+      // before this, which is why mutating the guard to `!== undefined`
+      // survived the whole suite. It still survives — `isValidRpe(null)` is
+      // false, so the new guard subsumes the null case for this field — but
+      // the case is now covered rather than merely masked.
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-press',
+            exerciseId: 'barbell-bench-press',
+            setType: 'working' as const,
+            reps: 6,
+            rpe: null,
+            position: 0,
+          },
+        ] as any,
+        rows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6 set_type=working');
+      expect(markdown).not.toContain('rpe=');
+      expect(markdown).not.toContain('null');
+    });
+
+    test('an in-scale rpe is still written on both paths', () => {
+      // The guard must not be a blanket drop: this is the assertion that
+      // fails if someone "fixes" the asymmetry by deleting the flag.
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-press',
+            exerciseId: 'barbell-bench-press',
+            setType: 'working' as const,
+            reps: 6,
+            rpe: 8.5,
+            position: 0,
+          },
+          {
+            routineExerciseId: 're-fly',
+            exerciseId: 'cable-fly',
+            setType: 'working' as const,
+            reps: 12,
+            rpe: 1,
+            position: 1,
+          },
+        ] as any,
+        rows as any,
+        exercises as any
+      );
+
+      expect(markdown).toContain('- barbell-bench-press: 1x6 set_type=working rpe=8.5');
+      expect(markdown).toContain('- cable-fly: 1x12 set_type=working rpe=1');
+    });
+  });
 });

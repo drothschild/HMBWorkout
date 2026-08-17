@@ -105,6 +105,15 @@ function buildSessionSetLine(
   // for an unset optional column, and a loose null check is the only guard that
   // treats both as "absent" without also rejecting legitimate falsy values
   // like 0. Applies to every optional column read on this line.
+  //
+  // For `rpe` specifically, 0 is NOT such a legitimate falsy value — the scale
+  // starts at 1 — but the check still belongs here rather than in this file
+  // (#284). `formatFlags` refuses to write an out-of-scale rpe, which is the
+  // same predicate the parser reads by, so the two halves cannot disagree; the
+  // guard is deliberately NOT restated here, because a second copy of the
+  // bound is how the halves drifted apart in the first place. `weight`'s 0
+  // (bodyweight) and `reps`'s 0 (a set of zero reps) are genuinely legitimate
+  // and are written as-is.
   if (set.rpe != null) {
     flags.rpe = set.rpe;
   }
