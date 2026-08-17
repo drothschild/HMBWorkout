@@ -5,7 +5,12 @@
 
 import SessionSet, { SetType } from '@/db/models/SessionSet';
 import Exercise, { ExerciseKind } from '@/db/models/Exercise';
-import { formatFlags, ContractError, type ParsedFlags } from './format';
+import {
+  formatFlags,
+  ContractError,
+  type ParsedFlags,
+  type RoutineSetLine,
+} from './format';
 
 type SessionSetRow = {
   routineExerciseId: string;
@@ -261,6 +266,22 @@ export function serializeSession(
 /**
  * Serialize a routine to markdown.
  * Includes frontmatter (type, id, updated, created, tags) and fenced workout block.
+ *
+ * ONE LINE PER PRESCRIBED SET (#276 Phase 5). An entry's `sets` list is written
+ * out in order, each set carrying its own reps, rep-range top, load, duration
+ * and distance, and repeating the entry-level flags (rest, superset, kind,
+ * hint) so every line stands on its own and `parseRoutine` can regroup them.
+ *
+ * The verbosity is the representation: a warmup ramp is seven lines because it
+ * is seven prescribed sets, and changing one warmup weight changes one line.
+ * The aggregate form this replaced could not hold a ramp at all.
+ *
+ * An entry with no sets still emits its exercise line (AC5.8) — the routine
+ * names the exercise, and dropping it would say something the data does not.
+ *
+ * `serializeSession` and `buildSessionSetLine` are untouched by this: a session
+ * has always been one line per logged set, which is the shape the routine
+ * document has now adopted.
  */
 export function serializeRoutine(
   routineRow: {
@@ -275,12 +296,15 @@ export function serializeRoutine(
     exerciseId: string;
     order: number;
     supersetGroup?: string;
-    warmupSets: number;
-    targetSets?: number;
-    targetReps?: number;
-    targetDurationSeconds?: number;
     restSeconds?: number;
     notes?: string;
+    /**
+     * The entry's prescribed sets, in order. Absent and `[]` mean the same
+     * thing here and both emit a bare exercise line — a distinction the DB
+     * does not draw either, since `getRoutineSets` answers `[]` for an entry
+     * with no `routine_sets` rows whether or not anything ever wrote any.
+     */
+    sets?: RoutineSetLine[];
   }>,
   exercises: Array<{
     id: string;
@@ -308,54 +332,85 @@ export function serializeRoutine(
     const exerciseData = exercises.find(e => e.id === re.exerciseId);
     if (!exerciseData) continue;
 
-    const flags: ParsedFlags = {};
+    /**
+     * The flags every line of this entry repeats. Rebuilt per line rather than
+     * shared, because `formatFlags` reads a mutable record and each line then
+     * adds its own set-level fields on top.
+     */
+    const entryFlags = (): ParsedFlags => {
+      const flags: ParsedFlags = {};
 
-    // Add kind if not strength
-    if (exerciseData.kind !== 'strength') {
-      flags.kind = exerciseData.kind;
+      // Add kind if not strength
+      if (exerciseData.kind !== 'strength') {
+        flags.kind = exerciseData.kind;
+      }
+
+      // Add superset if applicable
+      if (re.supersetGroup) {
+        flags.supersetLabel = re.supersetGroup;
+      }
+
+      // Add rest. `!= null`, not `!== undefined`: see the matching comment in
+      // serializeSession — WatermelonDB's unset optional columns surface as
+      // null here too, and that applies to every optional field on this line.
+      if (re.restSeconds != null) {
+        flags.restSeconds = re.restSeconds;
+      }
+
+      // Add notes as hint if present. Blank-but-non-empty notes are treated as
+      // absent (#277) rather than emitting `@""`: a note of pure whitespace
+      // carries nothing, and round-tripping it as an empty hint would be a
+      // distinction the app has no use for. A note with *content* keeps its
+      // surrounding whitespace exactly — `format.ts` quotes it.
+      if (re.notes && re.notes.trim() !== '') {
+        flags.hint = re.notes;
+      }
+
+      return flags;
+    };
+
+    const emit = (setDesc: string, flags: ParsedFlags): void => {
+      const flagStr = formatFlags(flags);
+      // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double
+      // space — and no trailing space when the entry says nothing at all.
+      const parts = [setDesc, flagStr].filter(p => p);
+      workoutLines.push(`- ${re.exerciseId}:${parts.length > 0 ? ` ${parts.join(' ')}` : ''}`);
+    };
+
+    const sets = re.sets ?? [];
+    if (sets.length === 0) {
+      emit('', entryFlags());
+      continue;
     }
 
-    // Add duration for cardio/stretch. `!= null`, not `!== undefined`: see
-    // the matching comment in serializeSession — WatermelonDB's unset
-    // optional columns surface as null here too.
-    if (re.targetDurationSeconds != null) {
-      flags.durationSeconds = re.targetDurationSeconds;
-    }
+    for (const set of sets) {
+      const flags = entryFlags();
 
-    // Add superset if applicable
-    if (re.supersetGroup) {
-      flags.supersetLabel = re.supersetGroup;
-    }
+      // The routine vocabulary is {warmup, normal} and `normal` is spelled by
+      // saying nothing — the inverse of a session line, which always states its
+      // type because there it is a measurement rather than a plan default.
+      if (set.setType === 'warmup') {
+        flags.setType = 'warmup';
+      }
 
-    // Add warmup count if > 0
-    if (re.warmupSets > 0) {
-      flags.warmupSets = re.warmupSets;
-    }
+      if (set.targetRepsMax != null) {
+        flags.targetRepsMax = set.targetRepsMax;
+      }
 
-    // Add rest
-    if (re.restSeconds != null) {
-      flags.restSeconds = re.restSeconds;
-    }
+      if (set.targetWeightKg != null) {
+        flags.targetWeightKg = set.targetWeightKg;
+      }
 
-    // Add notes as hint if present. Blank-but-non-empty notes are treated as
-    // absent (#277) rather than emitting `@""`: a note of pure whitespace
-    // carries nothing, and round-tripping it as an empty hint would be a
-    // distinction the app has no use for. A note with *content* keeps its
-    // surrounding whitespace exactly — `format.ts` quotes it.
-    if (re.notes && re.notes.trim() !== '') {
-      flags.hint = re.notes;
-    }
+      if (set.targetDurationSeconds != null) {
+        flags.durationSeconds = set.targetDurationSeconds;
+      }
 
-    let setDesc = '';
-    if (re.targetSets != null && re.targetReps != null) {
-      setDesc = `${re.targetSets}x${re.targetReps}`;
-    }
+      if (set.targetDistanceM != null) {
+        flags.targetDistanceM = set.targetDistanceM;
+      }
 
-    const flagStr = formatFlags(flags);
-    // Build line: `- <exercise-id>: <setDesc> <flagStr>`, avoiding double space
-    const parts = [setDesc, flagStr].filter(p => p);
-    const line = `- ${re.exerciseId}: ${parts.join(' ')}`;
-    workoutLines.push(line);
+      emit(set.targetReps != null ? `1x${set.targetReps}` : '', flags);
+    }
   }
 
   const body = [

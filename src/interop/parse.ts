@@ -29,7 +29,9 @@ import {
   parseFlagTokens,
   tokenizeFlagString,
   ContractError,
+  DocContext,
   ParsedDoc,
+  RoutineSetLine,
   WorkoutLine,
   SupersetGroup,
 } from './format';
@@ -113,12 +115,16 @@ function extractWorkoutBlock(markdown: string): string {
 
 /**
  * Parse a single workout line.
- * Format: `- <exercise-id>: [<sets>x<reps>] [flags…]`
+ * Format: `- <exercise-id>: [1x<reps>] [flags…]`
  *
- * @param context - 'routine' for author-written targets, 'session' for logged measurements.
- *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
+ * @param context - 'routine' for author-written targets, 'session' for logged
+ *   measurements. It is consulted three times, and only three (#276 Phase 5):
+ *   which flag keys are legal (`parseFlagTokens`), whether the sets slot may be
+ *   anything other than 1, and whether a line with no set content at all is an
+ *   exercise-with-no-sets or malformed. The zero-REPS asymmetry that used to be
+ *   a fourth is gone — `1x0` now means the same thing in both documents.
  */
-function parseWorkoutLine(line: string, context: 'routine' | 'session'): WorkoutLine | null {
+function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null {
   line = line.trim();
   if (!line.startsWith('- ')) return null;
 
@@ -140,6 +146,13 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
   // nor scattered across the flag scan below.
   const parts = tokenizeFlagString(rest);
   if (parts.length === 0) {
+    // `- <exercise-id>:` with nothing after it. In a ROUTINE that is the
+    // wire form of an entry prescribing no sets — a shape the DB can hold
+    // (convention 10) and therefore one the grammar must be able to say.
+    // In a SESSION there is no such thing: a line records a set that happened.
+    if (context === 'routine') {
+      return { exerciseId, kind: 'strength', sets: [] };
+    }
     throw new ContractError(`Empty spec after colon in line: ${line}`);
   }
 
@@ -171,7 +184,7 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
   // route; do not "preserve" it as a correctness invariant it is not.
   let parsedFlags: any;
   try {
-    parsedFlags = parseFlagTokens(flagParts);
+    parsedFlags = parseFlagTokens(flagParts, context);
   } catch (e) {
     if (e instanceof ContractError) {
       throw e;
@@ -195,22 +208,35 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
     // 0x10 matches \d+x\d+ (syntactically fine) but "zero sets of N reps" is
     // semantically nonsensical — the same class of problem as cardio/stretch
     // with sets×reps or strength missing sets×reps below, so it is rejected
-    // rather than silently defaulted. Unlike an *absent* targetSets (which
-    // defaultTargetSetsForDurationLine in sync/syncService.ts defaults to 1),
-    // an explicit 0 is a deliberate-looking statement from the author; there
-    // is no single "correct" set count to substitute for it, and doing so
-    // silently would launder a likely typo into a plan the author never wrote.
+    // rather than silently defaulted. Neither serializer can emit it: both
+    // hardcode the slot to `1`.
     if (targetSets === 0) {
       throw new ContractError(`Sets×reps cannot have zero sets: ${line}`);
     }
 
-    // Same reasoning as zero sets above: "3 sets of 0 reps" is semantically
-    // empty in a ROUTINE (author plan), so reject it. But in a SESSION, the slot
-    // carries LOGGED reps, and logging 0 reps is a real, valid action — a set
-    // where the user performed zero repetitions. Only reject for routine targets.
-    if (context === 'routine' && targetReps === 0) {
-      throw new ContractError(`Sets×reps cannot have zero reps: ${line}`);
+    // A ROUTINE line is one prescribed set (#276 Phase 5), so the slot's first
+    // number is always 1. Anything else is a document written against the old
+    // `<target-sets>x<target-reps>` overload, and reading `3x8` as a single set
+    // of 8 would silently discard two thirds of the author's plan — the exact
+    // failure this grammar change exists to end. Refusing is loud and the
+    // document is recoverable by hand; a silent misread is neither.
+    //
+    // Deliberately routine-only rather than universal. `serializeSession` has
+    // always hardcoded `1x`, so tightening the session side would be a change
+    // to a document shape this phase is not touching (AC5.5).
+    if (context === 'routine' && targetSets !== 1) {
+      throw new ContractError(
+        `A routine line is one set, so its sets slot must be 1, not ${targetSets}: ${line}`
+      );
     }
+
+    // The zero-REPS rule that used to live here is deleted, not ported (AC5.4).
+    // It rejected `3x0` in a routine because "3 sets of nothing" is an empty
+    // plan, while accepting `1x0` in a session because performing zero reps is
+    // a real measurement. With the slot reading `1x<reps>` in both documents
+    // there is no `3x0` left to reject, and `1x0` — one prescribed set of zero
+    // reps — means the same odd-but-expressible thing in each. The contexts
+    // stop diverging on validation strictness, which is the point.
   }
 
   // Validate: cardio/stretch cannot have sets×reps
@@ -221,6 +247,45 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
   // For cardio/stretch, must have duration
   if ((kind === 'cardio' || kind === 'stretch') && parsedFlags.durationSeconds === undefined) {
     throw new ContractError(`${kind} exercise missing duration: ${line}`);
+  }
+
+  // Nothing set-like on the line at all — no sets slot, no duration.
+  //
+  // In a ROUTINE that is the same statement as the empty spec handled at the
+  // top, just with entry-level flags attached: `- bench-press-db: rest=1:30`
+  // names an exercise and prescribes nothing. It reaches here rather than
+  // there because the flags made the spec non-empty. Note this arm also
+  // swallows what were two separate errors — a strength line missing its sets
+  // and a cardio/stretch line missing its duration — but only in the case
+  // where the line says nothing about sets at all; a cardio line WITH a sets
+  // slot, or a strength line with neither but inside a session, still throws.
+  //
+  // The arm applies only to a line the parser understands ENTIRELY. A stray
+  // token — `4x`, which is neither a sets slot nor a `key=value` nor a `@hint`
+  // — is skipped by `parseFlagTokens` as an "unknown non-flag", so without this
+  // check a typo'd sets slot would read as "prescribes nothing" instead of
+  // failing. That is the same laundering the zero-sets and non-1-sets rules
+  // above refuse. Routine-only, like the arm it guards: tightening the session
+  // side would change a document shape this phase is not touching.
+  const hasSetContent = targetReps !== undefined || parsedFlags.durationSeconds !== undefined;
+  const strayTokens = flagParts.filter(
+    (part) => !part.startsWith('@') && !part.includes('=')
+  );
+  if (context === 'routine' && !hasSetContent && strayTokens.length > 0) {
+    throw new ContractError(
+      `Unrecognized token${strayTokens.length > 1 ? 's' : ''} ` +
+        `${strayTokens.join(', ')} in line: ${line}`
+    );
+  }
+  if (context === 'routine' && !hasSetContent) {
+    return {
+      exerciseId,
+      kind,
+      sets: [],
+      restSeconds: parsedFlags.restSeconds,
+      supersetLabel: parsedFlags.supersetLabel,
+      hint: parsedFlags.hint,
+    };
   }
 
   // For strength without sets×reps, must either have duration (error) or be malformed
@@ -241,12 +306,14 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
     targetReps,
     targetDurationSeconds: parsedFlags.durationSeconds,
     restSeconds: parsedFlags.restSeconds,
-    warmupSets: parsedFlags.warmupSets,
     supersetLabel: parsedFlags.supersetLabel,
     hint: parsedFlags.hint,
     rpe: parsedFlags.rpe,
     weight: parsedFlags.weight,
     distance: parsedFlags.distance,
+    targetRepsMax: parsedFlags.targetRepsMax,
+    targetWeightKg: parsedFlags.targetWeightKg,
+    targetDistanceM: parsedFlags.targetDistanceM,
     setType: parsedFlags.setType,
   };
 
@@ -254,8 +321,106 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
 }
 
 /**
+ * Fold one parsed routine line into the prescribed set it describes.
+ *
+ * The set's own vocabulary is `RoutineSetType`'s {warmup, normal}, narrower
+ * than the line grammar's `set_type` values. `serializeRoutine` only ever
+ * writes `warmup` or nothing, so the mapping is total in the direction that
+ * matters; a hand-authored `set_type=working` (or `drop`, which the grammar
+ * admits and the routine model has no room for) reads as `normal`.
+ */
+function toRoutineSet(line: WorkoutLine): RoutineSetLine {
+  const set: RoutineSetLine = {
+    setType: line.setType === 'warmup' ? 'warmup' : 'normal',
+  };
+  if (line.targetReps !== undefined) set.targetReps = line.targetReps;
+  if (line.targetRepsMax !== undefined) set.targetRepsMax = line.targetRepsMax;
+  if (line.targetWeightKg !== undefined) set.targetWeightKg = line.targetWeightKg;
+  if (line.targetDurationSeconds !== undefined)
+    set.targetDurationSeconds = line.targetDurationSeconds;
+  if (line.targetDistanceM !== undefined) set.targetDistanceM = line.targetDistanceM;
+  return set;
+}
+
+/** The entry-level flags a run of set lines must agree on. */
+const ENTRY_FLAGS = ['restSeconds', 'supersetLabel', 'hint', 'kind'] as const;
+
+/**
+ * Group a run of consecutive routine lines naming the same exercise into one
+ * entry whose `sets` is the ordered prescription (#276 Phase 5, AC5.2).
+ *
+ * Keyed on the exercise id AND the superset label. The label is part of the key
+ * rather than merely carried along, because a set list must never straddle a
+ * superset boundary: `groupSupersets` below runs on the OUTPUT of this and
+ * groups by adjacency of label, and the engine's own contiguity premise
+ * (`helpers.lv`'s `group_end_idx`, cited by `transition.lv`) rests on that
+ * grouping being honest.
+ *
+ * An entry-level flag that DISAGREES across the run is a contract violation
+ * rather than a first-wins merge. The serializer writes rest, hint, kind and
+ * superset identically on every line of an entry, so a disagreement means the
+ * document is describing two entries this grouping cannot tell apart — and
+ * quietly keeping the first line's value would discard the second's.
+ *
+ * The limit, stated because it is a real one: two ADJACENT entries of the same
+ * exercise with identical entry-level flags are indistinguishable from one
+ * entry with the combined sets, and merge. A routine may legitimately list the
+ * same exercise twice (AGENTS.md, Boundaries), so this is a lossy corner of the
+ * grammar — inherent to "group by exercise id", which is what AC5.2 specifies.
+ * It is not reachable from any production path today: nothing outside tests
+ * calls `parseRoutine` (#262).
+ */
+function groupRoutineSets(lines: WorkoutLine[]): WorkoutLine[] {
+  const result: WorkoutLine[] = [];
+
+  for (const line of lines) {
+    const previous = result[result.length - 1];
+    const continuesEntry =
+      previous !== undefined &&
+      previous.exerciseId === line.exerciseId &&
+      previous.supersetLabel === line.supersetLabel;
+
+    if (!continuesEntry) {
+      const { targetSets, targetReps, targetDurationSeconds, targetRepsMax, targetWeightKg, targetDistanceM, setType, ...entry } = line;
+      result.push({ ...entry, sets: line.sets ?? [toRoutineSet(line)] });
+      continue;
+    }
+
+    for (const flag of ENTRY_FLAGS) {
+      if (previous[flag] !== line[flag]) {
+        throw new ContractError(
+          `Conflicting ${flag} across the set lines of ${line.exerciseId}: ` +
+            `${String(previous[flag])} then ${String(line[flag])}`
+        );
+      }
+    }
+
+    // A bare exercise line inside a run contributes no set, and neither does
+    // the run contribute one to it: `sets: []` on either side simply appends
+    // nothing. That keeps `- ex:` followed by `- ex: 1x5` from inventing a
+    // phantom set, without needing a special case.
+    previous.sets = [...(previous.sets ?? []), ...(line.sets ?? [toRoutineSet(line)])];
+  }
+
+  return result;
+}
+
+/**
  * Group adjacent lines with the same superset label.
  * Non-adjacent lines with the same label are NOT grouped.
+ *
+ * This is the fifth superset-contiguity walk in the codebase and the one #278
+ * deliberately left out of its consolidation: its singleton-label dropping is
+ * part of the markdown contract that `helpers.lv:56` and `transition.lv:14`
+ * cite by name, so it is a named exception rather than an oversight.
+ *
+ * #276 Phase 5 does not change it, and does not change its premise. What runs
+ * through it changed shape — for a routine it now receives one item per ENTRY
+ * rather than one per line, because `groupRoutineSets` has already folded each
+ * entry's set lines together — but adjacency and label equality are still what
+ * decide a group, and `groupRoutineSets` keys on the label precisely so it can
+ * never merge across one. For a session nothing changed at all: session lines
+ * are not folded, so this still sees exactly what it always did.
  */
 function groupSupersets(lines: WorkoutLine[]): (WorkoutLine | SupersetGroup)[] {
   const result: (WorkoutLine | SupersetGroup)[] = [];
@@ -294,10 +459,10 @@ function groupSupersets(lines: WorkoutLine[]): (WorkoutLine | SupersetGroup)[] {
 /**
  * Internal implementation: parse markdown with context-dependent validation.
  *
- * @param context - 'routine' for author-written targets, 'session' for logged measurements.
- *   Affects validation: zero reps is invalid for routine targets but valid for logged reps.
+ * @param context - 'routine' for author-written targets, 'session' for logged
+ *   measurements. See `parseWorkoutLine` for the three places it is consulted.
  */
-function parseDoc(markdown: string, context: 'routine' | 'session'): ParsedDoc {
+function parseDoc(markdown: string, context: DocContext): ParsedDoc {
   try {
     const frontmatter = parseFrontmatter(markdown);
     const blockContent = extractWorkoutBlock(markdown);
@@ -313,8 +478,14 @@ function parseDoc(markdown: string, context: 'routine' | 'session'): ParsedDoc {
       }
     }
 
+    // A routine's lines are SETS; fold each entry's run back together before
+    // the superset walk, which works in entries. A session's lines are already
+    // one per logged set and are not folded — `parseSession` surfaces them
+    // individually under `loggedReps`.
+    const entries = context === 'routine' ? groupRoutineSets(workoutLines) : workoutLines;
+
     // Group supersets
-    const exercises = groupSupersets(workoutLines);
+    const exercises = groupSupersets(entries);
 
     return { frontmatter, exercises };
   } catch (error) {

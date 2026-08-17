@@ -613,8 +613,7 @@ tags: []
       const result = parseRoutine(docWith('1x6 @"3x12 = the goal"'));
       const exercise = result.exercises[0] as any;
       expect(exercise.hint).toBe('3x12 = the goal');
-      expect(exercise.targetSets).toBe(4);
-      expect(exercise.targetReps).toBe(6);
+      expect(exercise.sets).toEqual([{ setType: 'normal', targetReps: 6 }]);
     });
 
     test('escapes inside a quoted value are decoded', () => {
@@ -833,8 +832,20 @@ ${lines.join('\n')}
       ).toThrow(ContractError);
 
       expect(() =>
-        entries('- bench-press-db: 1x5 @cue one', '- bench-press-db: 1x5 @cue two')
+        entries('- bench-press-db: 1x5 @"cue one"', '- bench-press-db: 1x5 @"cue two"')
       ).toThrow(ContractError);
+
+      expect(() =>
+        entries('- cycling: 1x5 kind=cardio', '- cycling: 1x5')
+      ).toThrow(ContractError);
+    });
+
+    test('a stray token on a routine line is still malformed, not a zero-set entry', () => {
+      // The zero-set arm only applies to a line the parser understands ENTIRELY.
+      // `4x` is not a sets slot, not a flag and not a hint, and reading the line
+      // as "prescribes nothing" would launder a typo into a plan.
+      expect(() => entries('- bench-press-db: 4x')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: rest=90 gibberish')).toThrow(ContractError);
     });
 
     test('a lone exercise line with no set content is an entry with no sets', () => {

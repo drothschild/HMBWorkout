@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { serializeRoutine, serializeSession } from '@/interop/serialize';
-import { getSessionSets } from '@/db/repository';
+import { getRoutineSets, getSessionSets } from '@/db/repository';
 
 /**
  * Export a single routine to markdown string.
@@ -39,6 +39,15 @@ export async function exportRoutine(db: Database, routineId: string): Promise<st
           .fetch()) as any[])
       : [];
 
+  // The prescribed set list of each entry (#276 Phase 5). Fetched per entry
+  // rather than in one query because `getRoutineSets` is the layer that already
+  // sorts by `order` and normalizes WatermelonDB's nulls away; re-implementing
+  // either here to save a round trip is how the two drift. An entry with no
+  // `routine_sets` rows answers `[]`, which serializes to a bare exercise line.
+  const setsByEntry = await Promise.all(
+    routineExercises.map((re) => getRoutineSets(db, re.id))
+  );
+
   // Serialize routine
   return serializeRoutine(
     {
@@ -48,17 +57,25 @@ export async function exportRoutine(db: Database, routineId: string): Promise<st
       createdAt: (routine as any).createdAt,
       updatedAt: (routine as any).updatedAt,
     },
-    routineExercises.map((re) => ({
+    routineExercises.map((re, index) => ({
       id: re.id,
       exerciseId: re._raw.exercise_id,
       order: re._raw.order,
       supersetGroup: re._raw.superset_group,
-      warmupSets: re._raw.warmup_sets,
-      targetSets: re._raw.target_sets ?? undefined,
-      targetReps: re._raw.target_reps ?? undefined,
-      targetDurationSeconds: re._raw.target_duration_seconds ?? undefined,
       restSeconds: re._raw.rest_seconds ?? undefined,
       notes: re._raw.notes,
+      // `?? undefined` on every optional field, the same normalization this
+      // mapping has always applied — the second layer behind `serialize.ts`'s
+      // own `!= null` guards, per AGENTS.md. Redundant with `getRoutineSets`'s
+      // own normalization by design: keep both.
+      sets: setsByEntry[index].map((set) => ({
+        setType: set.setType,
+        targetReps: set.targetReps ?? undefined,
+        targetRepsMax: set.targetRepsMax ?? undefined,
+        targetWeightKg: set.targetWeightKg ?? undefined,
+        targetDurationSeconds: set.targetDurationSeconds ?? undefined,
+        targetDistanceM: set.targetDistanceM ?? undefined,
+      })),
     })),
     exercises.map((e) => ({
       id: e.id,
