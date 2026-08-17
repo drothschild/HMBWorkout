@@ -204,6 +204,30 @@ describe('Per-set routine model (#276 Phase 1)', () => {
       expect(await getRoutineSets(database, row.id)).toEqual([]);
     });
 
+    it('destroys an existing list when a later upsert passes an explicitly empty one', async () => {
+      // `sets: []` is a statement, not an omission — the discriminating pair
+      // with the "omits `sets` entirely" case below. A guard written as
+      // `if (sets?.length)` treats the two the same and silently keeps a
+      // seven-set ramp on an entry the caller just emptied.
+      await writeBench(RAMP);
+      expect(await getRoutineSets(database, (await benchRow()).id)).toHaveLength(7);
+
+      await writeBench([]);
+
+      expect(await getRoutineSets(database, (await benchRow()).id)).toEqual([]);
+      expect(await database.get('routine_sets').query().fetch()).toHaveLength(0);
+    });
+
+    it('drops the derived aggregates to zero when an existing list is emptied', async () => {
+      await writeBench(RAMP);
+      await writeBench([]);
+
+      const row = await benchRow();
+      expect(row._raw.warmup_sets).toBe(0);
+      expect(row._raw.target_sets).toBe(0);
+      expect(row._raw.target_reps).toBeNull();
+    });
+
     it('does not fire the zero-total targetSets default when a set list is supplied', async () => {
       // upsertRoutine defaults targetSets to 1 for an entry with no warmup and
       // no target sets. That default must NOT fire against an explicit empty
