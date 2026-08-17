@@ -1154,6 +1154,115 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
     });
   });
 
+  /**
+   * #284: `serializeSession` emitted `rpe=0` and `parseSession` refused it.
+   *
+   * The write side guarded on presence only (`set.rpe != null`) while the read
+   * side enforced the 1–10 scale, so a stored 0 produced a document the parser
+   * threw on — and because `serializeSession` is all-or-nothing, that would
+   * have failed the WHOLE session rather than one flag.
+   *
+   * Deliberately modelled on the `reps: 0` fixture above, and deliberately
+   * resolved the other way: 0 reps is a real measurement ("the user performed
+   * zero repetitions"), whereas the app's RPE scale starts at 1 and its own
+   * input path (`buildLogSetValues`) already reads a 0 as *cleared*. So the
+   * writer, not the reader, was wrong.
+   */
+  describe('#284: the RPE scale agrees across serialize → parse', () => {
+    const sessionRow = {
+      id: 'sess-rpe-scale-001',
+      routineId: 'push-06-01',
+      startedAt: new Date('2026-07-08T10:00:00Z'),
+      endedAt: new Date('2026-07-08T10:30:00Z'),
+      createdAt: new Date('2026-07-08T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+    const routineExercises = [
+      {
+        id: 're-rpe-scale-001',
+        exerciseId: 'bench-press-bb',
+        order: 0,
+        supersetGroup: undefined,
+        warmupSets: 0,
+        targetSets: 4,
+        targetReps: 6,
+        targetDurationSeconds: undefined,
+        restSeconds: 120,
+        notes: undefined,
+      },
+    ];
+    const exercises = [
+      { id: 'bench-press-bb', title: 'Barbell Bench Press', kind: 'strength' as const },
+    ];
+
+    const roundTripRpe = (rpe: number | undefined) => {
+      const sets = [
+        {
+          routineExerciseId: 're-rpe-scale-001',
+          setType: 'working' as const,
+          reps: 6,
+          weightKg: 50,
+          durationSeconds: undefined,
+          rpe,
+          position: 0,
+        },
+      ];
+      const markdown = serializeSession(
+        sessionRow as any,
+        sets as any,
+        routineExercises as any,
+        exercises as any
+      );
+      const parsed = parseSession(markdown);
+      return { markdown, line: parsed.exercises[0] as WorkoutLine };
+    };
+
+    test('a set stored with rpe 0 survives serialize → parse', () => {
+      // The regression fixture. Before the fix this threw
+      // `Contract violation: Invalid flag value: rpe=0` out of parseSession.
+      const { markdown, line } = roundTripRpe(0);
+
+      expect(markdown).not.toContain('rpe=');
+      expect(line.rpe).toBeUndefined();
+
+      // Scoped to the one flag: the work the athlete actually did is intact.
+      expect(line.loggedReps).toBe(6);
+      expect(line.weight).toBe(50);
+      expect(line.setType).toBe('working');
+    });
+
+    test('an absent rpe and a zero rpe produce the same document', () => {
+      // "Treat 0 the way it treats absent" — stated as an equality rather
+      // than as two separate assertions about what is missing.
+      expect(roundTripRpe(0).markdown).toBe(roundTripRpe(undefined).markdown);
+    });
+
+    test.each([
+      { rpe: 0, legal: false },
+      { rpe: 0.5, legal: false },
+      { rpe: 1, legal: true },
+      { rpe: 7.3, legal: false },
+      { rpe: 7.5, legal: true },
+      { rpe: 10, legal: true },
+      { rpe: 10.5, legal: false },
+      { rpe: 11, legal: false },
+    ])('rpe $rpe round-trips (legal: $legal)', ({ rpe, legal }) => {
+      // The whole boundary list, driven through the real document path: every
+      // value either survives intact or is dropped, and NONE produces a
+      // document parseSession refuses.
+      const { markdown, line } = roundTripRpe(rpe);
+
+      expect(markdown).toContain('1x6');
+      if (legal) {
+        expect(markdown).toContain(`rpe=${rpe}`);
+        expect(line.rpe).toBe(rpe);
+      } else {
+        expect(markdown).not.toContain('rpe=');
+        expect(line.rpe).toBeUndefined();
+      }
+    });
+  });
+
   // #277: `serializeRoutine` writes `routine_exercises.notes` into the `@hint`
   // flag, and the flag tokeniser split the whole flag string on whitespace — so
   // a hint was one token by construction. A prose note lost everything after

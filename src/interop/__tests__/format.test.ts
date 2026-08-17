@@ -14,6 +14,8 @@ import {
   tokenizeFlagString,
   parseFlags,
   parseFlagTokens,
+  formatFlags,
+  isValidRpe,
   ContractError,
 } from '../format';
 
@@ -214,6 +216,88 @@ describe('format: quoted flag values (#277)', () => {
 
     test('propagates the tokenizer rejection of an unterminated quote', () => {
       expect(() => parseFlags('@"never closed')).toThrow(ContractError);
+    });
+  });
+});
+
+/**
+ * #284: the RPE scale is ONE rule, applied at both ends of the grammar.
+ *
+ * The reader enforced 1–10 in 0.5 steps and the writer enforced nothing, so
+ * `formatFlags` could emit an `rpe=` value `parseFlags` then refused. These
+ * pin the shared predicate and both of its application sites; the document
+ * -level consequence is in `roundtrip.test.ts`.
+ */
+describe('format: the RPE scale (#284)', () => {
+  /**
+   * Every value named in the issue's boundary list plus the ones that bracket
+   * it. `emitted` is what the grammar considers a legal RPE — the writer emits
+   * exactly these and the reader accepts exactly these.
+   */
+  const BOUNDARIES: ReadonlyArray<{ value: number; legal: boolean }> = [
+    { value: 0, legal: false },
+    { value: 0.5, legal: false },
+    { value: 1, legal: true },
+    { value: 1.5, legal: true },
+    { value: 7.3, legal: false },
+    { value: 7.5, legal: true },
+    { value: 10, legal: true },
+    { value: 10.5, legal: false },
+    { value: 11, legal: false },
+    { value: -1, legal: false },
+  ];
+
+  describe('isValidRpe', () => {
+    test.each(BOUNDARIES)('$value → $legal', ({ value, legal }) => {
+      expect(isValidRpe(value)).toBe(legal);
+    });
+
+    test('rejects the non-finite values parseFloat can produce', () => {
+      expect(isValidRpe(NaN)).toBe(false);
+      expect(isValidRpe(Infinity)).toBe(false);
+      expect(isValidRpe(-Infinity)).toBe(false);
+    });
+  });
+
+  describe('formatFlags', () => {
+    test('emits an in-scale rpe', () => {
+      expect(formatFlags({ rpe: 7.5 })).toBe('rpe=7.5');
+      expect(formatFlags({ rpe: 1 })).toBe('rpe=1');
+      expect(formatFlags({ rpe: 10 })).toBe('rpe=10');
+    });
+
+    test('omits an out-of-scale rpe rather than writing a line no reader accepts', () => {
+      // 0 is the value the issue was raised on: nothing in the app means
+      // "RPE zero" — `buildLogSetValues` already reads a 0 off the slider as
+      // *cleared* — so it is dropped exactly as an absent one is.
+      expect(formatFlags({ rpe: 0 })).toBe('');
+      expect(formatFlags({ rpe: 0.5 })).toBe('');
+      expect(formatFlags({ rpe: 10.5 })).toBe('');
+      expect(formatFlags({ rpe: 11 })).toBe('');
+      expect(formatFlags({ rpe: 7.3 })).toBe('');
+    });
+
+    test('dropping the rpe leaves the rest of the line intact', () => {
+      // The omission is scoped to the one flag: a set's actual work must not
+      // be lost because an annotation was out of scale.
+      expect(formatFlags({ setType: 'working', rpe: 0, weight: 60 })).toBe(
+        'set_type=working weight=60'
+      );
+    });
+  });
+
+  describe('the two halves agree at every boundary', () => {
+    test.each(BOUNDARIES)('$value', ({ value, legal }) => {
+      const wire = formatFlags({ rpe: value });
+
+      if (legal) {
+        expect(wire).toBe(`rpe=${value}`);
+        expect(parseFlags(wire)).toEqual({ rpe: value });
+      } else {
+        // Nothing is written, so there is nothing for the reader to refuse.
+        expect(wire).toBe('');
+        expect(() => parseFlags(`rpe=${value}`)).toThrow(ContractError);
+      }
     });
   });
 });
