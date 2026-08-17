@@ -848,20 +848,89 @@ ${lines.join('\n')}
       expect(() => entries('- bench-press-db: rest=90 gibberish')).toThrow(ContractError);
     });
 
-    test('a lone exercise line with no set content is an entry with no sets', () => {
-      const parsed = entries('- bench-press-db:');
+    test('an exercise line marked sets=0 is an entry with no sets', () => {
+      const parsed = entries('- bench-press-db: sets=0');
 
       expect(parsed).toHaveLength(1);
       expect(parsed[0].exerciseId).toBe('bench-press-db');
       expect(parsed[0].sets).toEqual([]);
     });
 
-    test('a lone exercise line keeps its entry-level flags', () => {
-      const parsed = entries('- bench-press-db: rest=1:30 @easy');
+    test('a sets=0 line keeps its entry-level flags', () => {
+      const parsed = entries('- bench-press-db: sets=0 rest=1:30 @easy');
 
       expect(parsed[0].sets).toEqual([]);
       expect(parsed[0].restSeconds).toBe(90);
       expect(parsed[0].hint).toBe('easy');
+    });
+
+    /**
+     * The two Criticals of the #293 review, at the parse layer.
+     *
+     * `sets=0` exists because without it these two lines are the same string:
+     * "this entry prescribes nothing" and "this set prescribes nothing in
+     * particular". The parser guessed, and guessed wrong in both directions —
+     * a bare cardio exercise line threw as a set missing its duration, and a
+     * load-only set silently disappeared.
+     */
+    test('a routine line without sets=0 is a SET, however little it prescribes', () => {
+      expect(entries('- bench-press-db: target_weight=50')[0].sets).toEqual([
+        { setType: 'normal', targetWeightKg: 50 },
+      ]);
+      expect(entries('- bench-press-db: reps_max=12')[0].sets).toEqual([
+        { setType: 'normal', targetRepsMax: 12 },
+      ]);
+      expect(entries('- bench-press-db: set_type=warmup')[0].sets).toEqual([{ setType: 'warmup' }]);
+      // The floor of the family: a set with all five columns unset. One set in,
+      // one set out — the entry that has NO sets is the other line.
+      expect(entries('- bench-press-db:')[0].sets).toEqual([{ setType: 'normal' }]);
+      expect(entries('- bench-press-db: rest=1:30')[0].sets).toEqual([{ setType: 'normal' }]);
+    });
+
+    test('a cardio or stretch routine line need not carry a duration', () => {
+      // A prescribed cardio set may state a distance, a duration, or neither;
+      // the duration requirement is the SESSION's, where a line is a
+      // measurement. Applying it here is what made a bare cardio entry line —
+      // the shape every routine in the app has today — unparseable.
+      expect(entries('- rower: sets=0 kind=cardio')[0].sets).toEqual([]);
+      expect(entries('- rower: kind=cardio target_distance=5000')[0].sets).toEqual([
+        { setType: 'normal', targetDistanceM: 5000 },
+      ]);
+      expect(entries('- pigeon-pose: sets=0 kind=stretch')[0].sets).toEqual([]);
+    });
+
+    test('a sets=0 line that also prescribes a set is a contract violation', () => {
+      // It asserts both that the entry has no sets and that here is one of
+      // them. Refusing beats picking one of the two readings.
+      expect(() => entries('- bench-press-db: sets=0 1x5')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: sets=0 target_weight=50')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: sets=0 set_type=warmup')).toThrow(ContractError);
+      expect(() => entries('- rower: sets=0 kind=cardio duration=5:00')).toThrow(ContractError);
+    });
+
+    test('a set COUNT is not a thing the marker can say', () => {
+      // `sets=<n>` for nonzero n is the aggregate model this grammar replaced.
+      // A count is spelled by writing that many lines, so anything but 0 is a
+      // document written against a model that no longer exists — refused, the
+      // same way `3x8` is, rather than reinterpreted.
+      expect(() => entries('- bench-press-db: sets=3')).toThrow(ContractError);
+      expect(() => entries('- bench-press-db: sets=1')).toThrow(ContractError);
+    });
+
+    test('sets=0 is refused on a session line', () => {
+      const sessionDoc = `---
+type: workout-session
+id: sess-nosets-01
+date: 2026-08-16
+created: 2026-08-16
+tags: []
+---
+
+\`\`\`workout
+- bench-press-db: sets=0 set_type=working
+\`\`\`
+`;
+      expect(() => parseSession(sessionDoc)).toThrow(ContractError);
     });
 
     test('a session line still requires its set content', () => {

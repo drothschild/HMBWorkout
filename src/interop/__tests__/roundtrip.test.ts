@@ -1694,6 +1694,103 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(ex.hint).toBe('warm up however you like');
     });
 
+    /**
+     * EMPTY is not a strength-only shape (C1, #293 review).
+     *
+     * `acceptDraft` writes no `routine_sets` rows yet, so every entry in every
+     * routine the app holds today is EMPTY — cardio and stretch entries
+     * included. An exercise line saying "prescribes nothing" must therefore not
+     * be read as a set line that forgot its duration.
+     */
+    test('EMPTY: a cardio or stretch entry with no sets round-trips like any other', () => {
+      for (const kind of ['cardio', 'stretch'] as const) {
+        const entry = {
+          id: 're-empty-kind',
+          exerciseId: 'rower',
+          order: 0,
+          supersetGroup: undefined,
+          restSeconds: 60,
+          notes: undefined,
+          sets: [],
+        };
+
+        const markdown = serializeRoutine(routineRow as any, [entry] as any, [
+          { id: 'rower', title: 'Rower', kind },
+        ] as any);
+
+        expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+
+        const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+        expect(ex.exerciseId).toBe('rower');
+        expect(ex.kind).toBe(kind);
+        expect(ex.restSeconds).toBe(60);
+        expect(ex.sets).toEqual([]);
+      }
+    });
+
+    /**
+     * PARTIAL: a set that prescribes some columns and not others (C2, #293
+     * review).
+     *
+     * All five `routine_sets` columns are independently optional, so "one set
+     * at 50 kg, reps unstated" is a storable prescription. It serialized to a
+     * line carrying only flags, which the parser read as an exercise
+     * prescribing nothing — and the set disappeared. Every set that goes in
+     * comes back, or the call throws; nothing vanishes.
+     */
+    test('PARTIAL: a load-only, reps_max-only or warmup-only set is still a set', () => {
+      const sets = [
+        { setType: 'normal' as const, targetReps: 5, targetWeightKg: 40 },
+        { setType: 'normal' as const, targetWeightKg: 50 },
+        { setType: 'normal' as const, targetRepsMax: 12 },
+        { setType: 'warmup' as const },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, sets }] as any,
+        benchPress as any
+      );
+
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(4);
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
+    test('PARTIAL: a distance-only cardio set is still a set', () => {
+      const sets = [{ setType: 'normal' as const, targetDistanceM: 5000 }];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ id: 're-d', exerciseId: 'rower', order: 0, restSeconds: 60, sets }] as any,
+        [{ id: 'rower', title: 'Rower', kind: 'cardio' as const }] as any
+      );
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
+    /**
+     * The floor of the PARTIAL family: a set prescribing NOTHING at all.
+     *
+     * A `routine_sets` row with all five columns null and `set_type=normal` is
+     * storable, so the grammar owes it an answer. It is the one shape that
+     * collides with the EMPTY exercise line, and the collision is what the
+     * explicit `sets=0` marker resolves: EMPTY says `sets=0`, a contentless set
+     * says nothing, and one set in is one set out.
+     */
+    test('PARTIAL: a set prescribing nothing is one set, not a zero-set entry', () => {
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, sets: [{ setType: 'normal' as const }] }] as any,
+        benchPress as any
+      );
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual([{ setType: 'normal' }]);
+    });
+
     test('MISMATCH: a superset whose members prescribe different set counts', () => {
       // Convention 9's fixture, at the grammar layer. The members' lines are
       // NOT interleaved in the document — the routine stores each entry's set

@@ -1283,16 +1283,45 @@ describe('serialize', () => {
       ]);
     });
 
-    test('EMPTY emits a bare exercise line, not nothing and not a crash', () => {
-      expect(linesFor({ sets: [] })).toEqual(['- bench-press-db:']);
-      expect(linesFor({ sets: [], restSeconds: 90 })).toEqual(['- bench-press-db: rest=1:30']);
+    test('EMPTY emits an exercise line marked sets=0, not nothing and not a crash', () => {
+      // The marker is the whole of the fix for #293's two Criticals: without
+      // it this line is byte-identical to a prescribed set carrying only flags
+      // (`- bench-press-db: target_weight=50`), and the parser has to guess.
+      expect(linesFor({ sets: [] })).toEqual(['- bench-press-db: sets=0']);
+      expect(linesFor({ sets: [], restSeconds: 90 })).toEqual([
+        '- bench-press-db: sets=0 rest=1:30',
+      ]);
+    });
+
+    test('EMPTY says sets=0 whatever the exercise kind', () => {
+      // C1 (#293 review). A cardio or stretch entry with no sets is the COMMON
+      // shape right now — nothing writes `routine_sets` rows yet — and its line
+      // must not read as a set line that forgot its duration.
+      const linesForKind = (kind: 'cardio' | 'stretch'): string[] =>
+        serializeRoutine(
+          routineRow as any,
+          [{ id: 're-1', exerciseId: 'rower', order: 0, restSeconds: 60, sets: [] }] as any,
+          [{ id: 'rower', title: 'Rower', kind }] as any
+        )
+          .split('\n')
+          .filter((l) => l.startsWith('- '));
+
+      expect(linesForKind('cardio')).toEqual(['- rower: sets=0 rest=1:00 kind=cardio']);
+      expect(linesForKind('stretch')).toEqual(['- rower: sets=0 rest=1:00 kind=stretch']);
     });
 
     test('an entry with no set list at all is treated as EMPTY', () => {
       // Reachable for real between this phase and Phase 6: a routine written
       // by a caller that predates set lists has routine_exercises rows and no
       // routine_sets rows, and `getRoutineSets` answers `[]` for it.
-      expect(linesFor({})).toEqual(['- bench-press-db:']);
+      expect(linesFor({})).toEqual(['- bench-press-db: sets=0']);
+    });
+
+    test('a set that prescribes nothing is still a line, and says nothing', () => {
+      // The counterpart the marker exists to keep distinct: one prescribed set
+      // with all five columns unset. It is NOT `sets=0` — the entry has a set,
+      // that set just prescribes nothing in particular.
+      expect(linesFor({ sets: [{ setType: 'normal' }] })).toEqual(['- bench-press-db:']);
     });
 
     test('per-set distance is emitted under its own key, not the session `distance=`', () => {

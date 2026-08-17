@@ -230,6 +230,80 @@ describe('exportService', () => {
       expect((parsed.exercises[0] as any).exerciseId).toBe('ex-row');
       expect((parsed.exercises[0] as any).sets).toEqual([]);
     });
+
+    it('an entry with no routine_sets rows exports and parses back whatever its kind', async () => {
+      // C1 (#293 review). The zero-set entry is not a strength-only shape:
+      // `acceptDraft` does not write `routine_sets` yet, so EVERY routine in
+      // the app has zero rows for every entry, cardio and stretch included.
+      // The exercise line has to say "this entry prescribes nothing" in a way
+      // the parser can read without also demanding a duration it does not have.
+      await upsertExercise(db, 'ex-erg', 'Rowing Erg', 'cardio');
+      await upsertExercise(db, 'ex-pigeon', 'Pigeon Pose', 'stretch');
+      await upsertExercise(db, 'ex-bench2', 'Bench Press', 'strength');
+      await upsertRoutine(db, 'routine-mixed', 'Conditioning', [
+        { exerciseId: 'ex-erg', order: 0, restSeconds: 60 },
+        { exerciseId: 'ex-pigeon', order: 1 },
+        { exerciseId: 'ex-bench2', order: 2 },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-mixed');
+      const parsed = parseRoutine(markdown);
+
+      expect(parsed.exercises).toHaveLength(3);
+      expect(parsed.exercises.map((e: any) => e.exerciseId)).toEqual([
+        'ex-erg',
+        'ex-pigeon',
+        'ex-bench2',
+      ]);
+      expect(parsed.exercises.map((e: any) => e.sets)).toEqual([[], [], []]);
+      expect((parsed.exercises[0] as any).kind).toBe('cardio');
+      expect((parsed.exercises[0] as any).restSeconds).toBe(60);
+      expect((parsed.exercises[1] as any).kind).toBe('stretch');
+    });
+
+    it('a set prescribing only a load, a rep-range top or a distance is not dropped', async () => {
+      // C2 (#293 review). All five `routine_sets` columns are independently
+      // optional, so a set may carry a load and no reps. Such a set serialized
+      // to a line the parser read as "an exercise prescribing nothing" and the
+      // set VANISHED — two sets in, one set out. Silent loss is the failure
+      // this contract exists to prevent; every set that goes in comes back.
+      await upsertExercise(db, 'ex-press', 'Overhead Press', 'strength');
+      await upsertExercise(db, 'ex-run', 'Treadmill', 'cardio');
+      await upsertRoutine(db, 'routine-partial', 'Partial Prescriptions', [
+        {
+          exerciseId: 'ex-press',
+          order: 0,
+          sets: [
+            { setType: 'normal', targetReps: 5, targetWeightKg: 40 },
+            { setType: 'normal', targetWeightKg: 50 },
+            { setType: 'normal', targetRepsMax: 12 },
+            { setType: 'warmup' },
+          ],
+        },
+        {
+          exerciseId: 'ex-run',
+          order: 1,
+          sets: [{ setType: 'normal', targetDistanceM: 5000 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-partial'));
+      expect(parsed.exercises).toHaveLength(2);
+
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 5, targetWeightKg: 40 },
+        { setType: 'normal', targetWeightKg: 50 },
+        { setType: 'normal', targetRepsMax: 12 },
+        { setType: 'warmup' },
+      ]);
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'normal', targetDistanceM: 5000 },
+      ]);
+    });
   });
 
   describe('exportSessionHistory', () => {
