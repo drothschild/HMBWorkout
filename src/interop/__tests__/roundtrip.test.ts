@@ -1317,6 +1317,7 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
     });
 
     test('a multi-line note round-trips its newline', () => {
+      // (see the session-path sibling below: the same property, other document)
       // Decision (#277): newlines are PRESERVED, escaped as `\n` inside the
       // quoted value, not normalized to spaces. The document stays line-based
       // because the escape means no literal newline is ever emitted inside a
@@ -1328,6 +1329,116 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(line.hint).toBe(note);
       // One workout line, not two.
       expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    });
+  });
+
+  /**
+   * The SESSION document's free-text value (#277 review, C1).
+   *
+   * `serializeSession` never writes a hint, so `superset=` is its whole exposure
+   * to free text — and it built its flag list by hand rather than through
+   * `formatFlags`, so the routine path's quoting never reached it. Nothing in
+   * the suite exercised a session label at all, which is why the asymmetry
+   * survived to review; these are that missing surface.
+   */
+  describe('#277: session superset labels survive the round-trip', () => {
+    const sessionRow = {
+      id: 'sess-ss-001',
+      routineId: 'push-ss-001',
+      startedAt: new Date('2026-07-07T10:00:00Z'),
+      endedAt: new Date('2026-07-07T11:00:00Z'),
+      createdAt: new Date('2026-07-07T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    /**
+     * Round-trips one logged set under a superset label. `restSeconds` is set
+     * on purpose: `superset=` is emitted before `rest=`, so a label that fails
+     * to hold together takes a real flag down with it rather than just losing
+     * its own tail.
+     */
+    const roundTripLabel = (
+      supersetGroup: string
+    ): { markdown: string; line: WorkoutLine } => {
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-ss-001',
+            exerciseId: 'bench-press-db',
+            setType: 'working' as const,
+            reps: 8,
+            weightKg: 60,
+            position: 0,
+          },
+        ] as any,
+        [
+          {
+            id: 're-ss-001',
+            exerciseId: 'bench-press-db',
+            order: 0,
+            supersetGroup,
+            warmupSets: 0,
+            targetSets: 4,
+            targetReps: 6,
+            restSeconds: 90,
+            notes: undefined,
+          },
+        ] as any,
+        exerciseData as any
+      );
+
+      const parsed = parseSession(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      const first = parsed.exercises[0];
+      const line = ('exercises' in first ? first.exercises[0] : first) as WorkoutLine;
+      return { markdown, line };
+    };
+
+    test('a multi-word label survives, and does not swallow the flag after it', () => {
+      // Before the session path went through formatFlags this emitted
+      // `superset=Group One rest=1:30`, which parsed back as label "Group" with
+      // rest silently gone.
+      const { line } = roundTripLabel('Group One');
+
+      expect(line.supersetLabel).toBe('Group One');
+      expect(line.restSeconds).toBe(90);
+      expect(line.loggedReps).toBe(8);
+      expect(line.weight).toBe(60);
+    });
+
+    test('a label containing a quote survives instead of throwing', () => {
+      // The regression the unquoted session path introduced: `"` is significant
+      // to the tokenizer now, so an unquoted `superset=A"B` made the whole
+      // session document unparseable.
+      const { line } = roundTripLabel('A"B');
+
+      expect(line.supersetLabel).toBe('A"B');
+      expect(line.restSeconds).toBe(90);
+    });
+
+    test('a label containing a newline stays on one workout line', () => {
+      // A literal newline in the label used to split the line in two and
+      // truncate it. Escaping it is the same mechanism as the routine path's
+      // multi-line note, reached now that both share a formatter.
+      const { markdown, line } = roundTripLabel('x\ny');
+
+      expect(line.supersetLabel).toBe('x\ny');
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    });
+
+    test('an ordinary label keeps its bare wire form', () => {
+      // Backward compatibility: quoting must stay the exception on this path
+      // too, or every previously-written session document changes shape.
+      const { markdown, line } = roundTripLabel('A');
+
+      expect(line.supersetLabel).toBe('A');
+      expect(markdown).toContain('superset=A');
+      expect(markdown).not.toContain('superset="A"');
     });
   });
 });

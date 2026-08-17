@@ -411,7 +411,11 @@ describe('serialize', () => {
         ] as any
       );
 
-      expect(markdown).toContain('- hamstring-stretch: set_type=stretch kind=stretch duration=0:30');
+      // Flag order is `formatFlags`'s, shared with the routine path since #277:
+      // rest, warmup, superset, kind, duration, set_type, rpe, weight, distance,
+      // hint. Parsing is order-insensitive, so this pins the bytes, not a
+      // requirement.
+      expect(markdown).toContain('- hamstring-stretch: kind=stretch duration=0:30 set_type=stretch');
     });
 
     test('orders dropped groups by position, after the surviving rows', () => {
@@ -997,6 +1001,100 @@ describe('serialize', () => {
 
     test('a whitespace-only note is emitted as no hint at all', () => {
       expect(lineFor('  \t ')).toBe('- bench-press-db: 4x6 rest=1:30');
+    });
+
+    test('a null note is absent, not a crash and not the string "null"', () => {
+      // WatermelonDB returns null, not undefined, for an unset optional column,
+      // and `notes` is not in exportService's normalized-field list — so null
+      // reaches this guard for real (#277 review, m2/R35). A truthiness check
+      // handles it; an `!== undefined` check would call .trim() on null.
+      expect(lineFor(null as unknown as undefined)).toBe('- bench-press-db: 4x6 rest=1:30');
+    });
+  });
+
+  /**
+   * The session line's wire form (#277 review, C1).
+   *
+   * `buildSessionSetLine` now builds a `ParsedFlags` and hands it to
+   * `formatFlags`, the same formatter the routine path uses, so `superset=` is
+   * quoted by the same helper. These pin the emitted bytes; the parse side of
+   * the same change is in `roundtrip.test.ts`.
+   */
+  describe('#277: session line wire format', () => {
+    const sessionRow = {
+      id: 'sess-wire-01',
+      routineId: 'push-wire-01',
+      startedAt: new Date('2026-07-07T10:00:00Z'),
+      endedAt: new Date('2026-07-07T11:00:00Z'),
+      createdAt: new Date('2026-07-07T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    const lineFor = (supersetGroup: string | undefined): string => {
+      const markdown = serializeSession(
+        sessionRow as any,
+        [
+          {
+            routineExerciseId: 're-wire-01',
+            exerciseId: 'bench-press-db',
+            setType: 'working' as const,
+            reps: 8,
+            weightKg: 60,
+            position: 0,
+          },
+        ] as any,
+        [
+          {
+            id: 're-wire-01',
+            exerciseId: 'bench-press-db',
+            order: 0,
+            supersetGroup,
+            warmupSets: 0,
+            targetSets: 4,
+            targetReps: 6,
+            restSeconds: 90,
+            notes: undefined,
+          },
+        ] as any,
+        exerciseData as any
+      );
+      const workoutLines = markdown.split('\n').filter((l) => l.startsWith('- '));
+      expect(workoutLines).toHaveLength(1);
+      return workoutLines[0];
+    };
+
+    test('a label needing no quoting is emitted bare', () => {
+      expect(lineFor('A')).toBe(
+        '- bench-press-db: 1x8 rest=1:30 superset=A set_type=working weight=60'
+      );
+    });
+
+    test('a multi-word label is emitted as one double-quoted token', () => {
+      expect(lineFor('Group One')).toBe(
+        '- bench-press-db: 1x8 rest=1:30 superset="Group One" set_type=working weight=60'
+      );
+    });
+
+    test('a quote in the label is escaped, not emitted raw', () => {
+      // Emitted raw, this made the whole session document unparseable.
+      expect(lineFor('A"B')).toBe(
+        '- bench-press-db: 1x8 rest=1:30 superset="A\\"B" set_type=working weight=60'
+      );
+    });
+
+    test('a newline in the label is escaped, keeping the document line-based', () => {
+      expect(lineFor('x\ny')).toBe(
+        '- bench-press-db: 1x8 rest=1:30 superset="x\\ny" set_type=working weight=60'
+      );
+    });
+
+    test('set_type=working is still stated explicitly', () => {
+      // `formatFlags` omits a routine's plan defaults, but a session's set type
+      // is a measurement: sharing the formatter must not drop it.
+      expect(lineFor(undefined)).toContain('set_type=working');
     });
   });
 });

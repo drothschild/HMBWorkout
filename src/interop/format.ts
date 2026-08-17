@@ -217,20 +217,51 @@ export function decodeFlagValue(raw: string): string {
 }
 
 /**
+ * Is a quote arriving here opening a value, given the token built so far?
+ *
+ * There is exactly one such position per token, and it is the only place the
+ * serializer ever writes an opening quote: straight after the `@` that
+ * introduces a hint, or straight after the *first* `=` of a `key=value` flag.
+ * A quote anywhere else is an ordinary character.
+ *
+ * That restriction is what keeps pre-#277 documents readable (#277 review, C2).
+ * A quote toggling on sight made an inch mark — `@Go 2" deep`, `@Use the 45"
+ * band`, entirely ordinary in a lifting note — swallow the rest of the line and
+ * throw `Unterminated quoted value`, where the old whitespace tokenizer had
+ * merely truncated at the first space. Truncating is the documented old
+ * behaviour; refusing the whole document is a regression, and `"` only became
+ * significant at all in this change.
+ *
+ * Both clauses are load-bearing:
+ * - `current === '@'` — only a *leading* `@`, so `@see @coach` does not reopen.
+ * - the `=` clause requires it to be the token's first `=` and the token not to
+ *   be a hint, so a note whose own text contains `=` before a quote
+ *   (`@tempo="3010`) is left alone rather than reparsed as a quoted flag value.
+ */
+function opensQuotedValue(current: string): boolean {
+  if (current === '@') return true;
+  if (current.startsWith('@')) return false;
+  return current.endsWith('=') && current.indexOf('=') === current.length - 1;
+}
+
+/**
  * Split a flag string into tokens, respecting double-quoted values.
  *
  * This is the tokenizer for a whole line's spec, not just its flags: `parse.ts`
  * uses it before it looks for the `<sets>x<reps>` slot, so a quoted value
  * containing something like `3x12` is never mistaken for the sets slot.
  *
+ * A `"` is a delimiter only in value-opening position (`opensQuotedValue`) or
+ * as the closer of a value opened there; everywhere else it is literal text.
+ *
  * Tokens keep their quotes; `decodeFlagValue` strips them at the point the
- * value's meaning is known. Throws `ContractError` on an unterminated quote.
+ * value's meaning is known. Throws `ContractError` on an unterminated quote —
+ * the first of two layers, the decoder being the second.
  */
 export function tokenizeFlagString(input: string): string[] {
   const tokens: string[] = [];
   let current = '';
   let inQuotes = false;
-  let started = false;
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
@@ -239,32 +270,31 @@ export function tokenizeFlagString(input: string): string[] {
       // Keep the escape pair raw; decodeFlagValue resolves it later.
       current += ch + (input[i + 1] ?? '');
       i++;
-      started = true;
       continue;
     }
 
-    if (ch === QUOTE) {
+    if (ch === QUOTE && (inQuotes || opensQuotedValue(current))) {
       inQuotes = !inQuotes;
       current += ch;
-      started = true;
       continue;
     }
 
     if (!inQuotes && /\s/.test(ch)) {
-      if (started) tokens.push(current);
+      // `current !== ''` rather than a separate `started` flag: every branch
+      // above appends at least one character, so a non-empty `current` is
+      // exactly "a token is open".
+      if (current !== '') tokens.push(current);
       current = '';
-      started = false;
       continue;
     }
 
     current += ch;
-    started = true;
   }
 
   if (inQuotes) {
     throw new ContractError(`Unterminated quoted value in: ${input}`);
   }
-  if (started) tokens.push(current);
+  if (current !== '') tokens.push(current);
 
   return tokens;
 }
@@ -361,10 +391,12 @@ export function parseFlags(flagStr: string): ParsedFlags {
 /**
  * Parse flags from tokens already produced by `tokenizeFlagString`.
  *
- * Callers that tokenize the whole line themselves (`parse.ts`, which must find
- * the `<sets>x<reps>` slot among the tokens) pass their tokens straight through
- * rather than re-joining them into a string — a quoted value's internal
- * whitespace must not be re-split.
+ * This exists for callers that must tokenize the whole line themselves —
+ * `parse.ts` has to find the `<sets>x<reps>` slot among the tokens before it
+ * parses flags. Passing tokens is the direct route, not a correctness
+ * requirement: re-joining and re-tokenizing is the identity on tokenizer output
+ * (see the note at the `parseFlagTokens` call in `parse.ts`), so this and
+ * `parseFlags` agree.
  */
 export function parseFlagTokens(parts: string[]): ParsedFlags {
   const flags: ParsedFlags = {};
@@ -440,7 +472,12 @@ export function formatFlags(flags: ParsedFlags): string {
     parts.push(`duration=${formatDuration(flags.durationSeconds)}`);
   }
 
-  if (flags.setType !== undefined && flags.setType !== 'working') {
+  if (flags.setType !== undefined) {
+    // Emitted whenever present, `working` included (#277). A session line
+    // always states its set type — it is a measurement, not a plan default —
+    // and this is the formatter for both documents, so the omit-`working` rule
+    // that used to live here would have silently dropped it. A routine line
+    // never sets `setType` at all, so nothing on that side changes.
     parts.push(`set_type=${flags.setType}`);
   }
 

@@ -158,8 +158,17 @@ function parseWorkoutLine(line: string, context: 'routine' | 'session'): Workout
     }
   }
 
-  // Parse flags first to get kind. The tokens go through as tokens: re-joining
-  // them into a string and re-splitting would undo the quote-awareness above.
+  // Parse flags first to get kind, from the tokens produced above.
+  //
+  // What is load-bearing is the ORDER — tokenizing the whole spec before the
+  // sets×reps scan, so a quoted value holding `3x12` is never taken for the
+  // sets slot. Passing tokens rather than a re-joined string is not: tokenizer
+  // output has balanced quotes and no unquoted whitespace, which makes
+  // `tokenizeFlagString(tokens.join(' ')) === tokens` an identity, so
+  // `parseFlags(flagParts.join(' '))` would behave identically here. It is
+  // measured, not assumed (#277 review, I1: 0 counterexamples over 3,300
+  // inputs, reproduced independently). Passing tokens is simply the direct
+  // route; do not "preserve" it as a correctness invariant it is not.
   let parsedFlags: any;
   try {
     parsedFlags = parseFlagTokens(flagParts);

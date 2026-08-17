@@ -434,28 +434,58 @@ token, which is why 59 interop tests never noticed.
 
 `tokenizeFlagString` (`format.ts`) is now the one tokenizer, and `parse.ts` calls it
 for the *whole* line spec — before the `<sets>x<reps>` scan, not just for the flag
-tail. That ordering is load-bearing: a note reading `@"3x12 = the goal"` would
-otherwise have its `3x12` grabbed as the sets slot. Flags parse from tokens
-(`parseFlagTokens`), never from a re-joined string, for the same reason;
-`parseFlags(string)` remains as the tokenize-then-parse wrapper.
+tail. **That ordering is the load-bearing part**: a note reading `@"3x12 = the goal"`
+would otherwise have its `3x12` grabbed as the sets slot. Flags then parse from tokens
+(`parseFlagTokens`) simply because the caller already has them — that is *not* a
+correctness requirement, and an earlier version of this section said it was.
+`tokenizeFlagString(tokens.join(' ')) === tokens` is an identity on tokenizer output
+(measured twice: 3,300 inputs in review, 3,402 independently), so `parseFlags(string)`
+would behave identically at that call site. `parseFlags` has no production caller; it
+is retained as the wrapper that keeps the two entry points symmetric, and
+`format.test.ts` exercises it so its body stays mutation-visible.
 
-Three rules that must stay true together:
+Four rules that must stay true together:
 
 - **Quoting is emitted only when needed** (`quoteFlagValue`: whitespace, `"`, `\`, or
-  empty). A value that used to serialize bare still serializes bare, byte for byte, so
-  every previously-written document parses exactly as it did and every hand-authored
-  `@word` keeps its meaning. An unquoted `@progressive overload` still means
-  `hint: "progressive"` — that is backward compatibility, not a residual bug.
+  empty). A value that used to serialize bare still serializes bare, byte for byte, and
+  a hand-authored `@word` keeps its meaning. An unquoted `@progressive overload` still
+  means `hint: "progressive"` — that is backward compatibility, not a residual bug.
+- **A `"` is significant only in value-opening position** — directly after the `@` of a
+  hint, or directly after the *first* `=` of a `key=value` flag. Everywhere else it is
+  an ordinary character (`opensQuotedValue`). This is not a refinement, it is what makes
+  the previous rule true: a tokenizer that toggled on *any* quote turned an inch mark —
+  `@Go 2" deep`, `@Use the 45" band`, unremarkable in a lifting note — into
+  `Unterminated quoted value` and made the whole document unparseable, where the old
+  whitespace tokenizer had merely truncated at the first space. **The exception, stated
+  exactly: a legacy value that itself BEGINS with `"` now reads as a quoted value** —
+  differently if its quotes balance, rejected if they do not. That is the entire
+  residual; it is pinned by tests in `parse.test.ts` rather than left to be rediscovered.
+  Documents the *new* serializer writes cannot exercise any of this, which is why the
+  suite could not catch it — the check is to re-serialize with the pre-#277 code and
+  parse the result.
 - **Escapes inside quotes are `\\` `\"` `\n` `\r`, and nothing else.** An unterminated
-  quote or an unrecognized escape throws `ContractError` rather than degrading —
-  both mean the serializer wrote something it never writes.
+  quote or an unrecognized escape throws `ContractError` rather than degrading — both
+  mean the serializer wrote something it never writes. Rejected twice, by
+  `tokenizeFlagString` and again by `decodeFlagValue`; the layers are tested separately
+  or each hides the other's absence.
 - **Newlines round-trip; they are not normalized.** `\n` inside a quoted value keeps a
   multi-line note (Hevy has them) intact while guaranteeing no literal newline ever
   appears inside a workout line, so the document stays line-based. A note that is
   *only* whitespace is treated as absent by `serializeRoutine` and emits no `@` at all.
 
-`superset=` is quoted by the same helper — it is free text and had the identical
-truncation hazard, even though nothing writes a label with a space today.
+**Both documents are emitted by `formatFlags`, and that is what keeps `superset=`
+quoted.** `superset_group` is the session line's only free-text value and had the
+identical truncation hazard, but `buildSessionSetLine` used to hand-roll its flag list,
+so the routine path's quoting never reached it — the two paths had no shared code to
+teach, and `superset='Group One'` truncated to `Group` while silently eating the
+`rest=` that followed. It now builds a `ParsedFlags` and hands it to the same
+formatter. **Anything a session line needs that a routine line does not belongs in
+`formatFlags`, not back in the caller** — `set_type` is the live example: it is emitted
+whenever present, `working` included, because a session's set type is a measurement
+rather than a plan default, and a routine line never sets the field at all. Flag order
+on a session line is `formatFlags`'s order as a result (rest, warmup, superset, kind,
+duration, set_type, rpe, weight, distance, hint); parsing is order-insensitive, so this
+is a byte-level change only.
 
 ### Parse context and validation strictness
 
