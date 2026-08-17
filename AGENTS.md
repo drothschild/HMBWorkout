@@ -541,9 +541,10 @@ not extended, because `serializeRoutine`, `exportRoutine` and all of `parse.ts` 
 production caller. Wiring an export path to a screen means adding a **distinct** flag key —
 not reusing `weight=`, which already means logged kg on a session line. Related finding:
 the "session sets only" restriction on `weight=` is a comment, not a rule. `parseFlags`
-keeps one global `knownFlags` allowlist for both contexts (`format.ts:247`), `parse.ts`
-consults its `context` parameter exactly once (line 171, the zero-reps rule), and a
-routine line carrying `weight=60` parses cleanly today.
+keeps one global `knownFlags` allowlist for both contexts (`format.ts:392`, moved from
+:247 by the #277 quoting change), `parse.ts` consults its `context` parameter exactly
+once (line 202, the zero-reps rule), and a routine line carrying `weight=60` parses
+cleanly today.
 
 ## HealthKit (`src/health`)
 
