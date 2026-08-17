@@ -43,6 +43,15 @@ describe('superset grouping call sites', () => {
       expect(source).not.toContain('currentGroup');
       expect(source).not.toContain('exercise.supersetGroup ?? null');
     });
+
+    it("renders every member of each run, not just the run's first", () => {
+      // Source-text criterion, NOT a rendering assertion — nothing can render
+      // this screen. Using the helper correctly and then dropping members on
+      // the way to the JSX is the one substantive mutation the import check
+      // above cannot see, and a run's second member silently vanishing from
+      // the draft card is exactly the class of bug that would ship unnoticed.
+      expect(source).toContain('group.members.map((exercise');
+    });
   });
 
   describe('src/state/routineDetailPresenter.ts', () => {
