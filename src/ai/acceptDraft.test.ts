@@ -593,4 +593,303 @@ describe('acceptDraft', () => {
       expect(entry.targetWeightKg).toBeNull();
     });
   });
+
+  // #276 Phase 4. Until this landed, acceptDraft passed no `sets`, so EVERY
+  // coach-authored routine was aggregate-only and could not express a ramp.
+  describe('per-set drafts (AC4.9)', () => {
+    /** RAMP as the coach drafts it: pounds. Storage is kg. */
+    const RAMP_DRAFT = {
+      name: 'Push Day',
+      exercises: [
+        {
+          title: 'Bench Press (Dumbbell)',
+          kind: 'strength' as const,
+          restSeconds: 120,
+          sets: [
+            { type: 'warmup' as const, reps: 5, weightLbs: 20 },
+            { type: 'warmup' as const, reps: 5, weightLbs: 25 },
+            { type: 'warmup' as const, reps: 3, weightLbs: 40 },
+            { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+            { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+            { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+            { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+          ],
+        },
+      ],
+    };
+
+    /** The entry's `routine_sets` rows in `order`, as raw columns. */
+    async function storedSets(routineId: string): Promise<any[]> {
+      const entries = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch();
+      const rows = await database
+        .get('routine_sets')
+        .query(Q.where('routine_exercise_id', entries[0].id))
+        .fetch();
+
+      return rows
+        .map((row) => (row as any)._raw)
+        .sort((a, b) => a.order - b.order);
+    }
+
+    test('stores RAMP as seven sets with distinct-then-repeating kg loads, in order', async () => {
+      const routineId = await acceptDraft(database, RAMP_DRAFT, { kind: 'create' });
+
+      const rows = await storedSets(routineId);
+
+      // Hard-coded rather than computed through lbsToKg, so a conversion bug
+      // (or a second conversion) is visible rather than cancelled out.
+      expect(rows.map((row) => row.target_weight_kg)).toEqual([
+        9.07, 11.34, 18.14, 22.68, 22.68, 22.68, 22.68,
+      ]);
+      expect(rows.map((row) => row.set_type)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'normal',
+        'normal',
+        'normal',
+        'normal',
+      ]);
+      expect(rows.map((row) => row.target_reps)).toEqual([5, 5, 3, 8, 8, 8, 8]);
+      expect(rows.map((row) => row.target_reps_max)).toEqual([
+        null,
+        null,
+        null,
+        10,
+        10,
+        10,
+        10,
+      ]);
+      expect(rows.map((row) => row.order)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    });
+
+    test('converts lbs to kg exactly once per set', async () => {
+      // A second conversion turns 50lbs into 22.68kg and then 10.29kg. The
+      // ramp assertion above catches that too, but this names the failure.
+      const routineId = await acceptDraft(
+        database,
+        {
+          name: 'Single',
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength' as const,
+              sets: [{ type: 'normal' as const, weightLbs: 185 }],
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      expect((await storedSets(routineId))[0].target_weight_kg).toBe(83.91);
+    });
+
+    test('a set with no prescribed load stores null, not zero', async () => {
+      const routineId = await acceptDraft(
+        database,
+        {
+          name: 'Bodyweight',
+          exercises: [
+            {
+              title: 'Push Up',
+              kind: 'strength' as const,
+              sets: [{ type: 'normal' as const, reps: 20 }],
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      // computeSetPrefill treats a non-positive weight as absent, so a stored
+      // 0 is a value nothing honours.
+      expect((await storedSets(routineId))[0].target_weight_kg).toBeNull();
+    });
+
+    test('stores a duration prescription on the set', async () => {
+      const routineId = await acceptDraft(
+        database,
+        {
+          name: 'Mobility',
+          exercises: [
+            {
+              title: 'Couch Stretch',
+              kind: 'stretch' as const,
+              sets: [{ type: 'normal' as const, durationSeconds: 45 }],
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      expect((await storedSets(routineId))[0].target_duration_seconds).toBe(45);
+    });
+
+    test('a revision replaces the set list wholesale and keeps the entry row id', async () => {
+      // Drafts are whole routines, never diffs, and
+      // session_sets.routine_exercise_id references the row that must survive.
+      const routineId = await acceptDraft(database, RAMP_DRAFT, { kind: 'create' });
+      const before = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch();
+
+      await acceptDraft(
+        database,
+        {
+          name: 'Push Day',
+          exercises: [
+            {
+              title: 'Bench Press (Dumbbell)',
+              kind: 'strength' as const,
+              restSeconds: 120,
+              sets: [
+                { type: 'warmup' as const, reps: 5, weightLbs: 25 },
+                { type: 'normal' as const, reps: 8, weightLbs: 55 },
+              ],
+            },
+          ],
+        },
+        { kind: 'edit', routineId }
+      );
+
+      const after = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch();
+      expect(after.map((row) => row.id)).toEqual(before.map((row) => row.id));
+
+      const rows = await storedSets(routineId);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.target_weight_kg)).toEqual([11.34, 24.95]);
+    });
+  });
+
+  // The decision Phase 1 deferred: which aggregate columns a set list drives.
+  // Answer — ALL FIVE. warmup_sets/target_sets/target_reps were already derived
+  // (Phase 1); target_duration_seconds and target_weight_kg join them here,
+  // because a per-set draft is the first writer that could make them disagree
+  // with the list. `acceptDraft` therefore passes no per-exercise load or
+  // duration at all: the set list is the only place either lives.
+  describe('derived aggregates (#276 Phase 4 decision)', () => {
+    async function storedEntry(routineId: string): Promise<any> {
+      const entries = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch();
+
+      return (entries[0] as any)._raw;
+    }
+
+    test('derives the counts and the first working set’s reps from the list', async () => {
+      const routineId = await acceptDraft(
+        database,
+        {
+          name: 'Push Day',
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength' as const,
+              sets: [
+                { type: 'warmup' as const, reps: 5, weightLbs: 20 },
+                { type: 'warmup' as const, reps: 5, weightLbs: 25 },
+                { type: 'warmup' as const, reps: 3, weightLbs: 40 },
+                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+              ],
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      const raw = await storedEntry(routineId);
+      expect(raw.warmup_sets).toBe(3);
+      expect(raw.target_sets).toBe(4);
+      expect(raw.target_reps).toBe(8);
+    });
+
+    test('derives target_weight_kg from the first working set, NOT from a warmup', async () => {
+      // The discriminating case: RAMP's first set is 20lbs and its first
+      // WORKING set is 50lbs. An implementation reading sets[0] writes 9.07
+      // and every surviving aggregate reader describes the ramp as a 20lb
+      // exercise.
+      const routineId = await acceptDraft(database, {
+        name: 'Push Day',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            sets: [
+              { type: 'warmup' as const, reps: 5, weightLbs: 20 },
+              { type: 'normal' as const, reps: 8, weightLbs: 50 },
+            ],
+          },
+        ],
+      }, { kind: 'create' });
+
+      expect((await storedEntry(routineId)).target_weight_kg).toBe(22.68);
+    });
+
+    test('derives target_duration_seconds from the first working set', async () => {
+      const routineId = await acceptDraft(database, {
+        name: 'Mobility',
+        exercises: [
+          {
+            title: 'Couch Stretch',
+            kind: 'stretch' as const,
+            sets: [
+              { type: 'warmup' as const, durationSeconds: 20 },
+              { type: 'normal' as const, durationSeconds: 60 },
+            ],
+          },
+        ],
+      }, { kind: 'create' });
+
+      const raw = await storedEntry(routineId);
+      expect(raw.target_duration_seconds).toBe(60);
+      expect(raw.target_sets).toBe(1);
+    });
+
+    test('leaves the load and duration columns null when no working set prescribes them', async () => {
+      const routineId = await acceptDraft(database, {
+        name: 'Bodyweight',
+        exercises: [
+          {
+            title: 'Push Up',
+            kind: 'strength' as const,
+            sets: [{ type: 'normal' as const, reps: 20 }],
+          },
+        ],
+      }, { kind: 'create' });
+
+      const raw = await storedEntry(routineId);
+      expect(raw.target_weight_kg).toBeNull();
+      expect(raw.target_duration_seconds).toBeNull();
+    });
+
+    test('a warmup-only entry derives target_sets 0 — the zero-total default must not fire', async () => {
+      // `sets` present means the list is the source of truth. Defaulting
+      // target_sets to 1 against a list holding none is exactly the drift the
+      // derivation exists to prevent.
+      const routineId = await acceptDraft(database, {
+        name: 'Warmup Only',
+        exercises: [
+          {
+            title: 'Band Pull Apart',
+            kind: 'strength' as const,
+            sets: [{ type: 'warmup' as const, reps: 15 }],
+          },
+        ],
+      }, { kind: 'create' });
+
+      const raw = await storedEntry(routineId);
+      expect(raw.warmup_sets).toBe(1);
+      expect(raw.target_sets).toBe(0);
+    });
+  });
 });

@@ -1050,6 +1050,193 @@ describe('draftSchema', () => {
     });
   });
 
+  // #276 Phase 4. The set list is the draft's whole prescription: an exercise
+  // says what to do set by set, and the aggregate counts it used to carry are
+  // gone. RAMP is the discriminating fixture — the aggregate model literally
+  // cannot hold three warmups at three different loads.
+  describe('validateRoutineDraft: per-set drafts (AC4.2 – AC4.6)', () => {
+    /** Bench Press (Dumbbell) as the coach drafts it: pounds, never kg. */
+    const RAMP_SETS = [
+      { type: 'warmup' as const, reps: 5, weightLbs: 20 },
+      { type: 'warmup' as const, reps: 5, weightLbs: 25 },
+      { type: 'warmup' as const, reps: 3, weightLbs: 40 },
+      { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+      { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+      { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+      { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
+    ];
+
+    const withSets = (sets: unknown) => ({
+      name: 'Push Day',
+      exercises: [{ title: 'Bench Press', kind: 'strength' as const, sets }],
+    });
+
+    test('AC4.2: accepts RAMP — three ascending warmups, then four working sets', () => {
+      const draft = withSets(RAMP_SETS);
+
+      const result = validateRoutineDraft(draft);
+
+      // Not just "it validated": the three warmup loads must survive DISTINCT
+      // and in order. A validator that normalised the list to counts would
+      // return one weight here, and the whole point of the phase is lost.
+      expect(result.exercises[0].sets.filter((set) => set.type === 'warmup')).toEqual([
+        { type: 'warmup', reps: 5, weightLbs: 20 },
+        { type: 'warmup', reps: 5, weightLbs: 25 },
+        { type: 'warmup', reps: 3, weightLbs: 40 },
+      ]);
+      expect(result.exercises[0].sets.filter((set) => set.type === 'normal')).toHaveLength(4);
+    });
+
+    test('AC4.3: accepts RANGE (reps 8, repsMax 10)', () => {
+      const result = validateRoutineDraft(withSets([{ type: 'normal', reps: 8, repsMax: 10 }]));
+
+      expect(result.exercises[0].sets[0]).toEqual({ type: 'normal', reps: 8, repsMax: 10 });
+    });
+
+    test('AC4.3: rejects repsMax below reps', () => {
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: 10, repsMax: 8 }]))).toThrow(
+        DraftValidationError
+      );
+    });
+
+    test('AC4.3: accepts repsMax equal to reps (Hevy emits exact ranges that way)', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', reps: 5, repsMax: 5 }]))
+      ).not.toThrow();
+    });
+
+    test('AC4.3: rejects a repsMax with no reps under it', () => {
+      // A range's top with no bottom is not a range, and nothing downstream can
+      // render it: plannedSetsFormat reads repsMax only when reps is present.
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', repsMax: 10 }]))).toThrow(
+        DraftValidationError
+      );
+    });
+
+    test('AC4.4: rejects a set type that is neither warmup nor normal', () => {
+      // 'working' is the SESSION's vocabulary (session_sets.set_type), not the
+      // plan's — the likeliest wrong answer, so it is the one pinned.
+      expect(() => validateRoutineDraft(withSets([{ type: 'working' }]))).toThrow(
+        DraftValidationError
+      );
+      expect(() => validateRoutineDraft(withSets([{ type: 'drop' }]))).toThrow(
+        DraftValidationError
+      );
+      expect(() => validateRoutineDraft(withSets([{}]))).toThrow(DraftValidationError);
+      expect(() => validateRoutineDraft(withSets([{ type: 5 }]))).toThrow(DraftValidationError);
+    });
+
+    test('AC4.5: rejects a zero, negative or off-grid weightLbs, per set', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', weightLbs: 0 }]))
+      ).toThrow(DraftValidationError);
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', weightLbs: -50 }]))
+      ).toThrow(DraftValidationError);
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', weightLbs: 50.25 }]))
+      ).toThrow(DraftValidationError);
+    });
+
+    test('AC4.5: the bound is applied to EVERY set, not only the first', () => {
+      // The mutation this kills: a loop that validates sets[0] and returns.
+      expect(() =>
+        validateRoutineDraft(
+          withSets([
+            { type: 'warmup', weightLbs: 20 },
+            { type: 'normal', weightLbs: 50.25 },
+          ])
+        )
+      ).toThrow(DraftValidationError);
+    });
+
+    test('AC4.5: accepts a half-pound load', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', weightLbs: 187.5 }]))
+      ).not.toThrow();
+    });
+
+    test('AC4.6: rejects an exercise with an empty set list', () => {
+      // `minItems` is on UNSUPPORTED_SCHEMA_KEYWORDS and 400s the whole
+      // request, so this validator is the ONLY layer that can enforce it.
+      // Without it a drafted empty exercise reaches the engine as an entry
+      // h.next_active_landing can never land on.
+      expect(() => validateRoutineDraft(withSets([]))).toThrow(DraftValidationError);
+    });
+
+    test('AC4.6: rejects an exercise with no set list at all', () => {
+      expect(() =>
+        validateRoutineDraft({
+          name: 'Push Day',
+          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+        })
+      ).toThrow(DraftValidationError);
+    });
+
+    test('AC4.6: rejects a set list that is not an array', () => {
+      expect(() => validateRoutineDraft(withSets({ type: 'normal' }))).toThrow(
+        DraftValidationError
+      );
+      expect(() => validateRoutineDraft(withSets('3x8'))).toThrow(DraftValidationError);
+    });
+
+    test('AC4.6: rejects a non-object inside the set list', () => {
+      expect(() => validateRoutineDraft(withSets([null]))).toThrow(DraftValidationError);
+      expect(() => validateRoutineDraft(withSets(['warmup']))).toThrow(DraftValidationError);
+    });
+
+    test('rejects reps below 1 or non-integer, per set', () => {
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: 0 }]))).toThrow(
+        DraftValidationError
+      );
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: -1 }]))).toThrow(
+        DraftValidationError
+      );
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: 8.5 }]))).toThrow(
+        DraftValidationError
+      );
+    });
+
+    test('rejects repsMax below 1 or non-integer', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', reps: 1, repsMax: 1.5 }]))
+      ).toThrow(DraftValidationError);
+    });
+
+    test('rejects a negative durationSeconds but accepts zero', () => {
+      // >= 0, the bound targetDurationSeconds carried before this phase,
+      // transported to the set.
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', durationSeconds: -1 }]))
+      ).toThrow(DraftValidationError);
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', durationSeconds: 0 }]))
+      ).not.toThrow();
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', durationSeconds: 45.5 }]))
+      ).toThrow(DraftValidationError);
+    });
+
+    test('a bare set with only its type is a complete, valid set', () => {
+      // Every prescribed field is independently optional (AC5.8's rule, one
+      // layer up): "do one working set" is a real instruction.
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal' }]))).not.toThrow();
+      expect(() => validateRoutineDraft(withSets([{ type: 'warmup' }]))).not.toThrow();
+    });
+
+    test('applies the per-set bounds to EVERY exercise, not only the first', () => {
+      expect(() =>
+        validateRoutineDraft({
+          name: 'Push Day',
+          exercises: [
+            { title: 'Bench Press', kind: 'strength', sets: [{ type: 'normal', reps: 8 }] },
+            { title: 'Incline Press', kind: 'strength', sets: [] },
+          ],
+        })
+      ).toThrow(DraftValidationError);
+    });
+  });
+
   describe('slugifyTitle', () => {
     test('converts to lowercase', () => {
       expect(slugifyTitle('Bench Press')).toBe('bench-press');
@@ -1145,6 +1332,74 @@ describe('draftSchema', () => {
       const exerciseSchema = draftSchema.properties.exercises.items;
       expect(exerciseSchema.properties.targetWeightLbs).toEqual({ type: 'number' });
       expect(exerciseSchema.required).not.toContain('targetWeightLbs');
+    });
+
+    // #276 AC4.1: the draft exercise carries an ordered set list. `minItems`
+    // cannot express "at least one" — it is on UNSUPPORTED_SCHEMA_KEYWORDS and
+    // 400s the entire request before the model runs (PR #71) — so the schema
+    // declares the shape and validateRoutineDraft enforces the count.
+    describe('per-set exercise schema (AC4.1)', () => {
+      const exerciseSchema = () =>
+        ((AI_TURN_SCHEMA.properties as any).draft.properties.exercises.items) as any;
+
+      test('declares sets as an array of set objects and requires it', () => {
+        expect(exerciseSchema().properties.sets.type).toBe('array');
+        expect(exerciseSchema().properties.sets.items.type).toBe('object');
+        expect(exerciseSchema().required).toContain('sets');
+      });
+
+      test('declares exactly the five per-set properties, with type required', () => {
+        const setSchema = exerciseSchema().properties.sets.items;
+
+        expect(Object.keys(setSchema.properties).sort()).toEqual([
+          'durationSeconds',
+          'reps',
+          'repsMax',
+          'type',
+          'weightLbs',
+        ]);
+        expect(setSchema.required).toEqual(['type']);
+        expect(setSchema.additionalProperties).toBe(false);
+      });
+
+      test('constrains the set type to the plan vocabulary, not the session one', () => {
+        const setSchema = exerciseSchema().properties.sets.items;
+
+        expect(setSchema.properties.type).toEqual({
+          type: 'string',
+          enum: ['warmup', 'normal'],
+        });
+      });
+
+      test('declares weightLbs as number with no bound keywords, reps as integer', () => {
+        const setSchema = exerciseSchema().properties.sets.items;
+
+        // `number`, not `integer`: the bound is a 0.5lb grid. And no `minimum`
+        // or `multipleOf` — both are unsupported keywords.
+        expect(setSchema.properties.weightLbs).toEqual({ type: 'number' });
+        expect(setSchema.properties.reps).toEqual({ type: 'integer' });
+        expect(setSchema.properties.repsMax).toEqual({ type: 'integer' });
+        expect(setSchema.properties.durationSeconds).toEqual({ type: 'integer' });
+      });
+
+      test('carries no minItems anywhere, and stays inside the structured-output subset', () => {
+        // Named separately from the whole-schema guard below because THIS is
+        // the keyword a reader is most tempted to add for AC4.6.
+        expect(JSON.stringify(AI_TURN_SCHEMA)).not.toContain('minItems');
+        expectStructuredOutputSafe(AI_TURN_SCHEMA);
+      });
+
+      test('no longer declares the per-exercise aggregates the set list replaced', () => {
+        // One turn shape, three declarations: the schema, the validators and
+        // the persona must not offer two ways to say the same thing.
+        const properties = Object.keys(exerciseSchema().properties);
+
+        expect(properties).not.toContain('warmupSets');
+        expect(properties).not.toContain('targetSets');
+        expect(properties).not.toContain('targetReps');
+        expect(properties).not.toContain('targetDurationSeconds');
+        expect(properties).not.toContain('targetWeightLbs');
+      });
     });
 
     test('does not require settingsProposal at root level', () => {
