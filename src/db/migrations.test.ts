@@ -7,6 +7,18 @@ import { migrationsForAdapter } from './adapterMigrations';
 
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
+// See the long note in adapter.test.ts. The gate returns `undefined` at v6, so
+// pinning the web adapter's wiring against the gate's real return value is an
+// assertion with `undefined` on both sides — satisfied by hardcoding
+// `migrations: undefined` or by dropping the key. The sentinel pins the wiring.
+// Nothing else in this file touches migrationsForAdapter; `./migrations` (the
+// migrations object every other test here reads) is a different module and is
+// deliberately NOT mocked.
+jest.mock('./adapterMigrations', () => ({
+  __esModule: true,
+  migrationsForAdapter: jest.fn(() => 'SENTINEL'),
+}));
+
 describe('Database schema migrations', () => {
   it('has bumped the schema version to 6 for the routine_sets table', () => {
     expect(databaseSchema.version).toBe(6);
@@ -198,21 +210,28 @@ describe('Database schema migrations', () => {
     expect(databaseSchema.tables['sessions'].columns['sync_status']).toBeUndefined();
   });
 
-  it('pins what the web adapter passes as migrations: whatever migrationsForAdapter decides', () => {
+  it('passes the web adapter whatever migrationsForAdapter decides, not a hardcoded value', () => {
     // This test used to assert reference identity with `migrations`, to block
-    // silent wipes on upgrade. At v6 the wipe is the intent, so the pin moves
-    // to the gate rather than being deleted: the adapter must pass exactly what
-    // migrationsForAdapter returns for the declared schema version — currently
-    // undefined, which is what keeps validateAdapter from throwing "Missing
-    // migration" out of the constructor before the reset can run.
+    // silent wipes on upgrade. At v6 the wipe is the intent, so the pin moved
+    // to the gate rather than being deleted — but it moved as
+    // `toBe(migrationsForAdapter(...))` plus `toBeUndefined()`, which is
+    // `undefined === undefined` and holds however the adapter is written.
+    // The sentinel is what makes it a pin: Phase 6 flips this gate back to a
+    // pass-through, and a hardcoded `undefined` here would swallow the flip
+    // and wipe the user a second time.
     //
     // Mocking LokiJSAdapter prevents creating a live IndexedDB handle that would
     // hang the test; instead we verify what was passed as a constructor argument.
     createWebAdapter();
-    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBe(
-      migrationsForAdapter(databaseSchema.version, migrations)
-    );
-    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBeUndefined();
+    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBe('SENTINEL');
+    expect(migrationsForAdapter).toHaveBeenCalledWith(databaseSchema.version, migrations);
   });
 
+  it('and today the real gate answers `undefined` for the web adapter too', () => {
+    // The unmocked gate, so this file still records what actually reaches
+    // LokiJSAdapter in this build — the sentinel above only proves the wiring.
+    const { migrationsForAdapter: realGate } =
+      jest.requireActual<typeof import('./adapterMigrations')>('./adapterMigrations');
+    expect(realGate(databaseSchema.version, migrations)).toBeUndefined();
+  });
 });

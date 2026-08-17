@@ -59,7 +59,9 @@ describe('migrationsForAdapter', () => {
 
   it('withholds the app’s real migrations at the current schema version, because v6 is the destructive bump', () => {
     // The live wiring, not a synthetic one. This flips to a pass-through in
-    // Phase 6, when a toVersion: 7 entry lands alongside the v7 schema.
+    // Phase 6, when toVersion: 6 AND toVersion: 7 entries land alongside the v7
+    // schema — both are required, and a lone toVersion: 7 throws at module
+    // init. See the numbered Phase 6 note in ./adapterMigrations.ts.
     expect(migrationsForAdapter(databaseSchema.version, migrations)).toBeUndefined();
   });
 

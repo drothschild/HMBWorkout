@@ -22,7 +22,7 @@ import {
   shouldShowSchemaResetNotice,
 } from '@/state/schemaResetNotice';
 import { FirstRunKeyPrompt } from '@/components/FirstRunKeyPrompt';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { secureStorageBackend } from '@/storage/secureStorage';
 import * as Notifications from 'expo-notifications';
 import { createRestTimerExecutor } from '@/engine/executors/restTimer';
@@ -47,10 +47,28 @@ function RuleErrorScreen({ error }: { error: RuleLoadError }) {
 /**
  * The one-time "your saved data was reset" banner (#276 AC1.8).
  *
- * Overlaid rather than inserted into the layout so it cannot shift the tab
- * tree, and dismissible because the reset has already happened — there is
- * nothing here for the user to decide. Never rendered again after this launch:
- * the boot effect records the schema version it came up at.
+ * IN THE LAYOUT, NOT OVER IT. The first version was absolutely positioned at a
+ * hardcoded `top: 60`, on the reasoning that an overlay cannot shift the tab
+ * tree. In the simulator that landed squarely on the Today screen's
+ * "Let's Get Started" onboarding card, hiding its title and body and the
+ * settings gear while leaving its Start/Dismiss buttons poking out below — two
+ * adjacent Dismiss buttons, one of them acting on a card whose text you could
+ * not read. Nudging `top` only moves the collision, because that card is the
+ * first thing in the scroll content and any top overlay lands on something.
+ *
+ * So the banner takes its own height above the navigator instead. It costs the
+ * tab tree some vertical space for one launch, which is strictly better than
+ * obscuring a control. `SafeAreaView edges={['top']}` supplies the notch inset
+ * — the library's SafeAreaView is a native view and needs no SafeAreaProvider
+ * ancestor, which is why session.tsx and routine/[id].tsx already use it that
+ * way. Dismissible because the reset has already happened: there is nothing
+ * here for the user to decide. Never rendered again after this launch — the
+ * boot effect records the schema version it came up at.
+ *
+ * None of this is reachable by jest (`src/app` is outside every testMatch, and
+ * PR #66's collapsed ScrollView shipped past 159 green tests), so it is checked
+ * in the simulator. The structural half — no absolute positioning, no magic
+ * offset, the inset actually asked for — is pinned in schemaResetNotice.test.ts.
  */
 function SchemaResetBanner({
   dark,
@@ -67,32 +85,30 @@ function SchemaResetBanner({
   const text = dark ? ThemedBackgroundText.errorBubbleTextDark : ThemedBackgroundText.errorBubbleText;
 
   return (
-    <View
-      accessibilityRole="alert"
-      style={{
-        position: 'absolute',
-        top: 60,
-        left: 12,
-        right: 12,
-        zIndex: 10,
-        borderRadius: 12,
-        padding: 16,
-        backgroundColor: background,
-      }}>
-      <ThemedText type="smallBold" style={{ color: text }}>
-        {SCHEMA_RESET_NOTICE_TITLE}
-      </ThemedText>
-      <ThemedText style={{ marginTop: 6, color: text }}>{SCHEMA_RESET_NOTICE_BODY}</ThemedText>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Dismiss data reset notice"
-        onPress={onDismiss}
-        style={{ alignSelf: 'flex-end', marginTop: 12, paddingVertical: 6, paddingHorizontal: 12 }}>
+    // The background sits on the SafeAreaView rather than the inner View so it
+    // fills the notch inset too, instead of leaving a bare strip above itself.
+    <SafeAreaView edges={['top']} style={{ backgroundColor: background }}>
+      <View accessibilityRole="alert" style={{ padding: 16 }}>
         <ThemedText type="smallBold" style={{ color: text }}>
-          Dismiss
+          {SCHEMA_RESET_NOTICE_TITLE}
         </ThemedText>
-      </Pressable>
-    </View>
+        <ThemedText style={{ marginTop: 6, color: text }}>{SCHEMA_RESET_NOTICE_BODY}</ThemedText>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss data reset notice"
+          onPress={onDismiss}
+          style={{
+            alignSelf: 'flex-end',
+            marginTop: 12,
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+          }}>
+          <ThemedText type="smallBold" style={{ color: text }}>
+            Dismiss
+          </ThemedText>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -216,26 +232,35 @@ export default function RootLayout() {
     <DatabaseProvider database={database}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
-        {showSchemaResetNotice ? (
-          <SchemaResetBanner
-            dark={colorScheme === 'dark'}
-            onDismiss={() => setShowSchemaResetNotice(false)}
-          />
-        ) : null}
-        <Stack
-          screenOptions={{
-            headerShown: false,
-          }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="session"
-            options={{
+        {/*
+          The banner and the navigator share one flex column, so the banner
+          takes its own height and the navigator gets the rest — that is what
+          makes it impossible for the notice to cover a control. The splash
+          overlay stays outside it because it is absoluteFill'd at zIndex 1000
+          and must keep covering both.
+        */}
+        <View style={{ flex: 1 }}>
+          {showSchemaResetNotice ? (
+            <SchemaResetBanner
+              dark={colorScheme === 'dark'}
+              onDismiss={() => setShowSchemaResetNotice(false)}
+            />
+          ) : null}
+          <Stack
+            screenOptions={{
               headerShown: false,
-              presentation: 'modal',
-            }}
-          />
-          <Stack.Screen name="ai-coach" options={{ headerShown: false }} />
-        </Stack>
+            }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="session"
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen name="ai-coach" options={{ headerShown: false }} />
+          </Stack>
+        </View>
       </ThemeProvider>
     </DatabaseProvider>
   );

@@ -198,6 +198,21 @@ describe('the notice copy', () => {
  * `src/state/activeSession.callSites.test.ts` established for exactly this
  * situation. It proves the wiring exists, not that it renders correctly; the
  * latter is a simulator check (AC7.4).
+ *
+ * EVERY ANCHOR BELOW NAMES A CALL OR A JSX USE, NEVER A BARE IDENTIFIER, and
+ * that is the whole point of the block. The first version of it asserted
+ * `toContain('shouldShowSchemaResetNotice')`, `toContain('liveSchemaVersionContext')`,
+ * `toContain('schemaVersionRecordPatch')` and `toContain('SCHEMA_RESET_NOTICE_TITLE')` —
+ * and every one of those four strings appears in `_layout.tsx`'s *import block*.
+ * Deleting the entire boot wiring while leaving the imports behind passed all
+ * 2045 tests, and `npm run lint` reports the orphaned imports as warnings and
+ * still exits 0, so nothing in the repo caught it. Four mutants were run
+ * against that version and all four survived: delete the wiring, swap the
+ * decide/record order, drop the record call, and render `{false ? (`.
+ *
+ * A bare-identifier `toContain` on an imported symbol is worth nothing here.
+ * If you add an assertion to this block, anchor it on something the import
+ * statement cannot satisfy, and watch it fail before you trust it.
  */
 describe('_layout.tsx wiring (structural — read from source, not executed)', () => {
   const layout = fs.readFileSync(
@@ -205,21 +220,73 @@ describe('_layout.tsx wiring (structural — read from source, not executed)', (
     'utf8'
   );
 
+  const decideAt = layout.indexOf('setShowSchemaResetNotice(shouldShowSchemaResetNotice(');
+  const recordAt = layout.indexOf('setSettings(schemaVersionRecordPatch(');
+
   it('imports the decision from schemaResetNotice rather than re-deriving it in the screen', () => {
     expect(layout).toMatch(/from ['"]@\/state\/schemaResetNotice['"]/);
-    expect(layout).toContain('shouldShowSchemaResetNotice');
+    // The call, not the imported name: the boot effect must actually consult it.
+    expect(decideAt).toBeGreaterThan(-1);
   });
 
   it('consults the decision with the live schema context', () => {
-    expect(layout).toContain('liveSchemaVersionContext');
+    // Parenthesised, so the import line cannot satisfy this on its own.
+    expect(layout).toContain('liveSchemaVersionContext()');
   });
 
   it('records the current schema version, so the notice cannot show twice', () => {
-    expect(layout).toContain('schemaVersionRecordPatch');
+    expect(recordAt).toBeGreaterThan(-1);
   });
 
-  it('renders the notice copy', () => {
-    expect(layout).toContain('SCHEMA_RESET_NOTICE_TITLE');
-    expect(layout).toContain('SCHEMA_RESET_NOTICE_BODY');
+  it('decides BEFORE it records, or the notice is suppressed on the one launch it exists for', () => {
+    // Recording first writes lastSchemaVersion = 6, so the decision that runs
+    // next takes shouldShowSchemaResetNotice's "already recorded" branch and
+    // returns false — permanently, because the record is durable. The failure
+    // is silent in the worst way: no crash, no red test, just a user whose
+    // routines vanished with nothing on screen to explain it. The source
+    // carries a comment saying "Decide BEFORE recording"; this is what makes
+    // the comment enforceable.
+    expect(decideAt).toBeGreaterThan(-1);
+    expect(recordAt).toBeGreaterThan(-1);
+    expect(decideAt).toBeLessThan(recordAt);
+  });
+
+  it('renders the notice copy, gated on the decision rather than unconditionally or never', () => {
+    expect(layout).toContain('{showSchemaResetNotice ? (');
+    // Interpolated, so again the import block cannot satisfy these.
+    expect(layout).toContain('{SCHEMA_RESET_NOTICE_TITLE}');
+    expect(layout).toContain('{SCHEMA_RESET_NOTICE_BODY}');
+  });
+
+  /**
+   * The banner's own body, sliced out so these assertions cannot be satisfied
+   * by some unrelated style elsewhere in the file.
+   *
+   * The first version of the banner floated at a hardcoded `top: 60` and, in
+   * the simulator, covered the Today screen's onboarding card — its title, its
+   * body and the settings gear — leaving that card's Dismiss button visible
+   * directly beneath the notice's own. Whether it *looks* right is still a
+   * simulator question and always will be; what is pinnable is that it no
+   * longer floats and no longer guesses at the notch.
+   */
+  const bannerStart = layout.indexOf('function SchemaResetBanner');
+  const bannerEnd = layout.indexOf('export default function RootLayout');
+  const banner = layout.slice(bannerStart, bannerEnd);
+
+  it('has a locatable banner body for the checks below to read', () => {
+    // Without this the slice could silently become '' and every assertion
+    // below would pass vacuously.
+    expect(bannerStart).toBeGreaterThan(-1);
+    expect(bannerEnd).toBeGreaterThan(bannerStart);
+  });
+
+  it('does not position the notice absolutely, so it cannot cover a control', () => {
+    expect(banner).not.toContain("position: 'absolute'");
+    expect(banner).not.toMatch(/\btop:\s*\d/);
+    expect(banner).not.toContain('zIndex');
+  });
+
+  it('takes the notch inset from the safe area instead of guessing an offset', () => {
+    expect(banner).toContain("edges={['top']}");
   });
 });
