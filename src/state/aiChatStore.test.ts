@@ -101,7 +101,7 @@ describe('aiChatStore', () => {
       // First turn with a draft
       const draftA: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'first response', draft: draftA });
 
@@ -145,11 +145,11 @@ describe('aiChatStore', () => {
 
       const draftA: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       const draftB: RoutineDraft = {
         name: 'Routine B',
-        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+        exercises: [{ title: 'Ex 2', kind: 'cardio', sets: [{ type: 'normal' }] }],
       };
 
       fakeChat.mockResolvedValueOnce({ reply: 'first', draft: draftA });
@@ -172,7 +172,7 @@ describe('aiChatStore', () => {
 
       const draft: RoutineDraft = {
         name: 'Routine',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       fakeChat.mockResolvedValueOnce({ reply: 'first', draft });
@@ -640,7 +640,7 @@ describe('aiChatStore', () => {
 
       const draft: RoutineDraft = {
         name: 'Test Routine',
-        exercises: [{ title: 'Push-up', kind: 'strength' }],
+        exercises: [{ title: 'Push-up', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       // Copies so the assertions' expected values cannot alias objects the
@@ -681,7 +681,7 @@ describe('aiChatStore', () => {
       // Only acceptDraft() should call accept
       const draft: RoutineDraft = {
         name: 'Test',
-        exercises: [{ title: 'Ex', kind: 'strength' }],
+        exercises: [{ title: 'Ex', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
       await store.getState().send('create');
@@ -761,7 +761,7 @@ describe('aiChatStore', () => {
 
       const draft: RoutineDraft = {
         name: 'Test Routine',
-        exercises: [{ title: 'Push-up', kind: 'strength' }],
+        exercises: [{ title: 'Push-up', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
       await store.getState().send('create routine');
@@ -794,7 +794,7 @@ describe('aiChatStore', () => {
 
       const draftA: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'first', draft: draftA });
       await store.getState().send('create');
@@ -804,7 +804,7 @@ describe('aiChatStore', () => {
 
       const draftB: RoutineDraft = {
         name: 'Routine B',
-        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+        exercises: [{ title: 'Ex 2', kind: 'cardio', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'second', draft: draftB });
       await store.getState().send('another');
@@ -951,7 +951,7 @@ describe('aiChatStore', () => {
 
       const draft: RoutineDraft = {
         name: 'Test Routine',
-        exercises: [{ title: 'Push-up', kind: 'strength' }],
+        exercises: [{ title: 'Push-up', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
       fakeChat.mockResolvedValueOnce({ reply: 'created', draft });
       await store.getState().send('create routine');
@@ -1340,7 +1340,7 @@ describe('aiChatStore', () => {
       const { store, fakeChat } = makeStore();
       const draft: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       store.getState().reset({ kind: 'create' });
@@ -1358,7 +1358,7 @@ describe('aiChatStore', () => {
       const { store, fakeChat } = makeStore();
       const draft: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       store.getState().reset({ kind: 'create' });
@@ -1620,7 +1620,7 @@ describe('aiChatStore', () => {
       const { store, fakeChat } = makeStore();
       const draft: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       store.getState().reset({ kind: 'create' });
@@ -2134,7 +2134,7 @@ describe('aiChatStore', () => {
       const { store, fakeChat } = makeStore();
       const draft: RoutineDraft = {
         name: 'Routine A',
-        exercises: [{ title: 'Ex 1', kind: 'strength' }],
+        exercises: [{ title: 'Ex 1', kind: 'strength', sets: [{ type: 'normal' }] }],
       };
 
       store.getState().reset({ kind: 'onboarding' });
@@ -2156,7 +2156,7 @@ describe('aiChatStore', () => {
       const { store, fakeChat, fakeSetSettings } = makeStore();
       const draft: RoutineDraft = {
         name: 'Routine B',
-        exercises: [{ title: 'Ex 2', kind: 'cardio' }],
+        exercises: [{ title: 'Ex 2', kind: 'cardio', sets: [{ type: 'normal' }] }],
       };
 
       store.getState().reset({ kind: 'onboarding' });

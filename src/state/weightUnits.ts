@@ -31,5 +31,21 @@ export function kgToLbs(kg: number): number {
 
 /** Formats a canonical kg value for display. Owns the lbs suffix. */
 export function formatWeightLbs(kg: number): string {
-  return `${kgToLbs(kg)}lbs`;
+  return formatLbs(kgToLbs(kg));
+}
+
+/**
+ * Formats a value that is ALREADY in pounds, rounded to the same 0.5 step
+ * `kgToLbs` uses.
+ *
+ * The one caller is the AI draft preview (#276 Phase 4): a coach-authored set
+ * carries its load in lbs and is rendered in lbs, so routing it through kg
+ * would be a second lbs→kg conversion, and AGENTS.md allows exactly one
+ * (`acceptDraft`). It lives here because this module owns the unit suffix —
+ * "nothing outside this module may append a weight unit suffix" is the rule
+ * that keeps a read site from regressing to kg, and it holds only if the
+ * already-lbs case is served from here too.
+ */
+export function formatLbs(lbs: number): string {
+  return `${Math.round(lbs * 2) / 2}lbs`;
 }

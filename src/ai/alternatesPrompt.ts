@@ -12,8 +12,9 @@
  * `src/state/exerciseReplaceStore.test.ts` asserts that at the wire.
  */
 
-import type { ExerciseKind } from '@/engine/types';
+import type { ExerciseKind, RoutineSet } from '@/engine/types';
 import { ALTERNATE_TITLE_MAX_LENGTH, EXERCISE_ALTERNATES_MAX } from './alternatesSchema';
+import { planSetsFromRoutineSets, summarizePlanSets } from './setPlanFormat';
 
 /**
  * How many alternates to ask for. Three is enough to be a choice and few
@@ -25,11 +26,16 @@ export const EXERCISE_ALTERNATES_REQUESTED = 3;
 export interface AlternatesPromptExercise {
   title: string;
   kind: ExerciseKind;
-  warmupSets: number;
-  targetSets: number;
-  targetReps: number;
-  targetDurationSeconds: number;
   restSeconds: number;
+  /**
+   * The entry's ordered prescription (#276 AC4.12), straight off the engine
+   * entry. The prompt tells the model the plan carries over to whichever
+   * substitute is chosen, so it has to be able to state the plan — and for a
+   * warmup ramp that is seven prescriptions, not two counts.
+   *
+   * `[]` is a real state (EMPTY) and renders as "no target recorded".
+   */
+  sets: readonly RoutineSet[];
 }
 
 export interface AlternatesPromptInput {
@@ -67,13 +73,9 @@ function neutralizeForPrompt(text: string): string {
 }
 
 function targetSummary(exercise: AlternatesPromptExercise): string {
-  if (exercise.targetSets > 0 && exercise.targetReps > 0) {
-    return `${exercise.targetSets}x${exercise.targetReps}`;
-  }
-  if (exercise.targetDurationSeconds > 0) {
-    return `${exercise.targetSets > 0 ? `${exercise.targetSets} x ` : ''}${exercise.targetDurationSeconds}s`;
-  }
-  return 'no target recorded';
+  return (
+    summarizePlanSets(planSetsFromRoutineSets(exercise.sets)) || 'no target recorded'
+  );
 }
 
 function section(heading: string, body?: string): string {
@@ -127,13 +129,14 @@ ${profileParts.join('\n')}`);
   }
 
   const exercise = input.exercise;
-  const warmupClause = exercise.warmupSets > 0 ? ` | ${exercise.warmupSets} warmup sets` : '';
+  // The separate warmup-count clause is gone with #276: the set list names the
+  // warmups individually, with their own loads, inside the target summary.
   const line = [
     neutralizeForPrompt(exercise.title),
     `(${exercise.kind})`,
     '|',
     `target ${targetSummary(exercise)}`,
-    `| rest ${exercise.restSeconds}s${warmupClause}`,
+    `| rest ${exercise.restSeconds}s`,
   ].join(' ');
 
   const message = `## Exercise To Replace\n\n${line}`;

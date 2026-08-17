@@ -9,10 +9,11 @@ import {
   getRecentSessionSummaries,
   getSessionExerciseLog,
   type RecentSessionSummary,
-  type SessionExerciseLogEntry,
+  type RoutineSetEntry,
 } from '@/db/repository';
 import { SETTINGS_FIELD_MAX_LENGTH } from './draftSchema';
 import { formatWeightLbs } from '@/state/weightUnits';
+import { planSetsFromRoutineSetEntries, summarizePlanSets } from './setPlanFormat';
 import { OVERRIDABLE_DIRECTIVES, IMMUTABLE_DIRECTIVES } from './coachDirectives';
 
 /**
@@ -229,10 +230,16 @@ Exercise schema (inside draft.exercises):
 - title: must contain at least one ASCII letter or digit (a-z, 0-9)
 - kind: must be one of "strength", "cardio", or "stretch"
 - supersetGroup: use the same string on grouped exercises for supersets
-- targetSets, targetReps: when present, must be integers >= 1
-- warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0
-- targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete's own recent history to fill the field
+- restSeconds: when present, must be an integer >= 0
+- sets: the ordered list of sets to perform, one object per set. Required, and must contain at least one set
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
+
+Set schema (inside draft.exercises[].sets), one object per set actually performed:
+- type: must be "warmup" or "normal". Warmup sets come first, in the order they are performed
+- reps: when present, must be an integer >= 1
+- repsMax: the top of a rep range whose bottom is "reps"; when present, must be an integer >= reps, and "reps" must be present alongside it
+- durationSeconds: when present, must be an integer >= 0
+- weightLbs: the load for THIS set, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete's own recent history to fill the field
 
 The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age and Experience lines under "About the User" — its "goals", "equipment", "personality", "age", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, or experience — a workout question is not such a request.`;
 
@@ -249,8 +256,11 @@ Settings proposal constraints:
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
-- All numeric values must be integers, except targetWeightLbs, which may use 0.5 steps
-- Give every duration-based exercise (targetDurationSeconds instead of reps) targetSets: 1 unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
+- All numeric values must be integers, except weightLbs, which may use 0.5 steps
+- Write out one set object per set performed: four working sets of 8-10 is four objects in the list, not one object saying four
+- Write a warmup ramp out set by set, each warmup carrying its own weightLbs, rather than repeating one load — the set list exists so a ramp can be programmed
+- Give a duration-based exercise (durationSeconds instead of reps) a single set in the list unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
+- The "Existing Routines" section below shows every routine in exactly this vocabulary, so read a set list there the way you would write one here
 
 Planning from history:
 - The "Recent Workouts" section below lists the last ${RECENT_WORKOUTS_IN_PROMPT} completed sessions, so read training frequency and recovery from it rather than assuming a schedule
@@ -415,23 +425,21 @@ function formatExerciseLine(
 
   parts.push(`${exercise.title} (${exercise.kind})`);
 
-  if (exercise.warmupSets) {
-    parts.push(`warmup: ${exercise.warmupSets}`);
-  }
-
-  if (exercise.targetSets && exercise.targetReps) {
-    parts.push(`${exercise.targetSets}x${exercise.targetReps}`);
-  } else if (exercise.targetDurationSeconds) {
-    parts.push(`${exercise.targetDurationSeconds}s`);
-  }
-
-  // The load this entry is programmed at, if the coach has set one. Rendered in
-  // lbs to match the unit the Recent Training History section below uses for
-  // logged sets — the model must never see two units for weight in one prompt.
-  // Truthiness guard, not `!== undefined`: routineDetailPresenter passes
-  // WatermelonDB's raw null straight through.
-  if (exercise.targetWeightKg) {
-    parts.push(`@ ${formatWeightLbs(exercise.targetWeightKg)}`);
+  // The entry's whole prescription, set by set (#276 AC4.11). This is the
+  // section the coach reads to PROGRESS a plan it wrote last week, so a
+  // summarised "3 warmup sets" line means it cannot see the ramp and will
+  // flatten it on the next revision. Loads render in lbs to match the unit
+  // "Recent Training History" uses for logged sets — the model must never see
+  // two units for weight in one prompt — and in the same vocabulary the
+  // persona above asks it to draft in.
+  //
+  // An aggregate-only row (nothing in `routine_sets`) still reaches this
+  // through `prescribedSets`' fallback in routineDetailPresenter, which
+  // expands its counts into a uniform list; the run-length rule collapses that
+  // back to one segment, so such a row reads much as it always did.
+  const plan = summarizePlanSets(planSetsFromRoutineSetEntries(exercise.sets));
+  if (plan) {
+    parts.push(plan);
   }
 
   if (exercise.restSeconds) {
@@ -659,23 +667,42 @@ This routine no longer exists.`;
 No exercises are on this routine.`;
   }
 
+  // The plan each logged entry was performed against, keyed by the routine
+  // entry (the routine_exercises row id) rather than the exercise: a routine
+  // may list the same exercise twice with different prescriptions, and after a
+  // ReplaceExercise swap the row and the performed identity disagree.
+  const planByRow = new Map<string, RoutineSetEntry[]>();
+  if (detail) {
+    for (const group of detail.supersetGroups) {
+      for (const exercise of group.exercises) planByRow.set(exercise.routineExerciseId, exercise.sets);
+    }
+    for (const exercise of detail.standaloneExercises) {
+      planByRow.set(exercise.routineExerciseId, exercise.sets);
+    }
+  }
+
   const lines = log.map(
-    (entry) => `  ${entry.title}${formatTarget(entry)}: ${describeLoggedSets(entry.sets)}`
+    (entry) =>
+      `  ${entry.title}${formatTarget(planByRow.get(entry.routineExerciseId))}: ${describeLoggedSets(entry.sets)}`
   );
 
   return `${header}\n\n${lines.join('\n')}`;
 }
 
-function formatTarget(entry: SessionExerciseLogEntry): string {
-  if (entry.targetSets && entry.targetReps) {
-    return ` (target ${entry.targetSets}x${entry.targetReps})`;
-  }
+/**
+ * What the routine asked for, in the same grammar the routines section and the
+ * draft contract use (#276 Phase 4). Sourced from the routine detail rather
+ * than from `SessionExerciseLogEntry`'s aggregate columns: those describe the
+ * plan in a shape that cannot hold a ramp, and the debrief is precisely the
+ * conversation where the coach revises one.
+ *
+ * `undefined` (the routine was deleted, or the row is gone) and an empty list
+ * both render nothing, so the line reads as the logged sets alone.
+ */
+function formatTarget(sets: RoutineSetEntry[] | undefined): string {
+  const summary = summarizePlanSets(planSetsFromRoutineSetEntries(sets ?? []));
 
-  if (entry.targetDurationSeconds) {
-    return ` (target ${entry.targetDurationSeconds}s)`;
-  }
-
-  return '';
+  return summary ? ` (target ${summary})` : '';
 }
 
 function describeLoggedSets(sets: SessionSet[]): string {

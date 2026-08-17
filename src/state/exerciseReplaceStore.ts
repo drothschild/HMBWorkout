@@ -39,7 +39,8 @@ import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { createAiClient } from '@/ai/provider/factory';
-import type { Event, ExerciseKind, SessionState } from '@/engine/types';
+import { entrySets } from '@/engine/entrySets';
+import type { Event, ExerciseKind, RoutineSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /**
@@ -55,11 +56,14 @@ export interface ReplaceTarget {
   exerciseId: string;
   exerciseTitle: string;
   kind: ExerciseKind;
-  warmupSets: number;
-  targetSets: number;
-  targetReps: number;
-  targetDurationSeconds: number;
   restSeconds: number;
+  /**
+   * The entry's ordered prescription (#276 AC4.12), carried into the alternates
+   * prompt's target summary. The prompt tells the model the plan carries over
+   * to whichever substitute is chosen, so it must be able to state the plan —
+   * and a warmup ramp is seven prescriptions, not two counts.
+   */
+  sets: readonly RoutineSet[];
 }
 
 export interface ExerciseReplaceDeps {
@@ -150,11 +154,8 @@ export function replaceExerciseTarget(
     exerciseId: entry.exerciseId,
     exerciseTitle: exerciseTitles?.[entry.exerciseId] || entry.exerciseId,
     kind: entry.kind,
-    warmupSets: entry.warmupSets,
-    targetSets: entry.targetSets,
-    targetReps: entry.targetReps,
-    targetDurationSeconds: entry.targetDurationSeconds,
     restSeconds: entry.restSeconds,
+    sets: entrySets(entry),
   };
 }
 
@@ -209,11 +210,8 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           exercise: {
             title: nextTarget.exerciseTitle,
             kind: nextTarget.kind,
-            warmupSets: nextTarget.warmupSets,
-            targetSets: nextTarget.targetSets,
-            targetReps: nextTarget.targetReps,
-            targetDurationSeconds: nextTarget.targetDurationSeconds,
             restSeconds: nextTarget.restSeconds,
+            sets: nextTarget.sets,
           },
           goals: settings.aiGoals,
           equipment: settings.aiEquipment,

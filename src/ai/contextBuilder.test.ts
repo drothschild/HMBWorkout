@@ -363,10 +363,13 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('Bench Press');
       expect(prompt).toContain('Rows');
       expect(prompt).toContain('Squat');
-      expect(prompt).toContain('3x8');
-      expect(prompt).toContain('4x10');
-      expect(prompt).toContain('3x5');
-      expect(prompt).toContain('warmup: 1');
+      // #276 AC4.11: the plan renders as its set list. These rows are
+      // aggregate-only, so prescribedSets' fallback expands them into uniform
+      // lists and the run-length rule collapses each back to one segment.
+      expect(prompt).toContain('3 × 8 reps');
+      expect(prompt).toContain('4 × 10 reps');
+      expect(prompt).toContain('3 × 5 reps');
+      expect(prompt).toContain('warmup 8 reps');
       expect(prompt).toContain('rest 120s');
       expect(prompt).toContain('rest 90s');
       expect(prompt).toContain('rest 180s');
@@ -1249,7 +1252,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(lineFor(prompt, 'Bench Press')).toBe(
-        '  Bench Press (target 3x8): 5 reps @ 88lbs (warmup), 8 reps @ 220.5lbs, 6 reps @ 220.5lbs RPE 9'
+        '  Bench Press (target warmup 8 reps, 3 × 8 reps): 5 reps @ 88lbs (warmup), 8 reps @ 220.5lbs, 6 reps @ 220.5lbs RPE 9'
       );
     }, 30000);
 
@@ -1258,7 +1261,7 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
-      expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4x10): no sets logged');
+      expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4 × 10 reps): no sets logged');
     }, 30000);
 
     it('summarises only the session being debriefed', async () => {
@@ -1341,8 +1344,8 @@ describe('buildSystem: AI Coach context builder', () => {
         .filter((line) => line.trimStart().startsWith('Bench Press ('));
 
       expect(benchLines).toEqual([
-        '  Bench Press (target 3x8): no sets logged',
-        '  Bench Press (target 1x20): 20 reps @ 88lbs',
+        '  Bench Press (target 3 × 8 reps): no sets logged',
+        '  Bench Press (target 20 reps): 20 reps @ 88lbs',
       ]);
     }, 30000);
 

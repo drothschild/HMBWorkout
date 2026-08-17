@@ -27,6 +27,7 @@ import { getSettings, setSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { optOutPatch } from '@/state/coachOnboarding';
 import { RoutineDraft, DraftExercise, SettingsProposal } from '@/ai/draftSchema';
+import { formatDraftSetLine } from '@/ai/setPlanFormat';
 import { groupBySupersetRuns } from '@/domain/supersetGrouping';
 
 const HEADER_TITLES = {
@@ -590,12 +591,29 @@ function DraftCard({ draft, onAccept, accepting, sending }: DraftCardProps) {
                   </View>
                 </View>
 
-                <ThemedText type="small" style={styles.exerciseDetails}>
-                  {exercise.targetSets !== undefined && exercise.targetReps !== undefined && `${exercise.targetSets}x${exercise.targetReps}`}
-                  {exercise.targetDurationSeconds !== undefined && exercise.targetDurationSeconds > 0 && `${Math.floor(exercise.targetDurationSeconds / 60)}:${String(exercise.targetDurationSeconds % 60).padStart(2, '0')}`}
-                  {exercise.warmupSets !== undefined && exercise.warmupSets > 0 && ` | ${exercise.warmupSets}w`}
-                  {exercise.restSeconds !== undefined && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-                </ThemedText>
+                {/*
+                  One row per prescribed set (#276 Phase 4). This is the last
+                  place the athlete sees a warmup ramp before it is written, so
+                  it must not reduce to a count: "7 sets" and seven ascending
+                  loads are the same string under the aggregate model and
+                  different plans under this one. `formatDraftSetLine` is the
+                  same grammar the coach reads its own routines in.
+                */}
+                {exercise.sets.map((set, setIdx) => (
+                  <ThemedText
+                    key={`${groupIdx}-${exIdx}-set-${setIdx}`}
+                    type="small"
+                    style={styles.exerciseDetails}
+                  >
+                    {formatDraftSetLine(set, setIdx, exercise.sets)}
+                  </ThemedText>
+                ))}
+
+                {exercise.restSeconds !== undefined && exercise.restSeconds > 0 && (
+                  <ThemedText type="small" style={styles.exerciseDetails}>
+                    {`Rest: ${exercise.restSeconds}s`}
+                  </ThemedText>
+                )}
               </View>
             ))}
           </View>

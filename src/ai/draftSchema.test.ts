@@ -17,7 +17,7 @@ describe('draftSchema', () => {
         draft: {
           name: 'My Routine',
           exercises: [
-            { title: 'Bench Press', kind: 'strength' },
+            { title: 'Bench Press', kind: 'strength', sets: [{ type: 'normal' }] },
           ],
         },
       });
@@ -87,7 +87,7 @@ describe('draftSchema', () => {
         reply: 'Here is a routine, and a goals update to match',
         draft: {
           name: 'My Routine',
-          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+          exercises: [{ title: 'Bench Press', kind: 'strength', sets: [{ type: 'normal' }] }],
         },
         settingsProposal: { goals: 'Build strength' },
       });
@@ -136,6 +136,7 @@ describe('draftSchema', () => {
             {
               title: 'Bench Press',
               kind: 'strength',
+              sets: [{ type: 'normal' }],
               supersetGroup: null,
               description: null,
             },
@@ -175,7 +176,7 @@ describe('draftSchema', () => {
         reply: 'Here is your routine',
         draft: {
           name: 'My Routine',
-          exercises: [{ title: 'Bench Press', kind: 'strength' }],
+          exercises: [{ title: 'Bench Press', kind: 'strength', sets: [{ type: 'normal' }] }],
         },
       });
 
@@ -503,7 +504,7 @@ describe('draftSchema', () => {
     test('accepts minimal valid draft', () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const , sets: [{ type: 'normal' as const }] }],
       };
 
       const result = validateRoutineDraft(draft);
@@ -519,6 +520,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             supersetGroup: 'chest',
             warmupSets: 1,
             targetSets: 3,
@@ -577,7 +579,7 @@ describe('draftSchema', () => {
     test('rejects exercise with empty title', () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: '', kind: 'strength' as const }],
+        exercises: [{ title: '', kind: 'strength' as const , sets: [{ type: 'normal' as const }] }],
       };
 
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
@@ -586,7 +588,7 @@ describe('draftSchema', () => {
     test('rejects exercise title that slugifies to empty', () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: '!!!', kind: 'strength' as const }],
+        exercises: [{ title: '!!!', kind: 'strength' as const , sets: [{ type: 'normal' as const }] }],
       };
 
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
@@ -601,14 +603,19 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    test('rejects non-number targetSets', () => {
+    // #276 Phase 4: `targetSets` and `warmupSets` have no per-set counterpart
+    // — the set count IS the list's length and its warmup partition — so the
+    // two tests that pinned their bounds are replaced by the shape rule that
+    // took over their job, in the per-set describe below (AC4.6). `targetReps`
+    // and `targetDurationSeconds` moved to the set and keep their bounds here.
+    test('rejects non-number set reps', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetSets: 'three' as any,
+            sets: [{ type: 'normal' as const, reps: 'ten' as any }],
           },
         ],
       };
@@ -616,29 +623,14 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    test('rejects non-number targetReps', () => {
-      const draft = {
-        name: 'My Routine',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            targetReps: 'ten' as any,
-          },
-        ],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('rejects non-number targetDurationSeconds', () => {
+    test('rejects non-number set durationSeconds', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Running',
             kind: 'cardio' as const,
-            targetDurationSeconds: 'thirty' as any,
+            sets: [{ type: 'normal' as const, durationSeconds: 'thirty' as any }],
           },
         ],
       };
@@ -653,22 +645,8 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             restSeconds: 'sixty' as any,
-          },
-        ],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('rejects non-number warmupSets', () => {
-      const draft = {
-        name: 'My Routine',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            warmupSets: 'one' as any,
           },
         ],
       };
@@ -680,7 +658,7 @@ describe('draftSchema', () => {
       const draft = {
         name: 'My Routine',
         notes: { a: 1 } as any,
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const , sets: [{ type: 'normal' as const }] }],
       };
 
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
@@ -693,6 +671,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             supersetGroup: 99 as any,
           },
         ],
@@ -708,6 +687,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             notes: { a: 1 } as any,
           },
         ],
@@ -716,29 +696,14 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    test('rejects negative targetSets', () => {
+    test('rejects fractional set reps', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetSets: -3,
-          },
-        ],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('rejects fractional targetReps', () => {
-      const draft = {
-        name: 'My Routine',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            targetReps: 2.7,
+            sets: [{ type: 'normal' as const, reps: 2.7 }],
           },
         ],
       };
@@ -753,6 +718,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             restSeconds: -60,
           },
         ],
@@ -761,29 +727,14 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    test('rejects zero targetSets', () => {
+    test('rejects zero set reps', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetSets: 0,
-          },
-        ],
-      };
-
-      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
-    });
-
-    test('rejects zero targetReps', () => {
-      const draft = {
-        name: 'My Routine',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            targetReps: 0,
+            sets: [{ type: 'normal' as const, reps: 0 }],
           },
         ],
       };
@@ -795,7 +746,7 @@ describe('draftSchema', () => {
       const draft = {
         name: 'My Routine',
         notes: 'My notes',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const , sets: [{ type: 'normal' as const }] }],
       };
 
       const result = validateRoutineDraft(draft);
@@ -809,6 +760,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             notes: 'Exercise notes',
           },
         ],
@@ -825,6 +777,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             supersetGroup: 'chest',
           },
         ],
@@ -841,6 +794,7 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
             warmupSets: 1,
             targetSets: 3,
             targetReps: 8,
@@ -867,6 +821,7 @@ describe('draftSchema', () => {
           {
             title: 'Pigeon Stretch (Left)',
             kind: 'stretch' as const,
+            sets: [{ type: 'normal' as const }],
             targetDurationSeconds: 30,
             description: 'From all fours, bring the left shin forward and lower the hips toward the floor.',
           },
@@ -894,48 +849,48 @@ describe('draftSchema', () => {
     });
 
     // coach-prescribed-weights.AC2.1: Success — accepts 185
-    test('coach-prescribed-weights.AC2.1: accepts targetWeightLbs: 185', () => {
+    test('coach-prescribed-weights.AC2.1 (per-set, #276): accepts weightLbs: 185', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 185,
+            sets: [{ type: 'normal' as const, weightLbs: 185 }],
           },
         ],
       };
 
       const result = validateRoutineDraft(draft);
-      expect(result.exercises[0].targetWeightLbs).toBe(185);
+      expect(result.exercises[0].sets[0].weightLbs).toBe(185);
     });
 
     // coach-prescribed-weights.AC2.2: Success — accepts 187.5 (half-pound)
-    test('coach-prescribed-weights.AC2.2: accepts targetWeightLbs: 187.5 (half-pound)', () => {
+    test('coach-prescribed-weights.AC2.2 (per-set, #276): accepts weightLbs: 187.5 (half-pound)', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 187.5,
+            sets: [{ type: 'normal' as const, weightLbs: 187.5 }],
           },
         ],
       };
 
       const result = validateRoutineDraft(draft);
-      expect(result.exercises[0].targetWeightLbs).toBe(187.5);
+      expect(result.exercises[0].sets[0].weightLbs).toBe(187.5);
     });
 
     // coach-prescribed-weights.AC2.3: Failure — rejects 0
-    test('coach-prescribed-weights.AC2.3: rejects targetWeightLbs: 0', () => {
+    test('coach-prescribed-weights.AC2.3 (per-set, #276): rejects weightLbs: 0', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 0,
+            sets: [{ type: 'normal' as const, weightLbs: 0 }],
           },
         ],
       };
@@ -944,14 +899,14 @@ describe('draftSchema', () => {
     });
 
     // coach-prescribed-weights.AC2.4: Failure — rejects negative
-    test('coach-prescribed-weights.AC2.4: rejects targetWeightLbs: -5', () => {
+    test('coach-prescribed-weights.AC2.4 (per-set, #276): rejects weightLbs: -5', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: -5,
+            sets: [{ type: 'normal' as const, weightLbs: -5 }],
           },
         ],
       };
@@ -960,14 +915,14 @@ describe('draftSchema', () => {
     });
 
     // coach-prescribed-weights.AC2.5: Failure — rejects off the 0.5 grid
-    test('coach-prescribed-weights.AC2.5: rejects targetWeightLbs: 185.3 (off 0.5 grid)', () => {
+    test('coach-prescribed-weights.AC2.5 (per-set, #276): rejects weightLbs: 185.3 (off 0.5 grid)', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 185.3,
+            sets: [{ type: 'normal' as const, weightLbs: 185.3 }],
           },
         ],
       };
@@ -979,14 +934,14 @@ describe('draftSchema', () => {
     // This fixture catches mutations that loosen the grid to quarter-pounds.
     // 185.25 -> 84.03kg -> 185.5 (broken round-trip if grid is 0.25)
     // Fixture must discriminate the exact 0.5 grid, not just "some decimal off"
-    test('coach-prescribed-weights.AC2.5: rejects targetWeightLbs: 185.25 (quarter-pound, off 0.5 grid)', () => {
+    test('coach-prescribed-weights.AC2.5 (per-set, #276): rejects weightLbs: 185.25 (quarter-pound, off 0.5 grid)', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 185.25,
+            sets: [{ type: 'normal' as const, weightLbs: 185.25 }],
           },
         ],
       };
@@ -995,14 +950,14 @@ describe('draftSchema', () => {
     });
 
     // coach-prescribed-weights.AC2.6: Failure — rejects non-number
-    test('coach-prescribed-weights.AC2.6: rejects targetWeightLbs as string', () => {
+    test('coach-prescribed-weights.AC2.6 (per-set, #276): rejects weightLbs as string', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: '185' as unknown as number,
+            sets: [{ type: 'normal' as const, weightLbs: '185' as unknown as number }],
           },
         ],
       };
@@ -1010,20 +965,21 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
-    // Edge case — omitting targetWeightLbs is valid
-    test('accepts exercise omitting targetWeightLbs', () => {
+    // Edge case — omitting the load is valid
+    test('accepts a set omitting weightLbs', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const, reps: 8 }],
           },
         ],
       };
 
       const result = validateRoutineDraft(draft);
-      expect(result.exercises[0].targetWeightLbs).toBeUndefined();
+      expect(result.exercises[0].sets[0].weightLbs).toBeUndefined();
     });
 
     // AC2.1-2.6 scope: guard must apply to all exercises, not just exercises[0]
@@ -1036,12 +992,12 @@ describe('draftSchema', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 185,
+            sets: [{ type: 'normal' as const, weightLbs: 185 }],
           },
           {
             title: 'Incline Press',
             kind: 'strength' as const,
-            targetWeightLbs: 0, // Invalid: zero
+            sets: [{ type: 'normal' as const, weightLbs: 0 }], // Invalid: zero
           },
         ],
       };
@@ -1326,14 +1282,6 @@ describe('draftSchema', () => {
       expect(exerciseSchema.required).not.toContain('description');
     });
 
-    // coach-prescribed-weights.AC2.7 Success: targetWeightLbs is number, not integer
-    test('declares targetWeightLbs as type number (not integer) with no bound keywords', () => {
-      const draftSchema = (AI_TURN_SCHEMA.properties as any).draft;
-      const exerciseSchema = draftSchema.properties.exercises.items;
-      expect(exerciseSchema.properties.targetWeightLbs).toEqual({ type: 'number' });
-      expect(exerciseSchema.required).not.toContain('targetWeightLbs');
-    });
-
     // #276 AC4.1: the draft exercise carries an ordered set list. `minItems`
     // cannot express "at least one" — it is on UNSUPPORTED_SCHEMA_KEYWORDS and
     // 400s the entire request before the model runs (PR #71) — so the schema
@@ -1472,7 +1420,18 @@ describe('draftSchema', () => {
       // also re-check the <20 ceiling below still gives comfortable headroom before Anthropic's
       // ~24-optional-property structured-output limit.
       // Bumped from 16 to 17 for targetWeightLbs (phase 2 of coach-prescribed-weights).
-      expect(optionalCount).toBe(17);
+      // Back to 16 in #276 Phase 4: five per-exercise optionals
+      // (warmupSets/targetSets/targetReps/targetDurationSeconds/targetWeightLbs)
+      // left, four per-SET optionals (reps/repsMax/weightLbs/durationSeconds)
+      // arrived, and `sets` itself is required.
+      //
+      // CAVEAT worth stating, because this number went DOWN while the schema
+      // got structurally deeper: the count is a proxy for grammar complexity
+      // and does not model nesting. Phase 4 introduced the schema's first
+      // array-of-objects inside an array-of-objects. If a live call ever 400s
+      // with a grammar-complexity error while this assertion is comfortably
+      // green, the nesting — not the count — is the thing to look at.
+      expect(optionalCount).toBe(16);
       expect(optionalCount).toBeLessThan(20);
 
       // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded

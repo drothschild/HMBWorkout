@@ -26,8 +26,9 @@
  * `src/state/restCommentaryStore.test.ts` asserts that at the wire.
  */
 
-import type { ExerciseKind } from '@/engine/types';
+import type { ExerciseKind, RoutineSet } from '@/engine/types';
 import { formatWeightLbs } from '@/state/weightUnits';
+import { planSetsFromRoutineSets, summarizePlanSets } from './setPlanFormat';
 
 /**
  * How many recent working sets ride along. Small on purpose — the model needs
@@ -60,11 +61,17 @@ export interface RestCommentaryHistorySet {
 export interface RestCommentaryExercise {
   title: string;
   kind: ExerciseKind;
-  warmupSets: number;
-  targetSets: number;
-  targetReps: number;
-  targetDurationSeconds: number;
   restSeconds: number;
+  /**
+   * The entry's ordered prescription (#276 AC4.12), straight off the engine
+   * entry. `targetSummary` reads it, so the remark can be about the load the
+   * athlete is actually ramping to rather than about a count.
+   *
+   * Distinct from `totalOfType` below, which is NOT re-derived from this list:
+   * the numerator and denominator of the position label must come from one
+   * reading of the plan (`deriveSetPosition`), or a label can claim "Set 3 of 2".
+   */
+  sets: readonly RoutineSet[];
   /** True when the set this remark is about is a warmup set of this entry. */
   isWarmupSet: boolean;
   /** 1-based position within the run of same-typed sets. */
@@ -141,13 +148,9 @@ function neutralizeForPrompt(text: string): string {
 }
 
 function targetSummary(exercise: RestCommentaryExercise): string {
-  if (exercise.targetSets > 0 && exercise.targetReps > 0) {
-    return `target ${exercise.targetSets}x${exercise.targetReps}`;
-  }
-  if (exercise.targetDurationSeconds > 0) {
-    return `target ${exercise.targetDurationSeconds}s`;
-  }
-  return 'no target recorded';
+  const summary = summarizePlanSets(planSetsFromRoutineSets(exercise.sets));
+
+  return summary ? `target ${summary}` : 'no target recorded';
 }
 
 /**

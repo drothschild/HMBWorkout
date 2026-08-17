@@ -43,16 +43,16 @@ function target(overrides: Partial<UpNextTarget> = {}): RestCommentaryTarget {
     exerciseId: 'bench-press',
     exerciseTitle: 'Bench Press',
     kind: 'strength',
-    warmupSets: 0,
-    // Deliberately NOT equal to `totalOfType`. `restCommentaryStore` is the
-    // single line by which the per-set denominator reaches the prompt, and a
-    // fixture where the aggregate and the list-derived count agree cannot tell
-    // a regression to the aggregate apart from the correct read. 99 is not a
-    // number any real routine plans.
-    targetSets: 99,
-    targetReps: 8,
-    targetDurationSeconds: 0,
     restSeconds: 90,
+    // Deliberately NOT `totalOfType` sets long. `restCommentaryStore` is the
+    // single line by which the per-set denominator reaches the prompt, and a
+    // fixture where the list length and the caller-supplied count agree cannot
+    // tell a regression that re-derives the denominator apart from the correct
+    // read.
+    sets: [
+      { setType: 'normal', reps: 8 },
+      { setType: 'normal', reps: 8 },
+    ],
     isWarmupSet: false,
     setNumber: 2,
     totalOfType: 3,
@@ -1037,11 +1037,14 @@ describe('restCommentaryTarget', () => {
         // Read off the performed entry, never the one the engine advanced to.
         exerciseTitle: 'Rower',
         kind: 'cardio',
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 0,
-        targetDurationSeconds: 60,
         restSeconds: 30,
+        // The rower's own plan, expanded from its counts by `entrySets`. The
+        // bench's is two warmups plus its own working sets, so a read off
+        // `entries[exerciseIndex]` gives a visibly different list.
+        sets: [
+          { setType: 'normal', durationSeconds: 60 },
+          { setType: 'normal', durationSeconds: 60 },
+        ],
       });
     });
 

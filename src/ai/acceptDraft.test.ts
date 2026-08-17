@@ -14,11 +14,15 @@ describe('acceptDraft', () => {
     await closeTestDatabase(database);
   });
 
+  /** Three identical working sets — the old `targetSets: 3, targetReps: N`. */
+  const threeOf = (set: { reps?: number }) =>
+    [0, 1, 2].map(() => ({ type: 'normal' as const, ...set }));
+
   describe('AC3.1 (inert until accept)', () => {
     test('validating a draft writes nothing; accepting the same draft writes', async () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
 
       validateRoutineDraft(draft);
@@ -55,7 +59,7 @@ describe('acceptDraft', () => {
       // #179).
       const draft = {
         name: 'Starter Routine',
-        exercises: [{ title: 'Goblet Squat', kind: 'strength' as const, targetSets: 3, targetReps: 8 }],
+        exercises: [{ title: 'Goblet Squat', kind: 'strength' as const, sets: threeOf({ reps: 8 }) }],
       };
 
       const routineId = await acceptDraft(database, draft, { kind: 'onboarding' });
@@ -74,8 +78,8 @@ describe('acceptDraft', () => {
         name: 'My Routine',
         notes: 'Routine level notes',
         exercises: [
-          { title: 'Bench Press', kind: 'strength' as const, targetSets: 3, targetReps: 8, restSeconds: 60 },
-          { title: 'Incline Dumbbell', kind: 'strength' as const, targetSets: 3, targetReps: 10 },
+          { title: 'Bench Press', kind: 'strength' as const, restSeconds: 60, sets: threeOf({ reps: 8 }) },
+          { title: 'Incline Dumbbell', kind: 'strength' as const, sets: threeOf({ reps: 10 }) },
         ],
       };
 
@@ -125,12 +129,19 @@ describe('acceptDraft', () => {
             title: 'Complex Exercise',
             kind: 'strength' as const,
             supersetGroup: 'group-1',
-            warmupSets: 2,
-            targetSets: 4,
-            targetReps: 6,
-            targetDurationSeconds: 30,
             restSeconds: 90,
             notes: 'Exercise notes',
+            // The aggregate columns asserted below are now DERIVED from this
+            // list (#276 Phase 4), so the fixture states the plan and the
+            // assertions state what the derivation must produce from it.
+            sets: [
+              { type: 'warmup' as const, reps: 6, durationSeconds: 30 },
+              { type: 'warmup' as const, reps: 6, durationSeconds: 30 },
+              { type: 'normal' as const, reps: 6, durationSeconds: 30 },
+              { type: 'normal' as const, reps: 6, durationSeconds: 30 },
+              { type: 'normal' as const, reps: 6, durationSeconds: 30 },
+              { type: 'normal' as const, reps: 6, durationSeconds: 30 },
+            ],
           },
         ],
       };
@@ -159,7 +170,7 @@ describe('acceptDraft', () => {
           {
             title: 'Pigeon Stretch (Left)',
             kind: 'stretch' as const,
-            targetDurationSeconds: 30,
+            sets: [{ type: 'normal' as const, durationSeconds: 30 }],
             description: 'From all fours, bring the left shin forward and lower the hips toward the floor.',
           },
         ],
@@ -177,7 +188,7 @@ describe('acceptDraft', () => {
       // First accept creates the exercise without a description.
       await acceptDraft(
         database,
-        { name: 'Cooldown v1', exercises: [{ title: 'Pigeon Stretch', kind: 'stretch' as const }] },
+        { name: 'Cooldown v1', exercises: [{ title: 'Pigeon Stretch', kind: 'stretch' as const, sets: [{ type: 'normal' as const }] }] },
         { kind: 'create' }
       );
       const created = await database.get('exercises').find('pigeon-stretch');
@@ -190,7 +201,7 @@ describe('acceptDraft', () => {
         {
           name: 'Cooldown v2',
           exercises: [
-            { title: 'Pigeon Stretch', kind: 'stretch' as const, description: 'Late-arriving how-to' },
+            { title: 'Pigeon Stretch', kind: 'stretch' as const, description: 'Late-arriving how-to', sets: [{ type: 'normal' as const }] },
           ],
         },
         { kind: 'create' }
@@ -206,7 +217,7 @@ describe('acceptDraft', () => {
       try {
         const initialDraft = {
           name: 'First Routine',
-          exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+          exercises: [{ title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
         };
         nowSpy.mockReturnValueOnce(1000);
         const firstRoutineId = await acceptDraft(database, initialDraft, { kind: 'create' });
@@ -214,7 +225,7 @@ describe('acceptDraft', () => {
 
         const secondDraft = {
           name: 'Second Routine',
-          exercises: [{ title: 'Squat', kind: 'strength' as const }],
+          exercises: [{ title: 'Squat', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
         };
         nowSpy.mockReturnValueOnce(2000);
         const secondRoutineId = await acceptDraft(database, secondDraft, { kind: 'create' });
@@ -251,8 +262,8 @@ describe('acceptDraft', () => {
       const initialDraft = {
         name: 'Initial Routine',
         exercises: [
-          { title: 'Bench Press', kind: 'strength' as const },
-          { title: 'Squat', kind: 'strength' as const },
+          { title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+          { title: 'Squat', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
         ],
       };
       // Distinct Date.now() values so an edit that wrongly minted a fresh id
@@ -268,9 +279,9 @@ describe('acceptDraft', () => {
         const updateDraft = {
           name: 'Updated Routine',
           exercises: [
-            { title: 'Deadlift', kind: 'strength' as const },
-            { title: 'Rows', kind: 'strength' as const },
-            { title: 'Pullups', kind: 'strength' as const },
+            { title: 'Deadlift', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+            { title: 'Rows', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+            { title: 'Pullups', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
           ],
         };
 
@@ -300,7 +311,7 @@ describe('acceptDraft', () => {
       // Create two routines
       const draft1 = {
         name: 'Routine A',
-        exercises: [{ title: 'Bench Press', kind: 'strength' as const }],
+        exercises: [{ title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
       const nowSpy = jest.spyOn(Date, 'now');
       try {
@@ -310,7 +321,7 @@ describe('acceptDraft', () => {
 
         const draft2 = {
           name: 'Routine B',
-          exercises: [{ title: 'Squat', kind: 'strength' as const }],
+          exercises: [{ title: 'Squat', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
         };
         nowSpy.mockReturnValueOnce(2000);
         const routineIdB = await acceptDraft(database, draft2, { kind: 'create' });
@@ -319,7 +330,7 @@ describe('acceptDraft', () => {
         // Create a draft to update routineA with a new exercise
         const updateDraft = {
           name: 'Routine A Updated',
-          exercises: [{ title: 'Deadlift', kind: 'strength' as const }],
+          exercises: [{ title: 'Deadlift', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
         };
 
         // Accept in edit mode with routineIdA (mode is authoritative)
@@ -358,7 +369,7 @@ describe('acceptDraft', () => {
         nowSpy.mockReturnValueOnce(1000);
         const routineId = await acceptDraft(
           database,
-          { name: 'Upper Body', exercises: [{ title: 'Bench Press', kind: 'strength' as const }] },
+          { name: 'Upper Body', exercises: [{ title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }] },
           { kind: 'create' }
         );
         // A fresh id would be routine-2000, so minting one here would be visible.
@@ -369,7 +380,7 @@ describe('acceptDraft', () => {
           {
             name: 'Upper Body',
             exercises: [
-              { title: 'Bench Press', kind: 'strength' as const, targetSets: 3, targetReps: 6 },
+              { title: 'Bench Press', kind: 'strength' as const, sets: threeOf({ reps: 6 }) },
             ],
           },
           { kind: 'debrief', routineId, sessionId: 'session-1' }
@@ -397,9 +408,9 @@ describe('acceptDraft', () => {
       const draft = {
         name: 'My Routine',
         exercises: [
-          { title: 'Bench Press', kind: 'strength' as const },
-          { title: 'bench   press', kind: 'strength' as const },
-          { title: 'Bench Press', kind: 'strength' as const },
+          { title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+          { title: 'bench   press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+          { title: 'Bench Press', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
         ],
       };
 
@@ -423,7 +434,7 @@ describe('acceptDraft', () => {
     test('creates new exercise with free-form title', async () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: 'Bulgarian Split Squat', kind: 'strength' as const }],
+        exercises: [{ title: 'Bulgarian Split Squat', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
 
       await acceptDraft(database, draft, { kind: 'create' });
@@ -441,7 +452,7 @@ describe('acceptDraft', () => {
     test('rejects invalid kind and writes nothing', async () => {
       const invalidDraft = {
         name: 'Invalid Routine',
-        exercises: [{ title: 'Exercise', kind: 'yoga' as any }],
+        exercises: [{ title: 'Exercise', kind: 'yoga' as any, sets: [{ type: 'normal' as const }] }],
       };
 
       await expect(acceptDraft(database, invalidDraft, { kind: 'create' })).rejects.toThrow(DraftValidationError);
@@ -484,7 +495,7 @@ describe('acceptDraft', () => {
     test('rejects title that slugifies to empty', async () => {
       const invalidDraft = {
         name: 'Invalid Routine',
-        exercises: [{ title: '!!!', kind: 'strength' as const }],
+        exercises: [{ title: '!!!', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
 
       await expect(acceptDraft(database, invalidDraft, { kind: 'create' })).rejects.toThrow(DraftValidationError);
@@ -507,7 +518,7 @@ describe('acceptDraft', () => {
     test('preserves existing exercise kind when accepting draft for same exercise', async () => {
       const initialDraft = {
         name: 'Initial Routine',
-        exercises: [{ title: 'Cycling', kind: 'cardio' as const }],
+        exercises: [{ title: 'Cycling', kind: 'cardio' as const, sets: [{ type: 'normal' as const }] }],
       };
       await acceptDraft(database, initialDraft, { kind: 'create' });
 
@@ -519,7 +530,7 @@ describe('acceptDraft', () => {
 
       const secondDraft = {
         name: 'Second Routine',
-        exercises: [{ title: 'Cycling', kind: 'strength' as const }],
+        exercises: [{ title: 'Cycling', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
       await acceptDraft(database, secondDraft, { kind: 'create' });
 
@@ -533,7 +544,7 @@ describe('acceptDraft', () => {
     test('normalizes internal whitespace in exercise title', async () => {
       const draft = {
         name: 'My Routine',
-        exercises: [{ title: '  bench   press  ', kind: 'strength' as const }],
+        exercises: [{ title: '  bench   press  ', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
       };
 
       await acceptDraft(database, draft, { kind: 'create' });
@@ -554,7 +565,7 @@ describe('acceptDraft', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
-            targetWeightLbs: 185,
+            sets: [{ type: 'normal' as const, weightLbs: 185 }],
           },
         ],
       };
@@ -579,6 +590,7 @@ describe('acceptDraft', () => {
           {
             title: 'Bench Press',
             kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
           },
         ],
       };

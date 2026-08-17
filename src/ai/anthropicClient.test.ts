@@ -32,8 +32,11 @@ describe('Anthropic Client', () => {
                   {
                     title: 'Bench Press',
                     kind: 'strength',
-                    targetSets: 3,
-                    targetReps: 8,
+                    sets: [
+                      { type: 'normal', reps: 8 },
+                      { type: 'normal', reps: 8 },
+                      { type: 'normal', reps: 8 },
+                    ],
                   },
                 ],
               },
@@ -58,8 +61,8 @@ describe('Anthropic Client', () => {
       expect(result.draft?.name).toBe('Push Day');
       expect(result.draft?.exercises[0].title).toBe('Bench Press');
       expect(result.draft?.exercises[0].kind).toBe('strength');
-      expect(result.draft?.exercises[0].targetSets).toBe(3);
-      expect(result.draft?.exercises[0].targetReps).toBe(8);
+      expect(result.draft?.exercises[0].sets).toHaveLength(3);
+      expect(result.draft?.exercises[0].sets[0].reps).toBe(8);
     });
 
     it('includes correct URL, method, headers, and body structure in request', async () => {
@@ -315,6 +318,7 @@ describe('Anthropic Client', () => {
                   {
                     title: 'Bench Press',
                     kind: 'strength',
+                    sets: [{ type: 'normal', reps: 8 }],
                   },
                 ],
               },

@@ -38,11 +38,21 @@ function makeEntry(overrides?: Partial<RoutineEntry>): RoutineEntry {
     idx: 0,
     exerciseId: 'barbell-bench-press',
     kind: 'strength',
-    warmupSets: 1,
-    targetSets: 4,
-    targetReps: 6,
+    // The aggregate counts survive on the ENGINE entry until Phase 6; they are
+    // deliberately inconsistent with the list below so a `replaceExerciseTarget`
+    // that read them instead of `entrySets` would be visible.
+    warmupSets: 0,
+    targetSets: 0,
+    targetReps: 0,
     targetDurationSeconds: 0,
     restSeconds: 150,
+    sets: [
+      { setType: 'warmup', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+    ],
     supersetGroup: '',
     ...overrides,
   };
@@ -74,11 +84,14 @@ function makeTarget(overrides?: Partial<ReplaceTarget>): ReplaceTarget {
     exerciseId: 'barbell-bench-press',
     exerciseTitle: 'Barbell Bench Press',
     kind: 'strength',
-    warmupSets: 1,
-    targetSets: 4,
-    targetReps: 6,
-    targetDurationSeconds: 0,
     restSeconds: 150,
+    sets: [
+      { setType: 'warmup', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+    ],
     ...overrides,
   };
 }
