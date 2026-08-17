@@ -5,7 +5,7 @@
  */
 
 import { createEngine as rillCreateEngine, TransitionError as RillTransitionError } from 'rill-lang';
-import { SessionState, Event, Effect, LoggedSet } from './types';
+import { SessionState, Event, Effect, LoggedSet, RoutineSet } from './types';
 
 // Import rule sources via Jest .lv transformer
 import typesSource from './rules/types.lv';
@@ -25,6 +25,13 @@ export { TransitionError } from 'rill-lang';
  *
  * Sentinels are applied in fromRillState() and should be assumed throughout all
  * TypeScript code reading SessionState.
+ */
+/*
+ * NOT EXTENDED FOR RoutineSet. Its optional fields (reps, repsMax, weightKg,
+ * durationSeconds, distanceM) are new surface with no legacy read sites to
+ * protect, so they cross the boundary as honest `undefined` and read sites use
+ * `!= null`. Five more sentinels would grow the `-1`-renders-as-`RPE: -1`
+ * hazard class for no benefit. See #276 AC2.12.
  */
 export const SENTINEL_TO_OPTION_MAP = {
   rpe: { sentinel: -1.0, rillNone: undefined },
@@ -48,19 +55,57 @@ export interface EffectExecutors {
   onDiscardSession(sessionId: string): void | Promise<void>;
 }
 
+/** A number for Rill's Option, or undefined for None. WatermelonDB hands back null. */
+function toRillOptionalNumber(value: number | null | undefined): number | undefined {
+  return value == null ? undefined : value;
+}
+
+/** Rill's RoutineSet record: every measurement is an Option, no sentinels. */
+function toRillRoutineSet(set: RoutineSet): any {
+  return {
+    setType: set.setType,
+    reps: toRillOptionalNumber(set.reps),
+    repsMax: toRillOptionalNumber(set.repsMax),
+    weightKg: toRillOptionalNumber(set.weightKg),
+    durationSeconds: toRillOptionalNumber(set.durationSeconds),
+    distanceM: toRillOptionalNumber(set.distanceM),
+  };
+}
+
+/**
+ * DERIVATION SEAM (#276, deleted in Phase 6). Expand an aggregate entry's
+ * counts into the flat set list the rules now require: `warmupSets` warmups
+ * followed by `targetSets` normals, every one of them carrying the entry's
+ * single `targetReps`/`targetDurationSeconds` because that is all an aggregate
+ * knows. Lossless in this direction — a count says nothing a list cannot.
+ *
+ * A 0 in either target field means "unset" on the TS side (nothing plans zero
+ * reps), so it crosses as absent rather than as `Some(0)`.
+ */
+function setsFromCounts(entry: any): RoutineSet[] {
+  const reps = entry.targetReps > 0 ? entry.targetReps : undefined;
+  const durationSeconds = entry.targetDurationSeconds > 0 ? entry.targetDurationSeconds : undefined;
+  const make = (setType: RoutineSet['setType']): RoutineSet => ({ setType, reps, durationSeconds });
+  return [
+    ...Array.from({ length: Math.max(0, entry.warmupSets ?? 0) }, () => make('warmup')),
+    ...Array.from({ length: Math.max(0, entry.targetSets ?? 0) }, () => make('normal')),
+  ];
+}
+
 /**
  * Convert TypeScript RoutineEntry to Rill format (removing idx, handling supersetGroup as Option).
+ *
+ * `entry.sets` wins when present; the counts are the fallback for the shell
+ * files that have not moved to per-set yet.
  */
 function toRillRoutineEntry(entry: any): any {
+  const sets: RoutineSet[] = Array.isArray(entry.sets) ? entry.sets : setsFromCounts(entry);
   return {
     exerciseId: entry.exerciseId,
     kind: entry.kind,
-    warmupSets: entry.warmupSets,
-    targetSets: entry.targetSets,
-    targetReps: entry.targetReps,
-    targetDurationSeconds: entry.targetDurationSeconds,
     restSeconds: entry.restSeconds,
     supersetGroup: entry.supersetGroup === '' || !entry.supersetGroup ? undefined : entry.supersetGroup,
+    sets: sets.map(toRillRoutineSet),
   };
 }
 
@@ -91,6 +136,69 @@ function toRillState(tsState: SessionState): any {
     } : undefined,
     startedAtMs: tsState.startedAtMs,
     entries: tsState.entries.map(toRillRoutineEntry),
+  };
+}
+
+/**
+ * Rill's RoutineSet back to TS. `rillToJs` OMITS a `None` key rather than
+ * emitting `undefined`, so the keys are re-spelled here to give the TS side a
+ * stable shape. Either way, an expectation written without the absent keys
+ * matches only under `toEqual`, not `toStrictEqual` (#276 AC2.12).
+ */
+function fromRillRoutineSet(set: any): RoutineSet {
+  return {
+    setType: set.setType,
+    reps: set.reps,
+    repsMax: set.repsMax,
+    weightKg: set.weightKg,
+    durationSeconds: set.durationSeconds,
+    distanceM: set.distanceM,
+  };
+}
+
+/**
+ * DERIVATION SEAM (#276, deleted in Phase 6). The other direction: re-derive
+ * the aggregate counts from the set list so the ~20 shell files still reading
+ * `warmupSets`/`targetSets`/`targetReps`/`targetDurationSeconds` see exactly
+ * what they saw before per-set, and a count-built entry round-trips unchanged —
+ * with exactly one exception, recorded below.
+ *
+ * Lossy in this direction, necessarily: INTERLEAVE (warmup, normal, warmup)
+ * comes back as warmupSets 2 / targetSets 1, which is the closest an aggregate
+ * can get to a shape it cannot represent. That loss is confined to the derived
+ * counts — the rules read `sets`.
+ *
+ * THE ONE ROUND-TRIP EXCEPTION: a ZERO-TOTAL entry loses its plan values.
+ *
+ *   in : { warmupSets: 0, targetSets: 0, targetReps: 12, targetDurationSeconds: 45 }
+ *   out: { warmupSets: 0, targetSets: 0, targetReps:  0, targetDurationSeconds:  0 }
+ *
+ * `setsFromCounts` expands that entry to `[]`, so `plan` is undefined here and
+ * both `?? 0` defaults fire; the pre-per-set engine handed back 12/45. The shape
+ * is real — AGENTS.md's Boundaries note records routines imported before
+ * `upsertRoutine` learned its zero-total default, left with `target_sets` null
+ * or 0 and no re-import to heal them. It is NOT reachable in any decision path,
+ * which is why nothing is done about it beyond saying so: such an entry is
+ * unlandable (convention 10), `computeSetPrefill` and `exerciseReplaceStore`
+ * read only the CURRENT entry, and `restCommentaryStore.performedEntryIndex`
+ * gates on `warmupSets + targetSets > round` with `round >= 0`, so a zero-total
+ * entry is never selected. Every zero-total display guard in the shell keys on
+ * the counts being 0, which they still are. Phase 6 deletes this function and
+ * the exception with it; until then, do not build a reader that needs
+ * `targetReps` off an entry planning no sets.
+ *
+ * The plan values come from the first NORMAL set (what the shell means by "the
+ * target"), falling back to the first set of any type so an all-warmup entry —
+ * `{ warmupSets: 2, targetSets: 0, targetReps: 12 }` — still round-trips.
+ */
+function countsFromSets(sets: RoutineSet[]) {
+  const warmupSets = sets.filter((set) => set.setType === 'warmup').length;
+  const plan = sets.find((set) => set.setType !== 'warmup') ?? sets[0];
+  return {
+    warmupSets,
+    targetSets: sets.length - warmupSets,
+    targetReps: plan?.reps ?? 0,
+    targetDurationSeconds: plan?.durationSeconds ?? 0,
   };
 }
 
@@ -132,17 +240,18 @@ function fromRillState(rillState: any): SessionState {
       rpe: rillState.lastLoggedSet.rpe === undefined ? -1.0 : rillState.lastLoggedSet.rpe,
     } : undefined,
     startedAtMs: rillState.startedAtMs,
-    entries: rillState.entries.map((entry: any, idx: number) => ({
-      idx,
-      exerciseId: entry.exerciseId,
-      kind: entry.kind,
-      warmupSets: entry.warmupSets,
-      targetSets: entry.targetSets,
-      targetReps: entry.targetReps,
-      targetDurationSeconds: entry.targetDurationSeconds,
-      restSeconds: entry.restSeconds,
-      supersetGroup: entry.supersetGroup === undefined ? '' : entry.supersetGroup,
-    })),
+    entries: rillState.entries.map((entry: any, idx: number) => {
+      const sets: RoutineSet[] = (entry.sets ?? []).map(fromRillRoutineSet);
+      return {
+        idx,
+        exerciseId: entry.exerciseId,
+        kind: entry.kind,
+        ...countsFromSets(sets),
+        restSeconds: entry.restSeconds,
+        supersetGroup: entry.supersetGroup === undefined ? '' : entry.supersetGroup,
+        sets,
+      };
+    }),
   };
 }
 

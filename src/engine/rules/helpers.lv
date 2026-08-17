@@ -44,12 +44,36 @@ let validate_set = fn(set) -> (
 )
 
 -- Which phase (Warmup vs Working) applies to `entry` at the given 0-based
--- position in its own sets — i.e. how many of its own warmup+working sets
--- have already been logged. Shared by every "recover phase from position"
--- site (RestElapsed, SkipRest, superset advancement) so they can never
--- disagree.
+-- position in its own set list — read off that set's own declared type, not
+-- inferred from a count. A plan may interleave (warmup, normal, warmup), which
+-- no comparison against a warmup COUNT reproduces at any value. Shared by
+-- every "recover phase from position" site (RestElapsed, SkipRest, superset
+-- advancement, the resting-deadline reconcile and StartSession) so they can
+-- never disagree.
+--
+-- The `match at(...) { Ok/Err }` form is load-bearing: callers use phase_for in
+-- value position inside a record literal, so it must be TOTAL and cannot use
+-- `?`. Rill's `|>` does not auto-unwrap a Result, so the obvious
+-- `at(i, entry.sets) |> fn(s) -> ... |> catch e -> ...` fails to type-check
+-- with "Cannot unify TRecord with TUnion". An out-of-range index means the
+-- entry is exhausted and nothing is going to be logged against it; Working is
+-- the inert answer.
 let phase_for = fn(entry) -> fn(setIndex) -> (
-  if (setIndex < entry.warmupSets) then Warmup else Working
+  match at(setIndex, entry.sets) {
+    Ok(s) -> if (s.setType == "warmup") then Warmup else Working,
+    Err(e) -> Working
+  }
+)
+
+-- The prescribed type of `entry`'s set at `setIndex` ("warmup" | "normal"),
+-- for LogSet's stamping. Same totality requirement and same recovery form as
+-- phase_for; "normal" is the inert default, since a non-warmup set falls
+-- through to the entry's own kind.
+let set_type_at = fn(entry) -> fn(setIndex) -> (
+  match at(setIndex, entry.sets) {
+    Ok(s) -> s.setType,
+    Err(e) -> "normal"
+  }
 )
 
 -- Last index (inclusive), starting from groupStartIdx, of the contiguous run
@@ -80,13 +104,16 @@ let group_end_idx = fn(entries) -> fn(groupStartIdx) -> fn(label) -> (
   ).endIdx
 )
 
--- Smallest index in (afterIdx, groupEndIdx] whose own warmupSets+targetSets
--- still owes a set at `round` (0-based, so a member is "active" at round r
--- iff r < its own total). None means nobody left in that window for this
+-- Smallest index in (afterIdx, groupEndIdx] whose own set list still owes a
+-- set at `round` (0-based, so a member is "active" at round r
+-- iff r < the length of its own set list). None means nobody left in that window for this
 -- round — the caller reads that as "round done" or "group done" depending on
 -- the window it passed. A member with fewer total sets than its partner is
 -- simply skipped once its own count is exhausted, rather than ending the
 -- group's round for everyone (the earlier, wrong behavior this replaced).
+-- `length(entry.sets)` inside this fold's lambda is the nested-list access
+-- convention 3's head/tail-recursion warning made look risky; it type-checks
+-- and runs.
 let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round) -> (
   fold(
     { idx: 0, found: None },
@@ -94,7 +121,7 @@ let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round
       match acc.found {
         Some(f) -> { idx: acc.idx + 1, found: acc.found },
         None ->
-          if (acc.idx > afterIdx && acc.idx <= groupEndIdx && round < (entry.warmupSets + entry.targetSets))
+          if (acc.idx > afterIdx && acc.idx <= groupEndIdx && round < length(entry.sets))
           then { idx: acc.idx + 1, found: Some(acc.idx) }
           else { idx: acc.idx + 1, found: None }
       }
@@ -104,15 +131,15 @@ let next_active_idx = fn(entries) -> fn(afterIdx) -> fn(groupEndIdx) -> fn(round
 )
 
 -- Where a fresh landing at or after `fromIdx` actually lands: the smallest
--- index whose own warmupSets+targetSets is nonzero (a member is "active" at
--- a fresh landing's round 0 iff 0 < its own total), together with the start
+-- index whose own set list is non-empty (a member is "active" at
+-- a fresh landing's round 0 iff it has any set at all), together with the start
 -- of whichever contiguous supersetGroup run (or standalone singleton) it
 -- belongs to. The group start has to be tracked rather than assumed to be
 -- fromIdx, because a landing can skip an entire zero-set group to reach a
 -- LATER group whose own leading member(s) are also zero-set — supersetPosition
 -- must still be computed relative to THAT group's true start, or the next
 -- advance_after_set call rederives the wrong groupEndIdx from it. None means
--- every entry from fromIdx to the end of the routine plans zero total sets.
+-- every entry from fromIdx to the end of the routine has an empty set list.
 -- Precondition: fromIdx is itself already a group boundary (0, or one past a
 -- prior group's end) — both call sites in transition.lv satisfy this.
 let next_active_landing = fn(entries) -> fn(fromIdx) -> (
@@ -130,7 +157,7 @@ let next_active_landing = fn(entries) -> fn(fromIdx) -> (
               _ -> false
             }
             let groupStart = if (acc.idx == fromIdx) then fromIdx else if (sameGroupAsPrev) then acc.groupStart else acc.idx
-            let isActive = (entry.warmupSets + entry.targetSets) > 0
+            let isActive = length(entry.sets) > 0
             let found = if (isActive) then Some({ idx: acc.idx, groupStart: groupStart }) else None
             { idx: acc.idx + 1, groupStart: groupStart, prevLabel: entry.supersetGroup, found: found }
           )

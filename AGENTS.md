@@ -316,6 +316,23 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    the shell as a plain `0` that display code must treat as *no plan* — see the
    zero-planned-set rule in Boundaries.
 
+> **⚠️ #276 IN PROGRESS (Phases 2–6) — conventions 9 and 10 below quote rule text
+> that no longer exists.** Since Phase 2 the Rill rules read a per-set list, not
+> aggregate counts: `RoutineEntry` (`rules/types.lv`) carries
+> `sets: List(RoutineSet)` and has no `warmupSets`/`targetSets` field at all, so
+> every `warmupSets + targetSets` in the two conventions below is describing
+> source text you will not find. Substitute as you read:
+> `h.next_active_idx`'s activity predicate is now `round < length(entry.sets)`,
+> `h.next_active_landing`'s is `length(entry.sets) > 0`, and warmup-vs-working
+> comes from each set's own `setType` through `h.phase_for` rather than from
+> comparing an index against a warmup count. The counts are derived back at the
+> TS boundary (`countsFromSets` in `engine/index.ts`), so **every conclusion in
+> conventions 9 and 10 still holds, and every sentence about shell behaviour is
+> still true** — the quoted rule text, and only that, is stale. The same caveat
+> applies to the zero-planned-set paragraph in Boundaries, which carries its own
+> copy of this marker. Full rewrite is AC6.5 (#276 Phase 6); do not rewrite these
+> conventions phase by phase.
+
 9. **A superset group round-robins by set, and `setIndex` becomes a
    group-shared round number while advancing through one.** A group is a
    contiguous run of entries sharing a `supersetGroup` label (`h.group_end_idx`
@@ -1098,7 +1115,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   both activity predicates in `helpers.lv` key on that sum — `h.next_active_idx`
   treats an entry as active for round `r` iff `r < warmupSets + targetSets`, and
   `h.next_active_landing` iff the sum is nonzero — so only a zero total can reach a
-  zero denominator. Engine convention 10 now keeps `exerciseIndex` off zero-set
+  zero denominator.
+  **⚠️ #276 IN PROGRESS (Phases 2–6): those two quoted predicate forms no longer
+  exist.** Since Phase 2 the rules read a per-set list, so the real forms are
+  `round < length(entry.sets)` and `length(entry.sets) > 0`. The correspondence is
+  exact rather than approximate — the TS boundary expands `warmupSets` warmups
+  plus `targetSets` normals, so `length(sets)` *is* the sum, and the "only a zero
+  total can reach a zero denominator" conclusion, along with every shell-side
+  sentence in this paragraph, still holds unchanged. Only the quoted rule text is
+  stale. See the fuller marker above engine convention 9. Rewrite at AC6.5. Engine convention 10 now keeps `exerciseIndex` off zero-set
   entries in the first place, which demotes these guards to a layer-2 defense but
   does **not** make them dead code: rehydrate restores a stored `exerciseIndex`
   through a `hydrate` call that no rule ever validates (convention 5), so a session
