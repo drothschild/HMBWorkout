@@ -1,5 +1,10 @@
 /**
- * The one implementation of superset contiguity grouping (issue #278).
+ * The app-side implementation of superset contiguity grouping (issue #278).
+ *
+ * Every app-side site goes through this module. One walk deliberately does
+ * not: `groupSupersets` in `src/interop/parse.ts`, which belongs to the
+ * markdown grammar and whose singleton-label behaviour the engine cites by
+ * name (`helpers.lv:56`, `transition.lv:14`) — see AGENTS.md Boundaries.
  *
  * A superset group is a **contiguous run** of routine entries sharing a
  * `superset_group` label — the definition AGENTS.md engine convention 9 gives
@@ -9,12 +14,15 @@
  * Merging two same-label runs that are not adjacent misrepresents what the
  * engine will actually run — that was the #268 bug.
  *
- * This module is pure and depends on nothing. It lives outside `src/db`,
- * `src/state` and `src/app` because all three need it and none of them owns
- * it: the rule is a property of the routine model, not of any one layer or
- * row shape. It is generic over "thing with an optional label" so the
- * `RoutineExercise` row, the AI `DraftExercise`, the presenter's
- * `ExerciseDetail` and the engine's `RoutineEntry` can all share it.
+ * This module is pure and depends on nothing. Its importers today are
+ * `src/state` (`routineDetailPresenter`, `restCommentaryStore`) and `src/app`
+ * (`ai-coach.tsx`); `src/db` imports it zero times, because deleting the dead
+ * `getSupersetGroups` left that layer with no grouping reader. It lives here
+ * rather than in `state` anyway, since a db-side reader would need the same
+ * rule and `db` must not import `state`: the rule is a property of the routine
+ * model, not of any one layer or row shape. It is generic over "thing with an
+ * optional label" so the `RoutineExercise` row, the AI `DraftExercise` and the
+ * engine's `RoutineEntry` can all share it.
  *
  * ## The rules, stated once
  *
@@ -97,8 +105,10 @@ export function supersetRunEndIndex<T, K extends SupersetKey>(
  * Partition already-ordered entries into contiguous superset runs, preserving
  * order. Every input item appears in exactly one run, exactly once.
  *
- * Built on `supersetRunEndIndex` so there is genuinely one contiguity check in
- * this codebase rather than two that agree by inspection.
+ * Built on `supersetRunEndIndex` so this module holds genuinely one contiguity
+ * check rather than two that agree by inspection. Inlining an equivalent walk
+ * here would leave every behavioural test green, so
+ * `supersetGrouping.callSites.test.ts` asserts the delegation in source.
  */
 export function groupBySupersetRuns<T, K extends SupersetKey>(
   items: readonly T[],

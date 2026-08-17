@@ -26,6 +26,19 @@ const read = (relative: string) =>
   fs.readFileSync(path.resolve(__dirname, '..', relative), 'utf-8');
 
 describe('superset grouping call sites', () => {
+  describe('src/domain/supersetGrouping.ts (the helper itself)', () => {
+    const source = read('domain/supersetGrouping.ts');
+
+    it('groupBySupersetRuns delegates to supersetRunEndIndex rather than inlining a second walk', () => {
+      // The PR's headline claim is that there is genuinely ONE contiguity
+      // check. An equivalent inline re-implementation here is behaviourally
+      // invisible — it passes every test in supersetGrouping.test.ts and every
+      // consumer suite — so nothing but a source read can catch it.
+      expect(source.length).toBeGreaterThan(500);
+      expect(source).toContain('supersetRunEndIndex(items, index, keyOf)');
+    });
+  });
+
   describe('src/app/ai-coach.tsx (no jest coverage — structural criterion)', () => {
     const source = read('app/ai-coach.tsx');
 
@@ -60,7 +73,10 @@ describe('superset grouping call sites', () => {
     it('builds items through the shared helper', () => {
       expect(source.length).toBeGreaterThan(500);
       expect(source).toContain("from '@/domain/supersetGrouping'");
-      expect(source).toContain('groupBySupersetRuns');
+      // The CALL, not just the identifier: an inline walk that leaves the now-
+      // unused import behind satisfies a bare `toContain('groupBySupersetRuns')`
+      // and tsc does not object, so the import alone is a vacuous guard.
+      expect(source).toContain('groupBySupersetRuns<any, string>(');
     });
 
     it('no longer extends the last pushed item in place', () => {
