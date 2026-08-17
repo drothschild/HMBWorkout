@@ -543,6 +543,46 @@ tags: []
       expect(exercise.exerciseId).toBe('bench-press-db');
       expect(exercise.loggedReps).toBe(0);
     });
+
+    /**
+     * The session half of the two rules #276 Phase 5 made routine-only
+     * (M1 and M2, #293 review).
+     *
+     * AC5.5 says the session document shape is untouched, and until now
+     * nothing pinned the session side of either rule — both guards could lose
+     * their `context === 'routine'` clause and no test would notice.
+     */
+    const sessionDoc = (spec: string): string => `---
+type: workout-session
+id: sess-ac55
+date: 2026-08-16
+created: 2026-08-16
+tags: []
+---
+
+✅ 2026-08-16
+
+\`\`\`workout
+- bench-press-db: ${spec}
+\`\`\`
+`;
+
+    test('a session line still accepts a sets slot other than 1', () => {
+      // The "a routine line is one set, so the slot must be 1" rule is
+      // routine-only on purpose: `serializeSession` has always hardcoded `1x`,
+      // and tightening the session side would change a document shape this
+      // phase is not touching.
+      const line = parseSession(sessionDoc('3x8 set_type=working')).exercises[0] as any;
+      expect(line.loggedReps).toBe(8);
+      expect(line.targetSets).toBe(3);
+    });
+
+    test('a session line with nothing after the colon is still malformed', () => {
+      // The routine relaxation — a line may prescribe as little as it likes —
+      // is routine-only too. A session line is a measurement; a set that says
+      // nothing about itself was not measured.
+      expect(() => parseSession(sessionDoc(''))).toThrow(ContractError);
+    });
   });
 
   describe('I1: unknown flags fail loud', () => {
@@ -676,7 +716,7 @@ tags: []
    * spec below therefore keeps its legacy note verbatim and only its sets slot
    * updated. Do not read this block as "every prior document still parses".
    */
-  describe('#277: documents written before the quoting change still parse', () => {
+  describe('#277: documents written before the quoting change still tokenize the same way', () => {
     const legacyDoc = (specLine: string): string => `---
 type: workout-routine
 id: legacy-01
@@ -835,9 +875,26 @@ ${lines.join('\n')}
         entries('- bench-press-db: 1x5 @"cue one"', '- bench-press-db: 1x5 @"cue two"')
       ).toThrow(ContractError);
 
+      // `kind` is in ENTRY_FLAGS too, and needs a pair that reaches the
+      // conflict check to pin it (M3, #293 review): a `1x5 kind=cardio` line
+      // throws earlier, on the rule that cardio has no sets slot, so a run
+      // built from one proves nothing about the flag list.
       expect(() =>
-        entries('- cycling: 1x5 kind=cardio', '- cycling: 1x5')
+        entries('- cycling: kind=cardio target_distance=100', '- cycling: 1x5')
       ).toThrow(ContractError);
+    });
+
+    test('a sets=0 line in a run contributes no set, from either side', () => {
+      // M4 (#293 review). `sets: []` appends nothing in the fold, which is what
+      // keeps the entry marker from inventing a phantom set when it sits beside
+      // real ones. Both orders, because the fold treats them differently: the
+      // first line seeds the entry, later ones extend it.
+      expect(entries('- bench-press-db: sets=0', '- bench-press-db: 1x5')[0].sets).toEqual([
+        { setType: 'normal', targetReps: 5 },
+      ]);
+      expect(entries('- bench-press-db: 1x5', '- bench-press-db: sets=0')[0].sets).toEqual([
+        { setType: 'normal', targetReps: 5 },
+      ]);
     });
 
     test('a stray token on a routine line is still malformed, not a zero-set entry', () => {

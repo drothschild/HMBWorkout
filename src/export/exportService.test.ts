@@ -213,6 +213,102 @@ describe('exportService', () => {
       expect(entry.sets).toEqual([{ setType: 'normal', targetReps: 20, targetWeightKg: 0 }]);
     });
 
+    /**
+     * One discriminating fixture per `?? undefined` at the export boundary
+     * (I1, #293 review).
+     *
+     * `?? undefined` and `|| undefined` differ on exactly one input — 0 — so a
+     * suite with no zero in it cannot tell them apart, and five of the six
+     * guards here survived mutation for that reason. The blast radius is real:
+     * under `||` a prescribed 0 reads as absent, the flag is never emitted, and
+     * the value is gone from the document. `target_weight`'s own fixture is
+     * above; these are its five siblings, one test each so a regression names
+     * the guard that broke.
+     */
+    describe('a prescribed 0 survives the export boundary on every field', () => {
+      it.each([
+        ['targetReps', 'strength', '1x0'],
+        ['targetRepsMax', 'strength', 'reps_max=0'],
+        ['targetDurationSeconds', 'cardio', 'duration=0:00'],
+        ['targetDistanceM', 'cardio', 'target_distance=0'],
+      ] as const)('%s', async (field, kind, onTheWire) => {
+        await upsertExercise(db, `ex-zero-${field}`, 'Zero', kind);
+        await upsertRoutine(db, `routine-zero-${field}`, 'Zeroes', [
+          {
+            exerciseId: `ex-zero-${field}`,
+            order: 0,
+            sets: [{ setType: 'normal', [field]: 0 }],
+          },
+        ]);
+
+        await flush();
+
+        const markdown = await exportRoutine(db, `routine-zero-${field}`);
+        expect(markdown).toContain(onTheWire);
+
+        const entry = parseRoutine(markdown).exercises[0] as any;
+        expect(entry.sets).toEqual([{ setType: 'normal', [field]: 0 }]);
+      });
+
+      it('restSeconds', async () => {
+        // The entry-level one. A rest of 0 is "straight into the next set".
+        await upsertExercise(db, 'ex-zero-rest', 'Zero Rest', 'strength');
+        await upsertRoutine(db, 'routine-zero-rest', 'Zeroes', [
+          {
+            exerciseId: 'ex-zero-rest',
+            order: 0,
+            restSeconds: 0,
+            sets: [{ setType: 'normal', targetReps: 5 }],
+          },
+        ]);
+
+        await flush();
+
+        const markdown = await exportRoutine(db, 'routine-zero-rest');
+        expect(markdown).toContain('rest=0');
+
+        expect((parseRoutine(markdown).exercises[0] as any).restSeconds).toBe(0);
+      });
+    });
+
+    it('each entry gets its OWN set list, not the first entry\'s', async () => {
+      // I2 (#293 review). `setsByEntry[index]` is the join between the
+      // `Promise.all(routineExercises.map(…))` above and the
+      // `routineExercises.map((re, index) => …)` below, and it is the
+      // load-bearing part of the new export code. Every prior fixture with two
+      // entries gave them identical set lists, so `setsByEntry[0]` — every
+      // entry wearing the first one's prescription — was indistinguishable.
+      await upsertExercise(db, 'ex-a', 'Squat', 'strength');
+      await upsertExercise(db, 'ex-b', 'Curl', 'strength');
+      await upsertRoutine(db, 'routine-distinct', 'Distinct', [
+        {
+          exerciseId: 'ex-a',
+          order: 0,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+            { setType: 'normal', targetReps: 3, targetWeightKg: 100 },
+          ],
+        },
+        {
+          exerciseId: 'ex-b',
+          order: 1,
+          sets: [{ setType: 'normal', targetReps: 12, targetWeightKg: 10 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-distinct'));
+      expect(parsed.exercises).toHaveLength(2);
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+        { setType: 'normal', targetReps: 3, targetWeightKg: 100 },
+      ]);
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 12, targetWeightKg: 10 },
+      ]);
+    });
+
     it('an entry with no routine_sets rows exports as a bare exercise line', async () => {
       // The aggregate-only shape every routine written before Phase 1 has.
       // It exports as an exercise the routine names with nothing prescribed —
