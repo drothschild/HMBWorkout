@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
-import { SessionState, Event, RoutineEntry, LoggedSet } from '@/engine/types';
+import { SessionState, Event, RoutineEntry, RoutineSet, LoggedSet } from '@/engine/types';
+import { entrySets } from '@/engine/entrySets';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
 
@@ -104,25 +105,51 @@ export function isRestingPhase(sessionState: SessionState): boolean {
   return sessionState.phase === 'resting' || (sessionState.phase === 'paused' && Boolean(sessionState.restRemainingMs));
 }
 
+/** How many of `sets` are of the same kind (warmup / not-warmup) as `isWarmup`. */
+export function countSetsOfType(sets: readonly RoutineSet[], isWarmup: boolean): number {
+  return sets.filter((set) => (set.setType === 'warmup') === isWarmup).length;
+}
+
 /**
- * Derive the set position within the current entry's warmup or working segment.
+ * Derive the set position within the current entry's run of same-typed sets.
  * Both the presenter (for display) and restCommentaryTarget (for the prompt)
- * need the same calculation: setIndex spans warmups then working sets, so the
- * number counts within its segment.
- * @returns { isWarmupSet, setNumber } or null if there is no current entry
+ * need the same calculation.
+ *
+ * PER-SET (#276 AC3.3): the position is a COUNT of preceding sets of the same
+ * type, not `setIndex - warmupSets + 1`. The old arithmetic assumed every
+ * warmup precedes every working set, which a real plan need not honour — on
+ * INTERLEAVE (`[warmup, normal, warmup]`) it renders "Set 0" at index 2. No
+ * value of `warmupSets` gives the right answer there, which is what makes that
+ * fixture the discriminator.
+ *
+ * `totalOfType` is the denominator the two label builders need. It is returned
+ * from here rather than recomputed by each of them so the numerator and the
+ * denominator can never come from different readings of the plan.
+ *
+ * An out-of-range `setIndex` — reachable through `hydrate`, which no rule
+ * validates (engine convention 5) — reports `totalOfType: 0`, which both label
+ * builders read as *hide*.
+ *
+ * @returns { isWarmupSet, setNumber, totalOfType } or null if there is no
+ *          current entry
  */
 export function deriveSetPosition(
   sessionState: SessionState,
   entry: RoutineEntry | undefined
-): { isWarmupSet: boolean; setNumber: number } | null {
+): { isWarmupSet: boolean; setNumber: number; totalOfType: number } | null {
   if (!entry) return null;
 
-  const isWarmupSet = sessionState.setIndex < entry.warmupSets;
-  const setNumber = isWarmupSet
-    ? sessionState.setIndex + 1
-    : sessionState.setIndex - entry.warmupSets + 1;
+  const sets = entrySets(entry);
+  const current = sets[sessionState.setIndex];
 
-  return { isWarmupSet, setNumber };
+  // No set at this position: nothing to count and nothing to count against.
+  if (!current) return { isWarmupSet: false, setNumber: 1, totalOfType: 0 };
+
+  const isWarmupSet = current.setType === 'warmup';
+  const setNumber =
+    countSetsOfType(sets.slice(0, sessionState.setIndex), isWarmupSet) + 1;
+
+  return { isWarmupSet, setNumber, totalOfType: countSetsOfType(sets, isWarmupSet) };
 }
 
 /**
@@ -241,35 +268,49 @@ export function historyPrefillStillApplies(
 /**
  * Default input values for the next set of the current exercise.
  *
- * Precedence, highest first:
- *   1. the exercise's own last set **this session** (matched by exerciseId — the
- *      engine's LoggedSet carries no entry row id, and duplicate entries of the
- *      same movement sharing a prefill is the desired behavior)
- *   2. the coach's prescribed load, `prescribedWeightKg` — **weight only**
- *   3. the caller's cross-session history fallback (strength only)
- *   4. the routine targets
+ * THE PRECEDENCE, PER-SET (#276 AC3.8). Three terms became two: the middle term
+ * used to be a per-exercise prescription applied to every set, and is now the
+ * prescription attached to the set actually being performed.
+ *
+ *   weight    1. the exercise's own last set **this session** (matched by
+ *                exerciseId — the engine's LoggedSet carries no entry row id,
+ *                and duplicate entries of the same movement sharing a prefill
+ *                is the desired behavior)
+ *             2. **the current set's own** `target_weight_kg`
+ *             3. the caller's cross-session history fallback
+ *             (no terminal: a plan with no load prefills no weight)
+ *
+ *   reps      1. the exercise's own last set this session
+ *             2. the cross-session history fallback
+ *             3. the current set's own `target_reps` (a range prefills its
+ *                lower bound; `target_reps_max` is guidance, not a default)
+ *
+ *   duration  1. the exercise's own last set this session
+ *             2. the current set's own `target_duration_seconds`
+ *             (no history — the history query returns working sets only)
  *
  * The prescription outranking history is the point of the feature: a coach that
  * programs 185 must not be silently overruled by last week's 175, because the
  * case where they differ is the only case that matters. It does **not** outrank
  * a set logged minutes ago in this same session — that is the athlete actively
  * correcting the plan, and re-offering the prescribed load on the next set would
- * fight them.
+ * fight them. The asymmetry between weight and reps survives per-set: with a
+ * prescribed 185 and a history set of 8 x 175, the right prefill is still 8 reps
+ * at 185.
  *
- * It is scoped to the weight field alone. With a prescription of 185 and a
- * history set of 8 x 175, the right prefill is 8 reps at 185: the coach
- * programmed the load, and the reps still come from what the athlete does.
- *
- * The prescription arrives in canonical kg and is resolved shell-side by the
- * caller, not carried in engine state — the Rill RoutineEntry is a closed record
- * that silently drops unknown fields, and no rule branches on load (engine
- * convention 6). Same reason `exerciseTitles` and `historyFallback` are
- * parameters.
+ * `prescribedSets` is the current entry's set list read FRESH from the database
+ * by the caller, indexed here by `setIndex`. It is deliberately not taken off
+ * engine state: `ReplaceExercise` leaves an entry's `sets` intact while
+ * `updateRoutineExerciseExerciseId` clears every `target_weight_kg` in the DB,
+ * so only a DB read makes an exercise swap's clear visible to the running
+ * session. See `routineSetPlans.ts`. Reps and duration, which a swap does NOT
+ * clear, come from engine state's own list, so a failed prescription read costs
+ * the load and nothing else.
  *
  * RPE is never prefilled: it is per-set perceived effort, and the -1 sentinel
  * must not leak into an input. Zero/absent metrics are omitted rather than
  * prefilled — the host maps 0 values to "not logged" on dispatch, so a prefilled
- * 0 would silently vanish from the logged set. A `prescribedWeightKg` of 0 is
+ * 0 would silently vanish from the logged set. A prescribed weight of 0 is
  * therefore read as *no prescription*, not as a prescribed zero.
  */
 
@@ -296,10 +337,17 @@ export function historyToSetInputValues(historySet: {
   return undefined;
 }
 
+/**
+ * One entry's prescribed sets as the caller read them out of `routine_sets`,
+ * in `order`. Structurally satisfied by `RoutineSetEntry` from the repository;
+ * spelled minimally here so the presenter keeps no dependency on `src/db`.
+ */
+export type PrescribedSets = readonly { targetWeightKg?: number | null }[];
+
 export function computeSetPrefill(
   sessionState: SessionState,
   historyFallback?: SetInputValues,
-  prescribedWeightKg?: number
+  prescribedSets?: PrescribedSets
 ): SetInputValues | undefined {
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return undefined;
@@ -307,10 +355,16 @@ export function computeSetPrefill(
   const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
 
-  // The prescribed load, converted to display lbs once, here. Absent for a
-  // duration-based entry (there is no weight input to fill) and for any
-  // non-positive value (0 means "no prescription", matching the > 0 absence
-  // convention every other metric in this function uses).
+  // The set actually being performed. Out of range — reachable through
+  // `hydrate`, which no rule validates (convention 5) — means no plan, not
+  // set 0's plan.
+  const plannedSet: RoutineSet | undefined = entrySets(entry)[sessionState.setIndex];
+
+  // The prescribed load for THAT set, converted to display lbs once, here.
+  // Absent for a duration-based entry (there is no weight input to fill) and
+  // for any non-positive value (0 means "no prescription", matching the > 0
+  // absence convention every other metric in this function uses).
+  const prescribedWeightKg = prescribedSets?.[sessionState.setIndex]?.targetWeightKg;
   const prescribedLbs =
     !isDurationBased && prescribedWeightKg != null && prescribedWeightKg > 0
       ? kgToLbs(prescribedWeightKg)
@@ -367,11 +421,10 @@ export function computeSetPrefill(
 
   // ---- R3: duration entries have no weight and no cross-session history --
   if (isDurationBased) {
-    // The history query returns working-type sets only, so targets are the only
-    // fallback here.
-    return entry.targetDurationSeconds > 0
-      ? { durationSeconds: entry.targetDurationSeconds }
-      : undefined;
+    // The history query returns working-type sets only, so the planned set is
+    // the only fallback here.
+    const planned = plannedSet?.durationSeconds;
+    return planned != null && planned > 0 ? { durationSeconds: planned } : undefined;
   }
 
   // ---- The override: the prescription claims the weight field ahead of
@@ -394,8 +447,11 @@ export function computeSetPrefill(
     if (historyHasReps || historyHasWeight) return prefill;
   }
 
-  // ---- R5: routine targets (terminal) ------------------------------------
-  if (entry.targetReps > 0) prefill.reps = entry.targetReps;
+  // ---- R5: the planned set's own reps (terminal) -------------------------
+  // A range prefills its lower bound; `repsMax` is guidance for the athlete,
+  // not a default to type into the input.
+  const plannedReps = plannedSet?.reps;
+  if (plannedReps != null && plannedReps > 0) prefill.reps = plannedReps;
   return Object.keys(prefill).length > 0 ? prefill : undefined;
 }
 
@@ -430,27 +486,35 @@ export function createSessionPresenter(
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
   const restRemainingMs = sessionState.restRemainingMs || undefined;
 
-  // Derived set position: setIndex spans warmups then working sets, so the
-  // label counts within the current segment ("Warmup 1 of 2" / "Set 3 of 4").
-  // A zero total is legitimate — an AI draft may omit targetSets for a timed
-  // exercise (stored null, mapped to 0 by startSessionFromRoutine) — and must
-  // suppress the label: "Set 1 of 0" is nonsense, and SetLogger already hides
-  // the empty string.
+  // Derived set position: the label counts within the current run of same-typed
+  // sets ("Warmup 2 of 3" / "Set 1 of 4"), with the denominator being the count
+  // of that type within the entry's own list (#276 AC3.4).
+  //
+  // An empty list is legitimate — a routine entry may prescribe nothing — and
+  // must suppress the label: "Set 1 of 0" is nonsense, and SetLogger already
+  // hides the empty string. `totalOfType > 0` is the guard rather than
+  // `sets.length > 0` because it also covers an out-of-range `setIndex`
+  // restored by `hydrate` (engine convention 5); for any in-range position the
+  // two are the same question.
   const setPos = deriveSetPosition(sessionState, currentEntry);
   const isWarmupSet = setPos?.isWarmupSet ?? false;
   const setNumber = setPos?.setNumber ?? 0;
-  const totalSetsForEntry = currentEntry ? currentEntry.warmupSets + currentEntry.targetSets : 0;
+  const currentEntrySets = entrySets(currentEntry);
+  const totalSetsForEntry = currentEntrySets.length;
   const setPositionLabel =
-    currentEntry && totalSetsForEntry > 0
+    setPos && setPos.totalOfType > 0
       ? isWarmupSet
-        ? `Warmup ${setNumber} of ${currentEntry.warmupSets}`
-        : `Set ${setNumber} of ${currentEntry.targetSets}`
+        ? `Warmup ${setNumber} of ${setPos.totalOfType}`
+        : `Set ${setNumber} of ${setPos.totalOfType}`
       : '';
 
   // True when this is the exercise's final set. The comparison setIndex ===
-  // totalSetsForEntry - 1 correctly identifies a superset member's own last
-  // visit (engine convention 9) without needing extra group logic.
-  const isLastSetOfExercise = Boolean(currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1);
+  // sets.length - 1 correctly identifies a superset member's own last visit
+  // (engine convention 9) without needing extra group logic: a member is
+  // visited once per round up to its own list length and never after.
+  const isLastSetOfExercise = Boolean(
+    currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1
+  );
 
   // Exercise progress: min defensively clamps exerciseIndex to the total (it
   // should never exceed entries.length, but progress math must stay safe if
@@ -471,13 +535,13 @@ export function createSessionPresenter(
   // hardcoded to 0: engine convention 10 has StartSession skip a leading
   // zero-set entry, so a session can legitimately begin already sitting on a
   // later index. findIndex returns -1 when entries is empty or every entry
-  // plans zero sets — both now rejected at StartSession, so unreachable via a
-  // real session — but Math.max keeps this defensively correct (falls back
-  // to 0, matching the prior hardcoded behavior) rather than leaning on that
-  // guarantee holding forever.
+  // has an empty set list — both now rejected at StartSession, so unreachable
+  // via a real session — but Math.max keeps this defensively correct (falls
+  // back to 0, matching the prior hardcoded behavior) rather than leaning on
+  // that guarantee holding forever.
   const startingExerciseIndex = Math.max(
     0,
-    sessionState.entries?.findIndex((entry) => entry.warmupSets + entry.targetSets > 0) ?? 0
+    sessionState.entries?.findIndex((entry) => entrySets(entry).length > 0) ?? 0
   );
   const atBeginning =
     sessionState.exerciseIndex === startingExerciseIndex &&

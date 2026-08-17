@@ -1,17 +1,20 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { Event, RoutineEntry, ExerciseKind } from '@/engine/types';
+import { getRoutineSets } from '@/db/repository';
+import { entrySetsFromRows } from './routineSetPlans';
 
 /**
  * Build a StartSession event from a routine in the database.
- * Loads routine_exercises, maps them to RoutineEntry format (with idx field),
- * and returns the event payload ready to dispatch.
+ * Loads routine_exercises with their prescribed `routine_sets`, maps them to
+ * RoutineEntry format (with idx field), and returns the event payload ready to
+ * dispatch.
  *
  * @param db Database instance
  * @param routineId ID of routine to start
  * @param sessionId ID for new session
  * @returns StartSession event (tag already set)
  * @throws Error if the routine is not found, has no exercises, or has
- *         exercises that all plan zero total sets
+ *         exercises whose set lists are all empty
  */
 export async function startSessionFromRoutine(
   db: Database,
@@ -41,6 +44,11 @@ export async function startSessionFromRoutine(
 
     const kind = (exercise as any)._raw.kind as ExerciseKind;
 
+    // The prescription the engine actually advances through (#276). The
+    // aggregate columns below are still written for the shell readers that
+    // have not moved to per-set yet; Phase 6 deletes them and this comment.
+    const prescribedSets = await getRoutineSets(db, re.id);
+
     entries.push({
       idx: re._raw.order, // Use DB order directly, NOT loop counter
       exerciseId: re._raw.exercise_id,
@@ -51,6 +59,7 @@ export async function startSessionFromRoutine(
       targetDurationSeconds: re._raw.target_duration_seconds || 0,
       restSeconds: re._raw.rest_seconds || 0,
       supersetGroup: re._raw.superset_group || '',
+      sets: entrySetsFromRows(prescribedSets, re._raw),
     });
   }
 
@@ -60,11 +69,15 @@ export async function startSessionFromRoutine(
     throw new Error(`Cannot start session: routine ${routineId} has no exercises`);
   }
 
-  // A routine whose every entry plans zero total sets is just as unstartable:
-  // the engine itself now rejects it (h.next_active_landing finds nothing
-  // active), so refuse it at the same layer as the no-exercises guard above
-  // rather than surfacing the engine's generic Err to every caller.
-  const hasActiveEntry = entries.some((entry) => entry.warmupSets + entry.targetSets > 0);
+  // A routine whose every entry has an empty set list is just as unstartable:
+  // the engine itself rejects it (h.next_active_landing finds nothing active,
+  // its predicate being `length(entry.sets) > 0`), so refuse it at the same
+  // layer as the no-exercises guard above rather than surfacing the engine's
+  // generic Err to every caller. `hasActiveExercise` in the routine presenters
+  // asks the same question one layer further out, through the same
+  // `entrySetsFromRows`, so a routine that cannot start never renders as
+  // startable either.
+  const hasActiveEntry = entries.some((entry) => (entry.sets?.length ?? 0) > 0);
   if (!hasActiveEntry) {
     throw new Error(`Cannot start session: routine ${routineId} has no entry with any sets to perform`);
   }
