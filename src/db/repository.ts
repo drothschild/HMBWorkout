@@ -993,69 +993,6 @@ export async function getRoutineTargetWeightsKg(
 }
 
 /**
- * Get all routine exercises for a routine, grouped by superset_group.
- * Non-grouped exercises (with null superset_group) are returned as individual singleton groups.
- * Same superset_group labels that are non-contiguous are split into separate groups.
- * Preserves the order of exercises overall.
- *
- * @param database The database instance
- * @param routineId The routine ID
- * @returns Array of groups, where each group is an array of RoutineExercise objects
- */
-export async function getSupersetGroups(
-  database: Database,
-  routineId: string
-): Promise<RoutineExercise[][]> {
-  const routineExercisesTable = database.get('routine_exercises');
-
-  // Fetch all routine exercises for this routine, sorted by order
-  const allExercises = (await routineExercisesTable
-    .query(Q.where('routine_id', routineId))
-    .fetch()) as RoutineExercise[];
-
-  // Sort by order to maintain sequence
-  allExercises.sort((a, b) => (a as any)._raw.order - (b as any)._raw.order);
-
-  // Group exercises respecting overall order: break groups when superset_group changes
-  // Each standalone exercise (superset_group=null) is its own singleton group
-  const result: RoutineExercise[][] = [];
-  let currentGroup: RoutineExercise[] = [];
-  let currentGroupKey: string | null | undefined = undefined;
-
-  for (const exercise of allExercises) {
-    const supersetGroup = (exercise as any)._raw.superset_group;
-    const isStandalone = supersetGroup === null || supersetGroup === undefined;
-
-    if (isStandalone) {
-      // Standalone exercises: each is its own singleton group
-      if (currentGroup.length > 0) {
-        result.push(currentGroup);
-        currentGroup = [];
-        currentGroupKey = undefined;
-      }
-      result.push([exercise]);
-    } else if (supersetGroup !== currentGroupKey) {
-      // Non-standalone group key changed, start a new group
-      if (currentGroup.length > 0) {
-        result.push(currentGroup);
-      }
-      currentGroup = [exercise];
-      currentGroupKey = supersetGroup;
-    } else {
-      // Same group key, add to current group
-      currentGroup.push(exercise);
-    }
-  }
-
-  // Don't forget the last group
-  if (currentGroup.length > 0) {
-    result.push(currentGroup);
-  }
-
-  return result;
-}
-
-/**
  * Upsert an exercise (create if not exists, update if exists).
  * Exercises are keyed by slug (id).
  *

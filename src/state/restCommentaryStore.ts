@@ -41,6 +41,7 @@ import { getSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
+import { supersetRunEndIndex } from '@/domain/supersetGrouping';
 import type { ExerciseKind, LoggedSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
@@ -157,14 +158,16 @@ function performedEntryIndex(sessionState: SessionState): number | null {
 
   const entries = sessionState.entries ?? [];
   const groupStart = sessionState.exerciseIndex - (sessionState.supersetPosition ?? 0);
-  const groupLabel = entries[groupStart]?.supersetGroup;
-  if (groupLabel === undefined) return null;
+  // An out-of-range groupStart, or an entry with no `supersetGroup` field at
+  // all, identifies nothing to scan. (The engine always supplies the field —
+  // `""` when there is no superset — so this is the hydrate/partial-state
+  // guard, not the no-superset case.)
+  if (entries[groupStart]?.supersetGroup === undefined) return null;
 
-  let groupEnd = groupStart;
-  // "" is the no-superset sentinel and can never join a run (see above).
-  if (groupLabel !== '') {
-    while (entries[groupEnd + 1]?.supersetGroup === groupLabel) groupEnd += 1;
-  }
+  // The contiguity scan itself is shared (#278): `""` is the no-superset
+  // sentinel and can never join a run, so a standalone entry's group ends
+  // where it starts.
+  const groupEnd = supersetRunEndIndex(entries, groupStart, (entry) => entry.supersetGroup);
 
   for (let idx = groupEnd; idx >= groupStart; idx -= 1) {
     const entry = entries[idx];

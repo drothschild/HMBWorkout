@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getSupersetGroups, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg, getSessionExerciseLog } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getRoutineTargetWeightsKg, getSessionExerciseLog } from './repository';
 import { ValidationError } from './validation';
 
 describe('Repository: session and set helpers', () => {
@@ -562,8 +562,14 @@ describe('Repository: session and set helpers', () => {
     }, 15000);
   });
 
-  describe('upsertRoutineExercise and getSupersetGroups', () => {
-    it('AC8.1: two routine exercises sharing a superset_group come back grouped, contiguous by order', async () => {
+  describe('upsertRoutineExercise', () => {
+    // #278 retired `getSupersetGroups` (dead code — no production caller). The
+    // grouping assertions these tests carried moved to the shared helper
+    // (`src/domain/supersetGrouping.test.ts`) and to the live reader that now
+    // uses it (`src/state/routineDetailPresenter.test.ts`, including the #223
+    // cross-routine isolation fixture). What stays here is the half that was
+    // always about this function: that the write persists.
+    it('AC8.1: two routine exercises sharing a superset_group persist that label against ascending order values', async () => {
       const routineId = 'routine-superset';
       const exerciseId1 = 'exercise-barbell-bench';
       const exerciseId2 = 'exercise-dumbbell-bench';
@@ -607,17 +613,16 @@ describe('Repository: session and set helpers', () => {
         supersetGroup,
       });
 
-      // Get superset groups and verify grouping
-      const groups = await getSupersetGroups(database, routineId);
-      expect(groups).toHaveLength(1);
-      expect(groups[0]).toHaveLength(2);
+      const rows = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch()) as any[];
+      rows.sort((a, b) => a._raw.order - b._raw.order);
 
-      // Verify exercises are grouped together and contiguous by order
-      const group = groups[0];
-      expect((group[0] as any).order).toBe(1);
-      expect((group[1] as any).order).toBe(2);
-      expect((group[0] as any).supersetGroup).toBe(supersetGroup);
-      expect((group[1] as any).supersetGroup).toBe(supersetGroup);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((re) => re._raw.order)).toEqual([1, 2]);
+      expect(rows.map((re) => re._raw.exercise_id)).toEqual([exerciseId1, exerciseId2]);
+      expect(rows.map((re) => re._raw.superset_group)).toEqual([supersetGroup, supersetGroup]);
     }, 10000);
 
     it('upsertRoutineExercise updates only the queried routine\'s row when two routines share an exercise (cross-routine isolation, issue #223)', async () => {
@@ -700,121 +705,6 @@ describe('Repository: session and set helpers', () => {
       expect(routine2Rows[0].order).toBe(1);
       expect(routine2Rows[0].targetSets).toBe(10);
       expect(routine2Rows[0].targetReps).toBe(1);
-    }, 10000);
-
-    it('I2: getSupersetGroups returns standalone (null) exercises as singleton groups', async () => {
-      const routineId = 'routine-standalone';
-      const exerciseId1 = 'exercise-standalone-1';
-      const exerciseId2 = 'exercise-standalone-2';
-
-      await database.write(async () => {
-        // Create routine
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = routineId;
-          r.name = 'Solo Exercises';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        // Create exercises
-        const exercisesTable = database.get('exercises');
-        await exercisesTable.create((e: any) => {
-          e._raw.id = exerciseId1;
-          e.title = 'Exercise 1';
-          e.kind = 'strength';
-          e.created_at = Date.now();
-        });
-        await exercisesTable.create((e: any) => {
-          e._raw.id = exerciseId2;
-          e.title = 'Exercise 2';
-          e.kind = 'strength';
-          e.created_at = Date.now();
-        });
-      });
-
-      // Upsert standalone exercises (no superset_group)
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId1,
-        order: 1,
-      });
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId2,
-        order: 2,
-      });
-
-      // Get superset groups - should return 2 singleton groups
-      const groups = await getSupersetGroups(database, routineId);
-      expect(groups).toHaveLength(2);
-      expect(groups[0]).toHaveLength(1);
-      expect(groups[1]).toHaveLength(1);
-      expect((groups[0][0] as any).order).toBe(1);
-      expect((groups[1][0] as any).order).toBe(2);
-    }, 10000);
-
-    it('I2: getSupersetGroups splits non-contiguous same-label groups', async () => {
-      const routineId = 'routine-noncontiguous';
-      const exerciseId1 = 'exercise-nc-1';
-      const exerciseId2 = 'exercise-nc-2';
-      const exerciseId3 = 'exercise-nc-3';
-      const exerciseId4 = 'exercise-nc-4';
-      const supersetGroup = 'chest-superset';
-
-      await database.write(async () => {
-        // Create routine
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = routineId;
-          r.name = 'Non-Contiguous Superset';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        // Create exercises
-        const exercisesTable = database.get('exercises');
-        for (let i = 1; i <= 4; i++) {
-          await exercisesTable.create((e: any) => {
-            e._raw.id = `exercise-nc-${i}`;
-            e.title = `Exercise ${i}`;
-            e.kind = 'strength';
-            e.created_at = Date.now();
-          });
-        }
-      });
-
-      // Upsert exercises: superset, standalone, superset, standalone
-      // This creates: [superset, standalone, superset, standalone]
-      // After grouping by contiguity: [superset], [standalone], [superset], [standalone]
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId1,
-        order: 1,
-        supersetGroup,
-      });
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId2,
-        order: 2,
-      });
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId3,
-        order: 3,
-        supersetGroup,
-      });
-      await upsertRoutineExercise(database, routineId, {
-        exerciseId: exerciseId4,
-        order: 4,
-      });
-
-      // Get superset groups - should split into 4 groups due to non-contiguity
-      const groups = await getSupersetGroups(database, routineId);
-      expect(groups).toHaveLength(4);
-      expect(groups[0]).toHaveLength(1);
-      expect(groups[1]).toHaveLength(1);
-      expect(groups[2]).toHaveLength(1);
-      expect(groups[3]).toHaveLength(1);
-      expect((groups[0][0] as any).supersetGroup).toBe(supersetGroup);
-      expect((groups[1][0] as any).supersetGroup).toBeNull();
-      expect((groups[2][0] as any).supersetGroup).toBe(supersetGroup);
-      expect((groups[3][0] as any).supersetGroup).toBeNull();
     }, 10000);
 
     it('AC8.2: a routine exercise with warmupSets=2 persists; appending sets with setType warmup vs working are distinguishable', async () => {
@@ -1100,87 +990,6 @@ describe('Repository: session and set helpers', () => {
       expect(updated[0].targetDurationSeconds).toBe(200);
       expect(updated[0].restSeconds).toBe(90);
     }, 15000);
-
-    it('getSupersetGroups isolates results to the queried routine when a second routine reuses the same order and superset label (cross-routine isolation, issue #223)', async () => {
-      // getSupersetGroups's read is filtered by Q.where('routine_id', routineId)
-      // (repository.ts:1013). AGENTS.md notes superset group labels are
-      // "contiguous, not routine-unique" — so an unfiltered read does not just
-      // return extra rows, it can silently MERGE two different routines'
-      // entries into a single superset group when their labels collide. This
-      // fixture builds two routines that share both an order value (1) and a
-      // superset label ('shared'), which is exactly the shape that would merge
-      // under the unfiltered mutant.
-      const routine1 = 'routine-sg-isolation-1';
-      const routine2 = 'routine-sg-isolation-2';
-
-      await database.write(async () => {
-        const routinesTable = database.get('routines');
-        await routinesTable.create((r: any) => {
-          r._raw.id = routine1;
-          r.name = 'Routine 1';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-        await routinesTable.create((r: any) => {
-          r._raw.id = routine2;
-          r.name = 'Routine 2';
-          r.created_at = Date.now();
-          r.updated_at = Date.now();
-        });
-
-        const exercisesTable = database.get('exercises');
-        for (const id of ['sg-iso-a1', 'sg-iso-b1', 'sg-iso-a2', 'sg-iso-b2']) {
-          await exercisesTable.create((e: any) => {
-            e._raw.id = id;
-            e.title = id;
-            e.kind = 'strength';
-            e.created_at = Date.now();
-          });
-        }
-
-        const routineExercisesTable = database.get('routine_exercises');
-        // Routine 1: a1 standalone at order 0, b1 in group 'shared' at order 1.
-        await routineExercisesTable.create((re: any) => {
-          re._raw.routine_id = routine1;
-          re._raw.exercise_id = 'sg-iso-a1';
-          re._raw.order = 0;
-        });
-        await routineExercisesTable.create((re: any) => {
-          re._raw.routine_id = routine1;
-          re._raw.exercise_id = 'sg-iso-b1';
-          re._raw.order = 1;
-          re.supersetGroup = 'shared';
-        });
-        // Routine 2: b2 standalone at order 0 (same order as routine 1's a1),
-        // a2 in group 'shared' at order 1 (same order AND label as routine
-        // 1's b1) — colliding on both axes at once.
-        await routineExercisesTable.create((re: any) => {
-          re._raw.routine_id = routine2;
-          re._raw.exercise_id = 'sg-iso-b2';
-          re._raw.order = 0;
-        });
-        await routineExercisesTable.create((re: any) => {
-          re._raw.routine_id = routine2;
-          re._raw.exercise_id = 'sg-iso-a2';
-          re._raw.order = 1;
-          re.supersetGroup = 'shared';
-        });
-      });
-
-      const groups1 = await getSupersetGroups(database, routine1);
-
-      // Only routine 1's own two rows, never routine 2's.
-      const flatExerciseIds1 = groups1.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
-      expect(flatExerciseIds1).toHaveLength(2);
-      expect(flatExerciseIds1.sort()).toEqual(['sg-iso-a1', 'sg-iso-b1']);
-      expect(flatExerciseIds1).not.toContain('sg-iso-a2');
-      expect(flatExerciseIds1).not.toContain('sg-iso-b2');
-
-      const groups2 = await getSupersetGroups(database, routine2);
-      const flatExerciseIds2 = groups2.flat().map((re: any) => (re as any).exerciseId ?? (re as any)._raw?.exercise_id);
-      expect(flatExerciseIds2).toHaveLength(2);
-      expect(flatExerciseIds2.sort()).toEqual(['sg-iso-a2', 'sg-iso-b2']);
-    }, 10000);
   });
 
   describe('getExerciseWorkingSetHistory', () => {

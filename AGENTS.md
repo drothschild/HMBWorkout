@@ -826,7 +826,7 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/interop/state/health/helpers/ai/theme/watch/components/export` — all pure TS, no
+  `testMatch` covers `engine/db/domain/interop/state/health/helpers/ai/theme/watch/components/export` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
@@ -925,6 +925,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 ## Structure
 
 - `src/engine/` — pure Rill core + host dispatch/effect mapping (`rules/*.lv`)
+- `src/domain/` — pure, dependency-free rules about the routine model that more
+  than one layer needs and none of them owns. Currently one module:
+  `supersetGrouping.ts`, the app-side implementation of the contiguous-run rule
+  from engine conventions 9 and 10 (see Boundaries). Its importers today are
+  `src/state` (×2) and `src/app` (×1); `src/db` imports it **zero** times, since
+  deleting `getSupersetGroups` left that layer with no grouping reader at all.
+  The directory still earns its place forward-looking: a db-side reader would
+  need the same rule, and `db` must not import `state`, so `state` was never an
+  option as the home. Anything landing in `src/domain/` must import nothing
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
   select SQLite vs LokiJS per platform
 - `src/interop/` — vault markdown serializer/parser
@@ -966,6 +975,44 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 
 - Safe to edit: `src/`
 - Session-flow logic changes go in `src/engine/rules/*.lv`, never in the store/components
+- **Every app-side superset-contiguity walk goes through
+  `src/domain/supersetGrouping.ts` (#278), with one named exception below.
+  Before writing a walk, re-point at the helper or add your site to that
+  exception list — do not add a silent copy.** #278 consolidated four of them:
+  `getSupersetGroups` (dead, now deleted), `routineDetailPresenter`,
+  `restCommentaryStore`, and `ai-coach.tsx`'s draft card. They disagreed at the
+  edges, and the disagreement was invisible from inside any one of them. The
+  #268 routine screen is the related failure one step earlier, not an instance
+  of this one: it merged two non-adjacent same-label runs the engine keeps
+  apart because it bucketed rows into a `Map<label, ExerciseDetail[]>` and so
+  had no contiguity check at all. #272 fixed that by writing the walk a third
+  time; #278 replaced all four with the shared helper.
+  `groupBySupersetRuns` partitions already-ordered entries into
+  contiguous runs; `supersetRunEndIndex` is the contiguity check itself, the
+  shell's counterpart to `h.group_end_idx`. Three rules it fixes, each of which
+  a copy previously got its own way: **ordering is the caller's job** (the
+  helper groups by adjacency in the array it is handed and never reads an
+  `order` field); **`null`, `undefined` and `''` all mean no superset**, `''`
+  because that is the engine's own sentinel (`engine/types.ts`,
+  `startSessionFromRoutine.ts`); and a **standalone entry is a singleton run
+  whose `label` is `null`**, so a caller wanting singleton groups reads
+  `.members` while a caller wanting "not a group" tests `label === null`. The
+  key type is generic, so re-pointing `superset_group` at an integer id would
+  be a type argument rather than a rewrite (#276's plan currently keeps the
+  string). `src/app` cannot be jest-tested, so
+  `supersetGrouping.callSites.test.ts` gates the call sites structurally — and
+  gates the helper's own internals too, since `groupBySupersetRuns` silently
+  inlining its own copy of `supersetRunEndIndex` would defeat the point while
+  every behavioural test stayed green.
+  **The one named exception is `groupSupersets` in `src/interop/parse.ts`,
+  deliberately left in place by #278.** It walks the markdown grammar's parsed
+  `WorkoutLine[]` rather than DB rows or drafts, and it carries a third
+  treatment of a singleton labelled run — it drops the label and emits a bare
+  line — that is part of the **markdown contract** which `helpers.lv:56` and
+  `transition.lv:14` cite *by name* as the basis for the engine's own
+  contiguity assumption, so re-pointing it is a contract change with engine
+  consequences rather than a refactor (and #276's Phase 5 rewrites that grammar
+  anyway)
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
