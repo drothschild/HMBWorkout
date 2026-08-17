@@ -16,7 +16,7 @@ rule transition(state: SessionState, event: Event) -> Result(TransitionResult)
 -- round visits every still-active member once, in array order: finishing a
 -- set hands off to the next member still active THIS round (h.next_active_idx
 -- over (currentIdx, groupEndIdx]) with no rest; a member that already used up
--- its own warmupSets+targetSets in an earlier round is skipped, not treated
+-- every set in its own list in an earlier round is skipped, not treated
 -- as ending the group. Only when nobody after the current position is active
 -- this round does the group decide whether ANY member is active next round
 -- (loop back to whichever member is first active then) or the whole group is
@@ -59,7 +59,7 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
           Some(firstActiveIdx) -> (
             let firstActiveEntry = at(firstActiveIdx, s.entries)?
             -- Rest between rounds/sets only from Warmup/Working, so
-            -- RestElapsed can recover the phase from setIndex vs warmupSets.
+            -- RestElapsed can recover the phase from the set at setIndex.
             let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
             if (restBetweenSets)
             then (
@@ -130,7 +130,7 @@ let reconcile_resting_deadline = fn(s) -> fn(nowMs) -> (
         then Ok({ state: s, effects: [ScheduleRest({ deadlineMs: d })] })
         else (
           let currentEntry = at(s.exerciseIndex, s.entries)?
-          let nextPhase = if (s.setIndex < currentEntry.warmupSets) then Warmup else Working
+          let nextPhase = h.phase_for(currentEntry)(s.setIndex)
           Ok({
             state: { s | phase: nextPhase, restDeadlineMs: None },
             effects: [CancelRest]
@@ -159,7 +159,7 @@ match event {
         None -> Err("routine has no entry with any sets to perform"),
         Some(landing) -> (
           let firstEntry = at(landing.idx, entries)?
-          let firstPhase = if (firstEntry.warmupSets > 0) then Warmup else Working
+          let firstPhase = h.phase_for(firstEntry)(0)
           Ok({
             state: {
               sessionId: p.sessionId,
@@ -186,13 +186,13 @@ match event {
       let setInput = { reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe }
       let _ = h.validate_set(setInput)?
       let currentEntry = at(state.exerciseIndex, state.entries)?
-      let isWarmup = state.setIndex < currentEntry.warmupSets
-      let setType = if (isWarmup) then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
+      let prescribedType = h.set_type_at(currentEntry)(state.setIndex)
+      let setType = if (prescribedType == "warmup") then "warmup" else if (currentEntry.kind == "strength") then "working" else currentEntry.kind
       let theSet = { exerciseId: currentEntry.exerciseId, setType: setType, reps: p.reps, weightKg: p.weightKg, durationSeconds: p.durationSeconds, rpe: p.rpe }
 
       -- Record, then advance from the recorded state: one tap both logs the
-      -- set and moves the position, so the entry caps at warmupSets +
-      -- targetSets logs and the final set completes the workout. PersistSet
+      -- set and moves the position, so the entry caps at one log per
+      -- prescribed set and the final set completes the workout. PersistSet
       -- must precede the advancement effects (CompleteSession drives the HealthKit export).
       let recorded = { state |
         loggedSets: append(state.loggedSets, [theSet]),

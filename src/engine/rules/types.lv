@@ -5,7 +5,17 @@ type Phase = Idle | Warmup | Working | Resting | Paused | Done
 -- Aliases with dependencies must be defined before types that use them
 alias LoggedSet = { exerciseId: String, setType: String, reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float) }
 
-alias RoutineEntry = { exerciseId: String, kind: String, warmupSets: Int, targetSets: Int, targetReps: Int, targetDurationSeconds: Int, restSeconds: Int, supersetGroup: Option(String) }
+-- One prescribed set. setType is the PLANNED type ("warmup" | "normal"),
+-- distinct from LoggedSet.setType, which is what was actually recorded
+-- ("warmup" | "working" | "stretch" | "cardio") and is derived at LogSet time
+-- from this plus the entry's kind.
+alias RoutineSet = { setType: String, reps: Option(Int), repsMax: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), distanceM: Option(Float) }
+
+-- The entry is an ordered LIST of prescribed sets, not a pair of counts: a
+-- warmup ramp (9.07 -> 11.34 -> 18.14 kg) is unrepresentable as "3 warmup
+-- sets". Still a CLOSED record — the host rebuilds it field by field in both
+-- directions, so a field bolted on in TS vanishes at the first dispatch.
+alias RoutineEntry = { exerciseId: String, kind: String, restSeconds: Int, supersetGroup: Option(String), sets: List(RoutineSet) }
 
 alias Routine = { entries: List(RoutineEntry), id: String }
 

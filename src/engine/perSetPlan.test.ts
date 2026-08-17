@@ -32,6 +32,16 @@ const typesSource = fs.readFileSync(path.join(rulesDir, 'types.lv'), 'utf-8');
 const helpersSource = fs.readFileSync(path.join(rulesDir, 'helpers.lv'), 'utf-8');
 const transitionSource = fs.readFileSync(path.join(rulesDir, 'transition.lv'), 'utf-8');
 
+/** Rule source with `--` comment lines stripped, for assertions about code rather than prose. */
+function codeOnly(source: string): string {
+  return source
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+}
+
+const helpersCode = codeOnly(helpersSource);
+
 function makeExecutors() {
   return {
     onCreateSession: jest.fn(),
@@ -174,7 +184,8 @@ describe('per-set routine plan: the rules declare a set list (AC2.1–AC2.3)', (
     // sites can use it in value position inside a record literal.
     expect(helpersSource).toMatch(/let phase_for = fn\(entry\) -> fn\(setIndex\) -> \(\s*\n\s*match at\(setIndex, entry\.sets\) \{/);
     expect(helpersSource).toContain('Err(e) -> Working');
-    expect(helpersSource).not.toMatch(/entry\.sets\)\s*\|>/);
+    // Comment lines are excluded: the docstring quotes the broken form on purpose.
+    expect(helpersCode).not.toMatch(/entry\.sets\)\s*\|>/);
   });
 
   it('AC2.3: both activity predicates key on the set list length', () => {
