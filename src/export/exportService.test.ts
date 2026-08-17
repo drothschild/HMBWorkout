@@ -132,6 +132,321 @@ describe('exportService', () => {
       expect(parsed.frontmatter.type).toBe('workout-routine');
       expect(parsed.exercises).toHaveLength(1);
     });
+
+    /**
+     * #276 Phase 5: the set list reaches the document.
+     *
+     * `exportRoutine` is the only production caller of `serializeRoutine`, so
+     * this is where the per-set grammar meets real rows rather than fixtures —
+     * `routine_sets` read back through `getRoutineSets`, normalized at the
+     * boundary the same way every other optional column already is.
+     */
+    it('exports a routine_sets list one line per set, in order, with per-set weights', async () => {
+      await upsertExercise(db, 'ex-bench', 'Bench Press (Dumbbell)', 'strength');
+      await upsertRoutine(db, 'routine-ramp', 'Push Day', [
+        {
+          exerciseId: 'ex-bench',
+          order: 0,
+          restSeconds: 120,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 9.07 },
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 11.34 },
+            { setType: 'warmup', targetReps: 3, targetWeightKg: 18.14 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+          ],
+        },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-ramp');
+
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(7);
+
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      const entry = parsed.exercises[0] as any;
+      expect(entry.restSeconds).toBe(120);
+      expect(entry.sets.map((s: any) => s.targetWeightKg)).toEqual([
+        9.07, 11.34, 18.14, 22.68, 22.68, 22.68, 22.68,
+      ]);
+      expect(entry.sets.map((s: any) => s.setType)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'normal',
+        'normal',
+        'normal',
+        'normal',
+      ]);
+      expect(entry.sets[3]).toEqual({
+        setType: 'normal',
+        targetReps: 8,
+        targetRepsMax: 10,
+        targetWeightKg: 22.68,
+      });
+    });
+
+    it('a prescribed 0 kg survives the export boundary, rather than reading as absent', async () => {
+      // The `?? undefined` normalization must stay `??`, not `||`: a bodyweight
+      // exercise is prescribed at 0 kg, and `|| undefined` erases it. Nothing
+      // else in this suite passes a zero through this mapping, so without this
+      // the two operators are indistinguishable here.
+      await upsertExercise(db, 'ex-pushup', 'Push-Up', 'strength');
+      await upsertRoutine(db, 'routine-bw', 'Bodyweight', [
+        {
+          exerciseId: 'ex-pushup',
+          order: 0,
+          sets: [{ setType: 'normal', targetReps: 20, targetWeightKg: 0 }],
+        },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-bw');
+      expect(markdown).toContain('target_weight=0');
+
+      const entry = parseRoutine(markdown).exercises[0] as any;
+      expect(entry.sets).toEqual([{ setType: 'normal', targetReps: 20, targetWeightKg: 0 }]);
+    });
+
+    /**
+     * One discriminating fixture per `?? undefined` at the export boundary
+     * (I1, #293 review).
+     *
+     * `?? undefined` and `|| undefined` differ on exactly one input — 0 — so a
+     * suite with no zero in it cannot tell them apart, and five of the six
+     * guards here survived mutation for that reason. The blast radius is real:
+     * under `||` a prescribed 0 reads as absent, the flag is never emitted, and
+     * the value is gone from the document. `target_weight`'s own fixture is
+     * above; these are its five siblings, one test each so a regression names
+     * the guard that broke.
+     */
+    describe('a prescribed 0 survives the export boundary on every field', () => {
+      it.each([
+        ['targetReps', 'strength', '1x0'],
+        ['targetRepsMax', 'strength', 'reps_max=0'],
+        ['targetDurationSeconds', 'cardio', 'duration=0:00'],
+        ['targetDistanceM', 'cardio', 'target_distance=0'],
+      ] as const)('%s', async (field, kind, onTheWire) => {
+        await upsertExercise(db, `ex-zero-${field}`, 'Zero', kind);
+        await upsertRoutine(db, `routine-zero-${field}`, 'Zeroes', [
+          {
+            exerciseId: `ex-zero-${field}`,
+            order: 0,
+            sets: [{ setType: 'normal', [field]: 0 }],
+          },
+        ]);
+
+        await flush();
+
+        const markdown = await exportRoutine(db, `routine-zero-${field}`);
+        expect(markdown).toContain(onTheWire);
+
+        const entry = parseRoutine(markdown).exercises[0] as any;
+        expect(entry.sets).toEqual([{ setType: 'normal', [field]: 0 }]);
+      });
+
+      it('restSeconds', async () => {
+        // The entry-level one. A rest of 0 is "straight into the next set".
+        await upsertExercise(db, 'ex-zero-rest', 'Zero Rest', 'strength');
+        await upsertRoutine(db, 'routine-zero-rest', 'Zeroes', [
+          {
+            exerciseId: 'ex-zero-rest',
+            order: 0,
+            restSeconds: 0,
+            sets: [{ setType: 'normal', targetReps: 5 }],
+          },
+        ]);
+
+        await flush();
+
+        const markdown = await exportRoutine(db, 'routine-zero-rest');
+        expect(markdown).toContain('rest=0');
+
+        expect((parseRoutine(markdown).exercises[0] as any).restSeconds).toBe(0);
+      });
+    });
+
+    it('each entry gets its OWN set list, not the first entry\'s', async () => {
+      // I2 (#293 review). `setsByEntry[index]` is the join between the
+      // `Promise.all(routineExercises.map(…))` above and the
+      // `routineExercises.map((re, index) => …)` below, and it is the
+      // load-bearing part of the new export code. Every prior fixture with two
+      // entries gave them identical set lists, so `setsByEntry[0]` — every
+      // entry wearing the first one's prescription — was indistinguishable.
+      await upsertExercise(db, 'ex-a', 'Squat', 'strength');
+      await upsertExercise(db, 'ex-b', 'Curl', 'strength');
+      await upsertRoutine(db, 'routine-distinct', 'Distinct', [
+        {
+          exerciseId: 'ex-a',
+          order: 0,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+            { setType: 'normal', targetReps: 3, targetWeightKg: 100 },
+          ],
+        },
+        {
+          exerciseId: 'ex-b',
+          order: 1,
+          sets: [{ setType: 'normal', targetReps: 12, targetWeightKg: 10 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-distinct'));
+      expect(parsed.exercises).toHaveLength(2);
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+        { setType: 'normal', targetReps: 3, targetWeightKg: 100 },
+      ]);
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 12, targetWeightKg: 10 },
+      ]);
+    });
+
+    it('an entry with no routine_sets rows exports as a bare exercise line', async () => {
+      // The aggregate-only shape every routine written before Phase 1 has.
+      // It exports as an exercise the routine names with nothing prescribed —
+      // NOT as a dropped exercise (which is what makes this worth pinning) and
+      // NOT with the aggregates re-derived, which the grammar no longer says.
+      await upsertExercise(db, 'ex-row', 'Barbell Row', 'strength');
+      await upsertRoutine(db, 'routine-legacy', 'Pull Day', [
+        { exerciseId: 'ex-row', order: 0, warmupSets: 2, targetSets: 4, targetReps: 8 },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-legacy'));
+      expect(parsed.exercises).toHaveLength(1);
+      expect((parsed.exercises[0] as any).exerciseId).toBe('ex-row');
+      expect((parsed.exercises[0] as any).sets).toEqual([]);
+    });
+
+    it('an entry with no routine_sets rows exports and parses back whatever its kind', async () => {
+      // C1 (#293 review). The zero-set entry is not a strength-only shape:
+      // `acceptDraft` does not write `routine_sets` yet, so EVERY routine in
+      // the app has zero rows for every entry, cardio and stretch included.
+      // The exercise line has to say "this entry prescribes nothing" in a way
+      // the parser can read without also demanding a duration it does not have.
+      await upsertExercise(db, 'ex-erg', 'Rowing Erg', 'cardio');
+      await upsertExercise(db, 'ex-pigeon', 'Pigeon Pose', 'stretch');
+      await upsertExercise(db, 'ex-bench2', 'Bench Press', 'strength');
+      await upsertRoutine(db, 'routine-mixed', 'Conditioning', [
+        { exerciseId: 'ex-erg', order: 0, restSeconds: 60 },
+        { exerciseId: 'ex-pigeon', order: 1 },
+        { exerciseId: 'ex-bench2', order: 2 },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-mixed');
+      const parsed = parseRoutine(markdown);
+
+      expect(parsed.exercises).toHaveLength(3);
+      expect(parsed.exercises.map((e: any) => e.exerciseId)).toEqual([
+        'ex-erg',
+        'ex-pigeon',
+        'ex-bench2',
+      ]);
+      expect(parsed.exercises.map((e: any) => e.sets)).toEqual([[], [], []]);
+      expect((parsed.exercises[0] as any).kind).toBe('cardio');
+      expect((parsed.exercises[0] as any).restSeconds).toBe(60);
+      expect((parsed.exercises[1] as any).kind).toBe('stretch');
+    });
+
+    it('a set prescribing only a load, a rep-range top or a distance is not dropped', async () => {
+      // C2 (#293 review). All five `routine_sets` columns are independently
+      // optional, so a set may carry a load and no reps. Such a set serialized
+      // to a line the parser read as "an exercise prescribing nothing" and the
+      // set VANISHED — two sets in, one set out. Silent loss is the failure
+      // this contract exists to prevent; every set that goes in comes back.
+      await upsertExercise(db, 'ex-press', 'Overhead Press', 'strength');
+      await upsertExercise(db, 'ex-run', 'Treadmill', 'cardio');
+      await upsertRoutine(db, 'routine-partial', 'Partial Prescriptions', [
+        {
+          exerciseId: 'ex-press',
+          order: 0,
+          sets: [
+            { setType: 'normal', targetReps: 5, targetWeightKg: 40 },
+            { setType: 'normal', targetWeightKg: 50 },
+            { setType: 'normal', targetRepsMax: 12 },
+            { setType: 'warmup' },
+          ],
+        },
+        {
+          exerciseId: 'ex-run',
+          order: 1,
+          sets: [{ setType: 'normal', targetDistanceM: 5000 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-partial'));
+      expect(parsed.exercises).toHaveLength(2);
+
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 5, targetWeightKg: 40 },
+        { setType: 'normal', targetWeightKg: 50 },
+        { setType: 'normal', targetRepsMax: 12 },
+        { setType: 'warmup' },
+      ]);
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'normal', targetDistanceM: 5000 },
+      ]);
+    });
+
+    it('a cardio or stretch set prescribed in reps round-trips instead of throwing', async () => {
+      // C3 (#293 review round 2). Round 1 moved the cardio/stretch DURATION
+      // requirement into the session-only tail and left its sibling — the
+      // sets-slot PROHIBITION — unconditional above the split, so every cardio
+      // or stretch set carrying `target_reps` exported to a document
+      // `parseRoutine` threw on: 64 of the 192 exhaustively enumerated storable
+      // `routine_sets` shapes, 32 per kind.
+      //
+      // Nothing validates a set's fields against its parent exercise's kind, so
+      // the shape is ordinary rather than exotic: `replaceRoutineSets` writes
+      // it, `updateRoutineExerciseExerciseId` deliberately KEEPS reps across a
+      // substitution (so re-pointing a rep-prescribed entry at an existing
+      // cardio exercise produces exactly this), and "5 × cat-cow" is how a
+      // stretch is actually prescribed.
+      await upsertExercise(db, 'ex-erg2', 'Rowing Erg', 'cardio');
+      await upsertExercise(db, 'ex-catcow', 'Cat-Cow', 'stretch');
+      await upsertRoutine(db, 'routine-reps-cardio', 'Reps On Cardio', [
+        {
+          exerciseId: 'ex-erg2',
+          order: 0,
+          sets: [
+            { setType: 'normal', targetReps: 5 },
+            { setType: 'normal', targetReps: 8, targetDurationSeconds: 300 },
+          ],
+        },
+        {
+          exerciseId: 'ex-catcow',
+          order: 1,
+          sets: [{ setType: 'warmup', targetReps: 5, targetRepsMax: 10 }],
+        },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-reps-cardio'));
+      expect(parsed.exercises).toHaveLength(2);
+      expect((parsed.exercises[0] as any).kind).toBe('cardio');
+      expect((parsed.exercises[0] as any).sets).toEqual([
+        { setType: 'normal', targetReps: 5 },
+        { setType: 'normal', targetReps: 8, targetDurationSeconds: 300 },
+      ]);
+      expect((parsed.exercises[1] as any).kind).toBe('stretch');
+      expect((parsed.exercises[1] as any).sets).toEqual([
+        { setType: 'warmup', targetReps: 5, targetRepsMax: 10 },
+      ]);
+    });
   });
 
   describe('exportSessionHistory', () => {

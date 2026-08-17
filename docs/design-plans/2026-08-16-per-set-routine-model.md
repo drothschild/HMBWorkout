@@ -503,6 +503,49 @@ Fixtures referenced by name throughout:
 - **AC5.8 Edge:** **EMPTY** serializes to an exercise line with no set lines and parses back to an
   entry with an empty set list — not to a dropped exercise, and not to a throw.
 
+  ⚠️ **Amended after the #293 review: this AC did not say how that line is SPELLED, and the
+  obvious spelling is unsound.** A bare `- <exercise-id>:` is byte-identical to a prescribed set
+  carrying only flags — a load, a rep-range top, a distance — because all five `routine_sets`
+  columns are independently nullable. Left ambiguous, the parser guessed, and both guesses were
+  wrong: a bare cardio entry line threw as a set missing its duration, and a load-only set was
+  silently DROPPED. The spelling is therefore **`- <exercise-id>: sets=0 [entry flags…]`**, and
+  the rule is: *a routine line is one prescribed set unless it says `sets=0`.* Its consequences,
+  which Phase 6 and #267 Phase 3 inherit:
+  - Every prescribed field on a routine line is independently optional. A set carrying only
+    `target_weight=50`, only `reps_max=12`, only `target_distance=5000`, only `set_type=warmup`,
+    or nothing at all is one set, and round-trips as one set.
+  - The cardio/stretch **duration** requirement, the cardio/stretch **sets-slot prohibition**, and
+    the strength **sets×reps** requirement are the SESSION's alone — **all three, and the third one
+    is why this list needed amending twice.** A session line is a measurement and must say what was
+    measured; a routine line is a plan and may prescribe as little as it likes.
+
+    ⚠️ **Amended again after the #293 round-2 review.** The first amendment named only the duration
+    requirement and the sets×reps requirement, and the fix that implemented it moved exactly those
+    two — leaving the cardio/stretch sets-slot prohibition unconditional thirty lines above the
+    split. `serializeRoutine` then emitted documents `parseRoutine` threw on for **64 of the 192**
+    exhaustively enumerated storable `routine_sets` shapes: every cardio or stretch set carrying
+    `target_reps`. The shape is ordinary — nothing validates a set's fields against its parent
+    exercise's kind, `updateRoutineExerciseExerciseId` deliberately keeps reps across a
+    substitution, and a stretch prescribed in reps ("5 × cat-cow") is how one is actually written.
+    In a routine the slot reads `1x<reps>`, so there is no multi-set plan to misread; `3x8` is
+    still refused by the routine-only "a routine line is one set" rule. **#267 Phase 3 inherits
+    this list — read all three, not the first two.**
+  - `sets=<n>` for nonzero `n` is **refused**, not reinterpreted — a count is spelled by writing
+    that many lines — and `sets=0` alongside set content is a contract violation. `sets` is a
+    routine-only flag key.
+  - A stray token (`4x`) is still refused on a line that prescribes **no reps and no duration**,
+    and still ignored on a line that prescribes either. That relaxation predates #276 and making
+    the refusal unconditional would break the #277 legacy-tokenizer fixtures.
+
+    ⚠️ **The width here is a recorded DECISION, not a consequence (#293 round-2 review, M8).**
+    Phase 5 first widened the condition to "prescribes nothing across all five set fields", which
+    reads as consistent with the rule the rest of the function moved to and is strictly *looser*:
+    four lines that threw before — `target_weight=50 4x`, `reps_max=10 4x`, `set_type=warmup 4x`,
+    `target_distance=100 4x` — silently swallowed the typo'd sets slot. **Both widths pass the
+    entire suite**, so no test forced either; the writeup presented the wider one as a necessity
+    when it was a choice. Restored to the narrower reps-or-duration test, which keeps `4x` loud on
+    four more shapes, and pinned by its own test so the next widening is deliberate.
+
 ### per-set-routine.AC6: The aggregates are gone
 
 - **AC6.1 Success:** `src/db/schema.ts` declares `version: 7`, `routine_exercises` no longer lists
@@ -533,9 +576,54 @@ Fixtures referenced by name throughout:
 - **AC6.5 Success:** AGENTS.md is rewritten for the new model: conventions 3, 6, 8, 9 and 10 are
   restated in per-set terms; the `rillToJs`-omits-`None` test hazard is recorded; the destructive-bump
   mechanism and its `logger.warn` silence are recorded; the `target_weight_kg` three-way precedence
-  paragraph is replaced by the two-way rule; the `weight=`-leak paragraph is updated. "Last verified"
+  paragraph is replaced by the two-way rule. "Last verified"
   is bumped. *Fails on regression:* AGENTS.md describing the aggregate model after Phase 6 is a
   documentation bug of exactly the class #269 and #266 were filed for.
+
+  ⚠️ **The vault-markdown-contract section carries six false statements as of Phase 5, not
+  one.** The original wording of this AC named only "the `weight=`-leak paragraph", which is how
+  #269 and #282 happened — a rewrite list that names one instance of a class and misses the rest.
+  **The list itself then repeated the mistake twice:** it was written as four, missed Phase 5's own
+  as a fifth, and missed a sixth that sits in the section *intro* rather than in the subsection
+  item 2 sweeps (#293 round-2 review, M10). Each of these is now wrong and must be rewritten, not
+  merely re-read:
+  1. "the `<sets>x<reps>` slot means **target** sets×reps in a routine" — gone. The slot is
+     `1x<reps>` in both documents and a routine line is one prescribed set.
+  2. The whole **"Parse context and validation strictness"** subsection. The zero-reps divergence
+     is deleted (AC5.4); `context` is consulted three times, not once; and both cited line numbers
+     are stale. **The numbers to grep for are the ones AGENTS.md carries TODAY —
+     `format.ts:424` (in the `knownFlags` sentence, which itself notes it "moved from :247" by
+     #277) and `parse.ts` "line 211".** This AC previously cited `format.ts:247` and
+     `parse.ts:171`, the *pre-#277* numbers, which appear nowhere in AGENTS.md — so an engineer
+     grepping what the AC named would have found nothing and concluded the statements were already
+     fixed (#293 round-2 review, M9).
+  3. "`serializeRoutine` **does not** emit `target_weight_kg` and the grammar was deliberately not
+     extended … wiring an export path means adding a **distinct** flag key" — it does emit it, and
+     the distinct key is `target_weight`. The `weight=`-on-a-routine-line leak that paragraph
+     records as open is closed: the flag allowlist is context-aware (AC5.3).
+  4. "a malformed `0x10` or `3x0` line … under the context-dependent rules" — `3x0` is refused by
+     the sets-slot rule now, and there are no context-dependent zero rules left.
+  5. Nothing yet records the **`sets=0` entry marker** (#293 review, C1/C2) — that a routine line
+     is one prescribed set unless it says `sets=0`, that all five prescribed fields are
+     independently optional on a routine line, and that the cardio/stretch duration requirement
+     and the strength sets×reps requirement are the SESSION's alone. This is the load-bearing half
+     of the grammar: without the marker, an exercise line and a content-only set line are the same
+     string, and the parser guessed — throwing on the first and silently dropping the second.
+     Record the cardio/stretch **sets-slot prohibition** as the session's alone here too, per the
+     amended AC5.8 — that is the one the round-1 fix missed.
+  6. **The section INTRO (`AGENTS.md:415-422`), which items 1–5 do not reach.** Two things wrong in
+     one paragraph, both found by the #293 round-2 review (M10):
+     - "an earlier version of the **zero-reps guard below** was unconditional" — a dangling
+       reference. AC5.4 deleted the zero-reps guard, so "below" now points at nothing. The PR #89
+       regression the sentence exists to pin is still real and still pinned by the `reps: 0`
+       roundtrip test; it is the *explanation* that has to be rewritten, not the test.
+     - "42 of the interop suite's **59** tests involve parsing" — the counts are long stale. The
+       suite is **210** tests as of Phase 5, of which **123** involve parsing (all of
+       `parse.test.ts` and `roundtrip.test.ts`; `serialize.test.ts` and `format.test.ts` call
+       neither `parseRoutine` nor `parseSession`). **The same stale `59` is duplicated in
+       `parse.ts`'s own header docstring**, which is why the number drifted unnoticed — Phase 5
+       corrected the copy in `parse.ts`, so AGENTS.md is now the only stale one. Prefer re-deriving
+       both numbers to copying these: a hardcoded test count in prose goes stale by construction.
 
 ### per-set-routine.AC7: Cross-cutting gates
 

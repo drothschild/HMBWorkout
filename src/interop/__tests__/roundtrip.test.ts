@@ -189,18 +189,26 @@ describe('round-trip', () => {
         updatedAt: new Date('2026-07-07T12:00:00Z'),
       };
 
+      // #276 Phase 5: the entry's plan is an ordered SET LIST, not a count.
+      // Two warmups then four working sets, which the aggregate grammar wrote
+      // as `4x6 warmup=2` and can no longer express once the warmups carry
+      // their own reps.
       const exercises = [
         {
           id: 're-001',
           exerciseId: 'bench-press-db',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 2,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [
+            { setType: 'warmup' as const, targetReps: 8 },
+            { setType: 'warmup' as const, targetReps: 6 },
+            { setType: 'normal' as const, targetReps: 6 },
+            { setType: 'normal' as const, targetReps: 6 },
+            { setType: 'normal' as const, targetReps: 6 },
+            { setType: 'normal' as const, targetReps: 6 },
+          ],
         },
       ];
 
@@ -221,14 +229,12 @@ describe('round-trip', () => {
       // Verify frontmatter
       expect(parsed.frontmatter.id).toBe(routineRow.id);
 
-      // Verify exercises
+      // Verify exercises: six lines, one entry, six sets.
       expect(parsed.exercises).toHaveLength(1);
       const ex = parsed.exercises[0] as WorkoutLine;
       expect(ex.exerciseId).toBe('bench-press-db');
-      expect(ex.targetSets).toBe(4);
-      expect(ex.targetReps).toBe(6);
-      expect(ex.warmupSets).toBe(2);
       expect(ex.restSeconds).toBe(90);
+      expect(ex.sets).toEqual(exercises[0].sets);
     });
 
     test('round-trip with AI prose in session', () => {
@@ -419,18 +425,25 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
         updatedAt: new Date('2026-07-07T12:00:00Z'),
       };
 
+      // #276 Phase 5: set type is per set, so it survives INTERLEAVED — the
+      // shape the `warmup=<count>` flag could not represent at all, because a
+      // count can only describe a leading run.
+      const sets = [
+        { setType: 'warmup' as const, targetReps: 5 },
+        { setType: 'normal' as const, targetReps: 3 },
+        { setType: 'warmup' as const, targetReps: 5 },
+        { setType: 'normal' as const, targetReps: 3 },
+      ];
+
       const exercises = [
         {
           id: 're-001',
           exerciseId: 'squat-bb',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 3,
-          targetSets: 5,
-          targetReps: 3,
-          targetDurationSeconds: undefined,
           restSeconds: 180,
           notes: undefined,
+          sets,
         },
       ];
 
@@ -447,9 +460,8 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
 
       expect(parsed.exercises).toHaveLength(1);
       const ex = parsed.exercises[0] as WorkoutLine;
-      expect(ex.warmupSets).toBe(3);
-      expect(ex.targetSets).toBe(5);
-      expect(ex.targetReps).toBe(3);
+      expect(ex.sets?.map((s) => s.setType)).toEqual(['warmup', 'normal', 'warmup', 'normal']);
+      expect(ex.sets).toEqual(sets);
     });
 
     test('preserves stretch duration and kind', () => {
@@ -461,18 +473,22 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
         updatedAt: new Date('2026-07-07T12:00:00Z'),
       };
 
+      // Two prescribed holds of different lengths — per-set duration, which the
+      // single `target_duration_seconds` column could not hold either.
+      const sets = [
+        { setType: 'normal' as const, targetDurationSeconds: 30 },
+        { setType: 'normal' as const, targetDurationSeconds: 45 },
+      ];
+
       const exercises = [
         {
           id: 're-001',
           exerciseId: 'chest-stretch',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 30,
           restSeconds: undefined,
           notes: undefined,
+          sets,
         },
       ];
 
@@ -490,7 +506,7 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(parsed.exercises).toHaveLength(1);
       const ex = parsed.exercises[0] as WorkoutLine;
       expect(ex.kind).toBe('stretch');
-      expect(ex.targetDurationSeconds).toBe(30);
+      expect(ex.sets).toEqual(sets);
       expect(ex.targetSets).toBeUndefined();
       expect(ex.targetReps).toBeUndefined();
     });
@@ -504,18 +520,19 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
         updatedAt: new Date('2026-07-07T12:00:00Z'),
       };
 
+      const sets = [
+        { setType: 'normal' as const, targetDurationSeconds: 300, targetDistanceM: 2000 },
+      ];
+
       const exercises = [
         {
           id: 're-001',
           exerciseId: 'cycling',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 300,
           restSeconds: undefined,
           notes: undefined,
+          sets,
         },
       ];
 
@@ -533,7 +550,10 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(parsed.exercises).toHaveLength(1);
       const ex = parsed.exercises[0] as WorkoutLine;
       expect(ex.kind).toBe('cardio');
-      expect(ex.targetDurationSeconds).toBe(300);
+      // `target_distance` is the routine-side sibling of the session line's
+      // `distance=`; without it the schema-v6 column would be dropped silently
+      // on export.
+      expect(ex.sets).toEqual(sets);
       expect(ex.targetSets).toBeUndefined();
       expect(ex.targetReps).toBeUndefined();
     });
@@ -990,7 +1010,7 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.restSeconds).toBeUndefined();
     });
 
-    test('serializeRoutine: null targetDurationSeconds/restSeconds/targetSets are omitted, not emitted as "null"', () => {
+    test('serializeRoutine: null restSeconds and null per-set columns are omitted, not emitted as "null"', () => {
       const routineRow = {
         id: 'routine-defense-001',
         name: 'Push Day',
@@ -1005,15 +1025,22 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           exerciseId: 'plank',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          // A duration-based (stretch) entry: target_sets/target_reps/
-          // rest_seconds are legitimately unset in the DB, which WatermelonDB
+          // rest_seconds is legitimately unset in the DB, which WatermelonDB
           // surfaces as null, never undefined.
-          targetSets: null,
-          targetReps: null,
-          targetDurationSeconds: 30,
           restSeconds: null,
           notes: undefined,
+          // Same hazard one level down: routine_sets' optional columns come
+          // back as null too, and every one of them is on this line.
+          sets: [
+            {
+              setType: 'normal' as const,
+              targetReps: null,
+              targetRepsMax: null,
+              targetWeightKg: null,
+              targetDurationSeconds: 30,
+              targetDistanceM: null,
+            },
+          ],
         },
       ];
 
@@ -1025,9 +1052,8 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(() => parseRoutine(markdown)).not.toThrow();
 
       const line0 = parseRoutine(markdown).exercises[0] as WorkoutLine;
-      expect(line0.targetDurationSeconds).toBe(30);
       expect(line0.restSeconds).toBeUndefined();
-      expect(line0.targetSets).toBeUndefined();
+      expect(line0.sets).toEqual([{ setType: 'normal', targetDurationSeconds: 30 }]);
     });
   });
 
@@ -1299,12 +1325,12 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           exerciseId: 'bench-press-db',
           order: 0,
           supersetGroup: 'A',
-          warmupSets: 2,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes,
+          sets: [
+            { setType: 'warmup' as const, targetReps: 8 },
+            { setType: 'normal' as const, targetReps: 6 },
+          ],
         },
       ];
 
@@ -1326,10 +1352,12 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       const { line } = roundTripNote(note);
 
       expect(line.hint).toBe(note);
-      // The flags emitted before the hint are unharmed.
-      expect(line.targetSets).toBe(4);
-      expect(line.targetReps).toBe(6);
-      expect(line.warmupSets).toBe(2);
+      // The flags emitted before the hint are unharmed — including the per-set
+      // ones now sharing the line with it.
+      expect(line.sets).toEqual([
+        { setType: 'warmup', targetReps: 8 },
+        { setType: 'normal', targetReps: 6 },
+      ]);
       expect(line.restSeconds).toBe(90);
       expect(line.supersetLabel).toBe('A');
     });
@@ -1344,8 +1372,8 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       const { line } = roundTripNote(note);
 
       expect(line.hint).toBe(note);
-      expect(line.targetSets).toBe(4);
-      expect(line.targetReps).toBe(6);
+      expect(line.sets).toHaveLength(2);
+      expect(line.sets?.[1].targetReps).toBe(6);
     });
 
     test('a note containing the grammar delimiters survives intact', () => {
@@ -1392,31 +1420,25 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
           exerciseId: 'bench-press-db',
           order: 0,
           supersetGroup: 'Group One',
-          warmupSets: 0,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetReps: 6 }],
         },
         {
           id: 're-ss-002',
-          exerciseId: 'bench-press-db',
+          exerciseId: 'rear-delt-fly-db',
           order: 1,
           supersetGroup: 'Group One',
-          warmupSets: 0,
-          targetSets: 3,
-          targetReps: 12,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetReps: 12 }],
         },
       ];
 
       const markdown = serializeRoutine(
         routineRow as any,
-        routineExercises as any,
-        exerciseData as any
+        [...routineExercises] as any,
+        [...exerciseData, { id: 'rear-delt-fly-db', title: 'Rear Delt Fly', kind: 'strength' as const }] as any
       );
       const parsed = parseRoutine(markdown);
 
@@ -1439,8 +1461,9 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       const { markdown, line } = roundTripNote(note);
 
       expect(line.hint).toBe(note);
-      // One workout line, not two.
-      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+      // Two workout lines because the entry prescribes two sets — and exactly
+      // two, so the newline inside the note has not become a document line.
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2);
     });
   });
 
@@ -1551,6 +1574,388 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(line.supersetLabel).toBe('A');
       expect(markdown).toContain('superset=A');
       expect(markdown).not.toContain('superset="A"');
+    });
+  });
+
+  /**
+   * #276 Phase 5: the routine grammar is per-set, and symmetric with itself.
+   *
+   * RAMP is the discriminating fixture for the whole of #276 — the real Bench
+   * Press warmup ramp off the user's Hevy "Push" routine. The aggregate grammar
+   * could not express it at all: three warmups at three different weights
+   * collapse to the number 3, and the weights are unrecoverable. Any regression
+   * to a per-exercise line fails these by returning one set, or seven separate
+   * exercises, rather than one exercise with seven ordered sets.
+   */
+  describe('#276: the per-set routine grammar round-trips', () => {
+    const routineRow = {
+      id: 'push-per-set-001',
+      name: 'Push Day',
+      notes: undefined,
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      updatedAt: new Date('2026-08-16T12:00:00Z'),
+    };
+
+    const benchPress = [
+      { id: 'bench-press-db', title: 'Bench Press (Dumbbell)', kind: 'strength' as const },
+    ];
+
+    /** RAMP: warmup 5×9.07, 5×11.34, 3×18.14, then four normal 8–10×22.68. */
+    const RAMP_SETS = [
+      { setType: 'warmup' as const, targetReps: 5, targetWeightKg: 9.07 },
+      { setType: 'warmup' as const, targetReps: 5, targetWeightKg: 11.34 },
+      { setType: 'warmup' as const, targetReps: 3, targetWeightKg: 18.14 },
+      { setType: 'normal' as const, targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+      { setType: 'normal' as const, targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+      { setType: 'normal' as const, targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+      { setType: 'normal' as const, targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+    ];
+
+    const rampEntry = {
+      id: 're-ramp-001',
+      exerciseId: 'bench-press-db',
+      order: 0,
+      supersetGroup: undefined,
+      restSeconds: 120,
+      notes: undefined,
+      sets: RAMP_SETS,
+    };
+
+    test('RAMP: parse(serialize(RAMP)) returns seven sets, in order, with their own weights', () => {
+      const markdown = serializeRoutine(routineRow as any, [rampEntry] as any, benchPress as any);
+
+      // Seven prescribed sets, seven document lines. The verbosity IS the
+      // representation: changing one warmup weight changes one line.
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(7);
+
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+
+      const ex = parsed.exercises[0] as WorkoutLine;
+      expect(ex.exerciseId).toBe('bench-press-db');
+      expect(ex.restSeconds).toBe(120);
+      expect(ex.sets).toHaveLength(7);
+      expect(ex.sets?.map((s) => s.targetWeightKg)).toEqual([
+        9.07, 11.34, 18.14, 22.68, 22.68, 22.68, 22.68,
+      ]);
+      expect(ex.sets?.map((s) => s.setType)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'normal',
+        'normal',
+        'normal',
+        'normal',
+      ]);
+      expect(ex.sets?.map((s) => s.targetReps)).toEqual([5, 5, 3, 8, 8, 8, 8]);
+      expect(ex.sets).toEqual(RAMP_SETS);
+    });
+
+    test('RANGE: a rep range survives as two numbers, not one', () => {
+      const entry = {
+        ...rampEntry,
+        sets: [{ setType: 'normal' as const, targetReps: 8, targetRepsMax: 10 }],
+      };
+
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, [entry] as any, benchPress as any)
+      );
+      const ex = parsed.exercises[0] as WorkoutLine;
+
+      expect(ex.sets).toEqual([{ setType: 'normal', targetReps: 8, targetRepsMax: 10 }]);
+    });
+
+    test('EMPTY: an entry with no prescribed sets is an exercise line, not a dropped exercise', () => {
+      // AC5.8. Zero sets is a shape the DB can hold (convention 10), so the
+      // grammar has to say it — dropping the exercise or throwing would both
+      // lose the fact that the routine names it.
+      const entry = { ...rampEntry, restSeconds: undefined, sets: [] };
+
+      const markdown = serializeRoutine(routineRow as any, [entry] as any, benchPress as any);
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      const ex = parsed.exercises[0] as WorkoutLine;
+      expect(ex.exerciseId).toBe('bench-press-db');
+      expect(ex.sets).toEqual([]);
+    });
+
+    test('EMPTY keeps its entry-level flags', () => {
+      const entry = { ...rampEntry, sets: [], notes: 'warm up however you like' };
+
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, [entry] as any, benchPress as any)
+      );
+      const ex = parsed.exercises[0] as WorkoutLine;
+
+      expect(ex.sets).toEqual([]);
+      expect(ex.restSeconds).toBe(120);
+      expect(ex.hint).toBe('warm up however you like');
+    });
+
+    /**
+     * EMPTY is not a strength-only shape (C1, #293 review).
+     *
+     * `acceptDraft` writes no `routine_sets` rows yet, so every entry in every
+     * routine the app holds today is EMPTY — cardio and stretch entries
+     * included. An exercise line saying "prescribes nothing" must therefore not
+     * be read as a set line that forgot its duration.
+     */
+    test('EMPTY: a cardio or stretch entry with no sets round-trips like any other', () => {
+      for (const kind of ['cardio', 'stretch'] as const) {
+        const entry = {
+          id: 're-empty-kind',
+          exerciseId: 'rower',
+          order: 0,
+          supersetGroup: undefined,
+          restSeconds: 60,
+          notes: undefined,
+          sets: [],
+        };
+
+        const markdown = serializeRoutine(routineRow as any, [entry] as any, [
+          { id: 'rower', title: 'Rower', kind },
+        ] as any);
+
+        expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+
+        const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+        expect(ex.exerciseId).toBe('rower');
+        expect(ex.kind).toBe(kind);
+        expect(ex.restSeconds).toBe(60);
+        expect(ex.sets).toEqual([]);
+      }
+    });
+
+    /**
+     * PARTIAL: a set that prescribes some columns and not others (C2, #293
+     * review).
+     *
+     * All five `routine_sets` columns are independently optional, so "one set
+     * at 50 kg, reps unstated" is a storable prescription. It serialized to a
+     * line carrying only flags, which the parser read as an exercise
+     * prescribing nothing — and the set disappeared. Every set that goes in
+     * comes back, or the call throws; nothing vanishes.
+     */
+    test('PARTIAL: a load-only, reps_max-only or warmup-only set is still a set', () => {
+      const sets = [
+        { setType: 'normal' as const, targetReps: 5, targetWeightKg: 40 },
+        { setType: 'normal' as const, targetWeightKg: 50 },
+        { setType: 'normal' as const, targetRepsMax: 12 },
+        { setType: 'warmup' as const },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, sets }] as any,
+        benchPress as any
+      );
+
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(4);
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
+    test('PARTIAL: a distance-only cardio set is still a set', () => {
+      const sets = [{ setType: 'normal' as const, targetDistanceM: 5000 }];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ id: 're-d', exerciseId: 'rower', order: 0, restSeconds: 60, sets }] as any,
+        [{ id: 'rower', title: 'Rower', kind: 'cardio' as const }] as any
+      );
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
+    /**
+     * The floor of the PARTIAL family: a set prescribing NOTHING at all.
+     *
+     * A `routine_sets` row with all five columns null and `set_type=normal` is
+     * storable, so the grammar owes it an answer. It is the one shape that
+     * collides with the EMPTY exercise line, and the collision is what the
+     * explicit `sets=0` marker resolves: EMPTY says `sets=0`, a contentless set
+     * says nothing, and one set in is one set out.
+     */
+    test('PARTIAL: a set prescribing nothing is one set, not a zero-set entry', () => {
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, sets: [{ setType: 'normal' as const }] }] as any,
+        benchPress as any
+      );
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual([{ setType: 'normal' }]);
+    });
+
+    test('MISMATCH: a superset whose members prescribe different set counts', () => {
+      // Convention 9's fixture, at the grammar layer. The members' lines are
+      // NOT interleaved in the document — the routine stores each entry's set
+      // list whole, and the engine does the round-robin — so what must survive
+      // is the grouping, not an ordering.
+      const exercises = [
+        {
+          id: 're-mm-a',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: 'G5',
+          restSeconds: 60,
+          notes: undefined,
+          sets: [
+            { setType: 'normal' as const, targetReps: 8 },
+            { setType: 'normal' as const, targetReps: 8 },
+            { setType: 'normal' as const, targetReps: 8 },
+          ],
+        },
+        {
+          id: 're-mm-b',
+          exerciseId: 'rear-delt-fly-db',
+          order: 1,
+          supersetGroup: 'G5',
+          restSeconds: 60,
+          notes: undefined,
+          sets: [
+            { setType: 'normal' as const, targetReps: 12 },
+            { setType: 'normal' as const, targetReps: 12 },
+          ],
+        },
+      ];
+
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, exercises as any, [
+          ...benchPress,
+          { id: 'rear-delt-fly-db', title: 'Rear Delt Fly', kind: 'strength' as const },
+        ] as any)
+      );
+
+      expect(parsed.exercises).toHaveLength(1);
+      const group = parsed.exercises[0] as SupersetGroup;
+      expect(group.supersetLabel).toBe('G5');
+      expect(group.exercises).toHaveLength(2);
+      expect(group.exercises[0].sets).toHaveLength(3);
+      expect(group.exercises[1].sets).toHaveLength(2);
+    });
+
+    test('two different exercises stay two entries, whatever their set counts', () => {
+      const exercises = [
+        {
+          id: 're-a',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: undefined,
+          restSeconds: 90,
+          notes: undefined,
+          sets: [
+            { setType: 'normal' as const, targetReps: 5 },
+            { setType: 'normal' as const, targetReps: 5 },
+          ],
+        },
+        {
+          id: 're-b',
+          exerciseId: 'squat-bb',
+          order: 1,
+          supersetGroup: undefined,
+          restSeconds: 90,
+          notes: undefined,
+          sets: [{ setType: 'normal' as const, targetReps: 3 }],
+        },
+      ];
+
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, exercises as any, [
+          ...benchPress,
+          { id: 'squat-bb', title: 'Barbell Squat', kind: 'strength' as const },
+        ] as any)
+      );
+
+      expect(parsed.exercises).toHaveLength(2);
+      expect((parsed.exercises[0] as WorkoutLine).sets).toHaveLength(2);
+      expect((parsed.exercises[1] as WorkoutLine).sets).toHaveLength(1);
+    });
+
+    /**
+     * ZERO: every per-set measure at 0, and rest at 0.
+     *
+     * The discriminating fixture for the `!= null` guards on the routine line —
+     * the hazard class AGENTS.md names and #289 left three instances of on the
+     * session path. Zero is a legitimate value for all of these: a bodyweight
+     * exercise is prescribed at 0 kg, a set can be prescribed at 0 reps
+     * (AC5.4 admits `1x0`), a rest of 0 is "straight into the next set", and a
+     * 0-metre or 0-second target is expressible. A truthiness guard drops each
+     * one silently, and a fixture that never uses 0 cannot see the difference —
+     * which is why every one of these mutants survived before this test.
+     */
+    test('ZERO: a prescribed 0 survives on every per-set field, and on rest', () => {
+      const sets = [
+        {
+          setType: 'normal' as const,
+          targetReps: 0,
+          targetRepsMax: 0,
+          targetWeightKg: 0,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, restSeconds: 0, sets }] as any,
+        benchPress as any
+      );
+
+      // Each zero is on the wire, not omitted.
+      expect(markdown).toContain('1x0');
+      expect(markdown).toContain('rest=0');
+      expect(markdown).toContain('reps_max=0');
+      expect(markdown).toContain('target_weight=0');
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.restSeconds).toBe(0);
+      expect(ex.sets).toEqual(sets);
+    });
+
+    test('ZERO: a 0-second, 0-metre cardio target survives too', () => {
+      const sets = [
+        { setType: 'normal' as const, targetDurationSeconds: 0, targetDistanceM: 0 },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ id: 're-z', exerciseId: 'rower', order: 0, restSeconds: 60, sets }] as any,
+        [{ id: 'rower', title: 'Rower', kind: 'cardio' as const }] as any
+      );
+
+      expect(markdown).toContain('duration=0:00');
+      expect(markdown).toContain('target_distance=0');
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
+    test('a duration-based entry round-trips per-set durations and distances', () => {
+      const entry = {
+        id: 're-cardio',
+        exerciseId: 'rower',
+        order: 0,
+        supersetGroup: undefined,
+        restSeconds: 60,
+        notes: undefined,
+        sets: [
+          { setType: 'warmup' as const, targetDurationSeconds: 120, targetDistanceM: 400 },
+          { setType: 'normal' as const, targetDurationSeconds: 300, targetDistanceM: 1000 },
+        ],
+      };
+
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, [entry] as any, [
+          { id: 'rower', title: 'Rower', kind: 'cardio' as const },
+        ] as any)
+      );
+      const ex = parsed.exercises[0] as WorkoutLine;
+
+      expect(ex.kind).toBe('cardio');
+      expect(ex.sets).toEqual(entry.sets);
     });
   });
 });

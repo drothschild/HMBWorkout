@@ -130,12 +130,12 @@ describe('serialize', () => {
           exerciseId: 'bench-press-db',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 1,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [
+            { setType: 'warmup' as const, targetReps: 8 },
+            { setType: 'normal' as const, targetReps: 6 },
+          ],
         },
       ];
 
@@ -710,7 +710,7 @@ describe('serialize', () => {
       expect(lastSetLine).not.toContain('rpe=');
     });
 
-    test('serializeRoutine includes superset and warmup flags', () => {
+    test('serializeRoutine includes superset and set-type flags', () => {
       const routineRow = {
         id: 'push-06-01',
         name: 'Push Day',
@@ -725,60 +725,49 @@ describe('serialize', () => {
           exerciseId: 'cycling',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 300,
           restSeconds: undefined,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetDurationSeconds: 300 }],
         },
         {
           id: 're-002',
           exerciseId: 'bench-press-db',
           order: 1,
           supersetGroup: 'A',
-          warmupSets: 2,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [
+            { setType: 'warmup' as const, targetReps: 8 },
+            { setType: 'warmup' as const, targetReps: 6 },
+            { setType: 'normal' as const, targetReps: 6 },
+          ],
         },
         {
           id: 're-003',
           exerciseId: 'rear-delt-fly-db',
           order: 2,
           supersetGroup: 'A',
-          warmupSets: 0,
-          targetSets: 3,
-          targetReps: 12,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetReps: 12 }],
         },
         {
           id: 're-004',
           exerciseId: 'lateral-raise-db',
           order: 3,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: 4,
-          targetReps: 10,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetReps: 10 }],
         },
         {
           id: 're-005',
           exerciseId: 'chest-stretch',
           order: 4,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 30,
           restSeconds: undefined,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetDurationSeconds: 30 }],
         },
       ];
 
@@ -798,7 +787,9 @@ describe('serialize', () => {
 
       expect(markdown).toContain('kind=cardio');
       expect(markdown).toContain('duration=5:00');
-      expect(markdown).toContain('warmup=2');
+      // `warmup=<count>` is gone: each warmup set says so on its own line.
+      expect(markdown).not.toContain('warmup=');
+      expect(markdown.match(/set_type=warmup/g)).toHaveLength(2);
       expect(markdown).toContain('superset=A');
       expect(markdown).toContain('kind=stretch');
       expect(markdown).toContain('duration=0:30');
@@ -899,24 +890,18 @@ describe('serialize', () => {
           exerciseId: 'cycling',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 300,
           restSeconds: undefined,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetDurationSeconds: 300 }],
         },
         {
           id: 're-002',
           exerciseId: 'chest-stretch',
           order: 1,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: undefined,
-          targetReps: undefined,
-          targetDurationSeconds: 30,
           restSeconds: undefined,
           notes: undefined,
+          sets: [{ setType: 'normal' as const, targetDurationSeconds: 30 }],
         },
       ];
 
@@ -965,12 +950,9 @@ describe('serialize', () => {
           exerciseId: 'bench-press-db',
           order: 0,
           supersetGroup: undefined,
-          warmupSets: 0,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: undefined,
           restSeconds: 90,
           notes,
+          sets: [{ setType: 'normal' as const, targetReps: 6 }],
         },
       ];
       const markdown = serializeRoutine(
@@ -984,23 +966,23 @@ describe('serialize', () => {
     };
 
     test('a note needing no quoting is emitted bare, exactly as before', () => {
-      expect(lineFor('progressive')).toBe('- bench-press-db: 4x6 rest=1:30 @progressive');
+      expect(lineFor('progressive')).toBe('- bench-press-db: 1x6 rest=1:30 @progressive');
     });
 
     test('a multi-word note is emitted as one double-quoted token', () => {
       expect(lineFor('↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8')).toBe(
-        '- bench-press-db: 4x6 rest=1:30 @"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"'
+        '- bench-press-db: 1x6 rest=1:30 @"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"'
       );
     });
 
     test('quote, backslash and newline are escaped inside the quoted value', () => {
       expect(lineFor('say "hi" \\ then\nrest')).toBe(
-        '- bench-press-db: 4x6 rest=1:30 @"say \\"hi\\" \\\\ then\\nrest"'
+        '- bench-press-db: 1x6 rest=1:30 @"say \\"hi\\" \\\\ then\\nrest"'
       );
     });
 
     test('a whitespace-only note is emitted as no hint at all', () => {
-      expect(lineFor('  \t ')).toBe('- bench-press-db: 4x6 rest=1:30');
+      expect(lineFor('  \t ')).toBe('- bench-press-db: 1x6 rest=1:30');
     });
 
     test('a null note is absent, not a crash and not the string "null"', () => {
@@ -1008,7 +990,7 @@ describe('serialize', () => {
       // and `notes` is not in exportService's normalized-field list — so null
       // reaches this guard for real (#277 review, m2/R35). A truthiness check
       // handles it; an `!== undefined` check would call .trim() on null.
-      expect(lineFor(null as unknown as undefined)).toBe('- bench-press-db: 4x6 rest=1:30');
+      expect(lineFor(null as unknown as undefined)).toBe('- bench-press-db: 1x6 rest=1:30');
     });
   });
 
@@ -1238,6 +1220,127 @@ describe('serialize', () => {
 
       expect(markdown).toContain('- barbell-bench-press: 1x6 set_type=working rpe=8.5');
       expect(markdown).toContain('- cable-fly: 1x12 set_type=working rpe=1');
+    });
+  });
+
+  /**
+   * #276 Phase 5: the routine line's WIRE FORM.
+   *
+   * The round-trip tests prove serialize and parse agree; these pin WHAT they
+   * agree on, so a symmetric rename (both halves switching `target_weight=` to
+   * `weight=`, say) is caught rather than passing a round-trip silently. That
+   * particular rename matters more than most: `weight=` already means LOGGED
+   * kilograms on a session line, and conflating the two is the leak AGENTS.md
+   * recorded and this phase closes.
+   */
+  describe('#276: the per-set routine line wire form', () => {
+    const routineRow = {
+      id: 'push-wire-01',
+      name: 'Push Day',
+      notes: undefined,
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      updatedAt: new Date('2026-08-16T00:00:00Z'),
+    };
+
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (Dumbbell)', kind: 'strength' as const },
+    ];
+
+    const linesFor = (entry: Record<string, unknown>): string[] =>
+      serializeRoutine(
+        routineRow as any,
+        [{ id: 're-1', exerciseId: 'bench-press-db', order: 0, ...entry }] as any,
+        exerciseData as any
+      )
+        .split('\n')
+        .filter((l) => l.startsWith('- '));
+
+    test('RAMP emits one line per set, each carrying its own weight', () => {
+      expect(
+        linesFor({
+          restSeconds: 120,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 9.07 },
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 11.34 },
+            { setType: 'warmup', targetReps: 3, targetWeightKg: 18.14 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+          ],
+        })
+      ).toEqual([
+        '- bench-press-db: 1x5 rest=2:00 set_type=warmup target_weight=9.07',
+        '- bench-press-db: 1x5 rest=2:00 set_type=warmup target_weight=11.34',
+        '- bench-press-db: 1x3 rest=2:00 set_type=warmup target_weight=18.14',
+        '- bench-press-db: 1x8 rest=2:00 reps_max=10 target_weight=22.68',
+      ]);
+    });
+
+    test('a normal set states no set type — absent IS normal on a routine line', () => {
+      // The routine vocabulary is exactly {warmup, absent}, matching
+      // RoutineSetType's {warmup, normal}. A session line is the opposite: it
+      // always states its type, because there it is a measurement.
+      expect(linesFor({ sets: [{ setType: 'normal', targetReps: 6 }] })).toEqual([
+        '- bench-press-db: 1x6',
+      ]);
+    });
+
+    test('EMPTY emits an exercise line marked sets=0, not nothing and not a crash', () => {
+      // The marker is the whole of the fix for #293's two Criticals: without
+      // it this line is byte-identical to a prescribed set carrying only flags
+      // (`- bench-press-db: target_weight=50`), and the parser has to guess.
+      expect(linesFor({ sets: [] })).toEqual(['- bench-press-db: sets=0']);
+      expect(linesFor({ sets: [], restSeconds: 90 })).toEqual([
+        '- bench-press-db: sets=0 rest=1:30',
+      ]);
+    });
+
+    test('EMPTY says sets=0 whatever the exercise kind', () => {
+      // C1 (#293 review). A cardio or stretch entry with no sets is the COMMON
+      // shape right now — nothing writes `routine_sets` rows yet — and its line
+      // must not read as a set line that forgot its duration.
+      const linesForKind = (kind: 'cardio' | 'stretch'): string[] =>
+        serializeRoutine(
+          routineRow as any,
+          [{ id: 're-1', exerciseId: 'rower', order: 0, restSeconds: 60, sets: [] }] as any,
+          [{ id: 'rower', title: 'Rower', kind }] as any
+        )
+          .split('\n')
+          .filter((l) => l.startsWith('- '));
+
+      expect(linesForKind('cardio')).toEqual(['- rower: sets=0 rest=1:00 kind=cardio']);
+      expect(linesForKind('stretch')).toEqual(['- rower: sets=0 rest=1:00 kind=stretch']);
+    });
+
+    test('an entry with no set list at all is treated as EMPTY', () => {
+      // Reachable for real between this phase and Phase 6: a routine written
+      // by a caller that predates set lists has routine_exercises rows and no
+      // routine_sets rows, and `getRoutineSets` answers `[]` for it.
+      expect(linesFor({})).toEqual(['- bench-press-db: sets=0']);
+    });
+
+    test('a set that prescribes nothing is still a line, and says nothing', () => {
+      // The counterpart the marker exists to keep distinct: one prescribed set
+      // with all five columns unset. It is NOT `sets=0` — the entry has a set,
+      // that set just prescribes nothing in particular.
+      expect(linesFor({ sets: [{ setType: 'normal' }] })).toEqual(['- bench-press-db:']);
+    });
+
+    test('per-set distance is emitted under its own key, not the session `distance=`', () => {
+      const lines = serializeRoutine(
+        routineRow as any,
+        [
+          {
+            id: 're-1',
+            exerciseId: 'rower',
+            order: 0,
+            sets: [{ setType: 'normal', targetDurationSeconds: 300, targetDistanceM: 1000 }],
+          },
+        ] as any,
+        [{ id: 'rower', title: 'Rower', kind: 'cardio' as const }] as any
+      )
+        .split('\n')
+        .filter((l) => l.startsWith('- '));
+
+      expect(lines).toEqual(['- rower: kind=cardio duration=5:00 target_distance=1000']);
     });
   });
 });
