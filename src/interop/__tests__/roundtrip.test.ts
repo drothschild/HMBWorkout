@@ -1779,6 +1779,63 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect((parsed.exercises[1] as WorkoutLine).sets).toHaveLength(1);
     });
 
+    /**
+     * ZERO: every per-set measure at 0, and rest at 0.
+     *
+     * The discriminating fixture for the `!= null` guards on the routine line —
+     * the hazard class AGENTS.md names and #289 left three instances of on the
+     * session path. Zero is a legitimate value for all of these: a bodyweight
+     * exercise is prescribed at 0 kg, a set can be prescribed at 0 reps
+     * (AC5.4 admits `1x0`), a rest of 0 is "straight into the next set", and a
+     * 0-metre or 0-second target is expressible. A truthiness guard drops each
+     * one silently, and a fixture that never uses 0 cannot see the difference —
+     * which is why every one of these mutants survived before this test.
+     */
+    test('ZERO: a prescribed 0 survives on every per-set field, and on rest', () => {
+      const sets = [
+        {
+          setType: 'normal' as const,
+          targetReps: 0,
+          targetRepsMax: 0,
+          targetWeightKg: 0,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ ...rampEntry, restSeconds: 0, sets }] as any,
+        benchPress as any
+      );
+
+      // Each zero is on the wire, not omitted.
+      expect(markdown).toContain('1x0');
+      expect(markdown).toContain('rest=0');
+      expect(markdown).toContain('reps_max=0');
+      expect(markdown).toContain('target_weight=0');
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.restSeconds).toBe(0);
+      expect(ex.sets).toEqual(sets);
+    });
+
+    test('ZERO: a 0-second, 0-metre cardio target survives too', () => {
+      const sets = [
+        { setType: 'normal' as const, targetDurationSeconds: 0, targetDistanceM: 0 },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        [{ id: 're-z', exerciseId: 'rower', order: 0, restSeconds: 60, sets }] as any,
+        [{ id: 'rower', title: 'Rower', kind: 'cardio' as const }] as any
+      );
+
+      expect(markdown).toContain('duration=0:00');
+      expect(markdown).toContain('target_distance=0');
+
+      const ex = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual(sets);
+    });
+
     test('a duration-based entry round-trips per-set durations and distances', () => {
       const entry = {
         id: 're-cardio',

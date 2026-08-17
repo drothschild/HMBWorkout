@@ -190,6 +190,29 @@ describe('exportService', () => {
       });
     });
 
+    it('a prescribed 0 kg survives the export boundary, rather than reading as absent', async () => {
+      // The `?? undefined` normalization must stay `??`, not `||`: a bodyweight
+      // exercise is prescribed at 0 kg, and `|| undefined` erases it. Nothing
+      // else in this suite passes a zero through this mapping, so without this
+      // the two operators are indistinguishable here.
+      await upsertExercise(db, 'ex-pushup', 'Push-Up', 'strength');
+      await upsertRoutine(db, 'routine-bw', 'Bodyweight', [
+        {
+          exerciseId: 'ex-pushup',
+          order: 0,
+          sets: [{ setType: 'normal', targetReps: 20, targetWeightKg: 0 }],
+        },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-bw');
+      expect(markdown).toContain('target_weight=0');
+
+      const entry = parseRoutine(markdown).exercises[0] as any;
+      expect(entry.sets).toEqual([{ setType: 'normal', targetReps: 20, targetWeightKg: 0 }]);
+    });
+
     it('an entry with no routine_sets rows exports as a bare exercise line', async () => {
       // The aggregate-only shape every routine written before Phase 1 has.
       // It exports as an exercise the routine names with nothing prescribed —
