@@ -7,6 +7,30 @@ export type SessionPhase = 'idle' | 'warmup' | 'working' | 'resting' | 'paused' 
 export type SetType = 'warmup' | 'working' | 'stretch' | 'cardio';
 export type ExerciseKind = 'strength' | 'cardio' | 'stretch';
 
+/**
+ * The prescribed type of a planned set. Deliberately narrower than `SetType`,
+ * which is the *logged* type: a plan says only "warmup" or "normal", and the
+ * engine turns a non-warmup set into `working`/`stretch`/`cardio` from the
+ * exercise's own kind at log time.
+ */
+export type RoutineSetType = 'warmup' | 'normal';
+
+/**
+ * One prescribed set. Every measurement is optional, and absent means absent —
+ * these fields are new surface with no legacy read sites to protect, so they
+ * are deliberately NOT added to SENTINEL_TO_OPTION_MAP (convention 8). Read
+ * sites must use `!= null`: WatermelonDB hands back `null` for an unset
+ * optional column, and `rillToJs` omits a `None` key entirely.
+ */
+export interface RoutineSet {
+  setType: RoutineSetType;
+  reps?: number | null;
+  repsMax?: number | null;
+  weightKg?: number | null;
+  durationSeconds?: number | null;
+  distanceM?: number | null;
+}
+
 export interface RoutineEntry {
   idx: number; // Index for Rill lookup (host pre-indexes entries)
   exerciseId: string;
@@ -17,6 +41,18 @@ export interface RoutineEntry {
   targetDurationSeconds: number;
   restSeconds: number;
   supersetGroup: string; // "" means no superset
+  /**
+   * The ordered prescription the engine actually advances through.
+   *
+   * OPTIONAL ON PURPOSE, and only until Phase 6 of #276. The Rill rules read
+   * this list exclusively; the four count fields above survive here so the ~20
+   * shell files that still read them keep compiling. `toRillRoutineEntry`
+   * expands the counts into a flat list when `sets` is absent, and
+   * `fromRillState` always emits `sets` AND re-derives the counts from it, so
+   * a count-built entry round-trips unchanged. Making this required is the
+   * contract step, not this one.
+   */
+  sets?: RoutineSet[];
 }
 
 export interface LoggedSet {
