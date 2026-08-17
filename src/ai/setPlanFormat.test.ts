@@ -131,6 +131,30 @@ describe('summarizePlanSets', () => {
   it('is empty for an entry that prescribes no sets, so the caller can drop the segment', () => {
     expect(summarizePlanSets([])).toBe('');
   });
+
+  it('treats a zero load as absent rather than rendering "@ 0lbs"', () => {
+    // Layer two on the sentinel rule. `acceptDraft` refuses to write a 0 and
+    // `prescribedSets`' aggregate fallback filters one out, but
+    // `replaceRoutineSets` writes any defined value it is handed, so a 0 CAN
+    // reach a routine_sets row from a non-AI caller. `computeSetPrefill`
+    // already reads a non-positive weight as absent; this keeps the prompt's
+    // reading of the same column identical to the prefill's.
+    expect(
+      summarizePlanSets(
+        planSetsFromRoutineSetEntries([{ setType: 'normal', targetReps: 8, targetWeightKg: 0 }])
+      )
+    ).toBe('8 reps');
+
+    expect(
+      summarizePlanSets(planSetsFromRoutineSets([{ setType: 'normal', reps: 8, weightKg: 0 }]))
+    ).toBe('8 reps');
+  });
+
+  it('treats a null load as absent — WatermelonDB never hands back undefined', () => {
+    expect(
+      summarizePlanSets(planSetsFromRoutineSets([{ setType: 'normal', reps: 8, weightKg: null }]))
+    ).toBe('8 reps');
+  });
 });
 
 describe('formatDraftSetLine', () => {

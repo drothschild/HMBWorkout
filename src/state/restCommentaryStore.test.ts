@@ -851,6 +851,51 @@ describe('restCommentaryTarget', () => {
     expect(restCommentaryTarget(state())?.exerciseTitle).toBe('squat');
   });
 
+  it('carries the upcoming entry’s own set list, not the one it just left (#276 AC4.12)', () => {
+    // The `upNext` half of the pair. Its `lastSet` sibling is covered under
+    // "#270: superset groups"; this branch had no cover at all, and a mutation
+    // sending `sets: []` from here survived the whole suite — the target
+    // summary would then read "no target recorded" for every between-exercise
+    // rest. The two entries prescribe visibly different plans, so a read off
+    // the wrong one is not interchangeable with the right one.
+    const result = restCommentaryTarget(
+      state({
+        exerciseIndex: 1,
+        setIndex: 0,
+        entries: [
+          entry(),
+          entry({
+            idx: 1,
+            exerciseId: 'squat',
+            sets: [
+              { setType: 'warmup', reps: 5, weightKg: 60 },
+              { setType: 'normal', reps: 5, weightKg: 100 },
+            ],
+          }),
+        ],
+      })
+    );
+
+    expect(result?.sets).toEqual([
+      { setType: 'warmup', reps: 5, weightKg: 60 },
+      { setType: 'normal', reps: 5, weightKg: 100 },
+    ]);
+  });
+
+  it('expands an aggregate-only upcoming entry through the derivation seam', () => {
+    // A count-shaped entry (hydrated from a pre-#276 build, or written by
+    // `upsertRoutineExercise`) must still reach the prompt as a list, or the
+    // rest remark loses its target for every routine that predates the set
+    // table.
+    const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
+
+    expect(result?.sets).toEqual([
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+    ]);
+  });
+
   describe('#270: resting inside an exercise comments on the set just completed', () => {
     it('describes the completed set, not the upcoming one', () => {
       // transition.lv:66-70 — the round-repeat rest carries setIndex = round + 1,
