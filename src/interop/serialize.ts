@@ -325,8 +325,12 @@ export function serializeRoutine(
       flags.restSeconds = re.restSeconds;
     }
 
-    // Add notes as hint if present
-    if (re.notes) {
+    // Add notes as hint if present. Blank-but-non-empty notes are treated as
+    // absent (#277) rather than emitting `@""`: a note of pure whitespace
+    // carries nothing, and round-tripping it as an empty hint would be a
+    // distinction the app has no use for. A note with *content* keeps its
+    // surrounding whitespace exactly — `format.ts` quotes it.
+    if (re.notes && re.notes.trim() !== '') {
       flags.hint = re.notes;
     }
 

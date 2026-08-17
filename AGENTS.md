@@ -422,6 +422,41 @@ lines therefore expose honest aliases (`loggedReps`, `loggedDurationSeconds`) �
 those, not the `target*` fields, when consuming a parsed session. Contract violations
 throw `ContractError`.
 
+### Quoted flag values (#277)
+
+**A flag value may be double-quoted, and the line tokenizer is quote-aware.** Before
+this, the whole spec after the colon was split on `/\s+/`, so a value was one
+whitespace-delimited token by construction — a routine exercise's `notes`, carried in
+the `@hint` flag, lost everything after its first word *silently* (unknown non-flag
+tokens hit a `continue`), and a note containing `=` was worse: the stray token reached
+the `knownFlags` allowlist and threw. Every hint fixture in the suite was a single
+token, which is why 59 interop tests never noticed.
+
+`tokenizeFlagString` (`format.ts`) is now the one tokenizer, and `parse.ts` calls it
+for the *whole* line spec — before the `<sets>x<reps>` scan, not just for the flag
+tail. That ordering is load-bearing: a note reading `@"3x12 = the goal"` would
+otherwise have its `3x12` grabbed as the sets slot. Flags parse from tokens
+(`parseFlagTokens`), never from a re-joined string, for the same reason;
+`parseFlags(string)` remains as the tokenize-then-parse wrapper.
+
+Three rules that must stay true together:
+
+- **Quoting is emitted only when needed** (`quoteFlagValue`: whitespace, `"`, `\`, or
+  empty). A value that used to serialize bare still serializes bare, byte for byte, so
+  every previously-written document parses exactly as it did and every hand-authored
+  `@word` keeps its meaning. An unquoted `@progressive overload` still means
+  `hint: "progressive"` — that is backward compatibility, not a residual bug.
+- **Escapes inside quotes are `\\` `\"` `\n` `\r`, and nothing else.** An unterminated
+  quote or an unrecognized escape throws `ContractError` rather than degrading —
+  both mean the serializer wrote something it never writes.
+- **Newlines round-trip; they are not normalized.** `\n` inside a quoted value keeps a
+  multi-line note (Hevy has them) intact while guaranteeing no literal newline ever
+  appears inside a workout line, so the document stays line-based. A note that is
+  *only* whitespace is treated as absent by `serializeRoutine` and emits no `@` at all.
+
+`superset=` is quoted by the same helper — it is free text and had the identical
+truncation hazard, even though nothing writes a label with a space today.
+
 ### Parse context and validation strictness
 
 `parseWorkoutLine` and the internal `parseDoc` take a context parameter

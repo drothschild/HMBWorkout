@@ -2,7 +2,8 @@
  * Interop format contract: types and shared parsing/formatting for serializer/parser.
  * Single source of truth to prevent drift between serializer and parser.
  *
- * SCOPE: Line-level flag parsing (rest, warmup, superset, kind, duration, rpe, set_type, weight, distance).
+ * SCOPE: Line-level tokenization and flag parsing (rest, warmup, superset, kind,
+ * duration, rpe, set_type, weight, distance, @hint).
  * Document-level frontmatter/block validation is in workout-bridge/src/contract.ts.
  * Both files share parseDuration() and ContractError — keep identical.
  */
@@ -136,20 +137,153 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Quoted flag values (#277).
+ *
+ * A flag value is one whitespace-delimited token, which meant a free-text value
+ * — `@<hint>` (a routine exercise's notes) or `superset=<label>` — could hold
+ * exactly one word. A prose note lost everything after its first word silently,
+ * and a note containing `=` threw as an unknown flag key.
+ *
+ * The grammar therefore allows a value to be **double-quoted**, and a quoted
+ * value may contain whitespace, `=`, `@`, and escapes. Quoting is applied by
+ * the serializer only when the value needs it (`quoteFlagValue`), so a value
+ * that was previously emitted bare is still emitted bare, byte for byte, and
+ * every document written before this change parses exactly as it did.
+ *
+ * Escapes inside a quoted value: `\\` `\"` `\n` `\r`. Anything else after a
+ * backslash is a contract violation rather than a silent literal.
+ *
+ * **Newlines round-trip; they are not normalized to spaces.** A note copied out
+ * of another app can be multi-line, and `\n` inside a quoted value carries that
+ * across without a literal newline ever appearing in a workout line — the
+ * document stays line-based.
+ */
+const QUOTE = '"';
+
+/** Values containing these must be quoted to survive tokenization. */
+function needsQuoting(value: string): boolean {
+  return value === '' || /[\s"\\]/.test(value);
+}
+
+/**
+ * Format a free-text flag value for the wire: bare when it survives
+ * tokenization as-is, double-quoted with escapes when it does not.
+ */
+export function quoteFlagValue(value: string): string {
+  if (!needsQuoting(value)) return value;
+
+  let escaped = '';
+  for (const ch of value) {
+    if (ch === '\\') escaped += '\\\\';
+    else if (ch === QUOTE) escaped += '\\"';
+    else if (ch === '\n') escaped += '\\n';
+    else if (ch === '\r') escaped += '\\r';
+    else escaped += ch;
+  }
+  return `${QUOTE}${escaped}${QUOTE}`;
+}
+
+/**
+ * Decode a flag value read off the wire. A quoted value is unquoted and its
+ * escapes resolved; a bare value is returned unchanged.
+ *
+ * Throws `ContractError` on an unterminated quote or an unrecognized escape —
+ * both are the serializer having written something it never writes, so they are
+ * contract violations rather than recoverable text.
+ */
+export function decodeFlagValue(raw: string): string {
+  if (!raw.startsWith(QUOTE)) return raw;
+  if (raw.length < 2 || !raw.endsWith(QUOTE)) {
+    throw new ContractError(`Unterminated quoted value: ${raw}`);
+  }
+
+  const body = raw.slice(1, -1);
+  let decoded = '';
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch !== '\\') {
+      decoded += ch;
+      continue;
+    }
+    const next = body[i + 1];
+    if (next === '\\') decoded += '\\';
+    else if (next === QUOTE) decoded += QUOTE;
+    else if (next === 'n') decoded += '\n';
+    else if (next === 'r') decoded += '\r';
+    else throw new ContractError(`Unrecognized escape in quoted value: \\${next ?? ''} (in ${raw})`);
+    i++;
+  }
+  return decoded;
+}
+
+/**
+ * Split a flag string into tokens, respecting double-quoted values.
+ *
+ * This is the tokenizer for a whole line's spec, not just its flags: `parse.ts`
+ * uses it before it looks for the `<sets>x<reps>` slot, so a quoted value
+ * containing something like `3x12` is never mistaken for the sets slot.
+ *
+ * Tokens keep their quotes; `decodeFlagValue` strips them at the point the
+ * value's meaning is known. Throws `ContractError` on an unterminated quote.
+ */
+export function tokenizeFlagString(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let started = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (inQuotes && ch === '\\') {
+      // Keep the escape pair raw; decodeFlagValue resolves it later.
+      current += ch + (input[i + 1] ?? '');
+      i++;
+      started = true;
+      continue;
+    }
+
+    if (ch === QUOTE) {
+      inQuotes = !inQuotes;
+      current += ch;
+      started = true;
+      continue;
+    }
+
+    if (!inQuotes && /\s/.test(ch)) {
+      if (started) tokens.push(current);
+      current = '';
+      started = false;
+      continue;
+    }
+
+    current += ch;
+    started = true;
+  }
+
+  if (inQuotes) {
+    throw new ContractError(`Unterminated quoted value in: ${input}`);
+  }
+  if (started) tokens.push(current);
+
+  return tokens;
+}
+
+/**
  * Parse a single flag value.
  * Handles: rest=<sec|m:ss>, warmup=<n>, superset=<label>, kind=<type>, duration=<m:ss>, rpe=<n>, @<hint>
  */
 function parseSingleFlag(flag: string): [key: string, value: any] | null {
   if (flag.startsWith('@')) {
-    // Hint: @<text>
-    return ['hint', flag.substring(1)];
+    // Hint: @<text> or @"<text with spaces>"
+    return ['hint', decodeFlagValue(flag.substring(1))];
   }
 
   const eqIndex = flag.indexOf('=');
   if (eqIndex === -1) return null;
 
   const key = flag.substring(0, eqIndex);
-  const valueStr = flag.substring(eqIndex + 1);
+  const valueStr = decodeFlagValue(flag.substring(eqIndex + 1));
 
   switch (key) {
     case 'rest': {
@@ -221,8 +355,19 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
  * Returns an object with parsed flags; throws on invalid flag values.
  */
 export function parseFlags(flagStr: string): ParsedFlags {
+  return parseFlagTokens(tokenizeFlagString(flagStr));
+}
+
+/**
+ * Parse flags from tokens already produced by `tokenizeFlagString`.
+ *
+ * Callers that tokenize the whole line themselves (`parse.ts`, which must find
+ * the `<sets>x<reps>` slot among the tokens) pass their tokens straight through
+ * rather than re-joining them into a string — a quoted value's internal
+ * whitespace must not be re-split.
+ */
+export function parseFlagTokens(parts: string[]): ParsedFlags {
   const flags: ParsedFlags = {};
-  const parts = flagStr.split(/\s+/).filter(p => p);
 
   for (const part of parts) {
     if (!part) continue;
@@ -230,7 +375,7 @@ export function parseFlags(flagStr: string): ParsedFlags {
     // Check if it's a known flag or hint
     if (part.startsWith('@')) {
       // Hint - always valid
-      flags.hint = part.substring(1);
+      flags.hint = decodeFlagValue(part.substring(1));
       continue;
     }
 
@@ -282,7 +427,9 @@ export function formatFlags(flags: ParsedFlags): string {
   }
 
   if (flags.supersetLabel !== undefined) {
-    parts.push(`superset=${flags.supersetLabel}`);
+    // Quoted when it needs it (#277): a label is free text too, and the
+    // whitespace tokenizer truncated it the same way it truncated a hint.
+    parts.push(`superset=${quoteFlagValue(flags.supersetLabel)}`);
   }
 
   if (flags.kind !== undefined && flags.kind !== 'strength') {
@@ -310,7 +457,9 @@ export function formatFlags(flags: ParsedFlags): string {
   }
 
   if (flags.hint !== undefined) {
-    parts.push(`@${flags.hint}`);
+    // The hint carries a routine exercise's notes — prose, so quoting is the
+    // common case rather than the exception (#277).
+    parts.push(`@${quoteFlagValue(flags.hint)}`);
   }
 
   return parts.join(' ');
