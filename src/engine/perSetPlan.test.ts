@@ -238,11 +238,18 @@ describe('per-set routine plan: set types come from the list (AC2.4, AC2.5)', ()
   });
 
   it('AC2.5: an expired rest reconciles to the phase of the set actually landed on', async () => {
-    // reconcile_resting_deadline is the boot-Resume / AppForegrounded recovery,
-    // and it is a THIRD phase_for call site distinct from RestElapsed and
-    // SkipRest. Reconciling at RAMP's index 3 must give Working; reading set 0
-    // instead — which every count-shaped fixture cannot tell apart, because a
-    // ramp's set 0 and set 3 differ only per-set — gives Warmup.
+    // reconcile_resting_deadline is the boot-Resume / AppForegrounded recovery.
+    // The phase_for RECOVERY sites are FOUR, not three, and each needs its own
+    // fixture — a guard on one is not a guard on the others:
+    //
+    //   transition.lv:133  reconcile_resting_deadline  (this test)
+    //   transition.lv:220  RestElapsed / Resting       (restControls.test.ts)
+    //   transition.lv:238  SkipRest / Resting          (the INTERLEAVE test above)
+    //   transition.lv:246  SkipRest / Paused, frozen   (the next test)
+    //
+    // Reconciling at RAMP's index 3 must give Working; reading set 0 instead —
+    // which every count-shaped fixture cannot tell apart, because a ramp's set 0
+    // and set 3 differ only per-set — gives Warmup.
     const engine = createEngine(makeExecutors());
     engine.setState({
       sessionId: 'session-reconcile',
@@ -263,6 +270,64 @@ describe('per-set routine plan: set types come from the list (AC2.4, AC2.5)', ()
     const state = await engine.dispatch({ tag: 'AppForegrounded', nowMs: 9000 });
     expect(state.phase).toBe('working');
     expect(state.restDeadlineMs).toBe(0);
+  });
+
+  it('AC2.5: Skip Rest from a PAUSED frozen rest recovers the set actually landed on', async () => {
+    // The fourth recovery site (transition.lv:246), and the last one to get a
+    // fixture. Reachable by hand: pause during a rest, then tap Skip Rest on the
+    // paused screen — PauseSession moved the live deadline into restRemainingMs,
+    // so this arm, not the Resting one, is what runs. Reading set 0 instead of
+    // setIndex gives Warmup on a ramp; only a per-set plan can tell the two
+    // apart, which is why the aggregate-era suite never covered it.
+    const engine = createEngine(makeExecutors());
+    engine.setState({
+      sessionId: 'session-paused-skip',
+      routineId: 'routine-paused-skip',
+      phase: 'paused',
+      prePausePhase: 'resting',
+      exerciseIndex: 0,
+      setIndex: 3,
+      supersetPosition: 0,
+      restDeadlineMs: 0,
+      restRemainingMs: 30000,
+      loggedSets: [],
+      lastLoggedSet: undefined,
+      startedAtMs: 1000,
+      entries: [perSetEntry(0, 'bench-press-dumbbell', RAMP, { restSeconds: 120 })],
+    });
+
+    const state = await engine.dispatch({ tag: 'SkipRest' });
+
+    expect(state.phase).toBe('working');
+    expect(state.restRemainingMs).toBe(0);
+    expect(state.prePausePhase).toBe('');
+  });
+
+  it('AC2.5: Skip Rest from a paused frozen rest recovers a WARMUP set as warmup', async () => {
+    // The other half of the discrimination: same arm, same fixture shape, an
+    // index whose set is a warmup. Without this, a mutant hard-coding Working
+    // at :246 would pass the test above. INTERLEAVE's set 2 is a warmup that
+    // follows a working set, so no warmup COUNT reproduces it either.
+    const engine = createEngine(makeExecutors());
+    engine.setState({
+      sessionId: 'session-paused-skip-warmup',
+      routineId: 'routine-paused-skip-warmup',
+      phase: 'paused',
+      prePausePhase: 'resting',
+      exerciseIndex: 0,
+      setIndex: 2,
+      supersetPosition: 0,
+      restDeadlineMs: 0,
+      restRemainingMs: 30000,
+      loggedSets: [],
+      lastLoggedSet: undefined,
+      startedAtMs: 1000,
+      entries: [perSetEntry(0, 'interleaved', INTERLEAVE, { restSeconds: 60 })],
+    });
+
+    const state = await engine.dispatch({ tag: 'SkipRest' });
+
+    expect(state.phase).toBe('warmup');
   });
 
   it('AC2.5: a rehydrated setIndex past the end of the list does not stamp a warmup', async () => {
@@ -335,8 +400,16 @@ describe('per-set routine plan: convention 10 survives (AC2.7–AC2.9)', () => {
   });
 
   it('AC2.7: advance_after_set skips past an empty set list', async () => {
+    // WHY `opener` CARRIES TWO SETS. The landing at transition.lv:109 reads
+    // `phase_for(nextEntry)(0)` — the set the athlete is about to face on the
+    // NEW entry, never the round they were on when they left the old one. With
+    // a one-set `opener` this test walked that line and still could not see it:
+    // s.setIndex is 0 at the landing, so the bug's `phase_for(nextEntry)(s.setIndex)`
+    // is literally the same call, and the mutation survived a passing assertion.
+    // Two sets make the two calls disagree — index 1 is off the end of `closer`'s
+    // one-set list, so the mutant recovers Working where the truth is Warmup.
     const entries = [
-      perSetEntry(0, 'opener', [{ setType: 'normal', reps: 8 }]),
+      perSetEntry(0, 'opener', [{ setType: 'normal', reps: 8 }, { setType: 'normal', reps: 8 }]),
       perSetEntry(1, 'ghost', []),
       perSetEntry(2, 'closer', [{ setType: 'warmup', reps: 5 }]),
     ];
@@ -345,6 +418,10 @@ describe('per-set routine plan: convention 10 survives (AC2.7–AC2.9)', () => {
     expect(state.exerciseIndex).toBe(0);
 
     state = await engine.dispatch({ tag: 'LogSet', reps: 8, nowMs: 2000 });
+    expect(state.exerciseIndex).toBe(0);
+    expect(state.setIndex).toBe(1);
+
+    state = await engine.dispatch({ tag: 'LogSet', reps: 8, nowMs: 3000 });
     expect(state.exerciseIndex).toBe(2);
     expect(state.phase).toBe('warmup');
     expect(state.setIndex).toBe(0);
@@ -441,6 +518,20 @@ describe('per-set routine plan: the boundary (AC2.11, AC2.12)', () => {
     // A sentinel would have made these 0 / -1 (convention 8). They are honest.
     expect(set.weightKg).not.toBe(0);
     expect(set.repsMax).not.toBe(0);
+  });
+
+  it('AC2.12: a distance-carrying set survives both crossings', async () => {
+    // `distanceM` was the one measurement no fixture exercised, so BOTH bridge
+    // directions were unpinned — `toRillRoutineSet` and `fromRillRoutineSet`
+    // could each hard-code `undefined` for it and the whole suite stayed green.
+    // (`repsMax` is already covered: RAMP carries it and AC2.11's toEqual(RAMP)
+    // catches its loss.) Inert in Phase 2, read from Phase 3 on.
+    const rowing: RoutineSet[] = [{ setType: 'normal', distanceM: 2000, durationSeconds: 480 }];
+    const { start } = startedEngine([perSetEntry(0, 'rowing-machine', rowing, { kind: 'cardio' })]);
+    const state = await start();
+
+    expect(state.entries[0].sets).toEqual(rowing);
+    expect(state.entries[0].sets?.[0].distanceM).toBe(2000);
   });
 });
 

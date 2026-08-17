@@ -160,12 +160,32 @@ function fromRillRoutineSet(set: any): RoutineSet {
  * DERIVATION SEAM (#276, deleted in Phase 6). The other direction: re-derive
  * the aggregate counts from the set list so the ~20 shell files still reading
  * `warmupSets`/`targetSets`/`targetReps`/`targetDurationSeconds` see exactly
- * what they saw before per-set, and a count-built entry round-trips unchanged.
+ * what they saw before per-set, and a count-built entry round-trips unchanged —
+ * with exactly one exception, recorded below.
  *
  * Lossy in this direction, necessarily: INTERLEAVE (warmup, normal, warmup)
  * comes back as warmupSets 2 / targetSets 1, which is the closest an aggregate
  * can get to a shape it cannot represent. That loss is confined to the derived
  * counts — the rules read `sets`.
+ *
+ * THE ONE ROUND-TRIP EXCEPTION: a ZERO-TOTAL entry loses its plan values.
+ *
+ *   in : { warmupSets: 0, targetSets: 0, targetReps: 12, targetDurationSeconds: 45 }
+ *   out: { warmupSets: 0, targetSets: 0, targetReps:  0, targetDurationSeconds:  0 }
+ *
+ * `setsFromCounts` expands that entry to `[]`, so `plan` is undefined here and
+ * both `?? 0` defaults fire; the pre-per-set engine handed back 12/45. The shape
+ * is real — AGENTS.md's Boundaries note records routines imported before
+ * `upsertRoutine` learned its zero-total default, left with `target_sets` null
+ * or 0 and no re-import to heal them. It is NOT reachable in any decision path,
+ * which is why nothing is done about it beyond saying so: such an entry is
+ * unlandable (convention 10), `computeSetPrefill` and `exerciseReplaceStore`
+ * read only the CURRENT entry, and `restCommentaryStore.performedEntryIndex`
+ * gates on `warmupSets + targetSets > round` with `round >= 0`, so a zero-total
+ * entry is never selected. Every zero-total display guard in the shell keys on
+ * the counts being 0, which they still are. Phase 6 deletes this function and
+ * the exception with it; until then, do not build a reader that needs
+ * `targetReps` off an entry planning no sets.
  *
  * The plan values come from the first NORMAL set (what the shell means by "the
  * target"), falling back to the first set of any type so an all-warmup entry —
