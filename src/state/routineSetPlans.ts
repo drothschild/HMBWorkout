@@ -54,9 +54,7 @@ export function entrySetsFromRows(
   rows: readonly RoutineSetEntry[],
   counts: RoutineExerciseCounts
 ): RoutineSet[] {
-  if (rows.length === 0) return setsFromCounts(fromColumns(counts));
-
-  return rows.map((row) => ({
+  return prescribedSets(rows, counts).map((row) => ({
     setType: row.setType,
     reps: row.targetReps,
     repsMax: row.targetRepsMax,
@@ -66,12 +64,31 @@ export function entrySetsFromRows(
   }));
 }
 
+/**
+ * The same resolution in DB (`RoutineSetEntry`) shape, for the presenters that
+ * render a plan rather than hand one to the engine. One function so the
+ * "does this entry prescribe anything?" question has one answer everywhere.
+ */
+export function prescribedSets(
+  rows: readonly RoutineSetEntry[],
+  counts: RoutineExerciseCounts
+): RoutineSetEntry[] {
+  if (rows.length > 0) return [...rows];
+
+  return setsFromCounts(fromColumns(counts)).map((set) => {
+    const entry: RoutineSetEntry = { setType: set.setType };
+    if (set.reps != null) entry.targetReps = set.reps;
+    if (set.durationSeconds != null) entry.targetDurationSeconds = set.durationSeconds;
+    return entry;
+  });
+}
+
 /** True when the entry prescribes at least one set — the shell's "active" test. */
 export function rowHasPrescribedSets(
   rows: readonly RoutineSetEntry[],
   counts: RoutineExerciseCounts
 ): boolean {
-  return entrySetsFromRows(rows, counts).length > 0;
+  return prescribedSets(rows, counts).length > 0;
 }
 
 function fromColumns(counts: RoutineExerciseCounts) {

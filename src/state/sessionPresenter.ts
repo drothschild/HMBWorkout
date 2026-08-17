@@ -79,6 +79,14 @@ export interface SessionPresenterOutput {
   setNumber: number;
   totalSetsForEntry: number;
   setPositionLabel: string;
+  /**
+   * The duration the CURRENT set prescribes, or undefined (#276). The
+   * stopwatch counts up to this, so a plan whose timed sets differ — 30s then
+   * 45s — must not show one figure for both. Undefined when the entry is not
+   * duration-based, when the set prescribes no duration, or when `setIndex`
+   * points past the list.
+   */
+  currentSetDurationSeconds: number | undefined;
 
   // True when the current set is the exercise's last set (warmup or working).
   // Used to gate the RPE popup trigger: show RPE input only after final set.
@@ -516,6 +524,13 @@ export function createSessionPresenter(
     currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1
   );
 
+  // The stopwatch target comes from the set being performed, not the entry —
+  // two timed sets of the same hold may legitimately prescribe different
+  // durations.
+  const currentSetDuration = currentEntrySets[sessionState.setIndex]?.durationSeconds;
+  const currentSetDurationSeconds =
+    currentSetDuration != null && currentSetDuration > 0 ? currentSetDuration : undefined;
+
   // Exercise progress: min defensively clamps exerciseIndex to the total (it
   // should never exceed entries.length, but progress math must stay safe if
   // it ever does), and the done override corrects for natural completion
@@ -590,6 +605,7 @@ export function createSessionPresenter(
     setNumber,
     totalSetsForEntry,
     setPositionLabel,
+    currentSetDurationSeconds,
     isLastSetOfExercise,
 
     // Handlers dispatch events to the engine

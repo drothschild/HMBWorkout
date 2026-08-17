@@ -1,6 +1,13 @@
 import { Database } from '@nozbe/watermelondb';
 import SessionSet from '@/db/models/SessionSet';
-import { getSession, getSessionSets, getSessionExerciseLog, getRoutineDisplay } from '@/db/repository';
+import {
+  getSession,
+  getSessionSets,
+  getSessionExerciseLog,
+  getRoutineDisplay,
+  getRoutineSets,
+  type RoutineSetEntry,
+} from '@/db/repository';
 import { formatSetLine } from './sessionPresenter';
 
 /**
@@ -37,6 +44,15 @@ export interface SessionDetailExercise {
   /** The exercise these sets were performed as. */
   exerciseId: string;
   title: string;
+  /**
+   * What the routine prescribes for this row TODAY (#276) — read from
+   * `routine_sets`, which is where the plan now lives. Like the aggregate
+   * fields beside it this is the routine's current composition, not a snapshot
+   * of what was planned when the session ran; the routine may have been edited
+   * since. `[]` when the row prescribes nothing or has been destroyed.
+   */
+  plannedSets: RoutineSetEntry[];
+  /** Superseded by `plannedSets`; kept for the readers Phase 6 will move. */
   targetSets?: number;
   targetReps?: number;
   targetDurationSeconds?: number;
@@ -134,6 +150,14 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
     getSessionExerciseLog(db, sessionId, routineId, allSets),
   ]);
 
+  // The plan now lives in `routine_sets`, so the lookup is by row id. One read
+  // per distinct row — `log` can list a row twice when a swap split its sets
+  // across two performed identities, and both halves share the same plan.
+  const plansByRow = new Map<string, RoutineSetEntry[]>();
+  for (const rowId of new Set(log.map((entry) => entry.routineExerciseId))) {
+    plansByRow.set(rowId, await getRoutineSets(db, rowId));
+  }
+
   const accountedForSetIds = new Set<string>();
   const exercises: SessionDetailExercise[] = log.map((entry) => {
     for (const set of entry.sets) {
@@ -155,6 +179,7 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
       routineExerciseId: entry.routineExerciseId,
       exerciseId: entry.exerciseId,
       title: entry.title,
+      plannedSets: plansByRow.get(entry.routineExerciseId) ?? [],
       targetSets: entry.targetSets,
       targetReps: entry.targetReps,
       targetDurationSeconds: entry.targetDurationSeconds,

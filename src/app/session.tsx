@@ -38,8 +38,8 @@ import {
   getExerciseTitles,
   getExerciseWorkingSetHistory,
   getRoutineDisplay,
-  getRoutineTargetWeightsKg,
 } from '@/db/repository';
+import { getPrescribedSetsForEntry } from '@/state/routineSetPlans';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
 /**
@@ -246,32 +246,39 @@ export default function SessionScreen() {
         // `kind === 'strength'` here and `isDurationBasedEntry` there — from
         // drifting apart.
         //
+        // Read PER SET since #276: the entry's whole prescribed list, which
+        // computeSetPrefill indexes by setIndex. Read from the DB rather than
+        // off `entry.sets` because ReplaceExercise leaves engine-state sets
+        // intact while updateRoutineExerciseExerciseId clears every
+        // target_weight_kg — see routineSetPlans.ts. `routineRevision` in this
+        // effect's dependency array is what re-runs it after a swap.
+        //
         // Both reads are independent and must not fail-fast together: if the
         // prescription read fails, the history prefill (which worked on main)
         // must still apply. Decoupled with .catch so either can fail without
         // taking the other down.
-        const prescriptionsPromise = getRoutineTargetWeightsKg(db, sessionState.routineId)
-          .catch(() => new Map());
+        const prescriptionsPromise = getPrescribedSetsForEntry(
+          db,
+          sessionState.routineId,
+          entry.idx
+        ).catch(() => []);
 
         const historyPromise = (entry.kind === 'strength'
           ? getExerciseWorkingSetHistory(db, entry.exerciseId)
           : Promise.resolve([] as Awaited<ReturnType<typeof getExerciseWorkingSetHistory>>))
           .catch(() => []);
 
-        const [prescriptions, history] = await Promise.all([prescriptionsPromise, historyPromise]);
+        const [prescribedSets, history] = await Promise.all([
+          prescriptionsPromise,
+          historyPromise,
+        ]);
         if (cancelled) return;
-
-        // entry.idx IS the routine_exercises row's `order`
-        // (startSessionFromRoutine: "Use DB order directly, NOT loop counter"),
-        // so this is a direct hit. Keying on exerciseId would be wrong — a
-        // routine may list the same exercise twice with different loads.
-        const prescribedWeightKg = prescriptions.get(entry.idx);
 
         const latest = history[0];
         const fallback = latest ? historyToSetInputValues(latest) : undefined;
 
         // Neither source has anything to add; leave the synchronous prefill be.
-        if (fallback === undefined && prescribedWeightKg === undefined) return;
+        if (fallback === undefined && prescribedSets.length === 0) return;
 
         // The closure's sessionState is a snapshot from when the effect ran, so
         // the result is applied only if fresh store state still matches every
@@ -289,7 +296,7 @@ export default function SessionScreen() {
           return;
         }
 
-        apply(computeSetPrefill(fresh, fallback, prescribedWeightKg));
+        apply(computeSetPrefill(fresh, fallback, prescribedSets));
       } catch (error) {
         // Prefill is best-effort; empty inputs are always a valid state.
         console.error('Failed to prefill set inputs:', error);

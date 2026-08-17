@@ -216,7 +216,7 @@ export function SetLogger({
           <ExerciseStopwatch
             stopwatchKey={stopwatchKey}
             running={!presenter.isPaused}
-            targetDurationSeconds={presenter.currentEntry?.targetDurationSeconds}
+            targetDurationSeconds={presenter.currentSetDurationSeconds}
             onStop={(elapsedSeconds) => onDurationTextChange(String(elapsedSeconds))}
           />
           <ThemedText>Duration (sec)</ThemedText>

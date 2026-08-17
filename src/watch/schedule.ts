@@ -17,6 +17,7 @@
  */
 
 import { createEngine } from '../engine';
+import { entrySets } from '../engine/entrySets';
 import type { RoutineEntry, SessionState } from '../engine/types';
 
 /** A routine entry as callers author it — `idx` is host-assigned, never by hand. */
@@ -35,8 +36,12 @@ export interface Stop {
   phase: 'warmup' | 'working';
   /** 1-based set number within this entry (a shared round number in a superset). */
   setNumber: number;
-  /** warmupSets + targetSets for this entry. */
+  /** How many sets this entry prescribes — the length of its own set list. */
   totalSets: number;
+  /**
+   * The prescription for THIS set, not a single value repeated across the
+   * entry (#276). On a warmup ramp the three warmups legitimately differ.
+   */
   targetReps?: number;
   targetDurationSeconds?: number;
   restSeconds: number;
@@ -70,14 +75,20 @@ function stopFrom(state: SessionState, ordinal: number): Stop {
     );
   }
   const entry = state.entries[state.exerciseIndex];
+  const sets = entrySets(entry);
+  // The set being stopped at. `setIndex` is a shared round number inside a
+  // superset group, and a member is visited once per round up to its own list
+  // length (engine convention 9), so it indexes that member's own list
+  // directly.
+  const plannedSet = sets[state.setIndex];
   return {
     ordinal,
     exerciseId: entry.exerciseId,
     phase: state.phase,
     setNumber: state.setIndex + 1,
-    totalSets: entry.warmupSets + entry.targetSets,
-    targetReps: optionalCount(entry.targetReps),
-    targetDurationSeconds: optionalCount(entry.targetDurationSeconds),
+    totalSets: sets.length,
+    targetReps: optionalCount(plannedSet?.reps ?? 0),
+    targetDurationSeconds: optionalCount(plannedSet?.durationSeconds ?? 0),
     restSeconds: entry.restSeconds,
     supersetGroup: entry.supersetGroup === '' ? undefined : entry.supersetGroup,
   };
@@ -88,7 +99,7 @@ function stopFrom(state: SessionState, ordinal: number): Stop {
  *
  * Throws if the engine refuses to start the routine. Two cases:
  * - Empty entries: engine throws "TransitionError: index 0 out of bounds"
- * - Every entry planning zero sets: engine throws "routine has no entry with any sets to perform"
+ * - Every entry with an empty set list: engine throws "routine has no entry with any sets to perform"
  * These differ from shell-side rejection messages. Callers should handle these engine-level errors.
  */
 export async function projectSchedule(routine: RoutineInput): Promise<Stop[]> {

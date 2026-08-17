@@ -1,6 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
-import { normalizeNotes } from '@/db/repository';
+import { getRoutineSets, normalizeNotes, type RoutineSetEntry } from '@/db/repository';
 import { groupBySupersetRuns } from '@/domain/supersetGrouping';
+import { prescribedSets, rowHasPrescribedSets } from './routineSetPlans';
 
 export interface ExerciseDetail {
   /** Unique routine_exercises row id — the only stable identity when a routine repeats an exercise. */
@@ -8,6 +9,20 @@ export interface ExerciseDetail {
   exerciseId: string;
   title: string;
   order: number;
+  /**
+   * The entry's ordered prescription (#276): one element per planned set, each
+   * with its own type, reps (or rep range), load and duration. THIS is the
+   * plan; the aggregate fields below survive only for the readers that have
+   * not moved to per-set yet, and Phase 6 removes them.
+   *
+   * A warmup ramp is three entries here with three different
+   * `targetWeightKg` values — the shape the aggregate columns could only
+   * record as the number 3.
+   *
+   * `[]` means the entry prescribes nothing, which is a real and renderable
+   * state, not a missing lookup.
+   */
+  sets: RoutineSetEntry[];
   warmupSets?: number;
   targetSets?: number;
   targetReps?: number;
@@ -16,6 +31,9 @@ export interface ExerciseDetail {
   /**
    * Coach-prescribed target load in canonical kg, or absent. Rendered in lbs at
    * the display edge (formatWeightLbs) — never carried in lbs.
+   *
+   * Per-exercise and therefore superseded by each set's own `targetWeightKg`
+   * above; kept until Phase 6 for the readers that still consult it.
    */
   targetWeightKg?: number;
   kind: string;
@@ -61,11 +79,12 @@ export interface RoutineDetail {
   supersetGroups: SupersetGroupDetail[];
   standaloneExercises: ExerciseDetail[];
   /**
-   * True if at least one exercise (superset or standalone) plans a nonzero
-   * total (warmupSets + targetSets) — the engine's own definition of
-   * "active" (h.next_active_landing / h.next_active_idx, transition.lv).
+   * True if at least one exercise (superset or standalone) prescribes at least
+   * one set — the engine's own definition of "active" (h.next_active_landing /
+   * h.next_active_idx, whose predicate is `length(entry.sets) > 0` since #276).
    * False here means starting this routine is refused by
-   * `startSessionFromRoutine`, same as having no exercises at all.
+   * `startSessionFromRoutine`, same as having no exercises at all — and it is
+   * refused through the same `rowHasPrescribedSets`, so the two cannot drift.
    */
   hasActiveExercise: boolean;
 }
@@ -102,15 +121,26 @@ export async function routineDetailPresenter(
       });
     }
 
+    // One `routine_sets` read per entry, up front, so `toDetail` stays sync
+    // and the grouping below is unchanged.
+    const setsByRow = new Map<string, RoutineSetEntry[]>();
+    for (const re of routineExercises) {
+      setsByRow.set(re.id, await getRoutineSets(db, re.id));
+    }
+
     const toDetail = (re: any): ExerciseDetail => {
       const exerciseId = re._raw.exercise_id;
       const exerciseInfo = exerciseMap.get(exerciseId);
+      const prescribed = setsByRow.get(re.id) ?? [];
 
       return {
         routineExerciseId: re.id,
         exerciseId,
         title: exerciseInfo?.title || exerciseId,
         order: re._raw.order,
+        // Aggregate fallback included so a count-only row still shows a plan
+        // until Phase 6 (see `prescribedSets`).
+        sets: prescribedSets(prescribed, re._raw),
         warmupSets: re._raw.warmup_sets,
         targetSets: re._raw.target_sets,
         targetReps: re._raw.target_reps,
@@ -147,8 +177,8 @@ export async function routineDetailPresenter(
       .filter((item): item is { type: 'exercise'; exercise: ExerciseDetail } => item.type === 'exercise')
       .map((item) => item.exercise);
 
-    const hasActiveExercise = routineExercises.some(
-      (re) => (re._raw.warmup_sets || 0) + (re._raw.target_sets || 0) > 0
+    const hasActiveExercise = routineExercises.some((re) =>
+      rowHasPrescribedSets(setsByRow.get(re.id) ?? [], re._raw)
     );
 
     return {
