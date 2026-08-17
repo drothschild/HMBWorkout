@@ -23,7 +23,6 @@
 
 import { appSchema, Database, Model } from '@nozbe/watermelondb';
 import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
-import Loki from 'lokijs';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
 import { migrationsForAdapter } from './adapterMigrations';
@@ -33,6 +32,10 @@ class Routine extends Model {
 }
 class RoutineExercise extends Model {
   static table = 'routine_exercises';
+}
+/** Only exists at v6, so the "the new table is usable" assertion can run. */
+class RoutineSet extends Model {
+  static table = 'routine_sets';
 }
 
 /**
@@ -46,8 +49,37 @@ const v5Schema = appSchema({
   ) as any,
 });
 
+/**
+ * LokiJS's persistence-adapter contract, in ten lines, so this file needs no
+ * dependency on lokijs itself (which ships no types). One instance is shared
+ * between the two opens, which is what makes the second one find a database
+ * that already exists. Calling `loadDatabase` back with a falsy value is how
+ * Loki's own memory adapter reports "nothing stored yet" (lokijs.js:1995); an
+ * Error there is a load *failure* and leaves the driver unusable.
+ */
+class SharedMemoryStore {
+  private serialized: Record<string, string> = {};
+
+  loadDatabase(name: string, callback: (value: string | null) => void): void {
+    callback(this.serialized[name] ?? null);
+  }
+
+  saveDatabase(name: string, data: string, callback: (error?: Error | null) => void): void {
+    this.serialized[name] = data;
+    callback(null);
+  }
+
+  deleteDatabase(name: string, callback: (response?: { success: boolean }) => void): void {
+    delete this.serialized[name];
+    // With NO argument. WatermelonDB's deleteDatabase treats anything other
+    // than `undefined` or `{ success: true }` as a failure and rejects with it
+    // (lokiExtensions.js:126), so `callback(null)` fails the reset.
+    callback();
+  }
+}
+
 describe('A pre-existing v5 database opened at v6', () => {
-  const sharedStore = new (Loki as any).LokiMemoryAdapter();
+  const sharedStore = new SharedMemoryStore();
   const DB_NAME = 'per-set-wipe-demo';
 
   function open(schema: typeof databaseSchema): Database {
@@ -64,7 +96,14 @@ describe('A pre-existing v5 database opened at v6', () => {
       extraLokiOptions: { autosave: false },
     } as any);
 
-    return new Database({ adapter, modelClasses: [Routine, RoutineExercise] });
+    // RoutineSet only at v6: WatermelonDB rejects a model whose table the
+    // schema does not declare, which is itself a small proof that the table is
+    // new in this version.
+    const modelClasses = schema.tables['routine_sets']
+      ? [Routine, RoutineExercise, RoutineSet]
+      : [Routine, RoutineExercise];
+
+    return new Database({ adapter, modelClasses });
   }
 
   const driverOf = (database: Database) => (database.adapter as any).underlyingAdapter._driver;

@@ -85,5 +85,38 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    // v5 -> v6: THERE IS DELIBERATELY NO ENTRY HERE. The omission is the
+    // mechanism. Do not add one.
+    //
+    // #276 moves a routine entry from a per-exercise aggregate to a per-set
+    // list (the routine_sets table added in schema.ts at v6). A back-fill is
+    // impossible in the lossy direction: the count `3` cannot be turned back
+    // into the warmup ramp 9.07 → 11.34 → 18.14 kg, so every routine
+    // reconstructed from aggregates would be a flat ramp that lies about the
+    // plan. Losing the stored routines is accepted (the user said so on #276);
+    // a half-migrated database carrying aggregate routines with no routine_sets
+    // rows would be worse, because nothing downstream would ever notice.
+    //
+    // Bumping the schema past migrations.maxVersion makes stepsForMigration
+    // return null (Schema/migrations/stepsForMigration.js: `toVersion >
+    // maxVersion`), and both adapters treat null as "reset": they log
+    // "Migrations not available for this version range, resetting database
+    // instead" and set up from schema (adapters/sqlite/index.js:132,
+    // adapters/lokijs/worker/DatabaseDriver.js:354). The wipe is the
+    // framework's own documented fallback and needs no unsafeResetDatabase.
+    //
+    // Two consequences the code around this acts on:
+    //
+    //  1. It is SILENT — a logger.warn, nothing user-facing. src/state/
+    //     schemaResetNotice.ts decides when to tell the user, and _layout.tsx
+    //     shows it.
+    //  2. The fallback is unreachable in a Debug build on its own. Whenever
+    //     NODE_ENV is not 'production', validateAdapter
+    //     (adapters/common.js:29) asserts `maxVersion === schema.version` and
+    //     throws "Missing migration" straight out of the adapter constructor,
+    //     before any reset can run. src/db/adapterMigrations.ts is the gate
+    //     that keeps dev and production on the same path.
+    //
+    // migrations.test.ts pins the null, so adding an entry here goes red.
   ],
 });

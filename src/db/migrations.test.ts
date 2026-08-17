@@ -3,6 +3,7 @@ import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
 import { createAdapter as createWebAdapter } from './adapter.web';
+import { migrationsForAdapter } from './adapterMigrations';
 
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
@@ -197,13 +198,21 @@ describe('Database schema migrations', () => {
     expect(databaseSchema.tables['sessions'].columns['sync_status']).toBeUndefined();
   });
 
-  it('pins that the web adapter carries the exact migrations object exported by migrations.ts', () => {
-    // Asserts by reference identity: if migrations is deleted or replaced with
-    // a different object, this test fails, blocking silent wipes on upgrade.
+  it('pins what the web adapter passes as migrations: whatever migrationsForAdapter decides', () => {
+    // This test used to assert reference identity with `migrations`, to block
+    // silent wipes on upgrade. At v6 the wipe is the intent, so the pin moves
+    // to the gate rather than being deleted: the adapter must pass exactly what
+    // migrationsForAdapter returns for the declared schema version — currently
+    // undefined, which is what keeps validateAdapter from throwing "Missing
+    // migration" out of the constructor before the reset can run.
+    //
     // Mocking LokiJSAdapter prevents creating a live IndexedDB handle that would
-    // hang the test; instead we verify the migrations object was passed as a constructor argument.
+    // hang the test; instead we verify what was passed as a constructor argument.
     createWebAdapter();
-    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBe(migrations);
+    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBe(
+      migrationsForAdapter(databaseSchema.version, migrations)
+    );
+    expect(jest.mocked(LokiJSAdapter).mock.calls[0][0].migrations).toBeUndefined();
   });
 
 });

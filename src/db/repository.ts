@@ -3,8 +3,11 @@ import Session from './models/Session';
 import SessionSet, { SetType } from './models/SessionSet';
 import Routine from './models/Routine';
 import RoutineExercise from './models/RoutineExercise';
+import RoutineSet, { type RoutineSetType } from './models/RoutineSet';
 import Exercise from './models/Exercise';
 import { validateSet } from './validation';
+
+export type { RoutineSetType };
 
 /**
  * Session creation options
@@ -875,7 +878,9 @@ export async function findRoutineExerciseIdByOrder(
  * superset group) belongs to the entry and is left untouched — a substitute
  * inherits it.
  *
- * **`target_weight_kg` is the one exception, and it is cleared here.** Sets,
+ * **Prescribed LOADS are the one exception, and they are cleared here** — the
+ * entry's own `target_weight_kg` and every one of its `routine_sets` rows'
+ * (#276). Sets,
  * reps and rest survive a substitution because they are near-dimensionless
  * across movements; load is not — 185lb is a working squat and an impossible
  * leg extension. And because a prescription *overrides* the history-derived
@@ -936,6 +941,37 @@ export async function updateRoutineExerciseExerciseId(
           )
         );
       }
+    }
+
+    // Same reasoning as the aggregate clear below, multiplied across the list:
+    // a substitute inheriting a seven-step warmup ramp is worse than inheriting
+    // one number. Only the LOADS go — set_type, reps and order are the plan's
+    // structure and are near-dimensionless across movements, so a substitute
+    // keeps them, exactly as it keeps the entry's sets/reps/rest columns.
+    //
+    // Still inside this one write, alongside the history stamp and the
+    // re-point: WatermelonDB's writer is a serialization primitive over a FIFO
+    // queue, not a rollback-capable transaction, so "one write" is what
+    // guarantees no other writer sees the row half-swapped. Hoisting any of
+    // these effects into a second database.write fails
+    // replaceRoutineExercise.test.ts's competing-writer test (#225).
+    const prescribedSets = (await database
+      .get('routine_sets')
+      .query(Q.where('routine_exercise_id', routineExerciseId))
+      .fetch()) as RoutineSet[];
+
+    const loaded = prescribedSets.filter(
+      (set) => ((set as any)._raw.target_weight_kg ?? null) !== null
+    );
+
+    if (loaded.length > 0) {
+      await database.batch(
+        ...loaded.map((set) =>
+          set.prepareUpdate((record: any) => {
+            record.targetWeightKg = null;
+          })
+        )
+      );
     }
 
     await row.update((record: any) => {
@@ -1093,6 +1129,24 @@ export async function updateExerciseDescription(
  * @param exercises Array of exercise entries (with exerciseId, order, etc)
  * @param additionalFields Optional: notes, etc
  */
+/**
+ * One PRESCRIBED set within a routine entry (#276, schema v6).
+ *
+ * `setType` is the plan's vocabulary ('warmup' | 'normal'), not the engine's
+ * logged one. Every other field is optional and absent means "not prescribed":
+ * `targetRepsMax` present makes `targetReps` the low end of a range, absent
+ * makes it exact.
+ */
+export interface RoutineSetEntry {
+  setType: RoutineSetType;
+  targetReps?: number;
+  targetRepsMax?: number;
+  /** Canonical kg. The lbs → kg conversion stays at the AI accept boundary. */
+  targetWeightKg?: number;
+  targetDurationSeconds?: number;
+  targetDistanceM?: number;
+}
+
 export interface RoutineExerciseEntry {
   exerciseId: string;
   order: number;
@@ -1110,6 +1164,122 @@ export interface RoutineExerciseEntry {
    */
   targetWeightKg?: number;
   notes?: string;
+  /**
+   * The entry's ordered prescribed sets (#276 Phase 1).
+   *
+   * Three states, and the difference between the last two matters:
+   *
+   *  - `undefined` — this caller does not speak per-set. Every production
+   *    caller in Phase 1 is in this state, so the entry's existing set rows are
+   *    left exactly as they are, and `warmupSets`/`targetSets`/`targetReps` are
+   *    honoured as before (including the zero-total default).
+   *  - `[]` — this entry has no prescribed sets. The existing rows ARE
+   *    replaced, i.e. destroyed, and the derived aggregates go to 0. The
+   *    zero-total default does not fire; leaving `target_sets: 1` against an
+   *    empty list is exactly the list/aggregate drift the expand phase must not
+   *    introduce.
+   *  - a non-empty list — replaces the rows wholesale and drives the derived
+   *    aggregates, which then override anything the caller passed for them.
+   */
+  sets?: RoutineSetEntry[];
+}
+
+/**
+ * The aggregate columns a set list implies, for as long as those columns exist.
+ *
+ * Phases 1–5 are expand: every consumer that has not yet moved keeps reading
+ * `warmup_sets`, `target_sets` and `target_reps`, so they must stay exactly
+ * consistent with the list or the two representations silently disagree and
+ * nothing downstream notices. Phase 6 undeclares the columns and deletes this.
+ *
+ * `targetReps` is the FIRST normal set's, even when that set prescribes none —
+ * scanning ahead for the first set that happens to carry reps would report a
+ * later set's prescription as if it were the entry's.
+ */
+function deriveAggregates(sets: readonly RoutineSetEntry[]): {
+  warmupSets: number;
+  targetSets: number;
+  targetReps: number | undefined;
+} {
+  const normalSets = sets.filter((set) => set.setType === 'normal');
+  return {
+    warmupSets: sets.filter((set) => set.setType === 'warmup').length,
+    targetSets: normalSets.length,
+    targetReps: normalSets[0]?.targetReps,
+  };
+}
+
+/**
+ * Replace an entry's prescribed set rows with `sets`, inside an open write.
+ *
+ * Wholesale, not reconciled: nothing references a `routine_sets` row, unlike
+ * the `routine_exercises` row above it whose id `session_sets` depends on. The
+ * caller must already be inside `database.write`.
+ */
+async function replaceRoutineSets(
+  database: Database,
+  routineExerciseId: string,
+  sets: readonly RoutineSetEntry[]
+): Promise<void> {
+  const existing = (await database
+    .get('routine_sets')
+    .query(Q.where('routine_exercise_id', routineExerciseId))
+    .fetch()) as RoutineSet[];
+
+  for (const row of existing) {
+    await row.destroyPermanently();
+  }
+
+  for (const [order, set] of sets.entries()) {
+    await database.get('routine_sets').create((row: any) => {
+      row._raw.routine_exercise_id = routineExerciseId;
+      row._raw.order = order;
+      row._raw.set_type = set.setType;
+      if (set.targetReps !== undefined) row.targetReps = set.targetReps;
+      if (set.targetRepsMax !== undefined) row.targetRepsMax = set.targetRepsMax;
+      if (set.targetWeightKg !== undefined) row.targetWeightKg = set.targetWeightKg;
+      if (set.targetDurationSeconds !== undefined)
+        row.targetDurationSeconds = set.targetDurationSeconds;
+      if (set.targetDistanceM !== undefined) row.targetDistanceM = set.targetDistanceM;
+    });
+  }
+}
+
+/**
+ * A routine entry's prescribed sets, in `order`.
+ *
+ * Sorted here rather than trusted from the query: `order` is the canonical
+ * position and insertion order only happens to match it today.
+ *
+ * WatermelonDB's `null` for an unset optional column is normalised to
+ * `undefined` at this boundary (`!= null`, not `!== undefined` — AGENTS.md), so
+ * no consumer has to re-check. An entry with no prescribed sets returns `[]`.
+ *
+ * @param database The database instance
+ * @param routineExerciseId The routine_exercises row id (the entry's identity)
+ */
+export async function getRoutineSets(
+  database: Database,
+  routineExerciseId: string
+): Promise<RoutineSetEntry[]> {
+  const rows = (await database
+    .get('routine_sets')
+    .query(Q.where('routine_exercise_id', routineExerciseId))
+    .fetch()) as RoutineSet[];
+
+  return rows
+    .map((row) => (row as any)._raw)
+    .sort((a, b) => (a.order as number) - (b.order as number))
+    .map((raw) => {
+      const entry: RoutineSetEntry = { setType: raw.set_type as RoutineSetType };
+      if (raw.target_reps != null) entry.targetReps = raw.target_reps as number;
+      if (raw.target_reps_max != null) entry.targetRepsMax = raw.target_reps_max as number;
+      if (raw.target_weight_kg != null) entry.targetWeightKg = raw.target_weight_kg as number;
+      if (raw.target_duration_seconds != null)
+        entry.targetDurationSeconds = raw.target_duration_seconds as number;
+      if (raw.target_distance_m != null) entry.targetDistanceM = raw.target_distance_m as number;
+      return entry;
+    });
 }
 
 export async function upsertRoutine(
@@ -1172,38 +1342,60 @@ export async function upsertRoutine(
       // runs it before every call here — so an explicit 0 reaching this line
       // would still leave the entry zero-total. The condition keys on "no
       // warmup + no target" regardless of whether targetDurationSeconds is set.
-      const defaultedTargetSets =
-        exerciseEntry.targetSets ??
-        ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
+      // #276 Phase 1: when the caller supplies a set list, the list is the
+      // source of truth and the aggregate columns are DERIVED from it, so the
+      // two representations cannot disagree while both are live. Anything the
+      // caller passed for warmupSets/targetSets/targetReps is ignored in that
+      // case, and the zero-total default below does not apply — defaulting
+      // target_sets to 1 against an explicit empty list would be exactly the
+      // drift this derivation exists to prevent.
+      const derived = exerciseEntry.sets ? deriveAggregates(exerciseEntry.sets) : undefined;
+
+      const warmupSets = derived ? derived.warmupSets : exerciseEntry.warmupSets ?? 0;
+      const targetReps = derived ? derived.targetReps : exerciseEntry.targetReps;
+      const defaultedTargetSets = derived
+        ? derived.targetSets
+        : exerciseEntry.targetSets ??
+          ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
 
       const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
+      let routineExerciseId: string;
       if (existing) {
         await existing.update((re: any) => {
           re.order = exerciseEntry.order;
           re.supersetGroup = exerciseEntry.supersetGroup ?? null;
-          re.warmupSets = exerciseEntry.warmupSets ?? 0;
+          re.warmupSets = warmupSets;
           re.targetSets = defaultedTargetSets ?? null;
-          re.targetReps = exerciseEntry.targetReps ?? null;
+          re.targetReps = targetReps ?? null;
           re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
           re.targetWeightKg = exerciseEntry.targetWeightKg ?? null;
           re.notes = exerciseEntry.notes ?? null;
         });
+        routineExerciseId = (existing as any).id;
       } else {
-        await routineExercisesTable.create((re: any) => {
+        const created = await routineExercisesTable.create((re: any) => {
           re._raw.routine_id = routineId;
           re._raw.exercise_id = exerciseEntry.exerciseId;
           re._raw.order = exerciseEntry.order;
           if (exerciseEntry.supersetGroup !== undefined) re.supersetGroup = exerciseEntry.supersetGroup;
-          re.warmupSets = exerciseEntry.warmupSets ?? 0;
+          re.warmupSets = warmupSets;
           if (defaultedTargetSets !== undefined) re.targetSets = defaultedTargetSets;
-          if (exerciseEntry.targetReps !== undefined) re.targetReps = exerciseEntry.targetReps;
+          if (targetReps !== undefined) re.targetReps = targetReps;
           if (exerciseEntry.targetDurationSeconds !== undefined)
             re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
           if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
           if (exerciseEntry.targetWeightKg !== undefined) re.targetWeightKg = exerciseEntry.targetWeightKg;
           if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
         });
+        routineExerciseId = (created as any).id;
+      }
+
+      // Replaced wholesale, and only when the caller actually spoke per-set:
+      // `sets: undefined` means "this caller does not know about set lists" and
+      // must not destroy one, while `sets: []` means "no sets" and must.
+      if (exerciseEntry.sets) {
+        await replaceRoutineSets(database, routineExerciseId, exerciseEntry.sets);
       }
     }
 
@@ -1239,6 +1431,13 @@ export async function upsertRoutine(
             );
           }
         }
+
+        // The entry's prescribed sets go with it — nothing references them, and
+        // leaving them behind orphans rows no reader can reach. Inside this
+        // same write, and AFTER the history stamp above: the stamp is the thing
+        // that must not be displaced, since it is the only record of what those
+        // pre-v3 sets were performed as.
+        await replaceRoutineSets(database, (removed as any).id, []);
 
         await removed.destroyPermanently();
       }

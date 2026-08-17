@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 5,
+  version: 6,
   tables: [
     tableSchema({
       name: 'routines',
@@ -42,6 +42,39 @@ export const databaseSchema = appSchema({
         // (src/state/weightUnits.ts).
         { name: 'target_weight_kg', type: 'number', isOptional: true },
         { name: 'notes', type: 'string', isOptional: true },
+      ],
+    }),
+    // A routine entry's ordered list of PRESCRIBED sets (#276, schema v6). One
+    // row per set the plan asks for, which is the shape a warmup ramp needs and
+    // the aggregate columns on routine_exercises cannot express: they can record
+    // "3 warmup sets" but not 9.07 → 11.34 → 18.14 kg.
+    //
+    // Distinct from session_sets, which records what was actually PERFORMED.
+    // The two set_type vocabularies differ deliberately: here it is
+    // 'warmup' | 'normal' (what Hevy prescribes), there it is
+    // 'warmup' | 'working' | 'stretch' | 'cardio' (what the engine logs).
+    //
+    // Nothing references these rows, so upsertRoutine replaces an entry's whole
+    // list rather than reconciling it row by row — unlike routine_exercises,
+    // whose ids session_sets.routine_exercise_id depends on.
+    tableSchema({
+      name: 'routine_sets',
+      columns: [
+        { name: 'routine_exercise_id', type: 'string', isIndexed: true },
+        { name: 'order', type: 'number' }, // 0-based, within the exercise
+        { name: 'set_type', type: 'string' }, // 'warmup' | 'normal'
+        { name: 'target_reps', type: 'number', isOptional: true },
+        // Present only for a genuine range: target_reps alone is an exact
+        // prescription. Hevy emits rep_range {start:5,end:5} for exact ones, and
+        // collapsing that to a bare target_reps is lossless.
+        { name: 'target_reps_max', type: 'number', isOptional: true },
+        // Canonical kg, as on routine_exercises. The coach speaks lbs; the one
+        // write-side conversion stays at the AI accept boundary.
+        { name: 'target_weight_kg', type: 'number', isOptional: true },
+        { name: 'target_duration_seconds', type: 'number', isOptional: true },
+        // No aggregate ancestor. Added because Hevy sends distance_meters and
+        // the column costs nothing once a set table exists.
+        { name: 'target_distance_m', type: 'number', isOptional: true },
       ],
     }),
     tableSchema({

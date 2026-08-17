@@ -1,11 +1,14 @@
 import LokiJSAdapter from '@nozbe/watermelondb/adapters/lokijs';
 import { databaseSchema } from './schema';
 import { migrations } from './migrations';
+import { migrationsForAdapter } from './adapterMigrations';
 
 export function createAdapter() {
   return new LokiJSAdapter({
     schema: databaseSchema,
-    migrations,
+    // Withheld while the schema deliberately outruns the migrations; see
+    // ./adapterMigrations.ts and the tail comment in ./migrations.ts.
+    migrations: migrationsForAdapter(databaseSchema.version, migrations),
     useWebWorker: false,
     useIncrementalIndexedDB: true,
     onSetUpError: (error) => {
