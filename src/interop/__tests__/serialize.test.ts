@@ -937,4 +937,66 @@ describe('serialize', () => {
       }
     });
   });
+
+  // #277: the emitted wire form of a note. The round-trip tests prove
+  // serialize/parse agree with each other; these pin WHAT they agree on, so a
+  // symmetric change of delimiter (both sides switching to single quotes, say)
+  // is caught rather than passing a round-trip silently.
+  describe('#277: hint wire format', () => {
+    const routineRow = {
+      id: 'push-hint-01',
+      name: 'Push Day',
+      notes: undefined,
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      updatedAt: new Date('2026-07-07T12:00:00Z'),
+    };
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    const lineFor = (notes: string | undefined): string => {
+      const exercises = [
+        {
+          id: 're-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: undefined,
+          warmupSets: 0,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes,
+        },
+      ];
+      const markdown = serializeRoutine(
+        routineRow as any,
+        exercises as any,
+        exerciseData as any
+      );
+      const workoutLines = markdown.split('\n').filter(l => l.startsWith('- '));
+      expect(workoutLines).toHaveLength(1);
+      return workoutLines[0];
+    };
+
+    test('a note needing no quoting is emitted bare, exactly as before', () => {
+      expect(lineFor('progressive')).toBe('- bench-press-db: 4x6 rest=1:30 @progressive');
+    });
+
+    test('a multi-word note is emitted as one double-quoted token', () => {
+      expect(lineFor('↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8')).toBe(
+        '- bench-press-db: 4x6 rest=1:30 @"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"'
+      );
+    });
+
+    test('quote, backslash and newline are escaped inside the quoted value', () => {
+      expect(lineFor('say "hi" \\ then\nrest')).toBe(
+        '- bench-press-db: 4x6 rest=1:30 @"say \\"hi\\" \\\\ then\\nrest"'
+      );
+    });
+
+    test('a whitespace-only note is emitted as no hint at all', () => {
+      expect(lineFor('  \t ')).toBe('- bench-press-db: 4x6 rest=1:30');
+    });
+  });
 });

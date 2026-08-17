@@ -532,4 +532,75 @@ updated: 2026-07-08
       expect(result.exercises).toHaveLength(1);
     });
   });
+
+  // #277: a flag value may be double-quoted so it can hold whitespace, `=`, and
+  // (escaped) newlines. The parser half of the grammar change.
+  describe('#277: quoted flag values', () => {
+    const docWith = (specLine: string): string => `---
+type: workout-routine
+id: quoted-01
+created: 2026-07-08
+updated: 2026-07-08
+tags: []
+---
+
+\`\`\`workout
+- bench-press-db: ${specLine}
+\`\`\`
+`;
+
+    test('a quoted hint keeps its spaces, punctuation and = signs', () => {
+      const result = parseRoutine(
+        docWith('4x6 rest=90 @"↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8"')
+      );
+      const exercise = result.exercises[0] as any;
+      expect(exercise.hint).toBe('↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8');
+      expect(exercise.restSeconds).toBe(90);
+    });
+
+    test('a quoted hint holding a sets×reps token is not mistaken for the sets slot', () => {
+      const result = parseRoutine(docWith('4x6 @"3x12 = the goal"'));
+      const exercise = result.exercises[0] as any;
+      expect(exercise.hint).toBe('3x12 = the goal');
+      expect(exercise.targetSets).toBe(4);
+      expect(exercise.targetReps).toBe(6);
+    });
+
+    test('escapes inside a quoted value are decoded', () => {
+      const result = parseRoutine(docWith('4x6 @"say \\"hi\\" \\\\ then\\nrest"'));
+      const exercise = result.exercises[0] as any;
+      expect(exercise.hint).toBe('say "hi" \\ then\nrest');
+    });
+
+    test('flags may follow a quoted hint', () => {
+      const result = parseRoutine(docWith('4x6 @"two words" rest=90 warmup=2'));
+      const exercise = result.exercises[0] as any;
+      expect(exercise.hint).toBe('two words');
+      expect(exercise.restSeconds).toBe(90);
+      expect(exercise.warmupSets).toBe(2);
+    });
+
+    test('a quoted superset label keeps its spaces', () => {
+      const result = parseRoutine(docWith('4x6 superset="Group One"'));
+      const exercise = result.exercises[0] as any;
+      expect(exercise.supersetLabel).toBe('Group One');
+    });
+
+    test('an unterminated quote throws rather than swallowing the rest of the line', () => {
+      expect(() => parseRoutine(docWith('4x6 @"never closed'))).toThrow(ContractError);
+    });
+
+    test('an unrecognized escape sequence throws', () => {
+      expect(() => parseRoutine(docWith('4x6 @"bad \\q escape"'))).toThrow(ContractError);
+    });
+
+    test('a bare multi-token hint still parses as its first token (unchanged)', () => {
+      // Backward compatibility with hand-authored documents: quoting is how a
+      // note carries spaces, but an unquoted `@word more words` is still a
+      // legal document meaning hint=word, exactly as before.
+      const result = parseRoutine(docWith('4x6 @progressive overload'));
+      const exercise = result.exercises[0] as any;
+      expect(exercise.hint).toBe('progressive');
+    });
+  });
 });

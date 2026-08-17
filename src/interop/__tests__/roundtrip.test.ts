@@ -1153,4 +1153,135 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(set0.setType).toBe('working');
     });
   });
+
+  // #277: `serializeRoutine` writes `routine_exercises.notes` into the `@hint`
+  // flag, and the flag tokeniser split the whole flag string on whitespace — so
+  // a hint was one token by construction. A prose note lost everything after
+  // its first word *silently* (the remaining words fell through as unknown
+  // non-flag tokens), and a note containing `=` was worse: a stray `x=y` token
+  // reached the allowlist check and threw. Every pre-existing hint fixture in
+  // this suite is a single token, which is exactly why 59 interop tests never
+  // caught it — so every fixture below is deliberately multi-token.
+  describe('#277: routine notes survive the round-trip', () => {
+    const routineRow = {
+      id: 'push-notes-001',
+      name: 'Push Day',
+      notes: undefined,
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      updatedAt: new Date('2026-07-07T12:00:00Z'),
+    };
+
+    const exerciseData = [
+      { id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const },
+    ];
+
+    /**
+     * Round-trips one routine exercise carrying `notes`. The entry also carries
+     * warmup/rest/superset flags on purpose: they are emitted *before* the hint,
+     * so they prove the note neither swallows them nor is swallowed by them.
+     */
+    const roundTripNote = (notes: string | undefined): { markdown: string; line: WorkoutLine } => {
+      const routineExercises = [
+        {
+          id: 're-notes-001',
+          exerciseId: 'bench-press-db',
+          order: 0,
+          supersetGroup: 'A',
+          warmupSets: 2,
+          targetSets: 4,
+          targetReps: 6,
+          targetDurationSeconds: undefined,
+          restSeconds: 90,
+          notes,
+        },
+      ];
+
+      const markdown = serializeRoutine(
+        routineRow as any,
+        routineExercises as any,
+        exerciseData as any
+      );
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      return { markdown, line: parsed.exercises[0] as WorkoutLine };
+    };
+
+    test('a real multi-word Hevy note survives intact', () => {
+      // The exact note off the user's Hevy "Push" routine that motivated #277.
+      // Before the fix this round-tripped to "↑" with error: null.
+      const note = '↑ to 50 lb. You hit 45 lb x 12,12 at RPE 8';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      // The flags emitted before the hint are unharmed.
+      expect(line.targetSets).toBe(4);
+      expect(line.targetReps).toBe(6);
+      expect(line.warmupSets).toBe(2);
+      expect(line.restSeconds).toBe(90);
+      expect(line.supersetLabel).toBe('A');
+    });
+
+    test('a note containing = survives intact instead of throwing', () => {
+      // Second failure mode: before the fix this threw
+      // `ContractError: Unknown flag key`, not silent truncation.
+      // The fixture also contains `3x12`, which the line tokeniser would grab
+      // as a sets×reps token if the hint were not held together as one token.
+      const note = '3x12 = the goal';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      expect(line.targetSets).toBe(4);
+      expect(line.targetReps).toBe(6);
+    });
+
+    test('a note containing the grammar delimiters survives intact', () => {
+      // The quote character is the new value delimiter, backslash is its escape,
+      // and `@` introduces the hint — a note made of nothing but delimiters is
+      // the case that catches an escaping bug on either side.
+      const note = 'He said "go heavy" \\ then rest=90 @cue';
+
+      const { line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      expect(line.restSeconds).toBe(90); // the real flag, not the one inside the note
+    });
+
+    test('a single-token note keeps its existing unquoted wire form', () => {
+      // Backward compatibility: previously-serialized documents carry bare
+      // `@token` hints, and this must stay byte-identical so they still parse.
+      const { markdown, line } = roundTripNote('progressive');
+
+      expect(line.hint).toBe('progressive');
+      expect(markdown).toContain('@progressive');
+      expect(markdown).not.toContain('@"progressive"');
+    });
+
+    test('an absent or blank note emits no hint at all', () => {
+      const absent = roundTripNote(undefined);
+      expect(absent.line.hint).toBeUndefined();
+      expect(absent.markdown).not.toContain('@');
+
+      // A note that is only whitespace is treated as absent rather than
+      // emitting a bare (or empty quoted) hint.
+      const blank = roundTripNote('   ');
+      expect(blank.line.hint).toBeUndefined();
+      expect(blank.markdown).not.toContain('@');
+    });
+
+    test('a multi-line note round-trips its newline', () => {
+      // Decision (#277): newlines are PRESERVED, escaped as `\n` inside the
+      // quoted value, not normalized to spaces. The document stays line-based
+      // because the escape means no literal newline is ever emitted inside a
+      // workout line.
+      const note = 'Cue: elbows tucked.\nLast week: 45 lb x 12.';
+
+      const { markdown, line } = roundTripNote(note);
+
+      expect(line.hint).toBe(note);
+      // One workout line, not two.
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    });
+  });
 });
