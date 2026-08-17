@@ -203,19 +203,31 @@ describe('format: quoted flag values (#277)', () => {
    */
   describe('parseFlags', () => {
     test('tokenizes then parses, agreeing with parseFlagTokens', () => {
-      const flagStr = 'rest=1:30 warmup=2 superset="Group One" @"two words"';
+      const flagStr = 'rest=1:30 target_weight=22.68 superset="Group One" @"two words"';
 
-      expect(parseFlags(flagStr)).toEqual({
+      expect(parseFlags(flagStr, 'routine')).toEqual({
         restSeconds: 90,
-        warmupSets: 2,
+        targetWeightKg: 22.68,
         supersetLabel: 'Group One',
         hint: 'two words',
       });
-      expect(parseFlags(flagStr)).toEqual(parseFlagTokens(tokenizeFlagString(flagStr)));
+      expect(parseFlags(flagStr, 'routine')).toEqual(
+        parseFlagTokens(tokenizeFlagString(flagStr), 'routine')
+      );
     });
 
     test('propagates the tokenizer rejection of an unterminated quote', () => {
-      expect(() => parseFlags('@"never closed')).toThrow(ContractError);
+      expect(() => parseFlags('@"never closed', 'routine')).toThrow(ContractError);
+    });
+
+    test('the context decides which keys are legal, not just which are known', () => {
+      // #276 Phase 5, AC5.3. Both keys exist in the grammar; each is legal in
+      // exactly one document.
+      expect(parseFlags('weight=60', 'session')).toEqual({ weight: 60 });
+      expect(() => parseFlags('weight=60', 'routine')).toThrow(ContractError);
+
+      expect(parseFlags('target_weight=60', 'routine')).toEqual({ targetWeightKg: 60 });
+      expect(() => parseFlags('target_weight=60', 'session')).toThrow(ContractError);
     });
   });
 });
@@ -299,11 +311,11 @@ describe('format: the RPE scale (#284)', () => {
 
       if (legal) {
         expect(wire).toBe(`rpe=${value}`);
-        expect(parseFlags(wire)).toEqual({ rpe: value });
+        expect(parseFlags(wire, 'session')).toEqual({ rpe: value });
       } else {
         // Nothing is written, so there is nothing for the reader to refuse.
         expect(wire).toBe('');
-        expect(() => parseFlags(`rpe=${value}`)).toThrow(ContractError);
+        expect(() => parseFlags(`rpe=${value}`, 'session')).toThrow(ContractError);
       }
     });
   });

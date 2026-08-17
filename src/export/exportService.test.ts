@@ -132,6 +132,81 @@ describe('exportService', () => {
       expect(parsed.frontmatter.type).toBe('workout-routine');
       expect(parsed.exercises).toHaveLength(1);
     });
+
+    /**
+     * #276 Phase 5: the set list reaches the document.
+     *
+     * `exportRoutine` is the only production caller of `serializeRoutine`, so
+     * this is where the per-set grammar meets real rows rather than fixtures —
+     * `routine_sets` read back through `getRoutineSets`, normalized at the
+     * boundary the same way every other optional column already is.
+     */
+    it('exports a routine_sets list one line per set, in order, with per-set weights', async () => {
+      await upsertExercise(db, 'ex-bench', 'Bench Press (Dumbbell)', 'strength');
+      await upsertRoutine(db, 'routine-ramp', 'Push Day', [
+        {
+          exerciseId: 'ex-bench',
+          order: 0,
+          restSeconds: 120,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 9.07 },
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 11.34 },
+            { setType: 'warmup', targetReps: 3, targetWeightKg: 18.14 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+          ],
+        },
+      ]);
+
+      await flush();
+
+      const markdown = await exportRoutine(db, 'routine-ramp');
+
+      expect(markdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(7);
+
+      const parsed = parseRoutine(markdown);
+      expect(parsed.exercises).toHaveLength(1);
+      const entry = parsed.exercises[0] as any;
+      expect(entry.restSeconds).toBe(120);
+      expect(entry.sets.map((s: any) => s.targetWeightKg)).toEqual([
+        9.07, 11.34, 18.14, 22.68, 22.68, 22.68, 22.68,
+      ]);
+      expect(entry.sets.map((s: any) => s.setType)).toEqual([
+        'warmup',
+        'warmup',
+        'warmup',
+        'normal',
+        'normal',
+        'normal',
+        'normal',
+      ]);
+      expect(entry.sets[3]).toEqual({
+        setType: 'normal',
+        targetReps: 8,
+        targetRepsMax: 10,
+        targetWeightKg: 22.68,
+      });
+    });
+
+    it('an entry with no routine_sets rows exports as a bare exercise line', async () => {
+      // The aggregate-only shape every routine written before Phase 1 has.
+      // It exports as an exercise the routine names with nothing prescribed —
+      // NOT as a dropped exercise (which is what makes this worth pinning) and
+      // NOT with the aggregates re-derived, which the grammar no longer says.
+      await upsertExercise(db, 'ex-row', 'Barbell Row', 'strength');
+      await upsertRoutine(db, 'routine-legacy', 'Pull Day', [
+        { exerciseId: 'ex-row', order: 0, warmupSets: 2, targetSets: 4, targetReps: 8 },
+      ]);
+
+      await flush();
+
+      const parsed = parseRoutine(await exportRoutine(db, 'routine-legacy'));
+      expect(parsed.exercises).toHaveLength(1);
+      expect((parsed.exercises[0] as any).exerciseId).toBe('ex-row');
+      expect((parsed.exercises[0] as any).sets).toEqual([]);
+    });
   });
 
   describe('exportSessionHistory', () => {
