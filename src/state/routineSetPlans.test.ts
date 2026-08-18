@@ -50,6 +50,19 @@ describe('entrySetsFromRows / rowHasPrescribedSets (pure)', () => {
     ]);
   });
 
+  it('carries a per-set rest override into engine shape, 0 included (#281)', () => {
+    // The DB → engine seam for per-set rest. 0 must pass as 0 (a drop set's no
+    // rest between drops), and an absent override must stay absent so the
+    // engine reads the entry default.
+    const rows = [
+      { setType: 'normal' as const, targetReps: 10, restSeconds: 0 },
+      { setType: 'normal' as const, targetReps: 10, restSeconds: 120 },
+      { setType: 'normal' as const, targetReps: 10 },
+    ];
+
+    expect(entrySetsFromRows(rows).map((set) => set.restSeconds)).toEqual([0, 120, undefined]);
+  });
+
   it('is empty for an entry with no rows', () => {
     expect(entrySetsFromRows([])).toEqual([]);
     expect(rowHasPrescribedSets([])).toBe(false);
