@@ -18,6 +18,7 @@ import {
   SCHEMA_RESET_NOTICE_BODY,
   SCHEMA_RESET_NOTICE_TITLE,
   liveSchemaVersionContext,
+  needsSchemaVersionRecord,
   schemaVersionRecordPatch,
   shouldShowSchemaResetNotice,
 } from '@/state/schemaResetNotice';
@@ -154,8 +155,15 @@ export default function RootLayout() {
         // one-time, so writing it first would suppress the very launch the
         // notice exists for.
         const schemaContext = liveSchemaVersionContext();
-        setShowSchemaResetNotice(shouldShowSchemaResetNotice(getSettings(), schemaContext));
-        setSettings(schemaVersionRecordPatch(schemaContext));
+        const settingsAtBoot = getSettings();
+        setShowSchemaResetNotice(shouldShowSchemaResetNotice(settingsAtBoot, schemaContext));
+        // Only when it would change something (#292). The patch is one
+        // integer, but setSettings re-serialises the whole bridge_settings
+        // blob — the user's API key included — into secure storage, and on
+        // every launch but the one after a bump the value is already there.
+        if (needsSchemaVersionRecord(settingsAtBoot, schemaContext)) {
+          setSettings(schemaVersionRecordPatch(schemaContext));
+        }
 
         // Load and validate rules
         loadRules();

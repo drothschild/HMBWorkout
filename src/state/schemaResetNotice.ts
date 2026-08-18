@@ -133,6 +133,39 @@ export function shouldShowSchemaResetNotice(
  * merges — writing the whole blob from here would clobber whatever else changed
  * during boot.
  */
+/**
+ * Whether recording the current schema version would actually change anything
+ * (#292).
+ *
+ * `schemaVersionRecordPatch` is one integer, but the write it feeds is not:
+ * `setSettings` merges the patch and re-serialises the WHOLE `bridge_settings`
+ * blob — the one holding the user's API key — into secure storage. Doing that
+ * unconditionally put a full read-modify-write on the boot path of every
+ * launch to store a value that was already there on all but one of them. The
+ * guard lives here, beside the decision, rather than inside `setSettings`,
+ * which has other writers and no business knowing about schema versions.
+ *
+ * Note what this reads: the RAW `lastSchemaVersion` field, not the value
+ * `shouldShowSchemaResetNotice` derives. That function defaults an absent
+ * record on a fresh install to `currentSchemaVersion` — a fiction that gets
+ * the *notice* decision right and would get this one badly wrong. Reusing it
+ * would skip the write on a fresh install, so nothing would ever record the
+ * version; the next time that user typed an API key or completed onboarding,
+ * `hasPriorInstallEvidence` would flip, the default would become
+ * `migrationsMaxVersion`, and the app would announce a data wipe to somebody
+ * who never lost anything. An absent record is therefore always worth one
+ * write, which is also what retires the fallback for good.
+ *
+ * A recorded version NEWER than the current one (a downgrade) is stale in the
+ * same way and gets rewritten too.
+ */
+export function needsSchemaVersionRecord(
+  settings: BridgeSettings,
+  context: SchemaVersionContext
+): boolean {
+  return settings.lastSchemaVersion !== context.currentSchemaVersion;
+}
+
 export function schemaVersionRecordPatch(
   context: SchemaVersionContext
 ): Partial<BridgeSettings> {

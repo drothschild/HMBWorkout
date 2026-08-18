@@ -369,6 +369,30 @@ describe('_layout.tsx wiring (structural — read from source, not executed)', (
     expect(recordAt).toBeGreaterThan(-1);
   });
 
+  it('records only when the record is stale, rather than on every launch (#292)', () => {
+    // Anchored on the whole `if (` head, deliberately: a bare
+    // `toContain('needsSchemaVersionRecord(')` would be satisfied by an
+    // INVERTED guard, which skips exactly the launch the record exists for.
+    const guardAt = layout.indexOf(
+      'if (needsSchemaVersionRecord(settingsAtBoot, schemaContext)) {'
+    );
+    expect(guardAt).toBeGreaterThan(-1);
+    // The record must sit inside that guard, not beside it.
+    expect(recordAt).toBeGreaterThan(guardAt);
+  });
+
+  it('guards on the pre-write settings snapshot the decision itself read', () => {
+    // One `getSettings()` for both, so the guard cannot be handed a blob that
+    // the record has already mutated.
+    expect(layout).toContain('const settingsAtBoot = getSettings();');
+    expect(layout).toContain('shouldShowSchemaResetNotice(settingsAtBoot, schemaContext)');
+  });
+
+  it('has exactly one record call, so a second unguarded one cannot hide behind it', () => {
+    const occurrences = layout.split('setSettings(schemaVersionRecordPatch(').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
   it('decides BEFORE it records, or the notice is suppressed on the one launch it exists for', () => {
     // Recording first writes lastSchemaVersion = 6, so the decision that runs
     // next takes shouldShowSchemaResetNotice's "already recorded" branch and
