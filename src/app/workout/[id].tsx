@@ -142,16 +142,24 @@ export default function SessionDetailScreen() {
                 key={`${exercise.routineExerciseId}:${exercise.exerciseId}`}
                 style={styles.exerciseSection}
               >
-                <View style={styles.exerciseHeaderRow}>
-                  <ThemedText type="subtitle" style={styles.exerciseName}>
-                    {exercise.title}
+                {/*
+                  Stacked, not a shared row (#296). The title is `subtitle` —
+                  fontSize 32 — so a real Hevy title ("Bench Press (Dumbbell)")
+                  is wider than the content column by itself, and a label
+                  beside it was squeezed down to its first character. Given the
+                  whole width the title wraps and the label always renders in
+                  full. Truncating the title instead would have been worse:
+                  Hevy names exercises `<Movement> (<Equipment>)`, so the
+                  distinguishing token is the one at the end.
+                */}
+                <ThemedText type="subtitle" style={styles.exerciseName}>
+                  {exercise.title}
+                </ThemedText>
+                {targetLabel !== '' && (
+                  <ThemedText type="default" style={styles.exerciseTarget}>
+                    {targetLabel}
                   </ThemedText>
-                  {targetLabel !== '' && (
-                    <ThemedText type="default" style={styles.exerciseTarget}>
-                      {targetLabel}
-                    </ThemedText>
-                  )}
-                </View>
+                )}
                 {exercise.sets.length === 0 ? (
                   <ThemedText type="default" style={styles.skippedText}>
                     No sets logged
@@ -243,18 +251,14 @@ const styles = StyleSheet.create({
   exerciseSection: {
     marginBottom: Spacing.four,
   },
-  exerciseHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: Spacing.one,
-  },
   exerciseName: {
     fontWeight: '600',
+    marginBottom: Spacing.one,
   },
   exerciseTarget: {
     opacity: 0.6,
     fontSize: 12,
+    marginBottom: Spacing.one,
   },
   skippedText: {
     opacity: 0.5,
