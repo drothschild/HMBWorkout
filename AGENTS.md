@@ -581,6 +581,26 @@ parsing its output back rather than string-matching. The cost of that choice, an
 is a real one: a change to `format.ts` or `serialize.ts` must keep `parse.ts` in step
 exactly as if it had callers.
 
+**That oracle now runs over GENERATED shapes, not chosen ones
+(`__tests__/routineLattice.test.ts`, #295).** The same defect shipped four times here
+— a fix reaching one of two symmetric paths, green because no fixture exercised the
+other (#277/#282, #282 round 2, and both rounds of #276 Phase 5) — and every instance
+was found by a reviewer hand-building a probe in a scratch directory. The lattice is
+that probe, reduced to 45 shapes and committed: `upsertRoutine` → WatermelonDB →
+`exportRoutine` → `parseRoutine`, asserting zero throws and zero mismatches over one
+all-fields representative per (kind × set_type), every single-field-only shape, the
+contentless set, and the zero-set entry. **Its field axis is read off `databaseSchema`
+at run time and matched against the file's own column→value registry, so a new
+nullable `routine_sets` column fails the membership test until someone registers it** —
+joining coverage by default is the whole point, since each past round's fixtures
+covered the fields that round was thinking about. The kind and set-type axes get the
+same property from the type checker: both are `Record<Union, …>` literals, so widening
+`ExerciseKind` or `RoutineSetType` fails `tsc` there. Two limits worth knowing before
+trusting it: it covers the **routine** path only, and it runs through `exportRoutine`,
+which normalizes WatermelonDB's nulls at the boundary — so it exercises **no** `!= null`
+guard in `serialize.ts`. Those keep their own fixtures in `roundtrip.test.ts` (#289),
+and the session path has no lattice at all.
+
 **A line is one set, in both documents.** The `<sets>x<reps>` slot's first number is
 always `1` — a routine line prescribes one set and a session line records one logged
 set — and a routine entry is a *run of consecutive lines* naming the same exercise,
@@ -781,6 +801,26 @@ at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` ha
 guard would therefore only become reachable if that mapping ever stopped normalizing — at which
 point it writes a `<flag>=null` line straight into the exported document, and nothing
 downstream rejects it.
+
+**They do not all fail equally loudly, and that is where #289's fixtures are aimed.**
+`weight=null` and `1xnull` are refused on the way back in, so a slip on `weightKg` or
+`reps` produces an unreadable document. A slip on `durationSeconds` produces a
+readable and wrong one: `null / 60` is `0` in JavaScript, so `formatDuration(null)` is
+`0:00` and the line parses cleanly into a zero-second set that was never performed.
+Each session guard now has a fixture that reaches its branch **in isolation** — and
+the `durationSeconds` one only exists once `reps` is ABSENT, because the reps arm
+short-circuits the `else if` above it. The fixture that carried `durationSeconds: null`
+*and* `reps: 6` named the condition without being able to distinguish it, which is
+exactly why that mutant survived the suite for as long as it did.
+
+**`serializeRoutine` had the same hole on the same field**, and #289 named three
+guards only because nobody had mutated the routine path: the routine null fixture
+nulls four per-set columns and sets the fifth — `targetDurationSeconds` — to 30. Read
+that as the general rule rather than as two anecdotes. `duration=` is the only flag
+whose null formats to something the parser *accepts*, so it is the one field where
+"the document contains no `null`" is not evidence of anything, on either path. Both
+are covered now; a future optional duration-like column needs its own fixture rather
+than a place in an all-nulls one.
 
 The `RoutineExercise` half of that list used to be four aggregate plan columns.
 They were undeclared at schema v7 (#276 Phase 6), and the four fields that carried
