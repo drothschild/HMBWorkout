@@ -140,6 +140,24 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
     expect(hydrated).toEqual([state]);
   });
 
+  it('refuses a `sets` that is present but not an array', async () => {
+    // The guard tests arrayness, not presence, and this is what holds that
+    // apart: a `!== undefined` check passes `null` and then `.map` throws
+    // downstream anyway, which is the failure this module exists to prevent —
+    // moved one frame later and therefore harder to attribute.
+    //
+    // Nothing writes `sets: null` today. That is exactly why it belongs here:
+    // `hydrate` restores whatever is in `sessions.engine_state`, no rule
+    // validates it (engine convention 5), and a JSON blob on a device that has
+    // been through six schema versions is not a shape this module gets to
+    // assume. Defense in depth, with a fixture rather than a comment.
+    for (const bad of [null, 3, 'warmup,normal', {}]) {
+      const { store, hydrated } = fakeStore();
+      await rehydrateActiveSession(store, savedState([legacyEntry({ sets: bad })]), 1000);
+      expect(hydrated).toEqual([]);
+    }
+  });
+
   it('accepts a session with no entries at all rather than reading it as unrunnable', async () => {
     // Vacuously fine: there is no entry missing a list. The engine's own
     // empty-routine guard is a different layer and rejects at StartSession.

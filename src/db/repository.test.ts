@@ -595,6 +595,85 @@ describe('Repository: session and set helpers', () => {
   });
 
   describe('upsertRoutineExercise', () => {
+    // #276 Phase 6: `sets` replaced the five aggregate options here, and it is
+    // OPTIONAL — unlike `upsertRoutine`'s, which is required. That difference is
+    // the helper's documented preserve-on-absent contract, and these two tests
+    // are the only thing holding it: mutating `if (sets)` to an unconditional
+    // `replaceRoutineSets(…, sets ?? [])` survived the entire 2282-test suite
+    // before they existed, which would silently destroy an entry's plan on any
+    // upsert that only meant to move its order.
+    it('leaves an existing entry\'s prescribed sets alone when a later upsert omits `sets`', async () => {
+      const routineId = 'routine-preserve';
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r._raw.name = 'Preserve';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-preserve';
+          e._raw.title = 'Preserve Me';
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      const row = await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'ex-preserve',
+        order: 0,
+        sets: [
+          { setType: 'warmup', targetReps: 5 },
+          { setType: 'normal', targetReps: 8, targetWeightKg: 60 },
+        ],
+      });
+
+      // A second upsert that says nothing about sets — the shape a caller
+      // reordering entries produces.
+      await upsertRoutineExercise(database, routineId, { exerciseId: 'ex-preserve', order: 3 });
+
+      const after = await getRoutineSets(database, row.id);
+      expect(after).toEqual([
+        { setType: 'warmup', targetReps: 5 },
+        { setType: 'normal', targetReps: 8, targetWeightKg: 60 },
+      ]);
+      // …and the field it DID mean to change still changed, so this is not
+      // passing because the second upsert was a no-op.
+      expect((await database.get('routine_exercises').find(row.id) as any)._raw.order).toBe(3);
+    });
+
+    it('destroys them when a later upsert passes an explicit empty list', async () => {
+      // The other half, and the reason absent and `[]` cannot be conflated.
+      const routineId = 'routine-empty';
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r._raw.name = 'Empty';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'ex-empty';
+          e._raw.title = 'Empty Me';
+          e._raw.kind = 'strength';
+          e._raw.created_at = Date.now();
+        });
+      });
+
+      const row = await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'ex-empty',
+        order: 0,
+        sets: [{ setType: 'normal', targetReps: 8 }],
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'ex-empty',
+        order: 0,
+        sets: [],
+      });
+
+      expect(await getRoutineSets(database, row.id)).toEqual([]);
+    });
+
     // #278 retired `getSupersetGroups` (dead code — no production caller). The
     // grouping assertions these tests carried moved to the shared helper
     // (`src/domain/supersetGrouping.test.ts`) and to the live reader that now
