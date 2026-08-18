@@ -331,4 +331,32 @@ describe('buildLogSetValues call-site gate', () => {
     expect(normalized).toContain('disabled={logSetValues === undefined}');
     expect(normalized).toContain('logSetValues === undefined && styles.buttonDisabled');
   });
+
+  it('announces the disabled state to assistive tech, not just visually', () => {
+    // Round-1 review survivor: `accessibilityState={{ disabled: false }}`
+    // survived every other check. `disabled=` and the dimmed style are both
+    // pinned above, but a screen reader reads neither — it reads this, and
+    // would announce a dimmed, inert button as available. Cosmetic only if
+    // you can see the opacity.
+    const file = production.find((candidate) => candidate.relPath === 'components/SetLogger.tsx');
+    const normalized = file!.source.replace(/\s+/g, ' ');
+
+    expect(normalized).toContain('accessibilityState={{ disabled: logSetValues === undefined }}');
+  });
+
+  it('the hoisted call still passes the rpe it will dispatch', () => {
+    // Round-1 review survivor, and a gap this PR's own hoist created:
+    // `rpe: currentRpe` → `rpe: undefined` survives everything else, because
+    // rpe is not an arm of the predicate and so cannot flip the disabled
+    // state. But `logSetValues` is not only what the button reads — it is
+    // also the object dispatched on the non-last-set path, so dropping the
+    // rpe silently stops it reaching a logged set. Asserted inside the call's
+    // own span rather than over the file, since `currentRpe` also appears on
+    // the RPE slider and a file-wide match would pass without the argument.
+    const file = production.find((candidate) => candidate.relPath === 'components/SetLogger.tsx');
+    const [span] = findCallSpans(file!.source, IDENTIFIER);
+    const call = file!.source.slice(span.start, span.end).replace(/\s+/g, ' ');
+
+    expect(call).toContain('rpe: currentRpe');
+  });
 });
