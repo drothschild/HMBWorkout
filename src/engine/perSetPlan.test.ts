@@ -13,10 +13,12 @@
  * (`setsFromCounts`/`entrySets`) — see the top of that describe block's
  * former location for a fuller note.
  *
- * ON `toEqual` VS `toStrictEqual`. `rillToJs` omits a `None` field entirely
- * rather than emitting `undefined`, and `fromRillState` re-spells the absent
- * keys as explicit `undefined`. Either way an expectation written without those
- * keys only matches under `toEqual`. Use `toEqual` throughout (AC2.12).
+ * ON `toEqual` VS `toStrictEqual`. `rillToJs` KEEPS a `None` field and gives it
+ * the value `undefined` (its `Record` case copies every field unconditionally);
+ * `fromRillState` then re-spells all five keys anyway. So the actual object
+ * carries every key, an expectation written without the empty ones has fewer,
+ * and `toStrictEqual` — which counts an `undefined`-valued key as present —
+ * fails on exactly that. Use `toEqual` throughout (AC2.12).
  */
 
 import { createEngine, SENTINEL_TO_OPTION_MAP } from './index';

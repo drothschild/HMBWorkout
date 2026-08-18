@@ -120,10 +120,16 @@ function toRillState(tsState: SessionState): any {
 }
 
 /**
- * Rill's RoutineSet back to TS. `rillToJs` OMITS a `None` key rather than
- * emitting `undefined`, so the keys are re-spelled here to give the TS side a
- * stable shape. Either way, an expectation written without the absent keys
- * matches only under `toEqual`, not `toStrictEqual` (#276 AC2.12).
+ * Rill's RoutineSet back to TS. `rillToJs` KEEPS a `None` key and gives it the
+ * value `undefined` — its `Record` case copies every field unconditionally, and
+ * only the `Tag` case turns `None` into `undefined` (verified against the
+ * shipping rill-lang 1.1.1). Re-spelling the keys here is therefore about
+ * pinning the shape at this boundary rather than restoring absent ones.
+ *
+ * Test consequence either way: the actual object carries all five keys, so an
+ * expectation written without the empty ones matches under `toEqual` and
+ * **fails** under `toStrictEqual`, which counts an `undefined`-valued key as
+ * present. Use `toEqual` (#276 AC2.12).
  */
 function fromRillRoutineSet(set: any): RoutineSet {
   return {

@@ -243,8 +243,34 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 
 5. **State is fully JSON-serializable** (no Dates/functions) so it can be persisted and
    rehydrated after an app kill. `entries` is stored *in* the state for this reason.
-   Rehydrating is a `hydrate` call, not a dispatch, and the boot path
-   (`rehydrateActiveSession`, `src/state/sessionRehydrate.ts`) follows it with `Resume`
+   Rehydrating is a `hydrate` call, not a dispatch, and **the shell is therefore the
+   only layer that can ask whether a restored state is one this build can run.**
+   `hasRunnablePlan` (`src/state/sessionRehydrate.ts`) is that check: it requires
+   `entries` to be an array and every entry to carry a `sets` array, and it exists
+   because Phase 6 deleted the derivation seam that used to expand aggregate counts
+   into a set list — a pre-Phase-2 state now reaches `toRillRoutineEntry`'s
+   `entry.sets.map(...)` and throws out of the boot effect into `RuleErrorScreen`.
+   `Array.isArray` at *both* levels is deliberate: an absent list and an empty one
+   mean different things (`sets: []` is a legitimate zero-set entry, convention 10),
+   and `entries ?? []` is not a safe default because `[].every(...)` is vacuously
+   true, so it admitted a state with no `entries` key and threw one field over.
+
+   **A guard that refuses to restore state must also DISPOSE of it. Read this
+   before adding the second such guard.** `loadActiveEngineState`
+   (`src/db/engineState.ts`) returns the FIRST `ended_at IS NULL` row carrying a
+   non-null `engine_state`, with no ordering, and a refused row is by construction
+   the older one — so merely declining to read it does not cost one abandoned
+   workout, it costs every workout: the stale row is handed back on every
+   subsequent boot and the live in-progress session behind it is never reached, for
+   the life of the install. Nor is there an escape route, since
+   `discardInProgressSession` is reachable only from the session UI, which needs the
+   session in the store, which the guard refuses. `rehydrateActiveSession` therefore
+   clears the row's `engine_state` on the drop path (injected as `RehydrateDeps`, so
+   the module stays free of the database singleton; failure is swallowed, because a
+   throw here lands on the very error screen the drop avoids). The row itself is
+   kept as the audit trail. The pattern, not the instance, is what belongs here.
+
+   The boot path (`rehydrateActiveSession`) follows a successful `hydrate` with `Resume`
    **only when the saved phase is `paused` or `resting`** — the two phases where
    `transition.lv` defines a meaning for it. Paused resumes into a re-armed rest when
    one was frozen (`restRemainingMs`), otherwise back to `prePausePhase`. Resting is
@@ -350,12 +376,29 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    -1` hazard class for nothing.
 
    That choice has a **test-shape consequence that will bite you**, and it is not
-   about sentinels at all: `rillToJs` **omits a `None` key entirely** rather than
-   emitting `undefined`. `fromRillRoutineSet` re-spells all five keys so the TS
-   side gets a stable shape, but an expectation written without the absent keys
-   still matches only under `toEqual` — `toStrictEqual` distinguishes an absent key
-   from an `undefined` one and **fails**. Use `toEqual` on anything containing a
-   `RoutineSet`, or construct the expectation without the absent keys (#276 AC2.12).
+   about sentinels at all: `rillToJs` **keeps a `None` key, with the value
+   `undefined`.** Its `Record` case is unconditional — `for (const [key, val] of
+   value.fields.entries()) result[key] = rillToJs(val)` — and the `Tag` case maps
+   `None` to `undefined`, so the key survives and only its value is empty. Probed
+   against the shipping 1.1.1 tarball: `keys ["setType","reps"]`, `'reps' in out`
+   → `true`, `out.reps` → `undefined`.
+
+   The practical advice is unchanged and the reason for it is the mirror image of
+   what this paragraph used to say. `fromRillRoutineSet` re-spells all five keys
+   anyway, so the actual object carries every key; an expectation written
+   *without* the absent ones therefore has **fewer** keys than the actual, and
+   `toStrictEqual` — which counts an `undefined`-valued key as present — **fails**.
+   `toEqual` ignores `undefined`-valued properties on both sides and passes. Use
+   `toEqual` on anything containing a `RoutineSet`, or spell every key in the
+   expectation (#276 AC2.12).
+
+   **Worth knowing how this one got in:** the sentence was transcribed faithfully
+   from AC6.5, which itself named "the `rillToJs`-omits-`None` test hazard" as
+   something to record — so a false claim arrived pre-blessed by the AC that
+   warned about it, and the identical wording spread to `engine/index.ts` and
+   `perSetPlan.test.ts` before anyone ran it. A contract AC should mark which of
+   its statements were verified by execution and which were inherited; a
+   faithfully-transcribed false AC is indistinguishable from a correct one.
 
    The wider hazard class this note used to point at — a `null` `target_sets`
    column arriving as a plain `0` that display code had to read as *no plan* —
@@ -485,7 +528,8 @@ Three traps, each verified by execution rather than by reading:
    Debug-only crash — and a module-init throw lands before `RuleErrorScreen` can
    render (engine convention 4).
 3. **The same `NODE_ENV` asymmetry applies to the wipe itself.**
-   `validateAdapter` (`adapters/common.js:29`) asserts `maxVersion ===
+   `validateAdapter` (`adapters/common.js:30` — `:29` is the neighbouring
+   "Migrations can't be newer than schema" invariant) asserts `maxVersion ===
    schema.version` in non-production builds and throws `Missing migration` from the
    adapter *constructor*, before any reset can run. So a Release build wiped as
    designed while a Debug build crashed at boot. `migrationsForAdapter`
@@ -637,8 +681,13 @@ rather than a plan default, and a routine line never sets the field at all.
 
 Flag order on either line is `formatFlags`'s order as a result: **`sets`, `rest`,
 `superset`, `kind`, `duration`, `set_type`, `reps_max`, `target_weight`,
-`target_distance`, `rpe`, `weight`, `distance`**, with the `@hint` appended by the
-caller. Parsing is order-insensitive, so the order is a byte-level fact only —
+`target_distance`, `rpe`, `weight`, `distance`**, with the `@hint` appended last by
+`formatFlags` itself (`format.ts:762-766`, inside the function, before its
+`return parts.join(' ')`) — the caller only puts `hint` on the `ParsedFlags` and
+forwards the string untouched, which is what the paragraph above is saying when
+it says nothing a line needs belongs back in the caller. (This sentence read
+"appended by the caller" when it was written, in #276 Phase 6, and contradicted
+its own paragraph two sentences earlier.) Parsing is order-insensitive, so the order is a byte-level fact only —
 but it is a fact, and the list that stood here was wrong in two ways after #276
 Phase 5: it led with `warmup`, **a flag that no longer exists in any allowlist and
 that `formatFlags` never emits** (it was the aggregate warmup count, and a routine
@@ -737,11 +786,29 @@ The `RoutineExercise` half of that list used to be four aggregate plan columns.
 They were undeclared at schema v7 (#276 Phase 6), and the four fields that carried
 them on `serialize.ts`'s `RoutineExerciseRow` — `warmupSets`, `targetSets`,
 `targetReps`, `targetDurationSeconds` — turned out to be read by nothing at all and
-went with them. Worth recording how that was found and how it was nearly missed:
-Phase 5 spotted **two** of the four, and the fix that named two would have left two.
-The session serializer reads only `id`, `exerciseId`, `supersetGroup`, `restSeconds`
-and `notes` off that row; `serializeRoutine` takes its own inline row type and reads
-`sets`.
+went with them.
+
+**That type took three rounds to get right, and the first two rounds are the
+lesson.** Phase 5 spotted **two** of the four aggregates, and a fix that named two
+would have left two. Phase 6 removed all four and *still* left two more —
+`order` and `notes` — which had never been aggregates and were simply never read;
+the Phase 6 review found them. The session serializer reads exactly `id`,
+`exerciseId`, `supersetGroup` and `restSeconds` off that row and **nothing else**;
+`serializeRoutine` takes its own inline row type and is the reader of `notes` (as
+`@hint`) and of `sets`. `exportService.ts` no longer maps the two dead fields either.
+
+**The countermeasure, which is what to repeat instead of another grep:** when a
+claim takes the form *"X reads only A, B, C"*, execute it — hand X a distinct
+marker in every field and see which markers reach the output. This paragraph
+itself asserted that the session path read `notes`; a marker disproved it in
+about a minute. That probe is now a permanent test
+(`src/interop/sessionRowFields.test.ts`), so the type and its readers cannot
+drift apart silently a fourth time. Two fields on the *session-row* parameter —
+`routineId` and `customSyncStatus` — are also unread and were deliberately left
+in place: a workout document that never names its routine reads more like a gap
+in the grammar than dead weight, and closing it is a contract change rather than
+a sweep. The same test pins them so the distinction does not have to be
+rediscovered.
 
 **`upsertRoutine`'s zero-total default is gone, and nothing replaced it at that
 layer.** It defaulted `target_sets` to 1 for an entry carrying no counts, so the
@@ -856,7 +923,7 @@ membership in the repo — its `toStrictEqual` is load-bearing, since a loose ma
 (`arrayContaining`) silently readmits unprobed ids. `resolveModels` ignores an id not on the selected provider's list and falls
 back per field, without rewriting the setting.
 
-The selection rule exists in three implementations: `settings.ts:137-159` (`resolveAiProvider`,
+The selection rule exists in three implementations: `settings.ts:148-170` (`resolveAiProvider`,
 still zero production callers), `factory.ts:23-44` (`resolveProvider`), and
 `aiProviderSettings.ts:63-72` (`initialProviderSelection`). All three are named in
 AGENTS.md so a future reader recognizes the rule when editing one of them.
@@ -1054,6 +1121,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   Verify layout changes in the simulator, or model the node tree with Yoga, before
   calling them done.
 - `watchman: false` is required — watchman's crawl hangs jest startup on this machine.
+- **A mutation harness on this repo MUST count a failed *suite* as a kill, not just a
+  failed test.** Plenty of mutations here break a module at import time rather than at
+  assertion time — a gapped `migrations` list throws from `validateAdapter` during
+  module init, and a signature change fails ts-jest's type-check — and jest reports
+  those as `Test Suites: 6 failed` with **`Tests: 2226 passed, 2226 total`, zero
+  failed tests**. A detector that parses only the `Tests:` line scores every one of
+  them a survivor, which reads as a catastrophic coverage gap that is not there.
+  Independently reproduced twice on #276 Phase 6. Parse the `Test Suites:` line too,
+  or just use the exit code.
 - **The intermittent "A worker process has failed to exit gracefully" warning is
   cosmetic, and the obvious explanation for it is measured-wrong.** WatermelonDB's
   `WorkQueue.enqueue` does register a 1500ms dev-mode timer on every *contended*
@@ -1134,8 +1210,9 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `flush()` is not a guarantee for arbitrary queue depth — a sequence that
   queues three or more writes (e.g. `onCompleteSession` draining several
   pending set-persists and then doing its own `database.write`) needs the
-  bounded-retry/poll-until-true idiom already used at `activeSession.test.ts:512,601`
-  (the two `for (let attempt ...)` bounded-retry loops), not a single `flush()`
+  bounded-retry/poll-until-true idiom already used at `activeSession.test.ts:498,581`
+  (two of the FOUR `for (let attempt ...)` loops in that file; the citation read
+  `:512,601` and `the two` until #276 Phase 6's review), not a single `flush()`
   call. Always check for this hazard when asserting on DB state
   after fire-and-forget writes, and reach for a bounded retry over a fixed
   number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
@@ -1236,9 +1313,12 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   contiguity assumption, so re-pointing it is a contract change with engine
   consequences rather than a refactor. #276's Phase 5 rewrote that grammar and
   `groupSupersets` survived it, still with its own third treatment. (Cited by
-  symbol, not by line: this read `helpers.lv:56` and was off by 24 — the name is
-  at :80 — which is the same failure mode the `session.tsx:303` note below
-  records, in a bullet that already knew better.)
+  symbol, not by line: this read `helpers.lv:56` and was off by 29 — the name is
+  at :85 — which is the same failure mode the `session.tsx:303` note below
+  records, in a bullet that already knew better. The correction itself then said
+  ":80" and was off by five, in #276 Phase 6, in the bullet whose entire subject
+  is this failure mode. Cite the symbol; if you write a line number, run
+  `grep -n` for it in the same breath.)
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and

@@ -58,6 +58,17 @@ function productionSources(dir: string, found: string[] = []): string[] {
  * …)` or a column name in a thrown message is a live reference, and it is
  * precisely the kind a type-checker cannot catch. They are tracked only so a
  * `//` or `/*` inside a string is not mistaken for the start of a comment.
+ *
+ * KNOWN BLIND SPOT: regex literals are not tracked. A line such as
+ * `const rx = /[/*]/;` is valid JS whose `/` + `*` opens a phantom block
+ * comment here, and everything to the end of the file is then blanked — a real
+ * `targetSets` reference after it passes the guard with `tsc` clean. Proven by
+ * execution in #276 Phase 6's review; also proven, by a raw grep with
+ * comment-prefixed lines filtered, that no such literal exists anywhere in
+ * `src/` today, so the AC6.2 result stands. Distinguishing a regex literal from
+ * a division operator needs real tokenization, which is more machinery than
+ * this guard is worth — but if one ever lands, add a regex-literal case rather
+ * than trusting a green.
  */
 function stripComments(source: string): string {
   let out = '';

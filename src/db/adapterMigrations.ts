@@ -14,7 +14,8 @@
  * is a supported path — but only half the story, and the missing half bites in
  * exactly the build a developer runs.
  *
- * `validateAdapter` (@nozbe/watermelondb/adapters/common.js:29) runs whenever
+ * `validateAdapter` (@nozbe/watermelondb/adapters/common.js:30 — the adjacent
+ * line 29 is the "Migrations can't be newer than schema" invariant) runs whenever
  * `NODE_ENV !== 'production'` and asserts `maxVersion === schema.version`:
  *
  *     Missing migration. Database schema is currently at version 6, but

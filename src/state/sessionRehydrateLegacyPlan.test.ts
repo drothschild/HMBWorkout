@@ -21,10 +21,24 @@
  *
  * and `_layout.tsx` catches a boot throw into `RuleErrorScreen`, so the user
  * lands on an unrecoverable error screen with no way to clear the stale session.
- * Refusing to restore it leaves the app usable and costs one abandoned workout.
+ * Refusing to restore it leaves the app usable.
+ *
+ * REFUSING IS ONLY HALF OF IT, and the half that was missing cost more than the
+ * one abandoned workout this note originally claimed. `loadActiveEngineState`
+ * returns the first `ended_at IS NULL` row carrying a state, unordered, so a
+ * refused row that keeps its state is refused again on every subsequent boot and
+ * shadows every later in-progress session — restart recovery dead for the life of
+ * the install. The drop therefore clears the row's `engine_state`; the second
+ * describe block below is that contract, and `sessionRehydrate.integration.test.ts`
+ * proves it end to end against a real database, with the un-cleared failure mode
+ * as an executed control.
  */
 
-import { rehydrateActiveSession, type RehydrateSessionStore } from './sessionRehydrate';
+import {
+  rehydrateActiveSession,
+  type RehydrateDeps,
+  type RehydrateSessionStore,
+} from './sessionRehydrate';
 import type { Event, SessionState } from '@/engine/types';
 
 function legacyEntry(overrides: Record<string, unknown> = {}): any {
@@ -59,6 +73,7 @@ function savedState(entries: unknown[], phase = 'working'): SessionState {
 function fakeStore() {
   const hydrated: SessionState[] = [];
   const dispatched: Event[] = [];
+  const cleared: string[] = [];
   const store: RehydrateSessionStore = {
     getState: () => ({
       hydrate: (state: SessionState) => {
@@ -70,14 +85,19 @@ function fakeStore() {
       },
     }),
   };
-  return { store, hydrated, dispatched };
+  const deps: RehydrateDeps = {
+    clearEngineState: async (sessionId: string) => {
+      cleared.push(sessionId);
+    },
+  };
+  return { store, hydrated, dispatched, deps, cleared };
 }
 
 describe('rehydrateActiveSession: a plan this build cannot run', () => {
   it('refuses to hydrate a session whose entries carry no set list', async () => {
-    const { store, hydrated, dispatched } = fakeStore();
+    const { store, hydrated, dispatched, deps } = fakeStore();
 
-    await rehydrateActiveSession(store, savedState([legacyEntry()]), 1000);
+    await rehydrateActiveSession(store, savedState([legacyEntry()]), 1000, deps);
 
     expect(hydrated).toEqual([]);
     expect(dispatched).toEqual([]);
@@ -88,8 +108,8 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
     // Resume, and Resume is what would reach `toRillRoutineEntry` and throw.
     // The guard has to run BEFORE the phase check, not inside it.
     for (const phase of ['paused', 'resting']) {
-      const { store, hydrated, dispatched } = fakeStore();
-      await rehydrateActiveSession(store, savedState([legacyEntry()], phase), 1000);
+      const { store, hydrated, dispatched, deps } = fakeStore();
+      await rehydrateActiveSession(store, savedState([legacyEntry()], phase), 1000, deps);
       expect(hydrated).toEqual([]);
       expect(dispatched).toEqual([]);
     }
@@ -100,12 +120,13 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
     // inspected `entries[exerciseIndex]` would let the session in and throw
     // mid-workout instead — strictly worse, because the set the athlete just
     // logged is the one that disappears.
-    const { store, hydrated } = fakeStore();
+    const { store, hydrated, deps } = fakeStore();
 
     await rehydrateActiveSession(
       store,
       savedState([{ ...legacyEntry(), sets: [{ setType: 'normal', reps: 8 }] }, legacyEntry({ idx: 1 })]),
-      1000
+      1000,
+      deps
     );
 
     expect(hydrated).toEqual([]);
@@ -114,12 +135,12 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
   it('still hydrates a session whose entries DO carry a set list', async () => {
     // The guard must not be a blanket refusal — this is the ordinary path and
     // it is what every other rehydrate test exercises.
-    const { store, hydrated, dispatched } = fakeStore();
+    const { store, hydrated, dispatched, deps } = fakeStore();
     const state = savedState([
       { ...legacyEntry(), sets: [{ setType: 'warmup', reps: 8 }, { setType: 'normal', reps: 8 }] },
     ]);
 
-    await rehydrateActiveSession(store, state, 1000);
+    await rehydrateActiveSession(store, state, 1000, deps);
 
     expect(hydrated).toEqual([state]);
     expect(dispatched).toEqual([]);
@@ -129,13 +150,13 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
     // `sets: []` is a real, restorable state (engine convention 10) and must be
     // told apart from an ABSENT list. Conflating them would refuse to restore a
     // perfectly good session that happens to contain a zero-set entry.
-    const { store, hydrated } = fakeStore();
+    const { store, hydrated, deps } = fakeStore();
     const state = savedState([
       { ...legacyEntry(), sets: [] },
       { ...legacyEntry(), idx: 1, sets: [{ setType: 'normal', reps: 5 }] },
     ]);
 
-    await rehydrateActiveSession(store, state, 1000);
+    await rehydrateActiveSession(store, state, 1000, deps);
 
     expect(hydrated).toEqual([state]);
   });
@@ -152,8 +173,8 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
     // been through six schema versions is not a shape this module gets to
     // assume. Defense in depth, with a fixture rather than a comment.
     for (const bad of [null, 3, 'warmup,normal', {}]) {
-      const { store, hydrated } = fakeStore();
-      await rehydrateActiveSession(store, savedState([legacyEntry({ sets: bad })]), 1000);
+      const { store, hydrated, deps } = fakeStore();
+      await rehydrateActiveSession(store, savedState([legacyEntry({ sets: bad })]), 1000, deps);
       expect(hydrated).toEqual([]);
     }
   });
@@ -161,11 +182,109 @@ describe('rehydrateActiveSession: a plan this build cannot run', () => {
   it('accepts a session with no entries at all rather than reading it as unrunnable', async () => {
     // Vacuously fine: there is no entry missing a list. The engine's own
     // empty-routine guard is a different layer and rejects at StartSession.
-    const { store, hydrated } = fakeStore();
+    const { store, hydrated, deps } = fakeStore();
     const state = savedState([]);
 
-    await rehydrateActiveSession(store, state, 1000);
+    await rehydrateActiveSession(store, state, 1000, deps);
 
     expect(hydrated).toEqual([state]);
+  });
+
+  it('refuses a state with no `entries` key at all', async () => {
+    // `entries ?? []` admitted this, because `[].every(...)` is vacuously true —
+    // and the state then reached `toRillRoutineEntry` through
+    // `tsState.entries.map(...)` and threw the SAME TypeError the guard exists
+    // to prevent, one field over. "A state written by a build that predates the
+    // field" is this guard's own threat model, and `entries` is a field like any
+    // other. `Array.isArray` is what tells an absent list from an empty one at
+    // the top level, exactly as it does per entry.
+    const { store, hydrated, dispatched, deps } = fakeStore();
+    const state = savedState([]);
+    delete (state as any).entries;
+
+    await rehydrateActiveSession(store, state, 1000, deps);
+
+    expect(hydrated).toEqual([]);
+    expect(dispatched).toEqual([]);
+  });
+
+  it('refuses an `entries` that is present but not an array', async () => {
+    for (const bad of [null, 3, 'bench', {}]) {
+      const { store, hydrated, deps } = fakeStore();
+      const state = savedState([]);
+      (state as any).entries = bad;
+
+      await rehydrateActiveSession(store, state, 1000, deps);
+
+      expect(hydrated).toEqual([]);
+    }
+  });
+});
+
+describe('rehydrateActiveSession: the dropped row must not shadow the next one', () => {
+  it('clears the dropped session`s engine_state', async () => {
+    // Retaining the row WITH its state looked conservative and is the opposite.
+    // `loadActiveEngineState` returns the FIRST `ended_at IS NULL` row carrying
+    // a non-null `engine_state`, with no ordering, and the dropped row is the
+    // older one — so it is returned again on every subsequent boot and the
+    // later, perfectly valid in-progress session behind it is never reached.
+    // Clearing the state (rather than destroying the row) removes the shadow
+    // and keeps the row as the audit trail.
+    const { store, hydrated, deps, cleared } = fakeStore();
+
+    await rehydrateActiveSession(store, savedState([legacyEntry()]), 1000, deps);
+
+    expect(hydrated).toEqual([]);
+    expect(cleared).toEqual(['session-1']);
+  });
+
+  it('clears on every drop reason, not just the missing-per-entry-list one', async () => {
+    const drops: SessionState[] = [
+      savedState([legacyEntry()]),
+      savedState([legacyEntry({ sets: null })]),
+      savedState([]),
+    ];
+    delete (drops[2] as any).entries;
+
+    for (const state of drops) {
+      const { store, hydrated, deps, cleared } = fakeStore();
+      await rehydrateActiveSession(store, state, 1000, deps);
+      expect(hydrated).toEqual([]);
+      expect(cleared).toEqual(['session-1']);
+    }
+  });
+
+  it('does NOT clear a state it restores', async () => {
+    // The other half of the contract: clearing a runnable session's state would
+    // destroy restart recovery outright rather than merely shadowing it.
+    const { store, hydrated, deps, cleared } = fakeStore();
+    const state = savedState([{ ...legacyEntry(), sets: [{ setType: 'normal', reps: 8 }] }]);
+
+    await rehydrateActiveSession(store, state, 1000, deps);
+
+    expect(hydrated).toEqual([state]);
+    expect(cleared).toEqual([]);
+  });
+
+  it('still leaves the app usable when the clear itself fails', async () => {
+    // A throw here would escape the boot effect into `RuleErrorScreen` — the
+    // exact unrecoverable screen the drop exists to avoid. Swallowed and logged:
+    // the shadow survives, which is no worse than not clearing at all, and the
+    // app boots.
+    const { store, hydrated } = fakeStore();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const deps: RehydrateDeps = {
+      clearEngineState: async () => {
+        throw new Error('db write failed');
+      },
+    };
+
+    await expect(
+      rehydrateActiveSession(store, savedState([legacyEntry()]), 1000, deps)
+    ).resolves.toBeUndefined();
+
+    expect(hydrated).toEqual([]);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
