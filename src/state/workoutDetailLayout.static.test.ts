@@ -57,8 +57,13 @@ describe('workout/[id].tsx target-label placement', () => {
 
   it('puts the label on its own line: no container wraps the title and the label together', () => {
     // The defect was `<View style={styles.exerciseHeaderRow}>` opened here,
-    // with `flexDirection: 'row'`. Anything reopening a shared line for these
-    // two — under any style name — reintroduces the competition for width.
+    // with `flexDirection: 'row'`. This rejects ANY wrapper, not only a row
+    // one, and that over-reach is deliberate: a wrapper's flexDirection lives
+    // in the stylesheet under a name this slice cannot follow, so "no shared
+    // container" is the only claim a structural read can make honestly. The
+    // cost is that a harmless plain `<View>` regrouping also fails here; the
+    // benefit is that reintroducing the row under a fresh style name cannot
+    // slip through.
     const betweenSectionAndLabel = list.slice(sectionAt, targetAt);
     expect(betweenSectionAndLabel).not.toContain('<View');
   });
