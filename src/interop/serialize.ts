@@ -32,15 +32,21 @@ type SessionSetRow = {
   position: number;
 };
 
+/**
+ * The `routine_exercises` row as the SESSION serializer needs it: identity, the
+ * plan-level flags a logged line repeats (`superset`, `rest`), and `notes`.
+ *
+ * Four aggregate fields — `warmupSets`, `targetSets`, `targetReps`,
+ * `targetDurationSeconds` — sat here and were read by nothing. #276 Phase 5
+ * spotted two of them; all four were dead, and all four are gone at Phase 6.
+ * `serializeRoutine` takes its own inline row type and reads `sets`, so this
+ * type was only ever the session path's.
+ */
 type RoutineExerciseRow = {
   id: string;
   exerciseId: string;
   order: number;
   supersetGroup?: string;
-  warmupSets: number;
-  targetSets?: number;
-  targetReps?: number;
-  targetDurationSeconds?: number;
   restSeconds?: number;
   notes?: string;
 };

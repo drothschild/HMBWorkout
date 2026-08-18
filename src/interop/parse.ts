@@ -200,7 +200,7 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
   const kind = parsedFlags.kind || 'strength';
 
   // Parse sets×reps (may be empty for cardio/stretch)
-  let targetSets: number | undefined;
+  let setsSlot: number | undefined;
   let targetReps: number | undefined;
 
   if (setRepPart) {
@@ -208,7 +208,7 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     if (!match) {
       throw new ContractError(`Invalid sets×reps format: ${setRepPart}`);
     }
-    targetSets = parseInt(match[1], 10);
+    setsSlot = parseInt(match[1], 10);
     targetReps = parseInt(match[2], 10);
 
     // 0x10 matches \d+x\d+ (syntactically fine) but "zero sets of N reps" is
@@ -216,7 +216,7 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     // with sets×reps or strength missing sets×reps below, so it is rejected
     // rather than silently defaulted. Neither serializer can emit it: both
     // hardcode the slot to `1`.
-    if (targetSets === 0) {
+    if (setsSlot === 0) {
       throw new ContractError(`Sets×reps cannot have zero sets: ${line}`);
     }
 
@@ -230,9 +230,9 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     // Deliberately routine-only rather than universal. `serializeSession` has
     // always hardcoded `1x`, so tightening the session side would be a change
     // to a document shape this phase is not touching (AC5.5).
-    if (context === 'routine' && targetSets !== 1) {
+    if (context === 'routine' && setsSlot !== 1) {
       throw new ContractError(
-        `A routine line is one set, so its sets slot must be 1, not ${targetSets}: ${line}`
+        `A routine line is one set, so its sets slot must be 1, not ${setsSlot}: ${line}`
       );
     }
 
@@ -249,7 +249,7 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
   const workoutLine: WorkoutLine = {
     exerciseId,
     kind,
-    targetSets,
+    setsSlot,
     targetReps,
     targetDurationSeconds: parsedFlags.durationSeconds,
     restSeconds: parsedFlags.restSeconds,
@@ -298,13 +298,13 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
   // a cardio measurement genuinely cannot have, so the prohibition stays.
   if (
     (kind === 'cardio' || kind === 'stretch') &&
-    (targetSets !== undefined || targetReps !== undefined)
+    (setsSlot !== undefined || targetReps !== undefined)
   ) {
     throw new ContractError(`${kind} exercise cannot have sets×reps: ${line}`);
   }
 
   if (kind === 'strength' && targetReps === undefined && parsedFlags.durationSeconds === undefined) {
-    // `targetSets` is not tested alongside: the sets slot sets both numbers or
+    // `setsSlot` is not tested alongside: the sets slot sets both numbers or
     // neither, so `targetReps === undefined` already means "no sets slot".
     throw new ContractError(`Strength exercise missing sets×reps: ${line}`);
   }
@@ -399,7 +399,7 @@ function finishRoutineLine(
  * and none of these.
  */
 const SET_LEVEL_FIELDS = [
-  'targetSets',
+  'setsSlot',
   'targetReps',
   'targetRepsMax',
   'targetWeightKg',
@@ -483,7 +483,7 @@ function groupRoutineSets(lines: WorkoutLine[]): WorkoutLine[] {
       previous.supersetLabel === line.supersetLabel;
 
     if (!continuesEntry) {
-      const { targetSets, targetReps, targetDurationSeconds, targetRepsMax, targetWeightKg, targetDistanceM, setType, ...entry } = line;
+      const { setsSlot, targetReps, targetDurationSeconds, targetRepsMax, targetWeightKg, targetDistanceM, setType, ...entry } = line;
       result.push({ ...entry, sets: line.sets ?? [toRoutineSet(line)] });
       continue;
     }

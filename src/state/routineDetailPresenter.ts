@@ -1,7 +1,7 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { getRoutineSets, normalizeNotes, type RoutineSetEntry } from '@/db/repository';
 import { groupBySupersetRuns } from '@/domain/supersetGrouping';
-import { prescribedSets, rowHasPrescribedSets } from './routineSetPlans';
+import { rowHasPrescribedSets } from './routineSetPlans';
 
 export interface ExerciseDetail {
   /** Unique routine_exercises row id — the only stable identity when a routine repeats an exercise. */
@@ -12,8 +12,9 @@ export interface ExerciseDetail {
   /**
    * The entry's ordered prescription (#276): one element per planned set, each
    * with its own type, reps (or rep range), load and duration. THIS is the
-   * plan; the aggregate fields below survive only for the readers that have
-   * not moved to per-set yet, and Phase 6 removes them.
+   * plan, and as of #276 Phase 6 the only one — the four aggregate count
+   * fields and the per-exercise `targetWeightKg` that used to sit below it are
+   * gone with their columns.
    *
    * A warmup ramp is three entries here with three different
    * `targetWeightKg` values — the shape the aggregate columns could only
@@ -23,19 +24,7 @@ export interface ExerciseDetail {
    * state, not a missing lookup.
    */
   sets: RoutineSetEntry[];
-  warmupSets?: number;
-  targetSets?: number;
-  targetReps?: number;
-  targetDurationSeconds?: number;
   restSeconds?: number;
-  /**
-   * Coach-prescribed target load in canonical kg, or absent. Rendered in lbs at
-   * the display edge (formatWeightLbs) — never carried in lbs.
-   *
-   * Per-exercise and therefore superseded by each set's own `targetWeightKg`
-   * above; kept until Phase 6 for the readers that still consult it.
-   */
-  targetWeightKg?: number;
   kind: string;
   description: string | null;
 }
@@ -138,15 +127,8 @@ export async function routineDetailPresenter(
         exerciseId,
         title: exerciseInfo?.title || exerciseId,
         order: re._raw.order,
-        // Aggregate fallback included so a count-only row still shows a plan
-        // until Phase 6 (see `prescribedSets`).
-        sets: prescribedSets(prescribed, re._raw),
-        warmupSets: re._raw.warmup_sets,
-        targetSets: re._raw.target_sets,
-        targetReps: re._raw.target_reps,
-        targetDurationSeconds: re._raw.target_duration_seconds,
+        sets: prescribed,
         restSeconds: re._raw.rest_seconds,
-        targetWeightKg: re._raw.target_weight_kg,
         kind: exerciseInfo?.kind || 'strength',
         description: exerciseInfo?.description ?? null,
       };
@@ -178,7 +160,7 @@ export async function routineDetailPresenter(
       .map((item) => item.exercise);
 
     const hasActiveExercise = routineExercises.some((re) =>
-      rowHasPrescribedSets(setsByRow.get(re.id) ?? [], re._raw)
+      rowHasPrescribedSets(setsByRow.get(re.id) ?? [])
     );
 
     return {

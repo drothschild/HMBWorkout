@@ -35,24 +35,25 @@ export interface RoutineEntry {
   idx: number; // Index for Rill lookup (host pre-indexes entries)
   exerciseId: string;
   kind: ExerciseKind;
-  warmupSets: number;
-  targetSets: number;
-  targetReps: number;
-  targetDurationSeconds: number;
   restSeconds: number;
   supersetGroup: string; // "" means no superset
   /**
-   * The ordered prescription the engine actually advances through.
+   * The ordered prescription the engine advances through — REQUIRED, and the
+   * only representation of the plan as of #276 Phase 6.
    *
-   * OPTIONAL ON PURPOSE, and only until Phase 6 of #276. The Rill rules read
-   * this list exclusively; the four count fields above survive here so the ~20
-   * shell files that still read them keep compiling. `toRillRoutineEntry`
-   * expands the counts into a flat list when `sets` is absent, and
-   * `fromRillState` always emits `sets` AND re-derives the counts from it, so
-   * a count-built entry round-trips unchanged. Making this required is the
-   * contract step, not this one.
+   * It was optional through Phases 2–5 while four aggregate count fields
+   * (`warmupSets`, `targetSets`, `targetReps`, `targetDurationSeconds`) sat
+   * beside it and a derivation seam bridged the two. Both directions of that
+   * seam are gone: nothing expands counts into a list on the way in, and
+   * nothing re-derives counts from a list on the way out.
+   *
+   * `[]` is a legal value and means the entry prescribes nothing. It is NOT the
+   * same as a missing list, which is why this is required rather than optional
+   * with an empty default — an entry the caller forgot to give a plan is a bug
+   * the type system can catch, and an entry that genuinely plans nothing is a
+   * shape convention 10 handles.
    */
-  sets?: RoutineSet[];
+  sets: RoutineSet[];
 }
 
 export interface LoggedSet {

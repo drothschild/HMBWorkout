@@ -1,4 +1,4 @@
-import { schemaMigrations, addColumns } from '@nozbe/watermelondb/Schema/migrations';
+import { schemaMigrations, addColumns, createTable } from '@nozbe/watermelondb/Schema/migrations';
 
 /**
  * Schema migrations, keyed by the schema version they migrate *to*. Bump
@@ -85,61 +85,81 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
-    // v5 -> v6: THERE IS DELIBERATELY NO ENTRY HERE WHILE THE SCHEMA IS AT v6.
-    // The omission is the mechanism. Do not add one to "fix" the wipe.
-    //
-    // This prohibition expires at Phase 6, which MUST add one — see the Phase 6
-    // note at the end of this comment. The two are not in conflict: adding an
-    // entry now defeats the wipe, and adding one then is what ends it.
-    //
-    // #276 moves a routine entry from a per-exercise aggregate to a per-set
-    // list (the routine_sets table added in schema.ts at v6). A back-fill is
-    // impossible in the lossy direction: the count `3` cannot be turned back
-    // into the warmup ramp 9.07 → 11.34 → 18.14 kg, so every routine
-    // reconstructed from aggregates would be a flat ramp that lies about the
-    // plan. Losing the stored routines is accepted (the user said so on #276);
-    // a half-migrated database carrying aggregate routines with no routine_sets
-    // rows would be worse, because nothing downstream would ever notice.
-    //
-    // Bumping the schema past migrations.maxVersion makes stepsForMigration
-    // return null (Schema/migrations/stepsForMigration.js: `toVersion >
-    // maxVersion`), and both adapters treat null as "reset": they log
-    // "Migrations not available for this version range, resetting database
-    // instead" and set up from schema (adapters/sqlite/index.js:132,
-    // adapters/lokijs/worker/DatabaseDriver.js:354). The wipe is the
-    // framework's own documented fallback and needs no unsafeResetDatabase.
-    //
-    // Two consequences the code around this acts on:
-    //
-    //  1. It is SILENT — a logger.warn, nothing user-facing. src/state/
-    //     schemaResetNotice.ts decides when to tell the user, and _layout.tsx
-    //     shows it.
-    //  2. The fallback is unreachable in a Debug build on its own. Whenever
-    //     NODE_ENV is not 'production', validateAdapter
-    //     (adapters/common.js:29) asserts `maxVersion === schema.version` and
-    //     throws "Missing migration" straight out of the adapter constructor,
-    //     before any reset can run. src/db/adapterMigrations.ts is the gate
-    //     that keeps dev and production on the same path.
-    //
-    // migrations.test.ts pins the null, so adding an entry here goes red.
-    //
-    // PHASE 6 MUST ADD A toVersion: 6 ENTRY *AND* A toVersion: 7 ENTRY.
-    //
-    // Phase 6 bumps the schema to v7, and schemaMigrations refuses a gapped
-    // list: a lone toVersion: 7 entry throws "Migrations must be listed without
-    // gaps, or duplicates" at MODULE INIT, in every non-production build only
-    // (the check is gated on NODE_ENV, exactly like validateAdapter above).
-    // Leaving the migrations withheld at v7 instead is not the way out either —
-    // that resets the database a second time and destroys whatever the user
-    // rebuilt after this wipe. Both readings were executed; both are real.
-    //
-    // The toVersion: 6 entry should carry the real createTable for
-    // routine_sets, mirroring schema.ts, rather than steps: []. The numbered
-    // note at the end of ./adapterMigrations.ts has the full reasoning and the
-    // exact failure text.
-    //
-    // When that lands, migrations.test.ts's AC1.7 pins — `maxVersion === 5` and
-    // the "null for every upgrade path into v6" loop — go red BY DESIGN.
-    // Rewrite them for the new coverage; do not delete them.
+    {
+      toVersion: 6,
+      steps: [
+        // v5 -> v6: a routine entry's plan becomes an ordered list of
+        // prescribed sets (#276). The aggregate columns on routine_exercises
+        // can record "3 warmup sets" but not the ramp 9.07 -> 11.34 -> 18.14
+        // kg, and a back-fill in the lossy direction is impossible: every
+        // routine reconstructed from a count would be a flat ramp that lies
+        // about the plan.
+        //
+        // THIS ENTRY DID NOT EXIST WHILE THE SCHEMA WAS AT v6, AND THAT WAS THE
+        // POINT. Bumping the schema past migrations.maxVersion makes
+        // stepsForMigration return null, which both adapters treat as "reset":
+        // they log "Migrations not available for this version range, resetting
+        // database instead" and set up from schema
+        // (adapters/sqlite/index.js:132,
+        // adapters/lokijs/worker/DatabaseDriver.js:354). The wipe was the
+        // framework's own documented fallback, it was deliberate, the user
+        // accepted it on #276, and src/state/schemaResetNotice.ts is what told
+        // them it had happened.
+        //
+        // It happened once. The entry exists now because v7 needs a gapless
+        // list to reach it — schemaMigrations refuses a gap — and because
+        // withholding a second time would destroy the routines rebuilt after
+        // that wipe.
+        //
+        // A REAL createTable, not v4's empty steps. Every install that exists
+        // in practice is already on v6 and runs only the 6 -> 7 step, so for
+        // them this entry is pure gap-filler; but an install that somehow never
+        // saw v6 would otherwise arrive at v7 with a schema declaring a table
+        // its database does not have — a crash on first query rather than a
+        // wipe. migrationV6ToV7.test.ts walks that path end to end.
+        //
+        // Frozen at the v6 shape. A later change to routine_sets belongs in a
+        // NEW entry; editing this one rewrites history for anyone still
+        // upgrading through it. migrations.test.ts asserts both halves — this
+        // literal, and its agreement with schema.ts today — so a schema edit
+        // that forgets its migration goes red here.
+        createTable({
+          name: 'routine_sets',
+          columns: [
+            { name: 'routine_exercise_id', type: 'string', isIndexed: true },
+            { name: 'order', type: 'number' },
+            { name: 'set_type', type: 'string' },
+            { name: 'target_reps', type: 'number', isOptional: true },
+            { name: 'target_reps_max', type: 'number', isOptional: true },
+            { name: 'target_weight_kg', type: 'number', isOptional: true },
+            { name: 'target_duration_seconds', type: 'number', isOptional: true },
+            { name: 'target_distance_m', type: 'number', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 7,
+      // v6 -> v7: routine_exercises' five aggregate columns — warmup_sets,
+      // target_sets, target_reps, target_duration_seconds, target_weight_kg —
+      // are undeclared, not dropped. routine_sets has been the authoritative
+      // plan since v6; this removes the representation it replaced.
+      //
+      // The steps array is empty for exactly v4's reason: WatermelonDB 0.28
+      // ships no column-removal step, and official guidance is to leave the
+      // physical column in the database and omit it from the schema, which the
+      // adapters then ignore on read and write. See the v4 entry above for the
+      // full reasoning, including why unsafeExecuteSql was rejected — LokiJS
+      // ignores SQL steps outright, so the platforms would diverge.
+      //
+      // Unlike v4, this entry is also load-bearing for a version it does not
+      // itself change: without it the list is gapped at 6, and schemaMigrations
+      // throws "Migrations must be listed without gaps, or duplicates" at
+      // MODULE INIT. That check is gated on NODE_ENV !== 'production'
+      // (Schema/migrations/index.js:82), so it is a Debug-only crash — the same
+      // asymmetry ./adapterMigrations.ts exists to remove — and a module-init
+      // throw lands before RuleErrorScreen can render (engine convention 4).
+      steps: [],
+    },
   ],
 });

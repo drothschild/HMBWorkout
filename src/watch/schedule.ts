@@ -17,7 +17,6 @@
  */
 
 import { createEngine } from '../engine';
-import { entrySets } from '../engine/entrySets';
 import type { RoutineEntry, SessionState } from '../engine/types';
 
 /** A routine entry as callers author it — `idx` is host-assigned, never by hand. */
@@ -37,13 +36,14 @@ export interface Stop {
   /** 1-based set number within this entry (a shared round number in a superset). */
   setNumber: number;
   /**
-   * How many sets this entry prescribes — the length of its own set list.
+   * How many sets this entry prescribes — the length of its own set list,
+   * which as of #276 Phase 6 is the only thing it could be.
    *
-   * Reading the list rather than `warmupSets + targetSets` cannot be told apart
-   * by a test today: `fromRillState` re-derives those counts FROM the list, so
-   * on engine-produced state the two agree by construction and a mutation to
-   * the sum survives the suite. It stops being equivalent in Phase 6, when
-   * `countsFromSets` and the count fields go.
+   * Worth knowing why this was once a subtle read: through Phases 2–5 an entry
+   * also carried aggregate counts that `fromRillState` re-derived FROM the
+   * list, so reading the list and summing the counts agreed by construction on
+   * engine-produced state and no test could tell them apart. The counts are
+   * gone, so the equivalence is gone with them.
    */
   totalSets: number;
   /**
@@ -83,7 +83,7 @@ function stopFrom(state: SessionState, ordinal: number): Stop {
     );
   }
   const entry = state.entries[state.exerciseIndex];
-  const sets = entrySets(entry);
+  const sets = entry.sets;
   // The set being stopped at. `setIndex` is a shared round number inside a
   // superset group, and a member is visited once per round up to its own list
   // length (engine convention 9), so it indexes that member's own list

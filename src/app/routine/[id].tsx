@@ -121,8 +121,8 @@ export default function RoutineDetailScreen() {
   };
 
   // hasActiveExercise is false both when there are no exercises at all and
-  // when every one plans zero total sets (warmupSets + targetSets === 0) —
-  // startSessionFromRoutine refuses both the same way.
+  // when every one prescribes an empty set list — startSessionFromRoutine
+  // refuses both the same way, through the same predicate.
   const isRoutineStartable = !!routine && routine.hasActiveExercise;
   const startMode = routineStartMode({ sessionState, isRoutineStartable });
 

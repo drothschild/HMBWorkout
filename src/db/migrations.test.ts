@@ -147,25 +147,40 @@ describe('Database schema migrations', () => {
     }
   });
 
-  it('walks a v1 install all the way to v7 through five steps, not four', () => {
-    // AC6.1 names this pin specifically, because it inverts in a way that is
-    // easy to get subtly wrong: `stepsForMigration(1 → 6)` used to return
-    // `null` and now returns FIVE steps. Four of them are the pre-existing
-    // chain; the fifth is the routine_sets createTable this phase adds.
+  it('walks a v1 install to v6 through four steps, where it used to return null', () => {
+    // AC6.1 names this pin specifically as the one that inverts, and it gets
+    // the number wrong: it says `stepsForMigration(1 → 6)` "returns 5 steps
+    // rather than null". Measured, it returns FOUR.
+    //
+    // The discrepancy is entries versus steps. Five migration ENTRIES are
+    // traversed (v2, v3, v4, v5, v6) but `stepsForMigration` concatenates their
+    // `steps` arrays, and v4's is deliberately empty — sync_status was
+    // undeclared, not dropped. Four steps out of five entries, and the same
+    // arithmetic will apply to v7, whose steps array is empty for the same
+    // reason.
     const steps = stepsForMigration({ migrations, fromVersion: 1, toVersion: 6 }) as {
       type: string;
       table?: string;
-      name?: string;
+      schema?: { name: string };
     }[];
 
-    expect(steps).toHaveLength(5);
-    expect(steps.map((step) => `${step.type}:${step.table ?? step.name ?? ''}`)).toEqual([
+    expect(steps).toHaveLength(4);
+    expect(steps.map((step) => `${step.type}:${step.table ?? step.schema?.name ?? ''}`)).toEqual([
       'add_columns:exercises',
       'add_columns:session_sets',
       'add_columns:routine_exercises',
-      'create_table:',
-      'create_table:',
+      'create_table:routine_sets',
     ]);
+  });
+
+  it('adds nothing further between v6 and v7, so the full v1 walk is the same four steps', () => {
+    // The other half of the entries-versus-steps point above, and a real
+    // property rather than a restatement: v7 undeclares columns, and an
+    // undeclaration has no step. A v1 install therefore runs exactly what a v1
+    // install running to v6 runs.
+    expect(stepsForMigration({ migrations, fromVersion: 1, toVersion: 7 })).toEqual(
+      stepsForMigration({ migrations, fromVersion: 1, toVersion: 6 })
+    );
   });
 
   it('adds routine_sets with a real createTable at v6, not an empty steps array', () => {
@@ -181,9 +196,26 @@ describe('Database schema migrations', () => {
 
     expect(steps).toHaveLength(1);
     expect(steps[0].type).toBe('create_table');
-    // Mirrors schema.ts exactly. A migration that creates a narrower table than
-    // the schema declares is the same class of bug as `steps: []`, one column
-    // down instead of one table.
+
+    // The v6 shape, frozen. This literal must NOT be edited to chase a later
+    // schema change: the entry describes the table as it existed at v6, and
+    // anyone still upgrading through it gets what v6 had.
+    expect(steps[0].schema.columns).toEqual({
+      routine_exercise_id: { name: 'routine_exercise_id', type: 'string', isIndexed: true },
+      order: { name: 'order', type: 'number' },
+      set_type: { name: 'set_type', type: 'string' },
+      target_reps: { name: 'target_reps', type: 'number', isOptional: true },
+      target_reps_max: { name: 'target_reps_max', type: 'number', isOptional: true },
+      target_weight_kg: { name: 'target_weight_kg', type: 'number', isOptional: true },
+      target_duration_seconds: { name: 'target_duration_seconds', type: 'number', isOptional: true },
+      target_distance_m: { name: 'target_distance_m', type: 'number', isOptional: true },
+    });
+
+    // …and the drift alarm, which is a different assertion with a different
+    // remedy. A migration that creates a narrower table than the schema
+    // declares is the same class of bug as `steps: []`, one column down instead
+    // of one table. When this goes red, the fix is a NEW migration entry for
+    // the column that was added — never an edit to the frozen literal above.
     expect(steps[0].schema.columns).toEqual(databaseSchema.tables['routine_sets'].columns);
   });
 

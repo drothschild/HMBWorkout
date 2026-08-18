@@ -39,7 +39,6 @@ import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { createAiClient } from '@/ai/provider/factory';
-import { entrySets } from '@/engine/entrySets';
 import type { Event, ExerciseKind, RoutineSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
@@ -155,7 +154,7 @@ export function replaceExerciseTarget(
     exerciseTitle: exerciseTitles?.[entry.exerciseId] || entry.exerciseId,
     kind: entry.kind,
     restSeconds: entry.restSeconds,
-    sets: entrySets(entry),
+    sets: entry.sets,
   };
 }
 

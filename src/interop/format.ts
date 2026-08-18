@@ -112,9 +112,25 @@ export interface RoutineSetLine {
  */
 export interface WorkoutLine {
   exerciseId: string;
-  // Session lines: the `1x<logged-reps>` slot, before parseSession renames it.
-  // A routine line leaves these unset and fills `sets` instead.
-  targetSets?: number;
+  /**
+   * The raw `<sets>` half of the `<sets>x<reps>` slot, as written on the line.
+   *
+   * NAMED FOR THE SLOT, not for a plan. It was `targetSets` until #276 Phase 6,
+   * which was a lie in both directions once the routine overload went away:
+   * there is no target set COUNT anywhere in the model any more, and on a
+   * session line this was never a plan value at all. It is always `1` when
+   * present — `serializeSession` hardcodes it and a routine line is one
+   * prescribed set — but the parser still reads whatever is there in order to
+   * refuse anything else.
+   *
+   * The old name also made #276 AC6.2's `rg 'targetSets|warmupSets|…'` sweep
+   * unable to reach zero, which is how a genuinely dead field elsewhere would
+   * have hidden behind a carve-out.
+   */
+  setsSlot?: number;
+  // Session lines: the `1x<logged-reps>` slot's second half, before
+  // parseSession surfaces it as `loggedReps`. A routine line leaves these unset
+  // and folds the per-set fields into `sets` instead.
   targetReps?: number;
   // Session lines: duration instead of reps (kind=cardio|stretch).
   targetDurationSeconds?: number;
