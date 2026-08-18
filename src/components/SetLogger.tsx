@@ -128,6 +128,21 @@ export function SetLogger({
     setNumber: presenter.setNumber,
   });
 
+  // Raw text becomes numbers exactly here, once per render, so the Log Set
+  // button can show whether there is anything to log before it is tapped —
+  // `undefined` means there is not (#288). Deriving it at render rather than
+  // inside onPress is what lets the button carry the disabled state; the
+  // handler still re-checks, because `disabled` is a prop, not a guarantee.
+  // The weight stays display lbs — the presenter converts to kg. The rpe of a
+  // last set arrives later from the popup and never affects loggability.
+  const logSetValues = buildLogSetValues({
+    isDurationBased,
+    repsText,
+    weightText,
+    durationText,
+    rpe: currentRpe,
+  });
+
   return (
     <ThemedView style={styles.container} onStartShouldSetResponder={dismissKeyboardOnTouch}>
       <View style={styles.exerciseTitleRow}>
@@ -342,25 +357,31 @@ export function SetLogger({
 
       <View style={styles.buttonRow}>
         <Pressable
-          style={[styles.button, styles.primaryButton, styles.rowButton]}
+          // Nothing to log is not a session-flow decision the engine should
+          // reject with an error banner — it is an empty form field, so the
+          // button simply reads as unavailable (#288). Opacity only: this
+          // button row already came within 2pt of covering itself once (see
+          // the dismissKeyboardOnTouch note), so the disabled state must not
+          // touch layout.
+          disabled={logSetValues === undefined}
+          style={[
+            styles.button,
+            styles.primaryButton,
+            styles.rowButton,
+            logSetValues === undefined && styles.buttonDisabled,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: logSetValues === undefined }}
           onPress={() => {
+            // Re-checked rather than assumed: `disabled` is a prop, and this
+            // guard is what the compiler reads to let the dispatch through.
+            if (logSetValues === undefined) return;
             // If this is the last set of a non-duration exercise, open the RPE popup
             // instead of dispatching immediately. Otherwise dispatch right away.
             if (!isDurationBased && presenter.isLastSetOfExercise) {
               onRpePopupOpenChange?.(true);
             } else {
-              // Raw text becomes numbers exactly here; invalid or empty
-              // fields are omitted (never NaN, never a coerced 0). The
-              // weight stays display lbs — the presenter converts to kg.
-              presenter.onLogSet(
-                buildLogSetValues({
-                  isDurationBased,
-                  repsText,
-                  weightText,
-                  durationText,
-                  rpe: currentRpe,
-                })
-              );
+              presenter.onLogSet(logSetValues);
             }
           }}
         >
@@ -505,6 +526,10 @@ const styles = StyleSheet.create({
   },
   warningButton: {
     backgroundColor: ActionButtonColor.warning,
+  },
+  // Purely visual: no size, spacing or flex, so it cannot move the button row.
+  buttonDisabled: {
+    opacity: 0.4,
   },
   buttonText: {
     color: 'white',

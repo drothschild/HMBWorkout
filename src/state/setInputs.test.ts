@@ -103,12 +103,16 @@ describe('buildLogSetValues', () => {
   test('invalid or empty fields are omitted, never NaN and never 0', () => {
     const values = buildLogSetValues({
       isDurationBased: false,
-      repsText: 'NaN5',
-      weightText: '',
+      repsText: '8',
+      weightText: 'NaN5',
       durationText: '',
       rpe: undefined,
     });
-    expect(values).toEqual({});
+    // The unparseable weight is dropped outright — not carried as NaN, and
+    // not coerced to a bodyweight-looking 0. (When it is the *reps* that are
+    // unparseable there is nothing left to log at all; see the #288 block at
+    // the bottom of this file.)
+    expect(values).toEqual({ reps: 8 });
   });
 
   test('duration set: only durationSeconds is read, truncated to integer', () => {
@@ -130,7 +134,7 @@ describe('buildLogSetValues', () => {
       durationText: 'NaN',
       rpe: undefined,
     });
-    expect(values).toEqual({});
+    expect(values).toBeUndefined();
   });
 
   test('rpe is included only when set and positive', () => {

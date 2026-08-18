@@ -58,8 +58,24 @@ export interface SetInputTexts {
  * for duration-based (stretch/cardio) entries, which have no RPE concept.
  * This is defense in depth: the RPE UI is hidden for those entries too, but
  * a stray leftover value must never be logged even if it reaches here.
+ *
+ * Returns `undefined` — "there is nothing to log" — when the result would
+ * carry no measurement the session grammar can represent (#288). That return
+ * type is the guard: `onLogSet` takes `SetInputValues`, so a call site cannot
+ * forward this straight through without checking, and the compiler says so.
+ * `setInputs.callSites.test.ts` covers the escape hatches (`!`, `?? {}`) that
+ * would compile.
+ *
+ * The condition is `hasLoggableMetric` below, which mirrors
+ * `buildSessionSetLine` (`src/interop/serialize.ts`) exactly and is no wider:
+ * weight and rpe are flags on a line, not measurements, and cannot carry one
+ * on their own — a strength line with a `weight=` flag and no `1x<reps>` slot
+ * is refused by `parseSession` just as a bare one is. Before this, blanking
+ * the reps field and tapping Log Set wrote such a set, and because
+ * `serializeSession` is all-or-nothing, that one set cost the export of the
+ * entire session.
  */
-export function buildLogSetValues(input: SetInputTexts): SetInputValues {
+export function buildLogSetValues(input: SetInputTexts): SetInputValues | undefined {
   const values: SetInputValues = {};
 
   if (input.isDurationBased) {
@@ -74,5 +90,26 @@ export function buildLogSetValues(input: SetInputTexts): SetInputValues {
     if (input.rpe !== undefined && input.rpe > 0) values.rpe = input.rpe;
   }
 
-  return values;
+  return hasLoggableMetric(values) ? values : undefined;
+}
+
+/**
+ * True when these values carry a metric a logged-set line can actually state.
+ *
+ * The two arms mirror `buildSessionSetLine`'s own branch: `reps` becomes the
+ * `1x<reps>` slot, and failing that `durationSeconds` becomes a `duration=`
+ * flag. With neither, the emitted line has no measurement at all and
+ * `parseSession` rejects it ("Strength exercise missing sets×reps").
+ *
+ * Both checks are `!== undefined`, never truthiness: `reps: 0` is a genuine
+ * logged set of zero repetitions (PR #89, pinned by a roundtrip fixture) and
+ * a `durationSeconds: 0` is the same shape. Collapsing zero into absent here
+ * reinstates a regression this project already fixed once.
+ *
+ * `SetInputValues` has no distance field today, so a distance-only cardio set
+ * — which the grammar would accept — is unreachable from these inputs. Widen
+ * this predicate alongside the field if that ever changes.
+ */
+function hasLoggableMetric(values: SetInputValues): boolean {
+  return values.reps !== undefined || values.durationSeconds !== undefined;
 }
