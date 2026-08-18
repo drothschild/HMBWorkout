@@ -483,8 +483,13 @@ export function tokenizeFlagString(input: string): string[] {
 }
 
 /**
- * Parse a single `key=value` flag: rest=<sec|m:ss>, warmup=<n>,
- * superset=<label>, kind=<type>, duration=<m:ss>, rpe=<n>, …
+ * Parse a single `key=value` flag: sets=0, rest=<sec|m:ss>, superset=<label>,
+ * kind=<type>, duration=<m:ss>, set_type=<type>, reps_max=<n>,
+ * target_weight=<kg>, target_distance=<m>, rpe=<n>, weight=<kg>, distance=<m>.
+ *
+ * There is no `warmup=<n>`. It was the entry's aggregate warmup count and it
+ * went with the rest of them (#276): a routine line is one prescribed set, and
+ * a set says what it is with `set_type=warmup`.
  *
  * Hints are NOT handled here: `parseFlagTokens` recognizes `@<hint>` and
  * `continue`s before it ever dispatches to this function, so the `@` branch

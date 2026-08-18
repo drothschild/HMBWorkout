@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-13
+Last verified: 2026-08-17
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -203,7 +203,8 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    that field across the sentinel boundary (rpe -1.0 ⇄ `undefined`, etc.) — nothing
    else in the codebase currently reads it.
 
-3. **`idx` is 0-based order, host-assigned.** Rill indexed list access uses head/tail
+3. **`idx` is 0-based order, host-assigned — and it is now the only field
+   `toRillRoutineEntry` drops.** Rill indexed list access uses head/tail
    recursion, so entries must carry an explicit `idx`. Rill's own `RoutineEntry`
    alias (`types.lv`) has no `idx` field — `toRillRoutineEntry` strips it before an
    entry crosses into Rill — so the host supplies it on both sides of a `dispatch`
@@ -213,6 +214,18 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    0-based order, not a loop counter — when building a `StartSession` event's
    `routine.entries`, so it matches `routine_exercises.order` for `onPersistSet`'s
    later lookup. Callers pass routines *without* `idx`; never author `idx` by hand.
+
+   Between #276 Phases 2 and 5 this boundary did a second job, and it is worth
+   knowing it is gone. A *derivation seam* sat on both sides: `toRillRoutineEntry`
+   expanded four aggregate count fields into a set list when `RoutineEntry.sets`
+   was absent, and `fromRillState` re-derived those counts back out of the list on
+   the way home, so shell files that had not moved to per-set kept seeing what they
+   always saw. Phase 6 deleted both directions along with `engine/entrySets.ts`.
+   **`RoutineEntry.sets` is required**, it is the entry's whole plan, and nothing
+   anywhere converts between a count and a list. A `RoutineEntry` literal that
+   omits `sets` is a type error, which is deliberate: an entry with no plan is a
+   bug, while `sets: []` is a legal entry that genuinely prescribes nothing
+   (convention 10).
 
 4. **Rules are inlined, not module-loaded.** `.lv` files are imported as strings
    (babel inline-import). Metro's transform cache keys on the *importing* TS file,
@@ -281,18 +294,34 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    `RestElapsed` is benign (`Ok`, no effects) in `warmup`/`working`, the two phases
    recovery lands in, and still `Err`s everywhere else.
 
-6. **Engine state carries ids, never display data.** The Rill `RoutineEntry` alias
-   (`rules/types.lv`) is a closed record, and `toRillRoutineEntry`/`fromRillState`
-   rebuild entries field-by-field in both directions — so an extra field such as
-   `title` bolted onto the TS `RoutineEntry` survives until the first `dispatch` and
-   then silently vanishes. Anything the UI needs beyond `exerciseId` must be resolved
+6. **Engine state carries ids and the plan, never display data.** The Rill
+   `RoutineEntry` alias (`rules/types.lv`) is a closed record, and
+   `toRillRoutineEntry`/`fromRillState` rebuild entries field-by-field in both
+   directions — so an extra field such as `title` bolted onto the TS `RoutineEntry`
+   survives until the first `dispatch` and then silently vanishes. Anything the UI
+   needs beyond `exerciseId` must be resolved
    shell-side against the DB: `getExerciseTitles` (`src/db/repository.ts`) feeds the
    optional `exerciseTitles` map on `createSessionPresenter`, which exposes
    `currentExerciseTitle` and falls back to the raw id when an exercise is missing.
-   The coach-prescribed weight is a per-entry plan datum that deliberately does **not**
-   cross into `RoutineEntry` — no rule branches on load, and the Rill record is closed.
-   It reaches `computeSetPrefill` as a caller-resolved argument, the same way
-   `exerciseTitles` and `historyFallback` do.
+
+   The closed record now carries `sets: List(RoutineSet)`, and each `RoutineSet`
+   carries `weightKg` — so a prescribed **load does** cross the boundary, where the
+   old per-entry `target_weight_kg` deliberately did not. No rule branches on it;
+   it rides along because the list is one record and splitting the load out of it
+   would need a parallel shell-side structure indexed the same way.
+
+   That makes the load's freshness the shell's problem, and the answer is: the
+   prefill does **not** read load off engine state. `ReplaceExercise` leaves an
+   entry's `sets` intact by design (#276 AC2.11) while
+   `updateRoutineExerciseExerciseId` clears every attached `routine_sets` row's
+   `target_weight_kg`, so engine state can hold a swapped-away exercise's whole
+   ramp. `computeSetPrefill` therefore takes `prescribedSets` — read FRESH from the
+   database by the caller (`getPrescribedSetsForEntry` in `routineSetPlans.ts`) —
+   as a caller-resolved argument, the same way `exerciseTitles` and
+   `historyFallback` do. **Reps and duration come from engine state's own list**,
+   because a swap does not clear those, so a failed prescription read costs the
+   load and nothing else. Two source arrays, one index; do not "simplify" them into
+   one.
 
 7. **`ReplaceExercise` swaps a running entry's identity, under engine guards.** The
    event carries `{ idx, exerciseId }`; the rule requires `idx == exerciseIndex`
@@ -311,27 +340,27 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list. Presenters
    must treat those values as *absent*: a plain null check passes `-1` through and
    renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
-   session screen's logged-set formatting (and that filtering) lives. The hazard
-   class is wider than the sentinel map: a `null` `target_sets` column also reaches
-   the shell as a plain `0` that display code must treat as *no plan* — see the
-   zero-planned-set rule in Boundaries.
+   session screen's logged-set formatting (and that filtering) lives.
 
-> **⚠️ #276 IN PROGRESS (Phases 2–6) — conventions 9 and 10 below quote rule text
-> that no longer exists.** Since Phase 2 the Rill rules read a per-set list, not
-> aggregate counts: `RoutineEntry` (`rules/types.lv`) carries
-> `sets: List(RoutineSet)` and has no `warmupSets`/`targetSets` field at all, so
-> every `warmupSets + targetSets` in the two conventions below is describing
-> source text you will not find. Substitute as you read:
-> `h.next_active_idx`'s activity predicate is now `round < length(entry.sets)`,
-> `h.next_active_landing`'s is `length(entry.sets) > 0`, and warmup-vs-working
-> comes from each set's own `setType` through `h.phase_for` rather than from
-> comparing an index against a warmup count. The counts are derived back at the
-> TS boundary (`countsFromSets` in `engine/index.ts`), so **every conclusion in
-> conventions 9 and 10 still holds, and every sentence about shell behaviour is
-> still true** — the quoted rule text, and only that, is stale. The same caveat
-> applies to the zero-planned-set paragraph in Boundaries, which carries its own
-> copy of this marker. Full rewrite is AC6.5 (#276 Phase 6); do not rewrite these
-> conventions phase by phase.
+   **`RoutineSet` is deliberately NOT in the sentinel map**, and that is the one
+   place the convention is inverted. Its five optional measurements (`reps`,
+   `repsMax`, `weightKg`, `durationSeconds`, `distanceM`) are new surface with no
+   legacy read sites to protect, so they cross as honest `undefined` and read sites
+   use `!= null`. Five more sentinels would have widened the `-1`-renders-as-`RPE:
+   -1` hazard class for nothing.
+
+   That choice has a **test-shape consequence that will bite you**, and it is not
+   about sentinels at all: `rillToJs` **omits a `None` key entirely** rather than
+   emitting `undefined`. `fromRillRoutineSet` re-spells all five keys so the TS
+   side gets a stable shape, but an expectation written without the absent keys
+   still matches only under `toEqual` — `toStrictEqual` distinguishes an absent key
+   from an `undefined` one and **fails**. Use `toEqual` on anything containing a
+   `RoutineSet`, or construct the expectation without the absent keys (#276 AC2.12).
+
+   The wider hazard class this note used to point at — a `null` `target_sets`
+   column arriving as a plain `0` that display code had to read as *no plan* —
+   died with the column at schema v7. The surviving shape is an empty set list; see
+   the zero-planned-set rule in Boundaries.
 
 9. **A superset group round-robins by set, and `setIndex` becomes a
    group-shared round number while advancing through one.** A group is a
@@ -342,7 +371,8 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    rest; only when nobody after the current position qualifies does the group
    decide whether to loop back for another round or move on. A member with
    fewer prescribed sets than its partner is simply skipped once its own
-   `warmupSets + targetSets` is exhausted — the round does *not* end early
+   `sets` list is exhausted — the activity predicate is
+   `round < length(entry.sets)` — and the round does *not* end early
    just because the round's last-*visited* member is done; every remaining
    member's sets still get logged. Because a member is visited every round up
    to its own completion and never after, its own count of *visits* always
@@ -356,8 +386,20 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    move: the same-round hop, the next-round loop-back, and advancing to a
    genuinely different exercise/group entirely (this last one applies to
    standalone entries too, not just superset groups: exhausting entry A and
-   landing on B with `B.warmupSets > 0` now correctly reads `Warmup`, where
-   the pre-round-robin code carried A's last phase over). `SkipExercise`
+   landing on B whose set at the landing round is a `warmup` now correctly
+   reads `Warmup`, where the pre-round-robin code carried A's last phase over).
+
+   **Warmup-versus-working comes from each set's own `setType`**, read through
+   `h.phase_for` at the position actually landed on. It is not an index compared
+   against a warmup count, and that is a real behavioural difference rather than a
+   restatement: a plan may interleave. `[warmup, normal, warmup]` is expressible
+   and the third set correctly reads `Warmup`, where count arithmetic
+   (`setIndex - warmupSets + 1`) rendered "Set 0". `deriveSetPosition` in
+   `sessionPresenter.ts` counts preceding sets *of the same type* for the same
+   reason; INTERLEAVE is the fixture that discriminates the two, and no single
+   warmup count gives the right answer on it.
+
+   `SkipExercise`
    existed once and was removed: its unconditional index-jump could land on a
    group member with real logged history while resetting `setIndex` to 0,
    which would have made that guard unsound with no clean fix (skip *this*
@@ -366,15 +408,16 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 
 10. **A zero-set entry is never *landed on*, only skipped past.** Convention
     9's `h.next_active_idx` refuses to hand off or loop back to a member whose
-    own `warmupSets + targetSets` is 0 (`round < 0` is never true), but that
+    own `sets` list is empty (`round < 0` is never true), but that
     only governs positions *inside* a group already being visited. The two
     sites that land on a *fresh* position — `StartSession`, and
     `advance_after_set`'s "this group is done, move on" branch — took
     `entries[0]` and `groupEndIdx + 1` on faith, so a zero-set entry reached
     either way was landed on and accepted one phantom `LogSet`/`SetDone`
     before the engine moved past it. Both now go through
-    `h.next_active_landing(entries)(fromIdx)`, which returns the first index at
-    or after `fromIdx` with a nonzero total **and** the true start of the
+    `h.next_active_landing(entries)(fromIdx)`, whose predicate is
+    `length(entry.sets) > 0` and which returns the first index at
+    or after `fromIdx` that prescribes anything **and** the true start of the
     contiguous `supersetGroup` run that index belongs to. Tracking that start
     is not redundant bookkeeping: a landing can skip an entire zero-set group
     to reach a later one whose own leading members are also zero-set, and
@@ -384,7 +427,7 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
     within-group sites: it presumes `fromIdx` is itself a group boundary (0,
     or one past a prior group's end), which is the one thing both call sites
     guarantee and a within-group hop would not. `None` means every entry from
-    `fromIdx` on plans zero sets. In `advance_after_set` that is the ordinary
+    `fromIdx` on has an empty `sets` list. In `advance_after_set` that is the ordinary
     end of the workout — the existing end-of-routine arm, unchanged. At
     `StartSession` it is `Err`, not a special "instant completion": emitting
     `CreateSession` and `CompleteSession` in the same dispatch has no ordering
@@ -410,14 +453,72 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
     unconditionally instead — the same value `rest_duration` always resolved
     to at this call site anyway, once nextEntry was guaranteed adjacent.
 
+## Schema migrations (`src/db`)
+
+**Bumping `databaseSchema.version` without a matching migration entry WIPES the
+user's database, silently.** This is not a crash and not a bug — it is
+WatermelonDB's own documented fallback, and #276 Phase 1 used it deliberately. Know
+the mechanism before you touch either file.
+
+`stepsForMigration` returns `null` when `fromVersion < minVersion || toVersion >
+maxVersion`, and `null` is precisely the signal both adapters branch on to reset:
+they log `Migrations not available for this version range, resetting database
+instead` and set up from schema (`adapters/sqlite/index.js:132`,
+`adapters/lokijs/worker/DatabaseDriver.js:354`). No `unsafeResetDatabase` call is
+involved. **The only trace is a `logger.warn`** — nothing user-facing, so the user
+opens the app to find their routines gone with no explanation. That is why
+`src/state/schemaResetNotice.ts` exists: it restates WatermelonDB's own predicate
+(rather than approximating it) to decide whether to tell them, and `_layout.tsx`
+renders the banner. Its decision cannot live in the database, because the database is
+the thing that was destroyed — it rides in the settings blob.
+
+Three traps, each verified by execution rather than by reading:
+
+1. **`[]` and `null` are both falsy and both mean "no steps to run", and the
+   adapters treat them oppositely.** `[]` migrates; `null` resets. Any assertion
+   about a migration path must distinguish them — a `toBeFalsy` or a `toEqual([])`
+   alone passes under `null`.
+2. **A gapped list throws at MODULE INIT.** `schemaMigrations` refuses one
+   (`Migrations must be listed without gaps, or duplicates`), so bumping from 5 to 7
+   needs a `toVersion: 6` entry as well as a `toVersion: 7` one. The check is gated
+   on `NODE_ENV !== 'production'` (`Schema/migrations/index.js:82`), making it a
+   Debug-only crash — and a module-init throw lands before `RuleErrorScreen` can
+   render (engine convention 4).
+3. **The same `NODE_ENV` asymmetry applies to the wipe itself.**
+   `validateAdapter` (`adapters/common.js:29`) asserts `maxVersion ===
+   schema.version` in non-production builds and throws `Missing migration` from the
+   adapter *constructor*, before any reset can run. So a Release build wiped as
+   designed while a Debug build crashed at boot. `migrationsForAdapter`
+   (`adapterMigrations.ts`) is the gate that removes the divergence: it withholds
+   the migrations object entirely when coverage and schema disagree, which both
+   adapters treat identically to an uncovered range (`if (!migrations) return
+   null`). **Today it is a pass-through and should stay one.**
+
+Removing a column is `steps: []` plus deleting it from `schema.ts` —
+**undeclare, don't drop.** WatermelonDB 0.28 ships no `destroyColumn`, and the
+adapters ignore a physical column the schema omits. v4 (`sessions.sync_status`) and
+v7 (`routine_exercises`' five aggregates) both do this. Two consequences: the data is
+still in the file, so a later re-declaration recovers it; and `unsafeExecuteSql('ALTER
+TABLE … DROP COLUMN')` is rejected because LokiJS ignores SQL steps outright and the
+platforms would diverge.
+
+`migrationV6ToV7.test.ts` is the pattern for proving any of this: two WatermelonDB
+opens sharing one `LokiMemoryAdapter` via `_testLokiAdapter`, so the second open is a
+real upgrade of the first database. It asserts both outcomes — data surviving a
+covered upgrade, and data destroyed when the migrations are withheld — because a
+harness that can only observe one of them proves nothing.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
 `parse.ts` must stay symmetric. Roundtrip tests enforce this for the value ranges they
 exercise — e.g., the test in `roundtrip.test.ts` that serializes a `reps: 0` set
-pins the PR #89 regression: an earlier version of the zero-reps guard below was
-unconditional, so `parseSession` rejected the `1x0` lines `serializeSession` correctly
-emits for a set logged with zero reps. Not every value is exercised by existing
+pins the PR #89 regression: a zero-reps guard once rejected the `1x0` lines
+`serializeSession` correctly emits for a set logged with zero reps. That guard is
+gone entirely (#276 Phase 5 — `1x0` means the same thing in both documents now), but
+the regression it caused is still worth a fixture, because "zero is a real
+measurement" is a rule the grammar has to keep and a future guard could break again.
+Not every value is exercised by existing
 fixtures, so test coverage is incomplete by construction; add targeted roundtrip tests
 when you discover or fix a case the current suite misses.
 
@@ -426,18 +527,51 @@ maintained contract, not dead code.** Vault import went away with #203 and
 `src/export` uses `serialize` only, so a dead-code sweep finds nothing importing it
 outside tests. It stays because it is still load-bearing twice over: it is the
 mechanism that enforces the symmetry asserted in the paragraph above (delete it and
-`serialize` can drift from the grammar with nothing to notice — 42 of the interop
-suite's 59 tests involve parsing), and it is the test oracle for the one interop path
+`serialize` can drift from the grammar with nothing to notice — most of the interop
+suite involves parsing, and `parse.ts`'s own header docstring carries the current
+count; **re-derive it rather than copying a number into prose, which is how the
+figure that stood here — "42 of 59" — went stale unnoticed for a year**), and it is
+the test oracle for the one interop path
 that *is* production-bound, since `exportService.test.ts` verifies `exportRoutine` by
 parsing its output back rather than string-matching. The cost of that choice, and it
 is a real one: a change to `format.ts` or `serialize.ts` must keep `parse.ts` in step
 exactly as if it had callers.
 
-One overload to know: the `<sets>x<reps>` slot means **target** sets×reps in a routine,
-but in a logged session it is emitted as `1x<logged-reps>` (one logged set). Session
-lines therefore expose honest aliases (`loggedReps`, `loggedDurationSeconds`) — read
-those, not the `target*` fields, when consuming a parsed session. Contract violations
-throw `ContractError`.
+**A line is one set, in both documents.** The `<sets>x<reps>` slot's first number is
+always `1` — a routine line prescribes one set and a session line records one logged
+set — and a routine entry is a *run of consecutive lines* naming the same exercise,
+which `parseRoutine` folds into one entry whose `sets` is the ordered list. That is
+what lets a warmup ramp survive the grammar: three warmups at three weights are three
+lines, where the old `<target-sets>x<target-reps>` overload collapsed them to the
+number 3 and lost the weights.
+
+That overload is **gone** (#276 Phase 5), and with it the grammar's one
+context-dependent validation rule. Session lines still expose honest aliases
+(`loggedReps`, `loggedDurationSeconds`) — read those, not the `target*` fields, when
+consuming a parsed session. The raw first number is `WorkoutLine.setsSlot`, named for
+the slot rather than for a plan; it was `targetSets` until Phase 6, which was a lie in
+both documents once there was no target set *count* anywhere in the model.
+Contract violations throw `ContractError`.
+
+**An entry that prescribes nothing says so, with `sets=0`.** This is the
+load-bearing half of the per-set grammar and it is not optional decoration: without
+the marker, an exercise line and a content-only set line are the same string, and the
+parser has to guess — it threw on the first and silently dropped the second. All five
+prescribed fields (reps, `reps_max`, `target_weight`, `duration`, `target_distance`)
+are **independently optional** on a routine line, so `- back-squat:` with only a
+`rest=` flag is a well-formed prescribed set carrying no numbers. `- back-squat:
+sets=0` is the different thing: an entry the routine names and plans nothing for
+(engine convention 10). A `sets=0` line may carry the entry-level flags — `rest`,
+`superset`, `kind`, `@hint` — and must carry none of the set-level ones; both halves
+throw if violated.
+
+**The requirements that read like grammar rules are the SESSION's alone.** A
+cardio or stretch *session* line may not carry a sets×reps slot, and a strength
+*session* line must carry reps or a duration. Neither applies to a routine line,
+where every field is independently optional — a coach may name an exercise and
+prescribe no numbers at all. The cardio/stretch sets-slot prohibition in particular
+is session-only, and a round-1 fix that stated it generally is the reason this
+sentence is here.
 
 ### Quoted flag values (#277)
 
@@ -499,29 +633,60 @@ teach, and `superset='Group One'` truncated to `Group` while silently eating the
 formatter. **Anything a session line needs that a routine line does not belongs in
 `formatFlags`, not back in the caller** — `set_type` is the live example: it is emitted
 whenever present, `working` included, because a session's set type is a measurement
-rather than a plan default, and a routine line never sets the field at all. Flag order
-on a session line is `formatFlags`'s order as a result (rest, warmup, superset, kind,
-duration, set_type, rpe, weight, distance, hint); parsing is order-insensitive, so this
-is a byte-level change only.
+rather than a plan default, and a routine line never sets the field at all.
 
-### Parse context and validation strictness
+Flag order on either line is `formatFlags`'s order as a result: **`sets`, `rest`,
+`superset`, `kind`, `duration`, `set_type`, `reps_max`, `target_weight`,
+`target_distance`, `rpe`, `weight`, `distance`**, with the `@hint` appended by the
+caller. Parsing is order-insensitive, so the order is a byte-level fact only —
+but it is a fact, and the list that stood here was wrong in two ways after #276
+Phase 5: it led with `warmup`, **a flag that no longer exists in any allowlist and
+that `formatFlags` never emits** (it was the aggregate warmup count, and a routine
+line is one set now), and it omitted the four per-set keys entirely. `format.ts`'s
+own `parseFlag` docstring still listed `warmup=<n>` too; both are corrected.
 
-`parseWorkoutLine` and the internal `parseDoc` take a context parameter
-(`'routine' | 'session'`) that controls validation severity. It is deliberately not
-exposed on the public API: `parseRoutine(markdown)` and `parseSession(markdown)` are
-single-argument wrappers that each hardcode their own context, so no caller can parse
-a routine with session strictness or vice versa. This distinction exists because the
-`<sets>x<reps>` slot carries *different semantic meaning* in each context:
-- In a **routine** (author-written targets): `3x0` means "3 sets of zero reps," which is
-  semantically empty and therefore rejected.
-- In a **session** (logged measurements): `1x0` means "one logged set in which the user
-  performed zero repetitions," which is a real, valid action and therefore accepted.
+### Parse context and what it still decides
 
-Zero sets (`0x10`) is rejected unconditionally in both contexts, since
-`serializeSession` hardcodes the sets slot to literal `1` and can never emit `0x...`.
-Zero reps rejection is routine-only: `parseRoutine` passes `context: 'routine'` to
-`parseDoc`, while `parseSession` passes `context: 'session'`, so `1x0` is valid in
-logged sessions but `3x0` is rejected in routine targets.
+`parseWorkoutLine`, `parseFlagTokens` and the internal `parseDoc` take a context
+parameter (`'routine' | 'session'`). It is deliberately not exposed on the public API:
+`parseRoutine(markdown)` and `parseSession(markdown)` are single-argument wrappers that
+each hardcode their own context, so no caller can parse a routine with session
+strictness or vice versa.
+
+**The zero-reps divergence it used to exist for is gone.** `3x0` was refused in a
+routine ("three sets of nothing") while `1x0` was accepted in a session ("the athlete
+performed zero reps"), and that was the single asymmetry the parameter carried. Since
+#276 Phase 5 a routine line is one set, so there is no `3x0` to reject and `1x0` means
+the same thing in both documents. Zero *sets* (`0x10`) is still refused everywhere —
+`serializeSession` hardcodes the slot to literal `1` and can never emit `0x...`, and a
+routine says "no sets" with the `sets=0` marker instead.
+
+What the parameter decides today, four places (`parse.ts`, plus one forward):
+
+- **An empty spec is a session error, not a routine one** — a routine line with no
+  content after the colon is a prescribed set carrying no numbers.
+- **A routine's sets slot must be exactly `1`.** This is the successor to the
+  zero-reps rule and it is a routine-only rule for the opposite reason: a session
+  line's slot is written by `serializeSession` and cannot be anything else, while a
+  hand-authored routine could say `3x8` and mean the old overload.
+- **The routine-only branch** that reads the per-set prescription (`reps_max`,
+  `target_weight`, `target_distance`, `set_type`, the `sets=0` marker) off the line.
+- **`parseDoc` folds consecutive same-exercise routine lines into entries**
+  (`groupRoutineSets`); a session's lines stay one-per-logged-set.
+- and it is forwarded to `parseFlagTokens`, which is the fifth site and a *flag
+  allowlist* rather than a validation rule — see below.
+
+**The flag allowlist is context-aware, and that closed a real leak.** `format.ts`
+keeps `SHARED_FLAGS` (`rest`, `superset`, `kind`, `duration`, `set_type`) plus
+`SESSION_ONLY_FLAGS` (`rpe`, `weight`, `distance`) and `ROUTINE_ONLY_FLAGS`
+(`reps_max`, `target_weight`, `target_distance`, `sets`), composed into
+`KNOWN_FLAGS` per context. The split is not cosmetic: `weight=` (logged kg) and
+`target_weight=` (prescribed kg) are different quantities that were previously
+interchangeable on the wire, so a routine line that acquired a `weight=` read as a
+*measurement* to anything downstream. This paragraph used to record that leak as open
+("the 'session sets only' restriction on `weight=` is a comment, not a rule … a
+routine line carrying `weight=60` parses cleanly today"). It is closed; do not
+re-derive it from the old wording.
 
 `serializeSession` never emits a *partial* session: every logged set produces a line
 or the call throws. That is stronger than it sounds, because the function is driven by
@@ -558,40 +723,55 @@ Separately, every flag guard in that same line-building path (both the row-drive
 the orphaned-group path share `buildSessionSetLine`) must check `!= null`, not
 `!== undefined`: WatermelonDB returns `null`, not `undefined`, for an unset optional
 column, so every optional field read off a DB row — `reps`, `weightKg`, `distanceM`,
-`durationSeconds`, `rpe` on `SessionSet`; `targetSets`, `targetReps`,
-`targetDurationSeconds`, `restSeconds` on `RoutineExercise` — is subject to it.
+`durationSeconds`, `rpe` on `SessionSet`; `restSeconds` on `RoutineExercise`;
+`targetReps`, `targetRepsMax`, `targetWeightKg`, `targetDurationSeconds`,
+`targetDistanceM` on `RoutineSet` — is subject to it.
 `exportService.ts`'s row-to-serializer mapping normalizes the same hazard a second time
-at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` handling,
-and covering the `RoutineExercise` plan flags as well); **keep both layers.** A bad
+at the shell boundary (`?? undefined`, matching its pre-existing `exerciseId` handling);
+**keep both layers.** A bad
 guard would therefore only become reachable if that mapping ever stopped normalizing — at which
 point it writes a `<flag>=null` line straight into the exported document, and nothing
 downstream rejects it.
 
-`upsertRoutine` defaults a duration-based entry's `targetSets` to 1 when it is undefined/null and
-`warmupSets` is 0 (or undefined), so it doesn't reach the engine as zero-total. This is the only
-enforcing layer. The default does **not** gate on `targetDurationSeconds` being set — an entry with
-`targetSets` undefined and `warmupSets` 0 is zero-total whether it has duration or not (e.g., an
-AI-drafted strength exercise with only title and kind) — but it fires only when `targetSets` is
-*absent*, never on an explicit `0`. An AI draft with `targetSets: 0` is rejected upstream by
-`validateRoutineDraft` (`src/ai/draftSchema.ts`), which enforces `targetSets >= 1` when present.
-An entry with explicit `warmup=2` and no target sets still totals 2 and is never defaulted.
-This mirrors the AI persona's own convention for duration-based exercises (`targetSets: 1`, see AI
-Coach below), so a routine always has exercises that will actually be performed regardless of
-whether it was authored by hand or drafted by the coach. A malformed `0x10` or `3x0` line would
-never reach this layer anyway — `parseWorkoutLine` rejects both at parse time, under the
-context-dependent rules in "Parse context and validation strictness" above — though that is
-parser-layer behavior with no current production producer, since nothing outside tests calls
-`parseRoutine`/`parseSession` now.
+The `RoutineExercise` half of that list used to be four aggregate plan columns.
+They were undeclared at schema v7 (#276 Phase 6), and the four fields that carried
+them on `serialize.ts`'s `RoutineExerciseRow` — `warmupSets`, `targetSets`,
+`targetReps`, `targetDurationSeconds` — turned out to be read by nothing at all and
+went with them. Worth recording how that was found and how it was nearly missed:
+Phase 5 spotted **two** of the four, and the fix that named two would have left two.
+The session serializer reads only `id`, `exerciseId`, `supersetGroup`, `restSeconds`
+and `notes` off that row; `serializeRoutine` takes its own inline row type and reads
+`sets`.
 
-`serializeRoutine` **does not** emit `target_weight_kg` and the grammar was deliberately
-not extended, because `serializeRoutine`, `exportRoutine` and all of `parse.ts` have no
-production caller. Wiring an export path to a screen means adding a **distinct** flag key —
-not reusing `weight=`, which already means logged kg on a session line. Related finding:
-the "session sets only" restriction on `weight=` is a comment, not a rule. `parseFlags`
-keeps one global `knownFlags` allowlist for both contexts (`format.ts:424`, moved from
-:247 by the #277 quoting change), `parse.ts` consults its `context` parameter exactly
-once (line 211, the zero-reps rule), and a routine line carrying `weight=60` parses
-cleanly today.
+**`upsertRoutine`'s zero-total default is gone, and nothing replaced it at that
+layer.** It defaulted `target_sets` to 1 for an entry carrying no counts, so the
+engine always had a set to visit, and it was the only enforcing layer. #276 Phase 6
+made `RoutineExerciseEntry.sets` **required**: the shape the default caught cannot be
+written without an explicit `[]`, and an explicit `[]` is a caller saying "nothing"
+rather than a caller forgetting. The rule it enforced survives one layer up, in
+`validateRoutineDraft` (`src/ai/draftSchema.ts`), which requires at least one set —
+so a coach-authored entry still can never be zero-total, and a routine still always
+has exercises that will actually be performed.
+
+A malformed `0x10` line would never reach this layer anyway: `parseWorkoutLine`
+rejects zero sets in both contexts, and `3x0` is refused by the routine sets-slot
+rule (a routine line's slot must be `1`) rather than by any zero-reps rule — there
+are no context-dependent zero rules left. That is parser-layer behavior with no
+current production producer, since nothing outside tests calls
+`parseRoutine`/`parseSession`.
+
+`serializeRoutine` **does** emit a prescribed load, under the distinct key
+`target_weight=` (#276 Phase 5). This paragraph used to say the opposite — that the
+grammar was deliberately not extended, and that wiring an export path to a screen
+would mean *adding* a distinct key rather than reusing `weight=`. The key was added;
+it is `target_weight`, it is on `ROUTINE_ONLY_FLAGS`, and `weight=` is on
+`SESSION_ONLY_FLAGS`, so the leak that made the distinction urgent is closed by the
+allowlist rather than by convention. `target_distance` joined at the same time, and
+is a good illustration of why the count matters: the Phase-5 AC said "two new flags",
+there were three, and a missing key makes the export drop the value **silently**.
+
+`serializeRoutine`, `exportRoutine` and all of `parse.ts` still have no production
+caller, so none of this is on a user-facing path yet.
 
 ## HealthKit (`src/health`)
 
@@ -693,23 +873,44 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `output_config.format` must pass `expectStructuredOutputSafe`
   (`src/ai/structuredOutputSubset.ts`); put bounds in the validator instead, which is
   where the SDKs put the keywords they strip.
-- **One turn shape, three declarations.** The `{ reply, draft?, settingsProposal? }`
+- **One turn shape, FOUR declarations** (it was three until #276 Phase 4). The
+  `{ reply, draft?, settingsProposal? }`
   contract is stated in `AI_TURN_SCHEMA` (what the API enforces), in the
   `AiTurn`/`RoutineDraft`/`SettingsProposal` types plus `validateRoutineDraft` and
-  `validateSettingsProposal` (what the app enforces), and in `personaSection()` prose in
-  `contextBuilder.ts` (what the model reads). Changing either payload shape means
-  changing all three — same hazard class as the copied markdown contract.
+  `validateSettingsProposal` (what the app enforces), in `personaSection()` prose in
+  `contextBuilder.ts` (what the model reads), and now in **`setPlanFormat.ts`**, which
+  renders a set list back to the model and to the draft card — four importers, across
+  `contextBuilder`, `alternatesPrompt`, `restCommentaryPrompt` and `ai-coach.tsx`.
+  Changing the payload shape means changing all four — same hazard class as the copied
+  markdown contract.
+- **Nothing in this repo can detect a schema the API rejects on grammar
+  complexity, and three assertions actively look like they can.**
+  `findUnsupportedKeywords` is a *keyword* walk; `draftSchema.test.ts`'s
+  `optionalCount`, the walker field count in `subset.test.ts`, and the inline
+  snapshot are *counts and shapes*. None of them models nesting depth.
+  `AI_TURN_SCHEMA`'s max depth is now **6**, and since Phase 4 it carries its first
+  array-of-objects-inside-an-array-of-objects (`exercises[].sets[]`). **No assertion
+  here would move if Anthropic refused it.** The only detector is a live call, and
+  the symptom is a 400 *before the model runs*, naming a compile/grammar error rather
+  than a keyword. Read the count as a keyword budget, not as headroom.
+  The OpenAI half of that risk IS closed and was verified post-transform:
+  `transformSchemaForOpenAI` descends through both levels of `items`, so `strict:
+  true`'s "every property in `required`, optionals widened to nullable" holds for all
+  five set fields.
 - **The persona restates the validator's rules, not just its shape.** `personaSection()`
   spells out the bounds `validateRoutineDraft` enforces (non-empty name, ≥1 exercise,
-  title must slugify to something non-empty, `targetSets`/`targetReps` ≥ 1, and
-  `warmupSets`/`targetDurationSeconds`/`restSeconds` ≥ 0), so a rejected draft reads as
+  title must slugify to something non-empty, **≥1 set per exercise**, a set's `reps`
+  and `repsMax` ≥ 1 with `repsMax` ≥ `reps` and never present without it,
+  `durationSeconds`/`restSeconds` ≥ 0, and `weightLbs` a positive multiple of 0.5),
+  so a rejected draft reads as
   a model mistake rather than a surprise. `contextBuilder.test.ts` asserts those
   sentences as *exact strings*: loosening or tightening a bound in `draftSchema.ts`
   without rewording the prose fails those tests rather than silently drifting. Not
-  every pinned sentence is a bound restatement: the `targetSets: 1` guidance for
-  duration-based exercises has no validator counterpart — it steers the model away
-  from the zero-planned-set drafts that force the display guards in Boundaries — so
-  don't delete it as unenforced.
+  every pinned sentence is a bound restatement: the guidance to give a duration-based
+  exercise a **single set in the list** has no validator counterpart — it steers the
+  model away from the zero-planned-set drafts that force the display guards in
+  Boundaries — so don't delete it as unenforced. (It read `targetSets: 1` until #276
+  Phase 4; the rule survived the rewording, the field did not.)
 - **Validate twice; structured output is not a guarantee.** `parseAiTurn` validates on
   receipt and `acceptDraft` validates again before writing. Keep both.
 - **Exercise identity is `slugifyTitle(title)`, and the accept path is create-only.**
@@ -952,7 +1153,11 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   need the same rule, and `db` must not import `state`, so `state` was never an
   option as the home. Anything landing in `src/domain/` must import nothing
 - `src/db/` — WatermelonDB schema, models, repository; `adapter.ts`/`adapter.web.ts`
-  select SQLite vs LokiJS per platform
+  select SQLite vs LokiJS per platform, and `adapterMigrations.ts` is the gate
+  between them and `migrations.ts` (see Schema migrations below). A routine's plan
+  lives in **`routine_sets`**, one row per prescribed set; `routine_exercises` holds
+  identity, order, superset label, rest and notes, and carries no plan values at all
+  since schema v7
 - `src/interop/` — vault markdown serializer/parser
 - `src/export/` — the only production consumer of `src/interop/serialize` (nothing
   outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
@@ -1025,11 +1230,15 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   deliberately left in place by #278.** It walks the markdown grammar's parsed
   `WorkoutLine[]` rather than DB rows or drafts, and it carries a third
   treatment of a singleton labelled run — it drops the label and emits a bare
-  line — that is part of the **markdown contract** which `helpers.lv:56` and
-  `transition.lv:14` cite *by name* as the basis for the engine's own
+  line — that is part of the **markdown contract** which both `h.group_end_idx`
+  in `helpers.lv` and the contiguity note in `transition.lv` cite *by name* as the
+  basis for the engine's own
   contiguity assumption, so re-pointing it is a contract change with engine
-  consequences rather than a refactor (and #276's Phase 5 rewrites that grammar
-  anyway)
+  consequences rather than a refactor. #276's Phase 5 rewrote that grammar and
+  `groupSupersets` survived it, still with its own third treatment. (Cited by
+  symbol, not by line: this read `helpers.lv:56` and was off by 24 — the name is
+  at :80 — which is the same failure mode the `session.tsx:303` note below
+  records, in a bullet that already knew better.)
 - A routine may list the same exercise more than once, so a routine *entry* is
   identified by its `routine_exercises` row id, never by `exercise_id` — React list
   keys, logged-set attribution (`session_sets.routine_exercise_id`), and
@@ -1053,7 +1262,8 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   transaction, so "one write" means "no other writer ever sees the row
   half-swapped" — and `replaceRoutineExercise.test.ts` asserts exactly that by
   queueing a competing writer behind an un-awaited swap. Hoisting any of the
-  three effects (stamp, clear `target_weight_kg`, re-point) into a second
+  three effects (stamp, clear every attached set's `target_weight_kg`, re-point)
+  into a second
   `database.write` fails it; before that test all three splits left the suite
   green. `deleteRoutine` is exempt only because it
   deliberately retains the rows as history carriers rather than destroying them.
@@ -1066,23 +1276,58 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `routine_exercises` still loses sets whose row was destroyed —
   `upsertRoutine`'s drop branch is the only `destroyPermanently` on that table.
   Iterate the sets, or reconcile the leftovers, as `serializeSession` does
-- `routine_exercises.target_weight_kg` is a coach-prescribed target load, nullable,
-  added at schema v5. **It is stored in kg and the coach speaks lbs.** There is
-  exactly one write-side conversion, `lbsToKg` in `acceptDraft`, and the read edges
-  are `computeSetPrefill` (`kgToLbs`) and `formatExerciseLine` (`formatWeightLbs`).
+- `routine_sets.target_weight_kg` is a coach-prescribed target load, nullable, and
+  **per set** — the entry-level column of the same name was undeclared at schema v7
+  (#276 Phase 6), which is what lets a warmup ramp carry three different loads under
+  what used to be the single number 3. **It is stored in kg and the coach speaks
+  lbs.** There is exactly one write-side conversion, `lbsToKg` in `acceptDraft`, and
+  it now runs **once per set** rather than once per exercise — one call site, many
+  calls. The read edges are `computeSetPrefill` (`kgToLbs`) and `formatExerciseLine`
+  (`formatWeightLbs`).
   A second conversion site is how a value gets converted twice. The bound is a
   **positive multiple of 0.5 lbs**, enforced in `validateRoutineDraft` and stated
   in `personaSection()`. It is the first non-integer field in the draft contract,
   which is why the persona's numeric guidance carries an explicit exception.
   `AI_TURN_SCHEMA` declares it as `number` with **no** bound keyword — `minimum`
-  and `multipleOf` are both on `UNSUPPORTED_SCHEMA_KEYWORDS`. A prescription
-  **overrides** the history-derived prefill and is **outranked** by the exercise's
-  own last set this session. It is scoped to the weight field: reps still come from
-  history. `updateRoutineExerciseExerciseId` must also clear `target_weight_kg`,
+  and `multipleOf` are both on `UNSUPPORTED_SCHEMA_KEYWORDS`.
+
+  **The precedence rule is TWO-WAY and decided FIELD BY FIELD — the old three-way
+  "prescription overrides history, last-set-this-session overrides the
+  prescription" ordering is gone** (#276 Phase 3). It could not survive a ramp: a
+  single per-exercise number either won everywhere or lost everywhere, and a ramp
+  needs the plan to win at set 2 while an athlete's deviation at set 1 still sticks.
+  The rule now is: for field F at set *i*, **the plan asserts itself iff F's planned
+  value at *i* differs from F's planned value at *i-1*.** At *i* = 0 there is no
+  previous set to inherit from, so the plan asserts itself iff F is not uniform
+  across the entry — i.e. iff this is a genuinely per-set plan at all. When the plan
+  does not assert itself, the pre-existing ranks apply unchanged (the exercise's own
+  last set this session, then the cross-session history fallback, then the plan as a
+  terminal default).
+
+  Field-wise, not set-wise, and the distinction is load-bearing: on `8/8/6 @ 50` with
+  the athlete having dropped to 45, a set-wise comparison sees set 2 as "different"
+  and drags the weight back to 50, where the field-wise rule lands the rep change and
+  keeps the deviated load. The uniformity clause at set 0 is what keeps every
+  pre-#276-shaped routine byte-identical to the old behaviour: a uniform list never
+  triggers the override, so the ranks below behave exactly as they did, including the
+  documented weight/reps asymmetry ("the coach programs the load, the reps come from
+  what the athlete does"). `planAssertsField` in `sessionPresenter.ts` is the whole
+  rule, in nine lines.
+
+  It is no longer scoped to the weight field — reps and duration take the same
+  treatment, from the same index. But the *sources* differ and must not be merged:
+  **load comes from the DB list the caller read fresh, reps and duration from engine
+  state's own list.** See engine convention 6 for why.
+
+  `updateRoutineExerciseExerciseId` must also clear every attached set's
+  `target_weight_kg`,
   because sets/reps/rest are near-dimensionless across substitutes while load is
-  not, and because a prescription overrides history rather than deferring to it, a
-  stale one wins over the substitute's own correct numbers instead of quietly
-  losing to them. Clearing the column is only half of it: the session screen's
+  not, and because a plan that asserts itself outranks history rather than deferring
+  to it, a stale one wins over the substitute's own correct numbers instead of
+  quietly losing to them — and a whole inherited ramp is worse than one inherited
+  number was. Only the loads go: `set_type`, reps and order are the plan's structure
+  and are near-dimensionless across movements, so a substitute keeps them. Clearing
+  the loads is only half of it: the session screen's
   prefill effect and `applyAlternateToRoutine`'s write are independent async paths
   off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`
   is bumped **after** the write and the prefill effect depends on it. The contract
@@ -1101,7 +1346,7 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   the load-bearing part: a `toContain` is satisfied by the `const routineRevision = …`
   selector line alone, and a four-entry expectation is how the missing `setIndex`
   stayed invisible through a whole phase.** Its scope is explicit and load-bearing: it bumps
-  on exercise swaps only. `upsertRoutine` is the other writer of `target_weight_kg`,
+  on exercise swaps only. `upsertRoutine` is the other writer of a prescribed load,
   so a coach revising a routine through `acceptDraft` can change or clear a
   prescription and bump nothing — a session screen that stays mounted across such an
   edit keeps the stale value until it remounts. That is not a live defect (editing a
@@ -1109,52 +1354,50 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   screen's own prefill reads a prescription), and the name is deliberately about the
   *routine* so an `acceptDraft` bump can join the same counter later without a
   rename. Do not assume routine edits are covered today.
-- A routine entry may plan zero sets — `target_sets` is nullable, the persona makes
-  `targetSets` optional, and `startSessionFromRoutine` maps the `null` to 0 — so no
-  display path may render "Set 1 of 0". `deriveSetPosition` (`sessionPresenter.ts`)
+- A routine entry may prescribe **zero sets** — an empty `sets` list, which the
+  markdown grammar spells `sets=0` and the coach cannot author (`validateRoutineDraft`
+  requires at least one) — so no display path may render "Set 1 of 0".
+  `deriveSetPosition` (`sessionPresenter.ts`)
   feeds *two* independent label builders: `createSessionPresenter`'s
   `setPositionLabel`, and `setPosition` in `src/ai/restCommentaryPrompt.ts`, which
   reaches the derivation through `restCommentaryTarget` and never touches the
-  presenter — so a guard on one does not cover the other. Both return `''` when
-  `warmupSets + targetSets === 0`, and both consumers read that as *hide*
+  presenter — so a guard on one does not cover the other. Both return `''` when the
+  entry prescribes nothing, and both consumers read that as *hide*
   (`SetLogger` skips the row; `buildRestCommentaryPrompt` drops the empty segment
   from its "Up Next" *and* "Last Set" line — one guard, both shapes, since the
-  two share `setPosition`). The sum is the exact condition, not a conservative one:
-  both activity predicates in `helpers.lv` key on that sum — `h.next_active_idx`
-  treats an entry as active for round `r` iff `r < warmupSets + targetSets`, and
-  `h.next_active_landing` iff the sum is nonzero — so only a zero total can reach a
-  zero denominator.
-  **⚠️ #276 IN PROGRESS (Phases 2–6): those two quoted predicate forms no longer
-  exist.** Since Phase 2 the rules read a per-set list, so the real forms are
-  `round < length(entry.sets)` and `length(entry.sets) > 0`. The correspondence is
-  exact rather than approximate — the TS boundary expands `warmupSets` warmups
-  plus `targetSets` normals, so `length(sets)` *is* the sum, and the "only a zero
-  total can reach a zero denominator" conclusion, along with every shell-side
-  sentence in this paragraph, still holds unchanged. Only the quoted rule text is
-  stale. See the fuller marker above engine convention 9. Rewrite at AC6.5. Engine convention 10 now keeps `exerciseIndex` off zero-set
+  two share `setPosition`). An empty list is the exact condition, not a conservative
+  one: both activity predicates in `helpers.lv` key on the list's length —
+  `h.next_active_idx` treats an entry as active for round `r` iff
+  `r < length(entry.sets)`, and `h.next_active_landing` iff
+  `length(entry.sets) > 0` — so only an empty list can reach a zero denominator.
+
+  Engine convention 10 keeps `exerciseIndex` off zero-set
   entries in the first place, which demotes these guards to a layer-2 defense but
   does **not** make them dead code: rehydrate restores a stored `exerciseIndex`
   through a `hydrate` call that no rule ever validates (convention 5), so a session
   persisted by a build predating that rule comes back sitting on exactly such an
   entry. `sessionDetailPresenter` is the
   third label site and needs no guard — it renders `Set N` with no total.
-  `sessionPresenter.isLastSetOfExercise` is the fourth site that checks
-  `warmupSets + targetSets` — it's the first one whose correctness depends specifically
+  `sessionPresenter.isLastSetOfExercise` is the fourth site that checks the list
+  length — it's the first one whose correctness depends specifically
   on convention 9's round-number semantics (not just "is this entry active"), so
   integration tests through mismatched-set-count supersets guard against future
   changes to `helpers.lv`'s `next_active_idx` predicate or `transition.lv`'s
   `setIndex` carry-over that could silently break the popup's timing
 - Starting a session mirrors that same condition one layer up.
-  `startSessionFromRoutine` refuses a routine where *every* entry has
-  `warmupSets + targetSets === 0`, the same as it already refused one with no
+  `startSessionFromRoutine` refuses a routine where *every* entry has an empty set
+  list, the same as it already refused one with no
   exercises at all — a routine can have exercises yet still have nothing for
   `h.next_active_landing` to land on. **The live source of such rows is history,
-  not any current write path:** routines imported before `upsertRoutine` learned
-  the zero-total default were left with `target_sets` null or 0, and with vault
-  import gone there is no re-import to heal them. A stored `exerciseIndex` can
+  not any current write path:** a `routine_exercises` row whose `routine_sets` are
+  gone or were never written prescribes nothing, and with vault import gone there is
+  no re-import to heal one. A stored `exerciseIndex` can
   also come back through `hydrate` pointing at such an entry (convention 5). Do
-  not read these guards as dead just because no code still *creates* the shape.
-  `hasActiveExercise` carries that sum-based check
+  not read these guards as dead just because no code still *creates* the shape —
+  and note that #276 Phase 6 made the shape *harder* to create, not impossible:
+  `RoutineExerciseEntry.sets` is required, so a caller can no longer forget a plan,
+  but `sets: []` is still legal and still means exactly this.
+  `hasActiveExercise` carries the same emptiness check
   through `routineListPresenter` and `routineDetailPresenter` into
   `todayStartPresenter`'s `startable` flag and `routine/[id].tsx`'s start
   button, so a routine that can't actually be started never renders as
