@@ -47,6 +47,23 @@ specific ways; every rule below was hit in practice.
   computer-use tool state, not on Device Hub or iOS. If `cmd+v` doesn't
   visibly land (or errors), don't retry it — go straight to the callout
   path.
+- **`write_clipboard` is not enough: it writes the MAC clipboard, and the
+  simulator has its own pasteboard that does not share it.** Put the text on
+  the *device* pasteboard first:
+
+      printf '%s' "<text>" | xcrun simctl pbcopy <udid>
+      xcrun simctl pbpaste <udid>          # confirm it landed
+
+  After that `cmd+v` lands immediately. Observed 2026-08-17 (iOS 27.0, Device
+  Hub) driving the AI Coach input: with only the Mac clipboard set, `cmd+v`
+  did nothing, a second tap surfaced an **AutoFill** bubble rather than the
+  Paste callout, and a 1.5s long-press surfaced no edit menu at all. All three
+  failed the same way — the field kept its placeholder while showing a live
+  cursor, which reads like a focus problem and is not one. One `simctl pbcopy`
+  and the very next `cmd+v` pasted the whole string. So the bullet above is
+  right that `type` never works and that the paste mechanism varies; what it
+  omits is that **none of them can work until the device pasteboard has the
+  text**. Try `simctl pbcopy` before concluding a paste path is broken.
 - Run your own Metro on a free port (8082+) from the checkout under test and
   connect the dev client to it explicitly (step 2). A Metro already on 8081
   may be serving a different checkout.
