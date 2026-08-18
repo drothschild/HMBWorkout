@@ -363,17 +363,23 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 8. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
    way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,
    `prePausePhase`/`supersetGroup` → `""` — so TS read sites can stay non-nullable.
-   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list —
-   **except that today it is not, and #305 is open on exactly that.** The `LogSet`
-   host→Rill conversion applies three more sentinels inline, off the map:
-   `reps === 0`, `weightKg === 0` and `durationSeconds === 0` each become
-   `undefined`. Those are not absence markers, they are real measurements being
-   erased, and they falsify both this sentence and the vault contract's `1x0` rule
-   further down. Until #305 lands, read the map as authoritative for the *outbound*
-   re-sentinelization it describes and check the `LogSet` case by hand. Presenters
-   must treat mapped values as *absent*: a plain null check passes `-1` through and
-   renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
-   session screen's logged-set formatting (and that filtering) lives.
+   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list, and
+   it is now genuinely authoritative for the fields it covers. This sentence has
+   a history worth stating so it is not mistaken for one that drifted: the
+   `LogSet` host→Rill conversion once applied three more sentinels inline, off the
+   map — `reps === 0`, `weightKg === 0` and `durationSeconds === 0` each became
+   `undefined` — which erased real measurements and made this claim and the vault
+   contract's `1x0` rule false (#305; filed by #304, which had asserted the
+   opposite). #305 removed those three: reps/weightKg/durationSeconds on `LogSet`
+   now cross through `toRillOptionalNumber` (only null/undefined → Rill None, a
+   logged 0 survives), so no inbound sentinel lives off the map anymore. `rpe`
+   keeps its `-1` sentinel on that event *and* is in the map — its scale is
+   1.0–10.0, so -1 is a free out-of-range value where 0 is a real measurement.
+   The end-to-end pins are `engine/logSetZeroPreservation.test.ts` and the #305
+   block in `state/setInputsSerializerMirror.test.ts`. Presenters must treat
+   mapped values as *absent*: a plain null check passes `-1` through and renders
+   `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the session
+   screen's logged-set formatting (and that filtering) lives.
 
    **`RoutineSet` is deliberately NOT in the sentinel map**, and that is the one
    place the convention is inverted. Its five optional measurements (`reps`,
@@ -825,22 +831,23 @@ both or neither. Do **not** move this decision into `validate_set`/`transition.l
 instead: a blank form field is not a session-flow event, and rejecting it in the
 engine surfaces as the session screen's red error banner.
 
-**This guard closes the input door only, and a second door is still open
-(#305).** `buildLogSetValues` preserves `reps: 0` and `durationSeconds: 0`, and
-that is where the preservation ends: `engine/index.ts`'s `LogSet` conversion
-turns `reps === 0`, `weightKg === 0` and `durationSeconds === 0` into `undefined`
-on the way into Rill. Those three sentinels are applied inline and are **not** in
-`SENTINEL_TO_OPTION_MAP` — so convention 8's claim that the map is "the
-authoritative list" is false today, and so is this file's own rule that `1x0` is
-a real logged measurement, because such a set never reaches the serializer.
-Dispatching `LogSet { reps: 0 }` persists a row with neither reps nor duration:
-precisely the #288 shape, produced through the engine rather than the form. Until
-#305 lands, typing `0` into the reps field still writes an unexportable row, and
-the population of such rows on device is therefore not just pre-fix mis-taps —
-it is **every `reps: 0` and every `durationSeconds: 0` set ever logged**. There
-is no migration and no repair path, and any repair carries a product decision:
-writing `reps = 0` invents a measurement, deleting the row erases the fact that a
-set happened, and "unknown" has no representation in the schema.
+**This guard closes the input door, and the engine boundary was the second
+door — now closed too (#305).** `buildLogSetValues` preserves `reps: 0` and
+`durationSeconds: 0`; that preservation once ended at `engine/index.ts`'s
+`LogSet` conversion, which turned `reps === 0`, `weightKg === 0` and
+`durationSeconds === 0` into `undefined` on the way into Rill via three inline
+sentinels never in `SENTINEL_TO_OPTION_MAP` — falsifying both convention 8's
+"authoritative list" claim and this file's own `1x0`-is-real rule, because such
+a set never reached the serializer. #305 routes those three fields through
+`toRillOptionalNumber` (only null/undefined → Rill None), so a logged `0` now
+survives end to end; `engine/logSetZeroPreservation.test.ts` is the pin.
+**Pre-#305 rows on device are not repaired by the fix**: every `reps: 0` and
+every `durationSeconds: 0` set logged before it was written as the #288 shape
+(neither reps nor duration), and there is no migration and no repair path. Any
+repair carries a product decision — writing `reps = 0` invents a measurement,
+deleting the row erases the fact that a set happened, and "unknown" has no
+representation in the schema — so the fix stops the bleeding without rewriting
+history.
 
 `exportRoutine` took the opposite fix, because a single-item export has no
 partial to salvage — it renders or it doesn't, so swallowing bought nothing and

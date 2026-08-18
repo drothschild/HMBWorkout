@@ -117,18 +117,18 @@ export function buildLogSetValues(input: SetInputTexts): SetInputValues | undefi
  * a `durationSeconds: 0` is the same shape. Collapsing zero into absent here
  * reinstates a regression this project already fixed once.
  *
- * **That preservation stops at the engine boundary, and today it is undone
- * there (#305).** `engine/index.ts`'s `LogSet` conversion applies three
- * *undocumented* zero-sentinels — `reps === 0`, `weightKg === 0` and
- * `durationSeconds === 0` all become `undefined` on the way into Rill — none
- * of which are in `SENTINEL_TO_OPTION_MAP`, the list convention 8 calls
- * authoritative. So a `reps: 0` this function correctly returns is persisted
- * as a row with neither reps nor duration: the #288 shape itself, arriving
- * through a second door this guard cannot see. What is true here is true of
- * *this* boundary only — the value survives `buildLogSetValues`, and is
- * erased one layer down. Do not read the tests below as end-to-end
- * preservation; `setInputsSerializerMirror.test.ts` carries the failing pin
- * that flips when #305 lands.
+ * **That preservation now holds end to end (fixed in #305).** `engine/index.ts`'s
+ * `LogSet` conversion once applied three *undocumented* zero-sentinels —
+ * `reps === 0`, `weightKg === 0` and `durationSeconds === 0` all became
+ * `undefined` on the way into Rill — none of which were in
+ * `SENTINEL_TO_OPTION_MAP`, the list convention 8 calls authoritative, so a
+ * `reps: 0` this function correctly returns was persisted as a row with
+ * neither reps nor duration: the #288 shape itself, arriving through a second
+ * door. Those three fields now route through `toRillOptionalNumber` (only
+ * null/undefined maps to Rill None), so a logged zero survives the boundary.
+ * The end-to-end proof is in `setInputsSerializerMirror.test.ts` and
+ * `engine/logSetZeroPreservation.test.ts`; the tests below still cover only
+ * *this* boundary.
  *
  * `SetInputValues` has no distance field today, so a distance-only cardio set
  * — which the grammar would accept — is unreachable from these inputs. Widen

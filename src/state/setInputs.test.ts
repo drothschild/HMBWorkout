@@ -197,12 +197,13 @@ describe('buildLogSetValues', () => {
  * down.** The guard is exactly the serializer's own condition and no wider,
  * so `reps: 0` is a real measurement ("one logged set of zero repetitions",
  * PR #89) and this function returns it rather than swallowing it. That is a
- * claim about *this* function's output only. It is **not** a claim that a
- * zero survives to the database: `engine/index.ts` erases `reps: 0`,
- * `weightKg: 0` and `durationSeconds: 0` at the Rill boundary, so today such
- * a set still persists as the very #288 row this guard rejects. That is
- * #305, it is out of scope here, and `setInputsSerializerMirror.test.ts`
- * carries the failing pin for it.
+ * claim about *this* function's output only. Whether a zero survives all the
+ * way to the database is a separate boundary: `engine/index.ts` once erased
+ * `reps: 0`, `weightKg: 0` and `durationSeconds: 0` at the Rill boundary
+ * (#305, now fixed — those fields route through `toRillOptionalNumber`). The
+ * end-to-end proof lives in `setInputsSerializerMirror.test.ts` and
+ * `engine/logSetZeroPreservation.test.ts`; the tests here stay scoped to the
+ * guard.
  */
 describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
   test('blank reps and blank duration: nothing to log', () => {
@@ -277,10 +278,9 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toBeUndefined();
   });
 
-  // The four zero cases below assert what this function returns. Their names
-  // used to say the zero "still logs", which overstated them by a whole layer
-  // — the engine erases it before the write (#305). Kept, and re-scoped: when
-  // #305 lands they are the pins that show the guard was never the problem.
+  // The four zero cases below assert what this function returns — the guard
+  // layer only. The zero now also survives the engine boundary (#305 fixed);
+  // that end-to-end claim is pinned in the two suites named above, not here.
   test('reps 0 is returned, not swallowed as absent (PR #89) — guard layer only', () => {
     expect(
       buildLogSetValues({
@@ -293,9 +293,9 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toEqual({ reps: 0 });
   });
 
-  // Both zeros are erased downstream, and the bodyweight one is its own loss:
-  // `serialize.ts` documents `weight=0` as legitimate and written as-is, but
-  // the engine's `weightKg === 0` sentinel means it never gets there (#305).
+  // The bodyweight zero is its own case: `serialize.ts` documents `weight=0`
+  // as legitimate and written as-is, and it now reaches the serializer — the
+  // engine's `weightKg === 0` sentinel that once dropped it is gone (#305).
   test('reps 0 with a 0 weight (bodyweight) returns both zeros — guard layer only', () => {
     expect(
       buildLogSetValues({
@@ -322,7 +322,8 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
 
   // The easiest way to hit this on device: start the stopwatch and stop it
   // immediately. `onStop` writes String(elapsedSeconds), so the field fills
-  // with `0`, the button goes live — and #305 then erases the measurement.
+  // with `0`, the button goes live — and the measurement now survives the
+  // engine boundary rather than being erased (#305 fixed).
   test('a duration that truncates to 0 is returned (0.9s is a measurement) — guard layer only', () => {
     expect(
       buildLogSetValues({
