@@ -1007,6 +1007,164 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(line0.restSeconds).toBeUndefined();
       expect(line0.sets).toEqual([{ setType: 'normal', targetDurationSeconds: 30 }]);
     });
+
+    /**
+     * The routine line's own `targetDurationSeconds`, which the test above
+     * cannot reach — it nulls four of the five per-set columns and sets the
+     * fifth to 30, so the guard it looks like it covers is the one guard it
+     * proves nothing about. Found by mutating rather than by reading, and it is
+     * #289's `durationSeconds` case exactly, one file section over: the routine
+     * path was never audited, so the issue named three guards where there were
+     * four.
+     *
+     * Same silent failure mode, too. `duration=` is the only flag whose null
+     * formats to something the parser accepts (`null / 60` is `0`, so
+     * `formatDuration(null)` is `0:00`), which is why every other mutant on
+     * this line dies against the "not.toContain('null')" assertion above and
+     * this one walked straight past it.
+     */
+    test('serializeRoutine: a null targetDurationSeconds is absent, not a 0:00 target', () => {
+      const routineRow = {
+        id: 'routine-defense-002',
+        name: 'Mobility',
+        notes: undefined,
+        createdAt: new Date('2026-08-17T10:00:00Z'),
+        updatedAt: new Date('2026-08-17T10:00:00Z'),
+      };
+
+      const routineExercises = [
+        {
+          id: 're-002',
+          exerciseId: 'plank',
+          order: 0,
+          supersetGroup: undefined,
+          restSeconds: null,
+          notes: undefined,
+          // Every per-set column unset — a `routine_sets` row that prescribes
+          // nothing, which the DB stores and `getRoutineSets` answers for.
+          sets: [
+            {
+              setType: 'normal' as const,
+              targetReps: null,
+              targetRepsMax: null,
+              targetWeightKg: null,
+              targetDurationSeconds: null,
+              targetDistanceM: null,
+            },
+          ],
+        },
+      ];
+
+      const exercises = [{ id: 'plank', title: 'Plank', kind: 'stretch' as const }];
+
+      const markdown = serializeRoutine(routineRow as any, routineExercises as any, exercises as any);
+
+      const lines = markdown.split('\n').filter((l) => l.startsWith('- '));
+      expect(lines).toEqual(['- plank: kind=stretch']);
+      expect(markdown).not.toContain('duration');
+
+      // One contentless set out, not one prescribed at zero seconds.
+      const line0 = parseRoutine(markdown).exercises[0] as WorkoutLine;
+      expect(line0.sets).toEqual([{ setType: 'normal' }]);
+    });
+
+    /**
+     * The three session-line guards that had no DISCRIMINATING fixture (#289).
+     *
+     * The block above covers `rpe`, `distance` and `restSeconds`, and looks
+     * like it covers the rest — its set carries `durationSeconds: null` too.
+     * It does not: that set also carries `reps: 6`, so `buildSessionSetLine`
+     * takes the reps arm and the `else if (set.durationSeconds != null)` branch
+     * is never reached. The fixture states the condition and cannot distinguish
+     * it, which is this repo's most-repeated test defect and is why all three
+     * of these guards survived a `!== undefined` mutation.
+     *
+     * Each test below drives exactly one guard, with the values that make the
+     * mutant's output differ from the correct one:
+     *
+     * | guard             | correct        | `!== undefined` mutant           |
+     * |-------------------|----------------|----------------------------------|
+     * | `weightKg`        | no `weight=`   | `weight=null` — parse refuses it |
+     * | `reps`            | duration arm   | `1xnull` — parse refuses it      |
+     * | `durationSeconds` | no `duration=` | `duration=0:00` — parse ACCEPTS  |
+     *
+     * The last row is the one that matters. `null / 60` is `0` in JavaScript,
+     * so `formatDuration(null)` is `0:00` and the mutant's document parses
+     * cleanly into a set that was never performed — a fabricated zero-second
+     * entry rather than the loud failure the other two produce. It is the only
+     * silent one of the three, and the only one whose test has to assert on
+     * the bytes rather than on a round trip.
+     */
+    const sessionRow289 = {
+      id: 'sess-289',
+      routineId: 'push-06-01',
+      startedAt: new Date('2026-08-17T10:00:00Z'),
+      endedAt: new Date('2026-08-17T10:30:00Z'),
+      createdAt: new Date('2026-08-17T10:00:00Z'),
+      customSyncStatus: 'local',
+    };
+
+    const serialize289 = (set: Record<string, unknown>): { markdown: string; line: string } => {
+      const markdown = serializeSession(
+        sessionRow289 as any,
+        [{ routineExerciseId: 're-289', position: 0, ...set }] as any,
+        [{ id: 're-289', exerciseId: 'bench-press-db', order: 0, notes: undefined }] as any,
+        [{ id: 'bench-press-db', title: 'Bench Press (DB)', kind: 'strength' as const }] as any
+      );
+
+      const lines = markdown.split('\n').filter((l) => l.startsWith('- '));
+      expect(lines).toHaveLength(1);
+      expect(markdown).not.toContain('null');
+      return { markdown, line: lines[0] };
+    };
+
+    test('a null weightKg writes no weight flag, and the set still round-trips', () => {
+      const { markdown, line } = serialize289({ setType: 'working', reps: 6, weightKg: null });
+
+      expect(line).toBe('- bench-press-db: 1x6 set_type=working');
+      expect(line).not.toContain('weight=');
+
+      // `weight=null` is refused by `parseSingleFlag`, so the mutant's document
+      // is unreadable where this one reads back as the set that was logged.
+      const set0 = parseSession(markdown).exercises[0] as WorkoutLine;
+      expect(set0.loggedReps).toBe(6);
+      expect(set0.weight).toBeUndefined();
+    });
+
+    test('a null reps falls through to the duration arm, instead of writing 1xnull', () => {
+      // The inverse of the fixture that misled #286: reps is the ABSENT field
+      // here, which is the only way the duration arm below it is ever reached.
+      const { markdown, line } = serialize289({
+        setType: 'working',
+        reps: null,
+        durationSeconds: 45,
+      });
+
+      expect(line).toBe('- bench-press-db: duration=0:45 set_type=working');
+      expect(line).not.toContain('1x');
+
+      const set0 = parseSession(markdown).exercises[0] as WorkoutLine;
+      expect(set0.loggedDurationSeconds).toBe(45);
+      expect(set0.loggedReps).toBeUndefined();
+    });
+
+    test('a null durationSeconds writes no duration flag — no fabricated 0:00 set', () => {
+      // Both measure-bearing columns unset, which the DB stores happily
+      // (`validateSet` checks each field on its own and requires none of them).
+      // The correct line says what was measured — a load — and says nothing
+      // about time. The mutant adds `duration=0:00`, which is not a shorter
+      // way of saying "unset": it is a measurement the user never made, and it
+      // parses, so nothing downstream ever questions it.
+      const { line } = serialize289({
+        setType: 'working',
+        reps: null,
+        durationSeconds: null,
+        weightKg: 80,
+      });
+
+      expect(line).toBe('- bench-press-db: set_type=working weight=80');
+      expect(line).not.toContain('duration');
+    });
   });
 
   describe('AC3.1: bodyweight sets (weight 0) round-trip', () => {
