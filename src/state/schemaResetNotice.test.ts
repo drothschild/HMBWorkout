@@ -19,6 +19,7 @@ import {
   SCHEMA_RESET_NOTICE_TITLE,
   isDestructiveSchemaUpgrade,
   liveSchemaVersionContext,
+  needsSchemaVersionRecord,
   schemaVersionRecordPatch,
   shouldShowSchemaResetNotice,
   type SchemaVersionContext,
@@ -165,6 +166,126 @@ describe('schemaVersionRecordPatch', () => {
   });
 });
 
+/**
+ * #292. `setSettings` merges a patch and then re-serialises the WHOLE
+ * `bridge_settings` blob into secure storage — the blob that holds the user's
+ * API key — so recording the schema version unconditionally meant a full
+ * read-modify-write on the boot path of every launch, to store an integer that
+ * was already there on all but one of them.
+ *
+ * This decides whether the write is worth doing. It changes nothing about WHEN
+ * THE NOTICE IS SHOWN — `shouldShowSchemaResetNotice` is untouched and its
+ * cases above still hold.
+ */
+describe('needsSchemaVersionRecord', () => {
+  it('skips the write when the recorded version is already the current one', () => {
+    // The overwhelmingly common launch, and the entire point of the guard.
+    expect(needsSchemaVersionRecord({ ...ESTABLISHED, lastSchemaVersion: 6 }, V6)).toBe(false);
+  });
+
+  it('writes when the recorded version is older than the current one', () => {
+    expect(needsSchemaVersionRecord({ ...ESTABLISHED, lastSchemaVersion: 5 }, V6)).toBe(true);
+  });
+
+  it('writes when the recorded version is NEWER than the current one', () => {
+    // A downgrade. `isDestructiveSchemaUpgrade` already treats it as a wipe;
+    // leaving a future version recorded would keep claiming a wipe on every
+    // later launch of this older build.
+    expect(needsSchemaVersionRecord({ ...ESTABLISHED, lastSchemaVersion: 9 }, V6)).toBe(true);
+  });
+
+  it('writes when there is no record at all, on an ESTABLISHED install', () => {
+    expect(needsSchemaVersionRecord(ESTABLISHED, V6)).toBe(true);
+  });
+
+  it('writes when there is no record at all, on a BRAND-NEW install too', () => {
+    // THE DISCRIMINATING CASE, and the reason this guard reads the raw
+    // `lastSchemaVersion` field rather than reusing the value
+    // `shouldShowSchemaResetNotice` derives.
+    //
+    // That function defaults an absent record on a fresh install to
+    // `currentSchemaVersion` — a fiction that makes the notice decision come
+    // out right. A guard built on the same defaulted value would conclude
+    // "already current, nothing to write" and skip. Nothing would then ever
+    // record the version, and the fallback would stay live forever: the moment
+    // this user typed an API key or completed onboarding,
+    // `hasPriorInstallEvidence` would flip, the default would become
+    // `migrationsMaxVersion`, and the app would tell a user who never lost
+    // anything that their data had been wiped.
+    //
+    // So: a fresh install must still take the one write that closes that door.
+    expect(needsSchemaVersionRecord(FRESH, V6)).toBe(true);
+  });
+
+  it('skips the write for a fresh install that has already recorded the version', () => {
+    expect(needsSchemaVersionRecord({ ...FRESH, lastSchemaVersion: 6 }, V6)).toBe(false);
+  });
+});
+
+/**
+ * The boot sequence as `_layout.tsx` performs it: decide, then record only if
+ * the record is stale. Modelled here rather than asserted piecemeal because
+ * the property that matters spans launches — the notice must still fire
+ * exactly once (verified live across a v5→v6 wipe and two relaunches, #292),
+ * and the blob must be written exactly once, not once per launch.
+ */
+function simulateLaunch(
+  settings: BridgeSettings,
+  context: SchemaVersionContext
+): { readonly settings: BridgeSettings; readonly noticeShown: boolean; readonly wrote: boolean } {
+  const noticeShown = shouldShowSchemaResetNotice(settings, context);
+  const wrote = needsSchemaVersionRecord(settings, context);
+  return {
+    settings: wrote ? { ...settings, ...schemaVersionRecordPatch(context) } : settings,
+    noticeShown,
+    wrote,
+  };
+}
+
+describe('the boot sequence across launches', () => {
+  it('shows the notice once and writes the blob once, on an install the wipe hit', () => {
+    const first = simulateLaunch(ESTABLISHED, V6);
+    expect(first.noticeShown).toBe(true);
+    expect(first.wrote).toBe(true);
+
+    const second = simulateLaunch(first.settings, V6);
+    expect(second.noticeShown).toBe(false);
+    expect(second.wrote).toBe(false);
+
+    const third = simulateLaunch(second.settings, V6);
+    expect(third.noticeShown).toBe(false);
+    expect(third.wrote).toBe(false);
+  });
+
+  it('never shows the notice to a fresh install, even after it starts being used', () => {
+    // The trap the guard must not open: launch 1 is a fresh install, so it has
+    // nothing to say — but it MUST still record the version. Between launches
+    // the user types an API key, which is exactly what
+    // `hasPriorInstallEvidence` reads. Without launch 1's write, launch 2 would
+    // announce a data wipe that never happened.
+    const first = simulateLaunch(FRESH, V6);
+    expect(first.noticeShown).toBe(false);
+    expect(first.wrote).toBe(true);
+
+    const used = { ...first.settings, anthropicKey: 'sk-ant-typed-later' };
+    const second = simulateLaunch(used, V6);
+    expect(second.noticeShown).toBe(false);
+    expect(second.wrote).toBe(false);
+  });
+
+  it('writes exactly once more when a later version bump arrives', () => {
+    const settled = simulateLaunch(ESTABLISHED, V6).settings;
+    expect(simulateLaunch(settled, V6).wrote).toBe(false);
+
+    const bumped = simulateLaunch(settled, V7_COVERED);
+    // Covered bump: nothing was lost, so no notice — but the record moves.
+    expect(bumped.noticeShown).toBe(false);
+    expect(bumped.wrote).toBe(true);
+    expect(bumped.settings.lastSchemaVersion).toBe(7);
+    expect(simulateLaunch(bumped.settings, V7_COVERED).wrote).toBe(false);
+  });
+});
+
 describe('liveSchemaVersionContext', () => {
   it('reads the app’s real schema and migrations rather than a copy', () => {
     expect(liveSchemaVersionContext()).toEqual({
@@ -246,6 +367,30 @@ describe('_layout.tsx wiring (structural — read from source, not executed)', (
 
   it('records the current schema version, so the notice cannot show twice', () => {
     expect(recordAt).toBeGreaterThan(-1);
+  });
+
+  it('records only when the record is stale, rather than on every launch (#292)', () => {
+    // Anchored on the whole `if (` head, deliberately: a bare
+    // `toContain('needsSchemaVersionRecord(')` would be satisfied by an
+    // INVERTED guard, which skips exactly the launch the record exists for.
+    const guardAt = layout.indexOf(
+      'if (needsSchemaVersionRecord(settingsAtBoot, schemaContext)) {'
+    );
+    expect(guardAt).toBeGreaterThan(-1);
+    // The record must sit inside that guard, not beside it.
+    expect(recordAt).toBeGreaterThan(guardAt);
+  });
+
+  it('guards on the pre-write settings snapshot the decision itself read', () => {
+    // One `getSettings()` for both, so the guard cannot be handed a blob that
+    // the record has already mutated.
+    expect(layout).toContain('const settingsAtBoot = getSettings();');
+    expect(layout).toContain('shouldShowSchemaResetNotice(settingsAtBoot, schemaContext)');
+  });
+
+  it('has exactly one record call, so a second unguarded one cannot hide behind it', () => {
+    const occurrences = layout.split('setSettings(schemaVersionRecordPatch(').length - 1;
+    expect(occurrences).toBe(1);
   });
 
   it('decides BEFORE it records, or the notice is suppressed on the one launch it exists for', () => {
