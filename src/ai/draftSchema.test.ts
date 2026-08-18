@@ -1049,8 +1049,12 @@ describe('draftSchema', () => {
       expect(result.exercises[0].sets[0]).toEqual({ type: 'normal', reps: 8, repsMax: 10 });
     });
 
-    test('AC4.3: rejects repsMax below reps', () => {
-      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: 10, repsMax: 8 }]))).toThrow(
+    test('AC4.3: rejects repsMax below reps, at the boundary', () => {
+      // ADJACENT to the accepted case below (repsMax === reps), deliberately:
+      // a gap of two satisfies `repsMax < reps` and `repsMax < reps - 1`
+      // alike, so it cannot tell the rule this AC names from one that is off
+      // by one. 9/8 is the first rejected pair, and only it pins the edge.
+      expect(() => validateRoutineDraft(withSets([{ type: 'normal', reps: 9, repsMax: 8 }]))).toThrow(
         DraftValidationError
       );
     });

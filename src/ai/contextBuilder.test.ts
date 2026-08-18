@@ -1264,6 +1264,68 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4 × 10 reps): no sets logged');
     }, 30000);
 
+    it('resolves the plan for SUPERSET entries, not only standalone ones', async () => {
+      // `planByRow` fills from two arrays because RoutineDetail partitions a
+      // routine's entries into exactly those two — `supersetGroups` and
+      // `standaloneExercises` are the two filters over a closed two-member
+      // union in routineDetailPresenter, so there is no third source to miss.
+      // Every OTHER debrief fixture in this file is standalone, which left the
+      // superset half of that fill unpinned: dropping it silently strips the
+      // target from every superset exercise, and the coach debriefs a plan it
+      // cannot see.
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Arms';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        for (const [id, title] of [
+          ['exercise-curl', 'Curls'],
+          ['exercise-pushdown', 'Pushdowns'],
+        ]) {
+          await database.get('exercises').create((e: any) => {
+            e._raw.id = id;
+            e.title = title;
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        }
+      });
+
+      // Two members of ONE group with visibly different plans, so a line that
+      // read the other member's plan is not interchangeable with the right one.
+      const curl = await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-curl',
+        order: 0,
+        supersetGroup: 'A',
+        targetSets: 3,
+        targetReps: 12,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-pushdown',
+        order: 1,
+        supersetGroup: 'A',
+        targetSets: 4,
+        targetReps: 15,
+      });
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+      await appendSet(database, sessionId, (curl as any).id, {
+        setType: 'working',
+        reps: 12,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(lineFor(prompt, 'Curls')).toBe('  Curls (target 3 × 12 reps): 12 reps');
+      expect(lineFor(prompt, 'Pushdowns')).toBe('  Pushdowns (target 4 × 15 reps): no sets logged');
+    }, 30000);
+
     it('summarises only the session being debriefed', async () => {
       await seedFinishedWorkout();
 
@@ -1439,6 +1501,15 @@ describe('buildSystem: AI Coach context builder', () => {
       // Should show the logged exercise, not the "no longer exists" message
       expect(prompt).toContain('Push-ups');
       expect(prompt).not.toContain('This routine no longer exists');
+
+      // ...and with NO target segment. This is the only debrief fixture whose
+      // plan is unresolvable, so `formatTarget`'s empty-summary guard is
+      // observable here and nowhere else: without it the line reads
+      // "Push-ups (target ): 8 reps" — a dangling parenthetical the coach
+      // would read as a real, empty prescription. Asserted as the whole line,
+      // since `toContain('Push-ups')` passes either way.
+      expect(prompt).toContain('  Push-ups: 8 reps');
+      expect(prompt).not.toContain('(target )');
     }, 30000);
   });
 

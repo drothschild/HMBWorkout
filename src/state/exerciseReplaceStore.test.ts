@@ -299,6 +299,22 @@ describe('createExerciseReplaceStore', () => {
       expect(body.messages[0].content).toContain('Barbell Bench Press');
     });
 
+    it('forwards the prescription itself into the prompt, not an empty list', async () => {
+      // The store→prompt seam for `sets` (#276 Phase 4), the twin of the one in
+      // restCommentaryStore. Pinned at the store end (`replaceExerciseTarget`
+      // above) and at the builder end (alternatesPrompt.test), but not across
+      // the hand-off: substituting `sets: []` at this one statement survived
+      // the whole suite, and every alternates request would have described the
+      // exercise being replaced as having no target at all.
+      const { store } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      const content = JSON.parse(mockFetch.mock.calls[0][1].body).messages[0].content;
+      expect(content).toContain('target warmup 6 reps, 4 × 6 reps');
+      expect(content).not.toContain('no target recorded');
+    });
+
     it('makes no call and offers nothing without a key', async () => {
       setSettings({ anthropicKey: '' });
       const { store } = makeStore();

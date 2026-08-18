@@ -213,6 +213,22 @@ describe('createRestCommentaryStore', () => {
       expect(body.messages[0].content).not.toContain('Set 2 of 99');
     });
 
+    it('forwards the prescription itself into the prompt, not an empty list', async () => {
+      // The store→prompt seam for `sets` (#276 Phase 4). Both ENDS of it are
+      // pinned — `restCommentaryTarget` builds the list (above), and
+      // `buildRestCommentaryPrompt` renders it (restCommentaryPrompt.test) —
+      // but the hand-off between them was not: substituting `sets: []` at this
+      // one statement survived the whole suite, and every rest remark would
+      // have been told "no target recorded" for an exercise that has a target.
+      const { store } = makeStore();
+
+      await store.getState().show(target());
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0].content).toContain('target 2 × 8 reps');
+      expect(body.messages[0].content).not.toContain('no target recorded');
+    });
+
     it('carries the coaching personality from settings', async () => {
       setSettings({ aiPersonality: 'Blunt ex-powerlifter.' });
       const { store } = makeStore();
