@@ -103,12 +103,16 @@ describe('buildLogSetValues', () => {
   test('invalid or empty fields are omitted, never NaN and never 0', () => {
     const values = buildLogSetValues({
       isDurationBased: false,
-      repsText: 'NaN5',
-      weightText: '',
+      repsText: '8',
+      weightText: 'NaN5',
       durationText: '',
       rpe: undefined,
     });
-    expect(values).toEqual({});
+    // The unparseable weight is dropped outright — not carried as NaN, and
+    // not coerced to a bodyweight-looking 0. (When it is the *reps* that are
+    // unparseable there is nothing left to log at all; see the #288 block at
+    // the bottom of this file.)
+    expect(values).toEqual({ reps: 8 });
   });
 
   test('duration set: only durationSeconds is read, truncated to integer', () => {
@@ -130,7 +134,7 @@ describe('buildLogSetValues', () => {
       durationText: 'NaN',
       rpe: undefined,
     });
-    expect(values).toEqual({});
+    expect(values).toBeUndefined();
   });
 
   test('rpe is included only when set and positive', () => {
@@ -173,5 +177,181 @@ describe('buildLogSetValues', () => {
       rpe: 7,
     });
     expect(values).toEqual({ reps: 5, weightLbs: 100, rpe: 7 });
+  });
+});
+
+/**
+ * #288: a set carrying no measurement the session grammar can represent was
+ * reachable from the normal UI — blank the reps field, tap Log Set — and it
+ * put an unparseable line into the exported document.
+ *
+ * `buildSessionSetLine` (`src/interop/serialize.ts`) builds the `1x<reps>`
+ * slot from `reps` and otherwise falls back to a `duration=` flag; with
+ * neither it emits `- bench-press: set_type=working`, which `parseSession`
+ * rejects with "Strength exercise missing sets×reps". Weight and RPE are
+ * flags, not measurements — neither can rescue that line. Note that
+ * `serializeSession` does **not** throw on this shape: it emits the line and
+ * returns, so the export reports success and the corruption is silent.
+ *
+ * **Scope of every test below: `buildLogSetValues` and nothing further
+ * down.** The guard is exactly the serializer's own condition and no wider,
+ * so `reps: 0` is a real measurement ("one logged set of zero repetitions",
+ * PR #89) and this function returns it rather than swallowing it. That is a
+ * claim about *this* function's output only. It is **not** a claim that a
+ * zero survives to the database: `engine/index.ts` erases `reps: 0`,
+ * `weightKg: 0` and `durationSeconds: 0` at the Rill boundary, so today such
+ * a set still persists as the very #288 row this guard rejects. That is
+ * #305, it is out of scope here, and `setInputsSerializerMirror.test.ts`
+ * carries the failing pin for it.
+ */
+describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
+  test('blank reps and blank duration: nothing to log', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('weight alone is not a measurement: a strength line needs the reps slot', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '135',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('rpe alone is not a measurement (the last-set popup path)', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '',
+        durationText: '',
+        rpe: 8,
+      })
+    ).toBeUndefined();
+  });
+
+  test('unparseable reps text is as absent as blank text', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: 'NaN5',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('duration-based entry with no duration: nothing to log', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '8',
+        weightText: '100',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('duration-based entry ignores reps text, so reps cannot rescue it', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '8',
+        weightText: '',
+        durationText: 'NaN',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  // The four zero cases below assert what this function returns. Their names
+  // used to say the zero "still logs", which overstated them by a whole layer
+  // — the engine erases it before the write (#305). Kept, and re-scoped: when
+  // #305 lands they are the pins that show the guard was never the problem.
+  test('reps 0 is returned, not swallowed as absent (PR #89) — guard layer only', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '0',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toEqual({ reps: 0 });
+  });
+
+  // Both zeros are erased downstream, and the bodyweight one is its own loss:
+  // `serialize.ts` documents `weight=0` as legitimate and written as-is, but
+  // the engine's `weightKg === 0` sentinel means it never gets there (#305).
+  test('reps 0 with a 0 weight (bodyweight) returns both zeros — guard layer only', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '0',
+        weightText: '0',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toEqual({ reps: 0, weightLbs: 0 });
+  });
+
+  test('duration 0 is returned, not swallowed as absent — guard layer only', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '',
+        weightText: '',
+        durationText: '0',
+        rpe: undefined,
+      })
+    ).toEqual({ durationSeconds: 0 });
+  });
+
+  // The easiest way to hit this on device: start the stopwatch and stop it
+  // immediately. `onStop` writes String(elapsedSeconds), so the field fills
+  // with `0`, the button goes live — and #305 then erases the measurement.
+  test('a duration that truncates to 0 is returned (0.9s is a measurement) — guard layer only', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '',
+        weightText: '',
+        durationText: '0.9',
+        rpe: undefined,
+      })
+    ).toEqual({ durationSeconds: 0 });
+  });
+
+  test('every value it does return carries a serializer-representable metric', () => {
+    const inputs = [
+      { isDurationBased: false, repsText: '0', weightText: '', durationText: '', rpe: undefined },
+      { isDurationBased: false, repsText: '5', weightText: '100', durationText: '', rpe: 8 },
+      { isDurationBased: false, repsText: '', weightText: '100', durationText: '', rpe: 8 },
+      { isDurationBased: true, repsText: '5', weightText: '', durationText: '30', rpe: 8 },
+      { isDurationBased: true, repsText: '5', weightText: '', durationText: '', rpe: 8 },
+    ];
+
+    const returned = inputs.map(buildLogSetValues).filter((values) => values !== undefined);
+    // Not vacuous: three of the five inputs are loggable.
+    expect(returned).toHaveLength(3);
+
+    for (const values of returned) {
+      // Mirrors buildSessionSetLine: reps builds the `1x<reps>` slot, duration
+      // becomes the `duration=` flag, and a line with neither is unparseable.
+      expect(values.reps !== undefined || values.durationSeconds !== undefined).toBe(true);
+    }
   });
 });

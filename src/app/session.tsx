@@ -680,16 +680,20 @@ export default function SessionScreen() {
                 rpePopupOpen={rpePopupOpen}
                 onRpePopupOpenChange={setRpePopupOpen}
                 onRpePopupConfirm={(rpe) => {
-                  // Dispatch the set with the RPE value passed from the popup
-                  presenter.onLogSet(
-                    buildLogSetValues({
-                      isDurationBased: isDurationBasedEntry(presenter.currentEntry),
-                      repsText,
-                      weightText,
-                      durationText,
-                      rpe,
-                    })
-                  );
+                  // Dispatch the set with the RPE value passed from the popup.
+                  // The popup is only reachable from a Log Set tap that was
+                  // already loggable, so `undefined` here means the fields were
+                  // cleared behind the sheet; an rpe alone is a flag, not a
+                  // measurement, and must not be logged as a set (#288).
+                  const values = buildLogSetValues({
+                    isDurationBased: isDurationBasedEntry(presenter.currentEntry),
+                    repsText,
+                    weightText,
+                    durationText,
+                    rpe,
+                  });
+                  if (values === undefined) return;
+                  presenter.onLogSet(values);
                 }}
                 belowButtonsSlot={
                   /* Rendered inside SetLogger's column so it can't be painted over by
