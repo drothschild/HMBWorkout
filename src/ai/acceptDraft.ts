@@ -43,18 +43,29 @@ export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoa
     exerciseId: slugifyTitle(ex.title),
     order: index,
     supersetGroup: ex.supersetGroup,
-    warmupSets: ex.warmupSets,
-    targetSets: ex.targetSets,
-    targetReps: ex.targetReps,
-    targetDurationSeconds: ex.targetDurationSeconds,
     restSeconds: ex.restSeconds,
-    // The single write-side unit boundary. The model speaks lbs (it reads
-    // history in lbs — contextBuilder's formatWeightLbs); storage is canonical
-    // kg. Nothing below this line sees pounds. Guard on undefined rather than
-    // falsiness: the validator has already rejected 0, but `lbsToKg(0)` is 0,
-    // and a 0 written into the column is a value the prefill silently ignores.
-    targetWeightKg: ex.targetWeightLbs !== undefined ? lbsToKg(ex.targetWeightLbs) : undefined,
+    // No per-exercise counts, load or duration are passed at all (#276 Phase
+    // 4). `upsertRoutine` DERIVES all five of those columns from the set list
+    // below, so passing them would be offering a second, competing answer for
+    // a value the list already fixes — the drift the derivation exists to make
+    // impossible.
     notes: ex.notes,
+    sets: ex.sets.map((set) => ({
+      setType: set.type,
+      targetReps: set.reps,
+      targetRepsMax: set.repsMax,
+      // THE single write-side unit boundary, and it is per set. The model
+      // speaks lbs (it reads history in lbs — contextBuilder's formatWeightLbs);
+      // storage is canonical kg. Nothing below this line sees pounds, and
+      // nothing above it sees kg — a second conversion anywhere turns 50lbs
+      // into 22.68kg and then into 10.29kg.
+      //
+      // Guard on undefined rather than falsiness: the validator has already
+      // rejected 0, but `lbsToKg(0)` is 0, and a 0 written into the column is a
+      // value computeSetPrefill silently ignores.
+      targetWeightKg: set.weightLbs !== undefined ? lbsToKg(set.weightLbs) : undefined,
+      targetDurationSeconds: set.durationSeconds,
+    })),
   }));
 
   await upsertRoutine(db, routineId, validated.name, entries, validated.notes !== undefined ? { notes: validated.notes } : undefined);

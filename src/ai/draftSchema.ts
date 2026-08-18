@@ -1,4 +1,5 @@
 import { ExerciseKind } from '@/db/models/Exercise';
+import type { RoutineSetType } from '@/engine/types';
 
 export interface AiTurn {
   reply: string;
@@ -33,21 +34,51 @@ export interface RoutineDraft {
   exercises: DraftExercise[];
 }
 
+/**
+ * One PRESCRIBED set inside a draft (#276 Phase 4).
+ *
+ * `type` is the plan's vocabulary — `'warmup' | 'normal'`, matching
+ * `routine_sets.set_type` — not the session's logged one (`working`, `stretch`,
+ * `cardio`). Every other field is optional, and absent means "not prescribed":
+ * a set carrying nothing but its type is a complete instruction ("do one
+ * working set"), and one carrying only a load is equally valid.
+ *
+ * `weightLbs` is in **pounds** — the unit the model reads history in
+ * (contextBuilder's formatWeightLbs) and the only unit it ever sees.
+ * `acceptDraft` converts to canonical kg exactly once, per set, on the way to
+ * the database; nothing below that line sees pounds.
+ */
+export interface DraftSet {
+  type: RoutineSetType;
+  /** Exact prescription, or the BOTTOM of a range when `repsMax` is present. */
+  reps?: number;
+  /** The top of a rep range. Meaningless without `reps`, and rejected without it. */
+  repsMax?: number;
+  weightLbs?: number;
+  durationSeconds?: number;
+}
+
 export interface DraftExercise {
   title: string; // free-form; may name a brand-new exercise
   kind: ExerciseKind;
   supersetGroup?: string;
-  warmupSets?: number;
-  targetSets?: number;
-  targetReps?: number;
-  targetDurationSeconds?: number;
   restSeconds?: number;
   /**
-   * Coach-prescribed target load, in **pounds** — the unit the model reads
-   * history in (contextBuilder's formatWeightLbs). acceptDraft converts to
-   * canonical kg exactly once on the way to the database.
+   * The exercise's whole prescription, in the order the sets are performed.
+   *
+   * Required and non-empty. The schema can declare the shape but NOT the
+   * count — `minItems` is on `UNSUPPORTED_SCHEMA_KEYWORDS` and 400s the entire
+   * request before the model runs — so `validateRoutineDraft` is the only
+   * enforcing layer for the non-empty rule. An empty list would reach the
+   * engine as an entry `h.next_active_landing` can never land on.
+   *
+   * This replaced `warmupSets`/`targetSets`/`targetReps`/
+   * `targetDurationSeconds`/`targetWeightLbs`. Those cannot come back
+   * alongside it: two ways to say the same thing is how the list and the
+   * aggregates drift, and `upsertRoutine` now DERIVES all five columns from
+   * this list.
    */
-  targetWeightLbs?: number;
+  sets: DraftSet[];
   notes?: string;
   description?: string; // applied only when the accept path creates the exercise
 }
@@ -63,6 +94,16 @@ const KIND_SET: Record<ExerciseKind, true> = {
   strength: true,
   cardio: true,
   stretch: true,
+};
+
+/**
+ * The plan's set vocabulary, as a record so the schema enum and the validator
+ * are derived from one source. `working` is the SESSION's word and must not
+ * appear here (`session_sets.set_type` is a different, unchanged vocabulary).
+ */
+const SET_TYPE_SET: Record<RoutineSetType, true> = {
+  warmup: true,
+  normal: true,
 };
 
 export const AI_TURN_SCHEMA = {
@@ -83,22 +124,40 @@ export const AI_TURN_SCHEMA = {
               title: { type: 'string' },
               kind: { type: 'string', enum: Object.keys(KIND_SET) },
               supersetGroup: { type: 'string' },
-              warmupSets: { type: 'integer' },
-              targetSets: { type: 'integer' },
-              targetReps: { type: 'integer' },
-              targetDurationSeconds: { type: 'integer' },
               restSeconds: { type: 'integer' },
-              // `number`, not `integer`: the bound is a 0.5lb grid, matching
-              // kgToLbs's rounding. And NO bound keywords here — `minimum` and
-              // `multipleOf` are both on UNSUPPORTED_SCHEMA_KEYWORDS, and one of
-              // them 400s the entire request before the model runs (see
-              // structuredOutputSubset.ts; it cost PR #71 a whole feature).
-              // The bound lives in validateRoutineDraft.
-              targetWeightLbs: { type: 'number' },
+              // The exercise's whole prescription (#276 Phase 4). NOTE the
+              // absence of `minItems: 1` — it is the obvious way to express
+              // "at least one set" and it is exactly what must not be here:
+              // `minItems` is on UNSUPPORTED_SCHEMA_KEYWORDS and 400s the
+              // entire request before the model runs (PR #71). The count is
+              // enforced in validateRoutineDraft, which is its only layer.
+              sets: {
+                type: 'array',
+                description: 'One entry per set to perform, in order',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', enum: Object.keys(SET_TYPE_SET) },
+                    reps: { type: 'integer' },
+                    repsMax: { type: 'integer' },
+                    // `number`, not `integer`: the bound is a 0.5lb grid,
+                    // matching kgToLbs's rounding. And NO bound keywords here —
+                    // `minimum` and `multipleOf` are both on
+                    // UNSUPPORTED_SCHEMA_KEYWORDS, and one of them 400s the
+                    // entire request (see structuredOutputSubset.ts; it cost
+                    // PR #71 a whole feature). The bound lives in
+                    // validateRoutineDraft.
+                    weightLbs: { type: 'number' },
+                    durationSeconds: { type: 'integer' },
+                  },
+                  required: ['type'],
+                  additionalProperties: false,
+                },
+              },
               notes: { type: 'string' },
               description: { type: 'string' },
             },
-            required: ['title', 'kind'],
+            required: ['title', 'kind', 'sets'],
             additionalProperties: false,
           },
         },
@@ -207,12 +266,61 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
       }
     };
 
-    validateInteger('warmupSets', exercise.warmupSets, 0);
-    validateInteger('targetSets', exercise.targetSets, 1);
-    validateInteger('targetReps', exercise.targetReps, 1);
-    validateInteger('targetDurationSeconds', exercise.targetDurationSeconds, 0);
     validateInteger('restSeconds', exercise.restSeconds, 0);
-    validateHalfStepWeight('targetWeightLbs', exercise.targetWeightLbs);
+
+    // The set list, and the one rule the schema cannot carry.
+    //
+    // `minItems` would express the non-empty half declaratively and would 400
+    // the whole request (PR #71), so this is the ONLY enforcing layer for it.
+    // Without it a drafted empty exercise reaches the engine as an entry
+    // `h.next_active_landing` refuses to land on, and the whole of convention
+    // 10 ends up doing work this line should have done.
+    if (!Array.isArray(exercise.sets)) {
+      throw new DraftValidationError(
+        `exercise "${exercise.title}" must carry a "sets" array, one entry per set`
+      );
+    }
+
+    if (exercise.sets.length === 0) {
+      throw new DraftValidationError(
+        `exercise "${exercise.title}" must prescribe at least one set`
+      );
+    }
+
+    for (const rawSet of exercise.sets) {
+      if (!rawSet || typeof rawSet !== 'object' || Array.isArray(rawSet)) {
+        throw new DraftValidationError('each set must be an object');
+      }
+
+      const set = rawSet as Record<string, unknown>;
+
+      if (!Object.keys(SET_TYPE_SET).includes(set.type as string)) {
+        throw new DraftValidationError(
+          `set type must be one of: ${Object.keys(SET_TYPE_SET).join(', ')}, got "${set.type}"`
+        );
+      }
+
+      validateInteger('set reps', set.reps, 1);
+      validateInteger('set repsMax', set.repsMax, 1);
+      validateInteger('set durationSeconds', set.durationSeconds, 0);
+      validateHalfStepWeight('set weightLbs', set.weightLbs);
+
+      if (set.repsMax !== undefined) {
+        // A range's top with no bottom is not a range, and no read site can
+        // render it: every reps formatter consults repsMax only once reps is
+        // present, so a bare repsMax would be silently discarded rather than
+        // honoured.
+        if (set.reps === undefined) {
+          throw new DraftValidationError('set repsMax requires reps, which is the range\'s bottom');
+        }
+
+        if ((set.repsMax as number) < (set.reps as number)) {
+          throw new DraftValidationError(
+            `set repsMax must be >= reps, got ${set.repsMax} < ${set.reps}`
+          );
+        }
+      }
+    }
   }
 
   return obj as unknown as RoutineDraft;

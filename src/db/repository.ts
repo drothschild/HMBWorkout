@@ -1188,24 +1188,38 @@ export interface RoutineExerciseEntry {
  * The aggregate columns a set list implies, for as long as those columns exist.
  *
  * Phases 1–5 are expand: every consumer that has not yet moved keeps reading
- * `warmup_sets`, `target_sets` and `target_reps`, so they must stay exactly
- * consistent with the list or the two representations silently disagree and
- * nothing downstream notices. Phase 6 undeclares the columns and deletes this.
+ * these columns, so they must stay exactly consistent with the list or the two
+ * representations silently disagree and nothing downstream notices. Phase 6
+ * undeclares the columns and deletes this.
  *
- * `targetReps` is the FIRST normal set's, even when that set prescribes none —
- * scanning ahead for the first set that happens to carry reps would report a
- * later set's prescription as if it were the entry's.
+ * ALL FIVE are derived, which is the decision Phase 1 deferred (#276). Phase 1
+ * derived only `warmup_sets`/`target_sets`/`target_reps` and left
+ * `target_duration_seconds` and `target_weight_kg` caller-supplied, harmless
+ * then because no caller passed a set list. Phase 4's `acceptDraft` is the
+ * first writer that can make them disagree with the list — a warmup ramp has
+ * no single load — so the derivation was widened rather than left to one
+ * caller's discipline.
+ *
+ * One rule for the three value columns: **the FIRST normal set's**, even when
+ * that set prescribes none. Scanning ahead for the first set that happens to
+ * carry a value would report a later set's prescription as the entry's, and
+ * taking `sets[0]`'s would report a warmup's — for RAMP that is 9.07kg where
+ * the working sets are 22.68.
  */
 function deriveAggregates(sets: readonly RoutineSetEntry[]): {
   warmupSets: number;
   targetSets: number;
   targetReps: number | undefined;
+  targetDurationSeconds: number | undefined;
+  targetWeightKg: number | undefined;
 } {
   const normalSets = sets.filter((set) => set.setType === 'normal');
   return {
     warmupSets: sets.filter((set) => set.setType === 'warmup').length,
     targetSets: normalSets.length,
     targetReps: normalSets[0]?.targetReps,
+    targetDurationSeconds: normalSets[0]?.targetDurationSeconds,
+    targetWeightKg: normalSets[0]?.targetWeightKg,
   };
 }
 
@@ -1357,6 +1371,11 @@ export async function upsertRoutine(
         ? derived.targetSets
         : exerciseEntry.targetSets ??
           ((exerciseEntry.warmupSets ?? 0) === 0 ? 1 : undefined);
+      // #276 Phase 4: these two joined the derived set. See deriveAggregates.
+      const targetDurationSeconds = derived
+        ? derived.targetDurationSeconds
+        : exerciseEntry.targetDurationSeconds;
+      const targetWeightKg = derived ? derived.targetWeightKg : exerciseEntry.targetWeightKg;
 
       const existing = unclaimed.get(exerciseEntry.exerciseId)?.shift();
       let routineExerciseId: string;
@@ -1367,9 +1386,9 @@ export async function upsertRoutine(
           re.warmupSets = warmupSets;
           re.targetSets = defaultedTargetSets ?? null;
           re.targetReps = targetReps ?? null;
-          re.targetDurationSeconds = exerciseEntry.targetDurationSeconds ?? null;
+          re.targetDurationSeconds = targetDurationSeconds ?? null;
           re.restSeconds = exerciseEntry.restSeconds ?? null;
-          re.targetWeightKg = exerciseEntry.targetWeightKg ?? null;
+          re.targetWeightKg = targetWeightKg ?? null;
           re.notes = exerciseEntry.notes ?? null;
         });
         routineExerciseId = (existing as any).id;
@@ -1382,10 +1401,10 @@ export async function upsertRoutine(
           re.warmupSets = warmupSets;
           if (defaultedTargetSets !== undefined) re.targetSets = defaultedTargetSets;
           if (targetReps !== undefined) re.targetReps = targetReps;
-          if (exerciseEntry.targetDurationSeconds !== undefined)
-            re.targetDurationSeconds = exerciseEntry.targetDurationSeconds;
+          if (targetDurationSeconds !== undefined)
+            re.targetDurationSeconds = targetDurationSeconds;
           if (exerciseEntry.restSeconds !== undefined) re.restSeconds = exerciseEntry.restSeconds;
-          if (exerciseEntry.targetWeightKg !== undefined) re.targetWeightKg = exerciseEntry.targetWeightKg;
+          if (targetWeightKg !== undefined) re.targetWeightKg = targetWeightKg;
           if (exerciseEntry.notes !== undefined) re.notes = exerciseEntry.notes;
         });
         routineExerciseId = (created as any).id;

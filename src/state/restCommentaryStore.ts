@@ -43,7 +43,7 @@ import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
 import { supersetRunEndIndex } from '@/domain/supersetGrouping';
 import { entrySets } from '@/engine/entrySets';
-import type { ExerciseKind, LoggedSet, SessionState } from '@/engine/types';
+import type { ExerciseKind, LoggedSet, RoutineSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
 /**
@@ -65,11 +65,13 @@ interface RestCommentaryTargetBase {
   exerciseId: string;
   exerciseTitle: string;
   kind: ExerciseKind;
-  warmupSets: number;
-  targetSets: number;
-  targetReps: number;
-  targetDurationSeconds: number;
   restSeconds: number;
+  /**
+   * The entry's ordered prescription (#276 AC4.12). Carried through to
+   * `buildRestCommentaryPrompt`'s target summary, which is what lets the remark
+   * name the load the athlete is ramping to instead of a set count.
+   */
+  sets: readonly RoutineSet[];
   isWarmupSet: boolean;
   setNumber: number;
   /**
@@ -276,11 +278,8 @@ export function restCommentaryTarget(
       exerciseId: performed.exerciseId,
       exerciseTitle: exerciseTitles?.[performed.exerciseId] || performed.exerciseId,
       kind: performed.kind,
-      warmupSets: performed.warmupSets,
-      targetSets: performed.targetSets,
-      targetReps: performed.targetReps,
-      targetDurationSeconds: performed.targetDurationSeconds,
       restSeconds: performed.restSeconds,
+      sets: entrySets(performed),
       isWarmupSet: setPos.isWarmupSet,
       setNumber: setPos.setNumber,
       totalOfType: setPos.totalOfType,
@@ -300,11 +299,8 @@ export function restCommentaryTarget(
     exerciseId: currentEntry.exerciseId,
     exerciseTitle: exerciseTitles?.[currentEntry.exerciseId] || currentEntry.exerciseId,
     kind: currentEntry.kind,
-    warmupSets: currentEntry.warmupSets,
-    targetSets: currentEntry.targetSets,
-    targetReps: currentEntry.targetReps,
-    targetDurationSeconds: currentEntry.targetDurationSeconds,
     restSeconds: currentEntry.restSeconds,
+    sets: entrySets(currentEntry),
     isWarmupSet: setPos.isWarmupSet,
     setNumber: setPos.setNumber,
     totalOfType: setPos.totalOfType,
@@ -369,11 +365,8 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
       const exercise = {
         title: target.exerciseTitle,
         kind: target.kind,
-        warmupSets: target.warmupSets,
-        targetSets: target.targetSets,
-        targetReps: target.targetReps,
-        targetDurationSeconds: target.targetDurationSeconds,
         restSeconds: target.restSeconds,
+        sets: target.sets,
         isWarmupSet: target.isWarmupSet,
         setNumber: target.setNumber,
         totalOfType: target.totalOfType,

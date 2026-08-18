@@ -38,11 +38,21 @@ function makeEntry(overrides?: Partial<RoutineEntry>): RoutineEntry {
     idx: 0,
     exerciseId: 'barbell-bench-press',
     kind: 'strength',
-    warmupSets: 1,
-    targetSets: 4,
-    targetReps: 6,
+    // The aggregate counts survive on the ENGINE entry until Phase 6; they are
+    // deliberately inconsistent with the list below so a `replaceExerciseTarget`
+    // that read them instead of `entrySets` would be visible.
+    warmupSets: 0,
+    targetSets: 0,
+    targetReps: 0,
     targetDurationSeconds: 0,
     restSeconds: 150,
+    sets: [
+      { setType: 'warmup', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+    ],
     supersetGroup: '',
     ...overrides,
   };
@@ -74,11 +84,14 @@ function makeTarget(overrides?: Partial<ReplaceTarget>): ReplaceTarget {
     exerciseId: 'barbell-bench-press',
     exerciseTitle: 'Barbell Bench Press',
     kind: 'strength',
-    warmupSets: 1,
-    targetSets: 4,
-    targetReps: 6,
-    targetDurationSeconds: 0,
     restSeconds: 150,
+    sets: [
+      { setType: 'warmup', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+      { setType: 'normal', reps: 6 },
+    ],
     ...overrides,
   };
 }
@@ -284,6 +297,22 @@ describe('createExerciseReplaceStore', () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.messages[0].content).toContain('Barbell Bench Press');
+    });
+
+    it('forwards the prescription itself into the prompt, not an empty list', async () => {
+      // The store→prompt seam for `sets` (#276 Phase 4), the twin of the one in
+      // restCommentaryStore. Pinned at the store end (`replaceExerciseTarget`
+      // above) and at the builder end (alternatesPrompt.test), but not across
+      // the hand-off: substituting `sets: []` at this one statement survived
+      // the whole suite, and every alternates request would have described the
+      // exercise being replaced as having no target at all.
+      const { store } = makeStore();
+
+      await store.getState().open(makeTarget());
+
+      const content = JSON.parse(mockFetch.mock.calls[0][1].body).messages[0].content;
+      expect(content).toContain('target warmup 6 reps, 4 × 6 reps');
+      expect(content).not.toContain('no target recorded');
     });
 
     it('makes no call and offers nothing without a key', async () => {

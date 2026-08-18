@@ -6,6 +6,7 @@ import {
   getExerciseWorkingSetHistory,
   updateRoutineExerciseExerciseId,
   upsertExercise,
+  upsertRoutine,
   upsertRoutineExercise,
 } from '@/db/repository';
 import { setSettings, injectSettingsStorage, resetForTesting } from '@/state/settings';
@@ -56,10 +57,15 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('Prefer reusing exercise titles that already exist in the user\'s data');
     }, 30000);
 
-    it('includes persona units contract in exercise schema', async () => {
+    // #276 AC4.7. This assertion previously pinned
+    // 'warmupSets, targetDurationSeconds, restSeconds: when present, must be
+    // integers >= 0'. Both bounds still exist — one on the exercise, one on the
+    // set — so the sentence is rewritten rather than deleted.
+    it('includes persona units contract for the >= 0 bounds, per level', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).toContain('warmupSets, targetDurationSeconds, restSeconds: when present, must be integers >= 0');
+      expect(prompt).toContain('restSeconds: when present, must be an integer >= 0');
+      expect(prompt).toContain('durationSeconds: when present, must be an integer >= 0');
     }, 30000);
 
     it('IMPORTANT 1: includes constraint that draft must contain at least one exercise', async () => {
@@ -81,17 +87,56 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('title: must contain at least one ASCII letter or digit (a-z, 0-9)');
     }, 30000);
 
-    it('IMPORTANT 1: includes constraint that targetSets and targetReps must be >= 1 when present', async () => {
+    // #276 AC4.7. Was 'targetSets, targetReps: when present, must be integers
+    // >= 1'. The set count is now the list's length, so only the reps bound
+    // survives as a number — restated per set, alongside the rep-range bound
+    // the range case added.
+    it('IMPORTANT 1: includes constraint that reps must be >= 1 when present', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
-      expect(prompt).toContain('targetSets, targetReps: when present, must be integers >= 1');
+      expect(prompt).toContain('reps: when present, must be an integer >= 1');
+      expect(prompt).toContain(
+        'repsMax: the top of a rep range whose bottom is "reps"; when present, must be an integer >= reps, and "reps" must be present alongside it'
+      );
     }, 30000);
 
-    it('includes guidance to set targetSets: 1 on duration-based exercises', async () => {
+    // #276 AC4.8. AGENTS.md flags this sentence as having no validator
+    // counterpart — it steers the model away from zero-planned-set drafts — so
+    // it survives the rewrite in per-set form rather than being dropped.
+    it('includes guidance to give a duration-based exercise a single set', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'Give every duration-based exercise (targetDurationSeconds instead of reps) targetSets: 1 unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow'
+        'Give a duration-based exercise (durationSeconds instead of reps) a single set in the list unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow'
+      );
+    }, 30000);
+
+    // #276 AC4.7. The rule the whole phase exists for. Nothing in
+    // validateRoutineDraft can require a ramp, so this sentence is the only
+    // thing that asks for one.
+    it('tells the coach to write a warmup ramp out set by set', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'Write a warmup ramp out set by set, each warmup carrying its own weightLbs, rather than repeating one load — the set list exists so a ramp can be programmed'
+      );
+    }, 30000);
+
+    it('states that the set list is required and non-empty', async () => {
+      // The AC4.6 bound. validateRoutineDraft is its only enforcing layer —
+      // `minItems` would 400 the request — so the persona must say it.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'sets: the ordered list of sets to perform, one object per set. Required, and must contain at least one set'
+      );
+    }, 30000);
+
+    it('states the set type vocabulary', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'type: must be "warmup" or "normal". Warmup sets come first, in the order they are performed'
       );
     }, 30000);
 
@@ -103,24 +148,39 @@ describe('buildSystem: AI Coach context builder', () => {
       );
     }, 30000);
 
-    // coach-prescribed-weights.AC2.8: The bound is stated as an exact sentence (full sentence, not prefix)
-    // This pins the full statement including the "Omit it when..." guidance that Phase 4's
-    // history-fallback depends on. The plan prescribed prefix-only; this closes the gap.
-    it('states the complete targetWeightLbs bound and omit guidance in the exercise schema', async () => {
+    // coach-prescribed-weights.AC2.8, restated per set for #276 AC4.7. The
+    // bound (positive, 0.5 grid) is unchanged; what moved is the level it
+    // applies at — validateRoutineDraft now enforces it once per set.
+    it('states the complete weightLbs bound and omit guidance in the set schema', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'targetWeightLbs: the load to lift, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete\'s own recent history to fill the field'
+        'weightLbs: the load for THIS set, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete\'s own recent history to fill the field'
       );
     }, 30000);
 
-    // coach-prescribed-weights.AC2.9: Guidance line is reworded to allow half-pounds
-    it('updates the blanket integer guidance to allow targetWeightLbs half-steps', async () => {
+    // coach-prescribed-weights.AC2.9, renamed for #276 AC4.7: the exception is
+    // still the load field, which is still the only non-integer in the
+    // contract; it is now spelled weightLbs and lives on the set.
+    it('updates the blanket integer guidance to allow weightLbs half-steps', async () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).toContain(
-        'All numeric values must be integers, except targetWeightLbs, which may use 0.5 steps'
+        'All numeric values must be integers, except weightLbs, which may use 0.5 steps'
       );
+    }, 30000);
+
+    it('no longer offers the per-exercise aggregates the set list replaced', async () => {
+      // One turn shape, three declarations. A persona still naming
+      // targetSets/targetWeightLbs asks for fields AI_TURN_SCHEMA rejects with
+      // additionalProperties: false, so the whole turn fails.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).not.toContain('targetWeightLbs');
+      expect(prompt).not.toContain('targetSets');
+      expect(prompt).not.toContain('targetReps');
+      expect(prompt).not.toContain('targetDurationSeconds');
+      expect(prompt).not.toContain('warmupSets');
     }, 30000);
   });
 
@@ -303,10 +363,13 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('Bench Press');
       expect(prompt).toContain('Rows');
       expect(prompt).toContain('Squat');
-      expect(prompt).toContain('3x8');
-      expect(prompt).toContain('4x10');
-      expect(prompt).toContain('3x5');
-      expect(prompt).toContain('warmup: 1');
+      // #276 AC4.11: the plan renders as its set list. These rows are
+      // aggregate-only, so prescribedSets' fallback expands them into uniform
+      // lists and the run-length rule collapses each back to one segment.
+      expect(prompt).toContain('3 × 8 reps');
+      expect(prompt).toContain('4 × 10 reps');
+      expect(prompt).toContain('3 × 5 reps');
+      expect(prompt).toContain('warmup 8 reps');
       expect(prompt).toContain('rest 120s');
       expect(prompt).toContain('rest 90s');
       expect(prompt).toContain('rest 180s');
@@ -498,9 +561,12 @@ describe('buildSystem: AI Coach context builder', () => {
       const historyStart = prompt.indexOf('## Recent Workouts');
       const routineSection = prompt.substring(routineStart, historyStart);
 
-      // AC3.2: Prescribed entry renders weight in lbs in correct position
-      // Position: immediately after sets×reps, before rest segment (cosmetic but pinned)
-      expect(routineSection).toContain('Back Squat (strength) | 3x5 | @ 185lbs');
+      // AC3.2: Prescribed entry renders weight in lbs in correct position.
+      // #276 AC4.11 reshaped the line: the plan is now the entry's set list,
+      // and an aggregate-only row reaches it through prescribedSets' fallback
+      // (three identical normal sets), which run-length collapses back to one
+      // segment. The load still renders in lbs, still on this segment.
+      expect(routineSection).toContain('Back Squat (strength) | 3 × 5 reps @ 185lbs');
       // Assert the rendered lbs string, not the kg value — this proves
       // the conversion happened at the display edge. kgToLbs(83.91) = 185.
       expect(routineSection).toContain('@ 185lbs');
@@ -508,7 +574,7 @@ describe('buildSystem: AI Coach context builder', () => {
       // AC3.3: Unprescribed entries (absent and zero) don't render weight segment
       expect(routineSection).toContain('Bench Press');
       expect(routineSection).toContain('Zero Squat');
-      expect(routineSection).toContain('3x8');
+      expect(routineSection).toContain('3 × 8 reps');
       expect(routineSection).toContain('rest 120s');
 
       // Ensure exactly one weight segment: only the prescribed squat's 185lbs, not zero or absent
@@ -523,6 +589,72 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt.length).toBeGreaterThan(0);
       expect(prompt).toContain('No routines yet');
       expect(prompt).not.toMatch(/undefined|null/);
+    }, 30000);
+  });
+
+  // #276 AC4.11. The coach must be able to PROGRESS a ramp it wrote last week,
+  // which it can only do if it can see it. A summarised "3 warmup sets" line
+  // means the coach flattens the ramp on the next revision.
+  describe('Per-set routine rendering (AC4.11)', () => {
+    async function writeRamp(): Promise<void> {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-ramp';
+          r.name = 'Push Day';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'bench-press-dumbbell';
+          e.title = 'Bench Press (Dumbbell)';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      await upsertRoutine(database, 'routine-ramp', 'Push Day', [
+        {
+          exerciseId: 'bench-press-dumbbell',
+          order: 0,
+          restSeconds: 120,
+          sets: [
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 9.07 },
+            { setType: 'warmup', targetReps: 5, targetWeightKg: 11.34 },
+            { setType: 'warmup', targetReps: 3, targetWeightKg: 18.14 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+            { setType: 'normal', targetReps: 8, targetRepsMax: 10, targetWeightKg: 22.68 },
+          ],
+        },
+      ]);
+    }
+
+    it('renders RAMP with all three warmup loads, distinct and in lbs', async () => {
+      await writeRamp();
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        '  - Bench Press (Dumbbell) (strength) | warmup 5 reps @ 20lbs, warmup 5 reps @ 25lbs, warmup 3 reps @ 40lbs, 4 × 8-10 reps @ 50lbs | rest 120s'
+      );
+    }, 30000);
+
+    it('shows three distinct warmup weights, not one repeated', async () => {
+      // The regression this AC names, asserted as a property rather than as
+      // one string: a count-summarised line has fewer than three.
+      await writeRamp();
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+      const routineSection = prompt.slice(
+        prompt.indexOf('## Existing Routines'),
+        prompt.indexOf('## Recent Workouts')
+      );
+
+      const warmupLoads = [...routineSection.matchAll(/warmup [\d-]+ reps @ (\d+(?:\.\d+)?)lbs/g)].map(
+        (match) => match[1]
+      );
+      expect(warmupLoads).toEqual(['20', '25', '40']);
     }, 30000);
   });
 
@@ -1120,7 +1252,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
       expect(lineFor(prompt, 'Bench Press')).toBe(
-        '  Bench Press (target 3x8): 5 reps @ 88lbs (warmup), 8 reps @ 220.5lbs, 6 reps @ 220.5lbs RPE 9'
+        '  Bench Press (target warmup 8 reps, 3 × 8 reps): 5 reps @ 88lbs (warmup), 8 reps @ 220.5lbs, 6 reps @ 220.5lbs RPE 9'
       );
     }, 30000);
 
@@ -1129,7 +1261,69 @@ describe('buildSystem: AI Coach context builder', () => {
 
       const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
 
-      expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4x10): no sets logged');
+      expect(lineFor(prompt, 'Rows')).toBe('  Rows (target 4 × 10 reps): no sets logged');
+    }, 30000);
+
+    it('resolves the plan for SUPERSET entries, not only standalone ones', async () => {
+      // `planByRow` fills from two arrays because RoutineDetail partitions a
+      // routine's entries into exactly those two — `supersetGroups` and
+      // `standaloneExercises` are the two filters over a closed two-member
+      // union in routineDetailPresenter, so there is no third source to miss.
+      // Every OTHER debrief fixture in this file is standalone, which left the
+      // superset half of that fill unpinned: dropping it silently strips the
+      // target from every superset exercise, and the coach debriefs a plan it
+      // cannot see.
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = 'Arms';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        for (const [id, title] of [
+          ['exercise-curl', 'Curls'],
+          ['exercise-pushdown', 'Pushdowns'],
+        ]) {
+          await database.get('exercises').create((e: any) => {
+            e._raw.id = id;
+            e.title = title;
+            e.kind = 'strength';
+            e.created_at = Date.now();
+          });
+        }
+      });
+
+      // Two members of ONE group with visibly different plans, so a line that
+      // read the other member's plan is not interchangeable with the right one.
+      const curl = await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-curl',
+        order: 0,
+        supersetGroup: 'A',
+        targetSets: 3,
+        targetReps: 12,
+      });
+      await upsertRoutineExercise(database, routineId, {
+        exerciseId: 'exercise-pushdown',
+        order: 1,
+        supersetGroup: 'A',
+        targetSets: 4,
+        targetReps: 15,
+      });
+
+      await createSession(database, {
+        sessionId,
+        routineId,
+        startedAtMs: Date.now() - 3600000,
+      });
+      await appendSet(database, sessionId, (curl as any).id, {
+        setType: 'working',
+        reps: 12,
+      });
+
+      const prompt = await buildSystem(database, { kind: 'debrief', routineId, sessionId });
+
+      expect(lineFor(prompt, 'Curls')).toBe('  Curls (target 3 × 12 reps): 12 reps');
+      expect(lineFor(prompt, 'Pushdowns')).toBe('  Pushdowns (target 4 × 15 reps): no sets logged');
     }, 30000);
 
     it('summarises only the session being debriefed', async () => {
@@ -1212,8 +1406,8 @@ describe('buildSystem: AI Coach context builder', () => {
         .filter((line) => line.trimStart().startsWith('Bench Press ('));
 
       expect(benchLines).toEqual([
-        '  Bench Press (target 3x8): no sets logged',
-        '  Bench Press (target 1x20): 20 reps @ 88lbs',
+        '  Bench Press (target 3 × 8 reps): no sets logged',
+        '  Bench Press (target 20 reps): 20 reps @ 88lbs',
       ]);
     }, 30000);
 
@@ -1307,6 +1501,15 @@ describe('buildSystem: AI Coach context builder', () => {
       // Should show the logged exercise, not the "no longer exists" message
       expect(prompt).toContain('Push-ups');
       expect(prompt).not.toContain('This routine no longer exists');
+
+      // ...and with NO target segment. This is the only debrief fixture whose
+      // plan is unresolvable, so `formatTarget`'s empty-summary guard is
+      // observable here and nowhere else: without it the line reads
+      // "Push-ups (target ): 8 reps" — a dangling parenthetical the coach
+      // would read as a real, empty prescription. Asserted as the whole line,
+      // since `toContain('Push-ups')` passes either way.
+      expect(prompt).toContain('  Push-ups: 8 reps');
+      expect(prompt).not.toContain('(target )');
     }, 30000);
   });
 

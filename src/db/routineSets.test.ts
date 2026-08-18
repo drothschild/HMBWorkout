@@ -307,6 +307,46 @@ describe('Per-set routine model (#276 Phase 1)', () => {
       expect(row._raw.target_reps).toBe(8);
     });
 
+    it('derives all five aggregates on the UPDATE branch, not only on create', async () => {
+      // Every other derivation fixture in this file upserts ONCE, so it only
+      // ever exercises `upsertRoutine`'s create branch. The update branch
+      // writes the same five columns from its own statements, and three of
+      // them — warmup_sets, target_duration_seconds, target_weight_kg — had no
+      // cover there at all: a derivation that reached only the create branch
+      // (or, equivalently, an update branch that fell back to the caller's
+      // aggregates) was invisible to the whole suite.
+      //
+      // The first upsert exists only to make the row already present. Every
+      // expected value below differs from BOTH the first list's derivation and
+      // the deliberately-wrong caller aggregates, so reading either source is
+      // visible rather than coincidentally right.
+      await writeBench([{ setType: 'normal', targetReps: 1, targetWeightKg: 5 }]);
+
+      await writeBench(
+        [
+          { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+          { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
+          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
+          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
+          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
+        ],
+        {
+          warmupSets: 99,
+          targetSets: 99,
+          targetReps: 99,
+          targetDurationSeconds: 99,
+          targetWeightKg: 99,
+        }
+      );
+
+      const row = await benchRow();
+      expect(row._raw.warmup_sets).toBe(2);
+      expect(row._raw.target_sets).toBe(3);
+      expect(row._raw.target_reps).toBe(8);
+      expect(row._raw.target_duration_seconds).toBe(45);
+      expect(row._raw.target_weight_kg).toBe(60);
+    });
+
     it('honours caller-supplied aggregates when no set list is present', async () => {
       await upsertRoutine(database, ROUTINE_ID, 'Push Day', [
         { exerciseId: BENCH, order: 0, warmupSets: 2, targetSets: 5, targetReps: 6 },

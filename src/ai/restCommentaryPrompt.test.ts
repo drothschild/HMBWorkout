@@ -18,11 +18,13 @@ import {
 const benchPress: RestCommentaryExercise = {
   title: 'Bench Press',
   kind: 'strength',
-  warmupSets: 1,
-  targetSets: 3,
-  targetReps: 8,
-  targetDurationSeconds: 0,
   restSeconds: 90,
+  sets: [
+    { setType: 'warmup' },
+    { setType: 'normal', reps: 8 },
+    { setType: 'normal', reps: 8 },
+    { setType: 'normal', reps: 8 },
+  ],
   isWarmupSet: false,
   setNumber: 2,
   totalOfType: 3,
@@ -35,9 +37,7 @@ const benchPress: RestCommentaryExercise = {
  */
 const prescribesNothing: RestCommentaryExercise = {
   ...benchPress,
-  warmupSets: 0,
-  targetSets: 0,
-  targetReps: 0,
+  sets: [],
   isWarmupSet: false,
   setNumber: 1,
   totalOfType: 0,
@@ -72,7 +72,7 @@ describe('buildRestCommentaryPrompt', () => {
     it('carries the strength targets and rest length', () => {
       const { message } = buildRestCommentaryPrompt(promptInput());
 
-      expect(message).toContain('3x8');
+      expect(message).toContain('3 × 8 reps');
       expect(message).toContain('rest 90s');
     });
 
@@ -83,15 +83,17 @@ describe('buildRestCommentaryPrompt', () => {
             ...benchPress,
             title: 'Couch Stretch',
             kind: 'stretch',
-            targetSets: 2,
-            targetReps: 0,
-            targetDurationSeconds: 45,
+            sets: [
+              { setType: 'normal', durationSeconds: 45 },
+              { setType: 'normal', durationSeconds: 45 },
+            ],
           },
         })
       );
 
-      expect(message).toContain('45s');
+      expect(message).toContain('2 × 45s');
       expect(message).not.toContain('2x0');
+      expect(message).not.toContain('0 reps');
     });
 
     it('states which working set is coming up', () => {
@@ -105,7 +107,11 @@ describe('buildRestCommentaryPrompt', () => {
         promptInput({
           exercise: {
             ...benchPress,
-            warmupSets: 2,
+            sets: [
+              { setType: 'warmup' },
+              { setType: 'warmup' },
+              { setType: 'normal', reps: 8 },
+            ],
             isWarmupSet: true,
             setNumber: 1,
             totalOfType: 2,
@@ -123,7 +129,6 @@ describe('buildRestCommentaryPrompt', () => {
             ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            targetDurationSeconds: 30,
           },
         })
       );
@@ -131,7 +136,13 @@ describe('buildRestCommentaryPrompt', () => {
       // Whole-line equality, not a `not.toContain('Set 1 of 0')`: the negative
       // form passes just as happily when the guard emits some OTHER wrong
       // position, so it cannot tell a working guard from a broken one.
-      expect(message.split('\n')[2]).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
+      //
+      // #276 AC4.12: an entry with an empty set list has no target either —
+      // the old fixture's `targetDurationSeconds: 30` alongside `targetSets: 0`
+      // was a shape the per-set model cannot express.
+      expect(message.split('\n')[2]).toBe(
+        'Cooldown Stretch (stretch) | no target recorded | rest 90s'
+      );
     });
 
     it('formats the Up Next line correctly for working sets: title and kind stay together', () => {
@@ -139,7 +150,9 @@ describe('buildRestCommentaryPrompt', () => {
 
       // The Up Next line is the third line (after "## Up Next" header and blank line)
       const upNextLine = message.split('\n')[2];
-      expect(upNextLine).toBe('Bench Press (strength) | Set 2 of 3 | target 3x8 | rest 90s');
+      expect(upNextLine).toBe(
+        'Bench Press (strength) | Set 2 of 3 | target warmup 1 set, 3 × 8 reps | rest 90s'
+      );
     });
 
     it('formats the Up Next line correctly for zero-total duration entries: title and kind together, set position omitted', () => {
@@ -149,28 +162,25 @@ describe('buildRestCommentaryPrompt', () => {
             ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            targetDurationSeconds: 30,
           },
         })
       );
 
       const upNextLine = message.split('\n')[2];
-      expect(upNextLine).toBe('Cooldown Stretch (stretch) | target 30s | rest 90s');
+      expect(upNextLine).toBe('Cooldown Stretch (stretch) | no target recorded | rest 90s');
     });
 
     // ---- #276 Phase 3 (AC3.5): the second, independent label builder --------
 
     it('AC3.4: renders the denominator the set list gives, not a warmup count', () => {
-      // RAMP's second warmup. `warmupSets`/`targetSets` here are the aggregate
-      // pair the caller no longer derives the label from; a builder that still
-      // read them would say "Warmup 2 of 1".
+      // RAMP's second warmup. `totalOfType` is supplied by the caller from one
+      // reading of the plan; a builder deriving it from `sets` here would say
+      // "Warmup 2 of 1", since benchPress's list holds a single warmup.
       const { message } = buildRestCommentaryPrompt(
         promptInput({
           exercise: {
             ...benchPress,
             title: 'Bench Press (Dumbbell)',
-            warmupSets: 1,
-            targetSets: 99,
             isWarmupSet: true,
             setNumber: 2,
             totalOfType: 3,
@@ -191,16 +201,16 @@ describe('buildRestCommentaryPrompt', () => {
       expect(message.split('\n')[2]).toContain('| Warmup 2 of 2 |');
     });
 
-    it('AC3.4: the WORKING denominator is the list’s too, not targetSets', () => {
+    it('AC3.4: the WORKING denominator is the caller’s, read once from the plan', () => {
       // The warmup branch has its own fixture above; this one covers the other
-      // half of the ternary. `targetSets` is deliberately wrong — a builder
-      // still reading it says "Set 2 of 99". (Mutation M24 survived until this
-      // fixture existed: every other fixture had totalOfType === targetSets.)
+      // half of the ternary. `totalOfType` deliberately disagrees with the
+      // fixture's own three-set list — a builder re-deriving the denominator
+      // instead of reading the caller's says "Set 2 of 3". (Mutation M24
+      // survived until a fixture existed where the two differ.)
       const { message } = buildRestCommentaryPrompt(
         promptInput({
           exercise: {
             ...benchPress,
-            targetSets: 99,
             isWarmupSet: false,
             setNumber: 2,
             totalOfType: 4,
@@ -225,7 +235,7 @@ describe('buildRestCommentaryPrompt', () => {
 
       const lastSetLine = message.split('\n')[2];
       expect(lastSetLine).toBe(
-        'Bench Press (strength) | Set 2 of 3 | 8 reps @ 135lbs RPE 8 | target 3x8 | rest 90s'
+        'Bench Press (strength) | Set 2 of 3 | 8 reps @ 135lbs RPE 8 | target warmup 1 set, 3 × 8 reps | rest 90s'
       );
     });
 
@@ -236,8 +246,11 @@ describe('buildRestCommentaryPrompt', () => {
             ...benchPress,
             title: 'Row Machine',
             kind: 'cardio',
-            targetReps: 0,
-            targetDurationSeconds: 300,
+            sets: [
+              { setType: 'normal', durationSeconds: 300 },
+              { setType: 'normal', durationSeconds: 300 },
+              { setType: 'normal', durationSeconds: 300 },
+            ],
           },
           completedSet: { durationSeconds: 312 },
         })
@@ -245,7 +258,7 @@ describe('buildRestCommentaryPrompt', () => {
 
       const lastSetLine = message.split('\n')[2];
       expect(lastSetLine).toBe(
-        'Row Machine (cardio) | Set 2 of 3 | 312s | target 300s | rest 90s'
+        'Row Machine (cardio) | Set 2 of 3 | 312s | target 3 × 300s | rest 90s'
       );
     });
 
@@ -265,7 +278,9 @@ describe('buildRestCommentaryPrompt', () => {
       const { message } = buildRestCommentaryPrompt(lastSetInput({ completedSet: {} }));
 
       const lastSetLine = message.split('\n')[2];
-      expect(lastSetLine).toBe('Bench Press (strength) | Set 2 of 3 | target 3x8 | rest 90s');
+      expect(lastSetLine).toBe(
+        'Bench Press (strength) | Set 2 of 3 | target warmup 1 set, 3 × 8 reps | rest 90s'
+      );
     });
 
     it('keeps the zero-planned-set guard on the Last Set line too (#276 AC3.5)', () => {
@@ -275,7 +290,6 @@ describe('buildRestCommentaryPrompt', () => {
             ...prescribesNothing,
             title: 'Cooldown Stretch',
             kind: 'stretch',
-            targetDurationSeconds: 30,
           },
           completedSet: { durationSeconds: 30 },
         })
@@ -284,7 +298,7 @@ describe('buildRestCommentaryPrompt', () => {
       // One guard, both shapes — `setPosition` is shared, and the segment is
       // dropped rather than emitted empty (which would leave "| | ").
       expect(message.split('\n')[2]).toBe(
-        'Cooldown Stretch (stretch) | 30s | target 30s | rest 90s'
+        'Cooldown Stretch (stretch) | 30s | no target recorded | rest 90s'
       );
     });
 

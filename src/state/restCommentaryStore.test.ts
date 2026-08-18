@@ -43,16 +43,16 @@ function target(overrides: Partial<UpNextTarget> = {}): RestCommentaryTarget {
     exerciseId: 'bench-press',
     exerciseTitle: 'Bench Press',
     kind: 'strength',
-    warmupSets: 0,
-    // Deliberately NOT equal to `totalOfType`. `restCommentaryStore` is the
-    // single line by which the per-set denominator reaches the prompt, and a
-    // fixture where the aggregate and the list-derived count agree cannot tell
-    // a regression to the aggregate apart from the correct read. 99 is not a
-    // number any real routine plans.
-    targetSets: 99,
-    targetReps: 8,
-    targetDurationSeconds: 0,
     restSeconds: 90,
+    // Deliberately NOT `totalOfType` sets long. `restCommentaryStore` is the
+    // single line by which the per-set denominator reaches the prompt, and a
+    // fixture where the list length and the caller-supplied count agree cannot
+    // tell a regression that re-derives the denominator apart from the correct
+    // read.
+    sets: [
+      { setType: 'normal', reps: 8 },
+      { setType: 'normal', reps: 8 },
+    ],
     isWarmupSet: false,
     setNumber: 2,
     totalOfType: 3,
@@ -211,6 +211,22 @@ describe('createRestCommentaryStore', () => {
       // statement that forwards the denominator has no cover at all.
       expect(body.messages[0].content).toContain('Set 2 of 3');
       expect(body.messages[0].content).not.toContain('Set 2 of 99');
+    });
+
+    it('forwards the prescription itself into the prompt, not an empty list', async () => {
+      // The store→prompt seam for `sets` (#276 Phase 4). Both ENDS of it are
+      // pinned — `restCommentaryTarget` builds the list (above), and
+      // `buildRestCommentaryPrompt` renders it (restCommentaryPrompt.test) —
+      // but the hand-off between them was not: substituting `sets: []` at this
+      // one statement survived the whole suite, and every rest remark would
+      // have been told "no target recorded" for an exercise that has a target.
+      const { store } = makeStore();
+
+      await store.getState().show(target());
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0].content).toContain('target 2 × 8 reps');
+      expect(body.messages[0].content).not.toContain('no target recorded');
     });
 
     it('carries the coaching personality from settings', async () => {
@@ -851,6 +867,51 @@ describe('restCommentaryTarget', () => {
     expect(restCommentaryTarget(state())?.exerciseTitle).toBe('squat');
   });
 
+  it('carries the upcoming entry’s own set list, not the one it just left (#276 AC4.12)', () => {
+    // The `upNext` half of the pair. Its `lastSet` sibling is covered under
+    // "#270: superset groups"; this branch had no cover at all, and a mutation
+    // sending `sets: []` from here survived the whole suite — the target
+    // summary would then read "no target recorded" for every between-exercise
+    // rest. The two entries prescribe visibly different plans, so a read off
+    // the wrong one is not interchangeable with the right one.
+    const result = restCommentaryTarget(
+      state({
+        exerciseIndex: 1,
+        setIndex: 0,
+        entries: [
+          entry(),
+          entry({
+            idx: 1,
+            exerciseId: 'squat',
+            sets: [
+              { setType: 'warmup', reps: 5, weightKg: 60 },
+              { setType: 'normal', reps: 5, weightKg: 100 },
+            ],
+          }),
+        ],
+      })
+    );
+
+    expect(result?.sets).toEqual([
+      { setType: 'warmup', reps: 5, weightKg: 60 },
+      { setType: 'normal', reps: 5, weightKg: 100 },
+    ]);
+  });
+
+  it('expands an aggregate-only upcoming entry through the derivation seam', () => {
+    // A count-shaped entry (hydrated from a pre-#276 build, or written by
+    // `upsertRoutineExercise`) must still reach the prompt as a list, or the
+    // rest remark loses its target for every routine that predates the set
+    // table.
+    const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
+
+    expect(result?.sets).toEqual([
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+      { setType: 'normal', reps: 8, durationSeconds: undefined },
+    ]);
+  });
+
   describe('#270: resting inside an exercise comments on the set just completed', () => {
     it('describes the completed set, not the upcoming one', () => {
       // transition.lv:66-70 — the round-repeat rest carries setIndex = round + 1,
@@ -1037,11 +1098,14 @@ describe('restCommentaryTarget', () => {
         // Read off the performed entry, never the one the engine advanced to.
         exerciseTitle: 'Rower',
         kind: 'cardio',
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 0,
-        targetDurationSeconds: 60,
         restSeconds: 30,
+        // The rower's own plan, expanded from its counts by `entrySets`. The
+        // bench's is two warmups plus its own working sets, so a read off
+        // `entries[exerciseIndex]` gives a visibly different list.
+        sets: [
+          { setType: 'normal', durationSeconds: 60 },
+          { setType: 'normal', durationSeconds: 60 },
+        ],
       });
     });
 
