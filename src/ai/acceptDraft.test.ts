@@ -181,6 +181,37 @@ describe('acceptDraft', () => {
       expect(sets.every((s) => s.target_reps === 6 && s.target_duration_seconds === 30)).toBe(true);
     });
 
+    test('#281: a drafted drop set stores each set\'s own rest_seconds, 0 included', async () => {
+      const draft = {
+        name: 'Drop Set Day',
+        exercises: [
+          {
+            title: 'Lat Pulldown',
+            kind: 'strength' as const,
+            restSeconds: 90,
+            sets: [
+              { type: 'normal' as const, reps: 10, weightLbs: 100, restSeconds: 0 },
+              { type: 'normal' as const, reps: 10, weightLbs: 80, restSeconds: 0 },
+              { type: 'normal' as const, reps: 10, weightLbs: 60, restSeconds: 120 },
+            ],
+          },
+        ],
+      };
+
+      const routineId = await acceptDraft(database, draft, { kind: 'create' });
+      const entries = await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', routineId))
+        .fetch();
+      const sets = await routineSetsFor((entries[0] as any).id);
+      sets.sort((a, b) => (a.order as number) - (b.order as number));
+
+      // The drop-set pattern lands on the column, 0 included — not collapsed to
+      // null. The entry keeps its own default (90) for a set that omits rest.
+      expect(sets.map((s) => s.rest_seconds)).toEqual([0, 0, 120]);
+      expect((entries[0] as any).restSeconds).toBe(90);
+    });
+
     test('writes a draft description onto a newly created exercise', async () => {
       const draft = {
         name: 'Cooldown',

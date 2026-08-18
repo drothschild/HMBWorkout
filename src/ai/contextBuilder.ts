@@ -240,6 +240,7 @@ Set schema (inside draft.exercises[].sets), one object per set actually performe
 - repsMax: the top of a rep range whose bottom is "reps"; when present, must be an integer >= reps, and "reps" must be present alongside it
 - durationSeconds: when present, must be an integer >= 0
 - weightLbs: the load for THIS set, in pounds; when present, must be a positive number in steps of 0.5 (e.g. 185, 187.5). Omit it when you are not programming a load — an omitted weight leaves the athlete's own recent history to fill the field
+- restSeconds: the rest to take AFTER this set, in seconds; when present, must be an integer >= 0. Omit it to use the exercise's own restSeconds. Use it for a drop set: 0 rest between the drops, full rest after the last
 
 The "settingsProposal" field proposes new values for the "User Goals", "Available Equipment" and "Coaching Style" sections below, and for the Age and Experience lines under "About the User" — its "goals", "equipment", "personality", "age", and "experience" fields respectively. Never include a settingsProposal unless the user asked to change their goals, equipment, coaching style, age, or experience — a workout question is not such a request.`;
 

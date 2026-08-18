@@ -410,6 +410,9 @@ describe('OpenAI structured output schema validation', () => {
                     "repsMax": {
                       "type": "integer",
                     },
+                    "restSeconds": {
+                      "type": "integer",
+                    },
                     "type": {
                       "enum": [
                         "warmup",
@@ -1018,19 +1021,18 @@ describe('OpenAI structured output schema validation', () => {
     it('walks a non-trivial, pinned number of AI_TURN_SCHEMA fields', () => {
       const { visitedFields } = walkSchemaFields(AI_TURN_SCHEMA);
 
-      // 23 as of 2026-08-17 (#276 Phase 4): 3 root
-      // (reply/draft/settingsProposal) + 3 draft (name/notes/exercises) + 7
-      // exercise-item fields (title/kind/supersetGroup/restSeconds/sets/notes/
-      // description) + 5 set-item fields (type/reps/repsMax/weightLbs/
-      // durationSeconds) + 5 settingsProposal fields.
+      // 24 as of #281: 3 root (reply/draft/settingsProposal) + 3 draft
+      // (name/notes/exercises) + 7 exercise-item fields (title/kind/
+      // supersetGroup/restSeconds/sets/notes/description) + 6 set-item fields
+      // (type/reps/repsMax/weightLbs/durationSeconds/restSeconds) + 5
+      // settingsProposal fields.
       //
-      // Was 22 with 11 exercise-item fields; five per-exercise aggregates left
-      // and the set list plus its five fields arrived. This number is EXPECTED
-      // TO CHANGE as fields are added — bump it freely when it does. The point
-      // of pinning it is only to prove the walk is non-empty and that a human
-      // looked at the new count, not to freeze the schema's shape. It also now
-      // proves the walk descends TWO levels of `items`, which is new here.
-      expect(visitedFields.length).toBe(23);
+      // Was 23 (#276 Phase 4); #281 adds the per-SET restSeconds override. This
+      // number is EXPECTED TO CHANGE as fields are added — bump it freely when
+      // it does. The point of pinning it is only to prove the walk is non-empty
+      // and that a human looked at the new count, not to freeze the schema's
+      // shape. It also proves the walk descends TWO levels of `items`.
+      expect(visitedFields.length).toBe(24);
     });
 
     it('no AI_TURN_SCHEMA field declares null as a value meaningfully distinct from absence', () => {
