@@ -6,7 +6,8 @@
  * dispatch this issue was about — that is the primary defence and it needs no
  * test. What `tsc` accepts is a call site that *launders* the undefined back
  * into a value: `buildLogSetValues({...})!`, `?? {}`, `|| {}`, or an `as`
- * cast. Each of those compiles and reinstates the bug exactly.
+ * cast, on the call itself or on the variable it is bound to. Each of those
+ * compiles and reinstates the bug exactly.
  *
  * Both consumers are `.tsx` (`components/SetLogger.tsx`, `app/session.tsx`)
  * and jest runs a single node project whose `testMatch` is `*.test.ts`, so no
@@ -77,9 +78,9 @@ export function findCallSpans(source: string, identifier: string): readonly Call
 }
 
 /**
- * Pure: the non-whitespace text immediately following a call, capped short.
- * Long enough to see `!`, `??`, `||` or `as`, short enough not to drag in the
- * rest of the statement.
+ * Pure: the non-whitespace text immediately following a position, capped
+ * short. Long enough to see `!`, `??`, `||` or `as`, short enough not to drag
+ * in the rest of the statement.
  */
 export function tokenAfter(source: string, end: number): string {
   return source.slice(end).replace(/^\s+/, '').slice(0, 2);
@@ -95,7 +96,30 @@ export function isDirectArgumentOf(source: string, start: number, sink: string):
 }
 
 /**
- * Pure: every way a file launders the optional result back into a value.
+ * Pure: the variable a call's result is bound to, when it is bound at all.
+ *
+ * Needed because the laundering can happen one step later — `const v =
+ * buildLogSetValues({...}); onLogSet(v ?? {})` narrows nothing and compiles,
+ * so checking only the call expression would miss it.
+ */
+export function assignedNameOf(source: string, start: number): string | undefined {
+  const before = source.slice(0, start).replace(/\s+$/, '');
+  const match = before.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=$/);
+  return match ? match[1] : undefined;
+}
+
+/** Pure: the laundering operator a token run begins with, if any. */
+function launderingIn(next: string): string | undefined {
+  if (next.startsWith('!') && !next.startsWith('!=')) return 'non-null assertion';
+  if (next.startsWith('??')) return '?? fallback';
+  if (next.startsWith('||')) return '|| fallback';
+  if (/^as\b/.test(next)) return 'as cast';
+  return undefined;
+}
+
+/**
+ * Pure: every way a file launders the optional result back into a value —
+ * on the call expression itself, or on the variable it is bound to.
  * Empty means the file only ever consumes the call under a real check.
  */
 export function launderedUses(source: string, identifier: string, sink: string): readonly string[] {
@@ -106,11 +130,17 @@ export function launderedUses(source: string, identifier: string, sink: string):
       problems.push(`passed straight to ${sink}(`);
     }
 
-    const next = tokenAfter(source, span.end);
-    if (next.startsWith('!') && !next.startsWith('!=')) problems.push('non-null assertion');
-    if (next.startsWith('??')) problems.push('?? fallback');
-    if (next.startsWith('||')) problems.push('|| fallback');
-    if (/^as\b/.test(next)) problems.push('as cast');
+    const direct = launderingIn(tokenAfter(source, span.end));
+    if (direct) problems.push(direct);
+
+    const bound = assignedNameOf(source, span.start);
+    if (bound === undefined) continue;
+
+    const uses = new RegExp(`\\b${bound}\\b`, 'g');
+    for (let use = uses.exec(source); use !== null; use = uses.exec(source)) {
+      const indirect = launderingIn(tokenAfter(source, use.index + bound.length));
+      if (indirect) problems.push(`${bound}: ${indirect}`);
+    }
   }
 
   return problems;
@@ -165,6 +195,20 @@ describe('findCallSpans', () => {
   });
 });
 
+describe('assignedNameOf', () => {
+  it('reads the binding a call is assigned to', () => {
+    const source = 'const logSetValues = buildLogSetValues({});';
+    const [span] = findCallSpans(source, 'buildLogSetValues');
+    expect(assignedNameOf(source, span.start)).toBe('logSetValues');
+  });
+
+  it('is undefined for a call that is not bound', () => {
+    const source = 'onLogSet(buildLogSetValues({}));';
+    const [span] = findCallSpans(source, 'buildLogSetValues');
+    expect(assignedNameOf(source, span.start)).toBeUndefined();
+  });
+});
+
 describe('launderedUses', () => {
   it('flags the exact pre-fix shape', () => {
     // Positive control: this is the code this gate exists to keep out, and
@@ -175,10 +219,10 @@ describe('launderedUses', () => {
     ]);
   });
 
-  it('flags each laundering operator', () => {
-    expect(launderedUses('const v = buildLogSetValues({})!;', 'buildLogSetValues', 'onLogSet')).toEqual(
-      ['non-null assertion']
-    );
+  it('flags each laundering operator on the call itself', () => {
+    expect(
+      launderedUses('const v = buildLogSetValues({})!;', 'buildLogSetValues', 'onLogSet')
+    ).toEqual(['non-null assertion']);
     expect(
       launderedUses('const v = buildLogSetValues({}) ?? {};', 'buildLogSetValues', 'onLogSet')
     ).toEqual(['?? fallback']);
@@ -192,6 +236,20 @@ describe('launderedUses', () => {
         'onLogSet'
       )
     ).toEqual(['as cast']);
+  });
+
+  it('follows the binding: laundering the variable is caught too', () => {
+    // This compiles and reinstates the bug, so checking the call expression
+    // alone is not enough.
+    const source = 'const v = buildLogSetValues({});\nonLogSet(v ?? {});';
+    expect(launderedUses(source, 'buildLogSetValues', 'onLogSet')).toEqual(['v: ?? fallback']);
+  });
+
+  it('follows the binding through a non-null assertion', () => {
+    const source = 'const v = buildLogSetValues({});\nonLogSet(v!);';
+    expect(launderedUses(source, 'buildLogSetValues', 'onLogSet')).toEqual([
+      'v: non-null assertion',
+    ]);
   });
 
   it('does not flag a comparison against undefined', () => {
@@ -232,7 +290,7 @@ describe('buildLogSetValues call-site gate', () => {
   it('finds a real call in each of them, not just an import', () => {
     for (const site of ALLOWED_CALL_SITES) {
       const file = production.find((candidate) => candidate.relPath === site);
-      expect(findCallSpans(file!.source, IDENTIFIER)).toHaveLength(1);
+      expect([site, findCallSpans(file!.source, IDENTIFIER).length]).toEqual([site, 1]);
     }
   });
 
@@ -245,14 +303,32 @@ describe('buildLogSetValues call-site gate', () => {
     }
   });
 
-  it('checks the result against undefined at every call site', () => {
-    // The compiler forces *some* narrowing; this pins that it is an explicit
-    // `undefined` comparison rather than a truthiness test, which would treat
-    // a future falsy value as "nothing to log" — the exact collapse the
-    // `reps: 0` rule forbids one layer down.
+  it('narrows with an explicit undefined comparison, not a truthiness test', () => {
+    // A truthiness guard would treat any future falsy value as "nothing to
+    // log" — the exact collapse the `reps: 0` rule forbids one layer down.
+    // Whitespace-normalized so a reformat cannot fail this spuriously.
     for (const site of ALLOWED_CALL_SITES) {
       const file = production.find((candidate) => candidate.relPath === site);
-      expect([site, /=== undefined/.test(file!.source)]).toEqual([site, true]);
+      const normalized = file!.source.replace(/\s+/g, ' ');
+      const bound = assignedNameOf(file!.source, findCallSpans(file!.source, IDENTIFIER)[0].start);
+
+      expect([site, bound]).toEqual([site, expect.any(String)]);
+      expect([site, normalized.includes(`if (${bound} === undefined) return;`)]).toEqual([
+        site,
+        true,
+      ]);
+      expect([site, normalized.includes(`if (!${bound})`)]).toEqual([site, false]);
     }
+  });
+
+  it('binds the Log Set button’s disabled state to the same check', () => {
+    // The onPress guard already makes a blank tap harmless, so this is about
+    // feedback rather than data: without it the button looks live and does
+    // nothing, which is how the mis-tap went unnoticed in the first place.
+    const file = production.find((candidate) => candidate.relPath === 'components/SetLogger.tsx');
+    const normalized = file!.source.replace(/\s+/g, ' ');
+
+    expect(normalized).toContain('disabled={logSetValues === undefined}');
+    expect(normalized).toContain('logSetValues === undefined && styles.buttonDisabled');
   });
 });
