@@ -183,18 +183,26 @@ describe('buildLogSetValues', () => {
 /**
  * #288: a set carrying no measurement the session grammar can represent was
  * reachable from the normal UI — blank the reps field, tap Log Set — and it
- * poisoned the whole session document, because `serializeSession` is
- * all-or-nothing.
+ * put an unparseable line into the exported document.
  *
  * `buildSessionSetLine` (`src/interop/serialize.ts`) builds the `1x<reps>`
  * slot from `reps` and otherwise falls back to a `duration=` flag; with
  * neither it emits `- bench-press: set_type=working`, which `parseSession`
  * rejects with "Strength exercise missing sets×reps". Weight and RPE are
- * flags, not measurements — neither can rescue that line.
+ * flags, not measurements — neither can rescue that line. Note that
+ * `serializeSession` does **not** throw on this shape: it emits the line and
+ * returns, so the export reports success and the corruption is silent.
  *
- * The guard is exactly the serializer's own condition and no wider: `reps: 0`
- * is a real measurement ("one logged set of zero repetitions", PR #89) and
- * must keep logging and round-tripping.
+ * **Scope of every test below: `buildLogSetValues` and nothing further
+ * down.** The guard is exactly the serializer's own condition and no wider,
+ * so `reps: 0` is a real measurement ("one logged set of zero repetitions",
+ * PR #89) and this function returns it rather than swallowing it. That is a
+ * claim about *this* function's output only. It is **not** a claim that a
+ * zero survives to the database: `engine/index.ts` erases `reps: 0`,
+ * `weightKg: 0` and `durationSeconds: 0` at the Rill boundary, so today such
+ * a set still persists as the very #288 row this guard rejects. That is
+ * #305, it is out of scope here, and `setInputsSerializerMirror.test.ts`
+ * carries the failing pin for it.
  */
 describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
   test('blank reps and blank duration: nothing to log', () => {
@@ -269,7 +277,11 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toBeUndefined();
   });
 
-  test('reps 0 is a measurement, not an absence: it still logs (PR #89)', () => {
+  // The four zero cases below assert what this function returns. Their names
+  // used to say the zero "still logs", which overstated them by a whole layer
+  // — the engine erases it before the write (#305). Kept, and re-scoped: when
+  // #305 lands they are the pins that show the guard was never the problem.
+  test('reps 0 is returned, not swallowed as absent (PR #89) — guard layer only', () => {
     expect(
       buildLogSetValues({
         isDurationBased: false,
@@ -281,7 +293,10 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toEqual({ reps: 0 });
   });
 
-  test('reps 0 with a 0 weight (bodyweight) still logs both zeros', () => {
+  // Both zeros are erased downstream, and the bodyweight one is its own loss:
+  // `serialize.ts` documents `weight=0` as legitimate and written as-is, but
+  // the engine's `weightKg === 0` sentinel means it never gets there (#305).
+  test('reps 0 with a 0 weight (bodyweight) returns both zeros — guard layer only', () => {
     expect(
       buildLogSetValues({
         isDurationBased: false,
@@ -293,7 +308,7 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toEqual({ reps: 0, weightLbs: 0 });
   });
 
-  test('duration 0 is a measurement, not an absence', () => {
+  test('duration 0 is returned, not swallowed as absent — guard layer only', () => {
     expect(
       buildLogSetValues({
         isDurationBased: true,
@@ -305,7 +320,10 @@ describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
     ).toEqual({ durationSeconds: 0 });
   });
 
-  test('a duration that truncates to 0 still logs (0.9s is a measurement)', () => {
+  // The easiest way to hit this on device: start the stopwatch and stop it
+  // immediately. `onStop` writes String(elapsedSeconds), so the field fills
+  // with `0`, the button goes live — and #305 then erases the measurement.
+  test('a duration that truncates to 0 is returned (0.9s is a measurement) — guard layer only', () => {
     expect(
       buildLogSetValues({
         isDurationBased: true,

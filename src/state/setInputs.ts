@@ -71,9 +71,20 @@ export interface SetInputTexts {
  * weight and rpe are flags on a line, not measurements, and cannot carry one
  * on their own — a strength line with a `weight=` flag and no `1x<reps>` slot
  * is refused by `parseSession` just as a bare one is. Before this, blanking
- * the reps field and tapping Log Set wrote such a set, and because
- * `serializeSession` is all-or-nothing, that one set cost the export of the
- * entire session.
+ * the reps field and tapping Log Set wrote such a set.
+ *
+ * What that cost is worth stating precisely, because the obvious reading is
+ * wrong. `serializeSession` does **not** throw on a measurement-less set —
+ * its only `throw` is for a set whose *exercise* cannot be resolved. It emits
+ * `- bench-press: set_type=working` and returns normally, so the session
+ * lands in the exported document and `exportSessionHistory` reports success
+ * while producing markdown `parseSession` refuses. A silent bad document,
+ * not a loud refusal, and the serializer still has no guard of its own.
+ *
+ * `setInputsSerializerMirror.test.ts` is the executable pin on the mirroring:
+ * it drives this function's output through the real `serializeSession` and
+ * `parseSession`, so a measurement added to one side and not the other goes
+ * red rather than drifting.
  */
 export function buildLogSetValues(input: SetInputTexts): SetInputValues | undefined {
   const values: SetInputValues = {};
@@ -105,6 +116,19 @@ export function buildLogSetValues(input: SetInputTexts): SetInputValues | undefi
  * logged set of zero repetitions (PR #89, pinned by a roundtrip fixture) and
  * a `durationSeconds: 0` is the same shape. Collapsing zero into absent here
  * reinstates a regression this project already fixed once.
+ *
+ * **That preservation stops at the engine boundary, and today it is undone
+ * there (#305).** `engine/index.ts`'s `LogSet` conversion applies three
+ * *undocumented* zero-sentinels — `reps === 0`, `weightKg === 0` and
+ * `durationSeconds === 0` all become `undefined` on the way into Rill — none
+ * of which are in `SENTINEL_TO_OPTION_MAP`, the list convention 8 calls
+ * authoritative. So a `reps: 0` this function correctly returns is persisted
+ * as a row with neither reps nor duration: the #288 shape itself, arriving
+ * through a second door this guard cannot see. What is true here is true of
+ * *this* boundary only — the value survives `buildLogSetValues`, and is
+ * erased one layer down. Do not read the tests below as end-to-end
+ * preservation; `setInputsSerializerMirror.test.ts` carries the failing pin
+ * that flips when #305 lands.
  *
  * `SetInputValues` has no distance field today, so a distance-only cardio set
  * — which the grammar would accept — is unreachable from these inputs. Widen

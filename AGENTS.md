@@ -363,8 +363,15 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 8. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
    way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,
    `prePausePhase`/`supersetGroup` → `""` — so TS read sites can stay non-nullable.
-   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list. Presenters
-   must treat those values as *absent*: a plain null check passes `-1` through and
+   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list —
+   **except that today it is not, and #305 is open on exactly that.** The `LogSet`
+   host→Rill conversion applies three more sentinels inline, off the map:
+   `reps === 0`, `weightKg === 0` and `durationSeconds === 0` each become
+   `undefined`. Those are not absence markers, they are real measurements being
+   erased, and they falsify both this sentence and the vault contract's `1x0` rule
+   further down. Until #305 lands, read the map as authoritative for the *outbound*
+   re-sentinelization it describes and check the `LogSet` case by hand. Presenters
+   must treat mapped values as *absent*: a plain null check passes `-1` through and
    renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
    session screen's logged-set formatting (and that filtering) lives.
 
@@ -758,28 +765,62 @@ wrong was that the caller could not tell. **A UI that writes `markdown` and drop
 the user. Do not restore a `continue` on the unresolved-exercise path: silently
 skipping a set is the data-loss bug itself.
 
-**Because the serializer is all-or-nothing, the shell must not write a set it
-cannot render — and the guard is `buildLogSetValues`, not the serializer (#288).**
-`buildSessionSetLine` states a measurement two ways and only two: `reps` fills the
-`1x<reps>` slot, and failing that `durationSeconds` becomes a `duration=` flag.
-Weight, distance and rpe are *flags*, not measurements, and none of them makes a
-line the parser will take. A set with neither reps nor duration therefore emits
-`- bench-press: set_type=working`, which `parseSession` refuses, and that **one**
-set costs the export of the entire session. Blanking the reps field and tapping
-Log Set used to write exactly that. `buildLogSetValues` (`src/state/setInputs.ts`)
-now returns `undefined` — "nothing to log" — for that case, and the optional
-return type *is* the enforcement: `onLogSet` takes a non-optional
-`SetInputValues`, so `tsc` rejects an unguarded dispatch at both `.tsx` call
-sites. `setInputs.callSites.test.ts` covers the laundering (`!`, `?? {}`, `|| {}`,
-`as`) that would compile, since neither screen is jest-renderable. Two rules for
-anyone editing that predicate: it compares against `undefined` and never
-truthiness, because `reps: 0` is a real logged set of zero repetitions and
-collapsing it into "absent" reinstates the PR #89 regression; and it mirrors
-`buildSessionSetLine`'s own branch exactly, so a new measurement field
-(`SetInputValues` has no distance today) must be added to both or neither.
-Do **not** move this decision into `validate_set`/`transition.lv` instead: a
-blank form field is not a session-flow event, and rejecting it in the engine
-surfaces as the session screen's red error banner.
+**A measurement-less set is not refused by the serializer — it is written as an
+unparseable line and silently exported, so the shell must not create one. The
+guard is `buildLogSetValues`, not the serializer (#288).** `buildSessionSetLine`
+states a measurement two ways and only two: `reps` fills the `1x<reps>` slot, and
+failing that `durationSeconds` becomes a `duration=` flag. Weight, distance and
+rpe are *flags*, not measurements, and none of them makes a line the parser will
+take. A set with neither reps nor duration therefore emits
+`- bench-press: set_type=working`, which `parseSession` refuses.
+
+**Be precise about what that costs, because the all-or-nothing guarantee two
+paragraphs up does not cover it.** That guarantee is scoped to a set whose
+*exercise* cannot be resolved — the single `throw` in `buildSessionSetLine`. A
+set whose *measurement* is missing has no such guard: `serializeSession` returns
+normally, the session lands in the exported document, and `exportSessionHistory`
+reports **success** while emitting markdown that violates the grammar. The
+failure is a silent bad document, and it surfaces only when something parses it
+back. Executed rather than reasoned about: `setInputsSerializerMirror.test.ts`
+drives the real serializer and the real parser and pins both halves. A companion
+serializer-side `ContractError` would convert that silence into a named failure,
+which is what a reader of the all-or-nothing paragraph would assume already
+happens; it does not exist yet, and adding it is coupled to the existing rows
+below.
+
+Blanking the reps field and tapping Log Set used to write exactly such a set.
+`buildLogSetValues` (`src/state/setInputs.ts`) now returns `undefined` —
+"nothing to log" — for that case, and the optional return type *is* the
+enforcement: `onLogSet` takes a non-optional `SetInputValues`, so `tsc` rejects
+an unguarded dispatch at both `.tsx` call sites. `setInputs.callSites.test.ts`
+covers the laundering (`!`, `?? {}`, `|| {}`, `as`) that would compile, since
+neither screen is jest-renderable, and
+`setInputsSerializerMirror.test.ts` is the executable pin that the predicate and
+`buildSessionSetLine` still agree. Two rules for anyone editing that predicate:
+it compares against `undefined` and never truthiness, because `reps: 0` is a real
+logged set of zero repetitions and collapsing it into "absent" reinstates the
+PR #89 regression; and it mirrors `buildSessionSetLine`'s own branch exactly, so
+a new measurement field (`SetInputValues` has no distance today) must be added to
+both or neither. Do **not** move this decision into `validate_set`/`transition.lv`
+instead: a blank form field is not a session-flow event, and rejecting it in the
+engine surfaces as the session screen's red error banner.
+
+**This guard closes the input door only, and a second door is still open
+(#305).** `buildLogSetValues` preserves `reps: 0` and `durationSeconds: 0`, and
+that is where the preservation ends: `engine/index.ts`'s `LogSet` conversion
+turns `reps === 0`, `weightKg === 0` and `durationSeconds === 0` into `undefined`
+on the way into Rill. Those three sentinels are applied inline and are **not** in
+`SENTINEL_TO_OPTION_MAP` — so convention 8's claim that the map is "the
+authoritative list" is false today, and so is this file's own rule that `1x0` is
+a real logged measurement, because such a set never reaches the serializer.
+Dispatching `LogSet { reps: 0 }` persists a row with neither reps nor duration:
+precisely the #288 shape, produced through the engine rather than the form. Until
+#305 lands, typing `0` into the reps field still writes an unexportable row, and
+the population of such rows on device is therefore not just pre-fix mis-taps —
+it is **every `reps: 0` and every `durationSeconds: 0` set ever logged**. There
+is no migration and no repair path, and any repair carries a product decision:
+writing `reps = 0` invents a measurement, deleting the row erases the fact that a
+set happened, and "unknown" has no representation in the schema.
 
 `exportRoutine` took the opposite fix, because a single-item export has no
 partial to salvage — it renders or it doesn't, so swallowing bought nothing and
