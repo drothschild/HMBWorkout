@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-17
+Last verified: 2026-08-18
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -509,6 +509,27 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
     unconditionally instead — the same value `rest_duration` always resolved
     to at this call site anyway, once nextEntry was guaranteed adjacent.
 
+11. **Both `ScheduleRest` sites read the JUST-COMPLETED set's own rest (#281).**
+    `advance_after_set` schedules `h.completed_set_rest(currentEntry)(s.setIndex)`
+    — that set's `restSeconds` if it overrides, else the entry-level
+    `currentEntry.restSeconds` — at BOTH the round-repeat and group-exhausted
+    branches (one concept, not a branch on which site). It is what makes a drop
+    set expressible: sets at rest 0 / 0 / full give zero rest between the drops
+    and a full rest after the last. The two sites are NOT symmetric in what
+    `currentEntry`'s set index means — round-repeat leaves you on the same entry,
+    group-exhausted has already advanced — but the completed set is
+    `entries[exerciseIndex].sets[setIndex]` at *both*, because `s` is the INPUT
+    state: the advancement (`landing.idx`, `setIndex: 0`) lives only in the
+    returned record, so `s.setIndex` still names the finished set. Do NOT reach
+    for the landing entry or `nextRound` at the group-exhausted site. The
+    superset no-rest hop (the `Some(nextIdx)` branch) never calls
+    `completed_set_rest` and stays rest-free regardless of a partner's per-set
+    value — a per-set rest must not reintroduce a rest there. An all-null-rest
+    routine is byte-identical to the pre-#281 behaviour: every set falls back to
+    the entry rest. `RoutineSet.restSeconds` is `Option(Int)` in Rill and crosses
+    as honest `undefined` — it is NOT in `SENTINEL_TO_OPTION_MAP` (convention 8),
+    because a zero rest override must stay a real 0.
+
 ## Schema migrations (`src/db`)
 
 **Bumping `databaseSchema.version` without a matching migration entry WIPES the
@@ -761,8 +782,14 @@ What the parameter decides today, four places (`parse.ts`, plus one forward):
 **The flag allowlist is context-aware, and that closed a real leak.** `format.ts`
 keeps `SHARED_FLAGS` (`rest`, `superset`, `kind`, `duration`, `set_type`) plus
 `SESSION_ONLY_FLAGS` (`rpe`, `weight`, `distance`) and `ROUTINE_ONLY_FLAGS`
-(`reps_max`, `target_weight`, `target_distance`, `sets`), composed into
-`KNOWN_FLAGS` per context. The split is not cosmetic: `weight=` (logged kg) and
+(`reps_max`, `target_weight`, `target_distance`, `set_rest`, `sets`), composed into
+`KNOWN_FLAGS` per context. `set_rest=` (#281) is a routine set's OWN rest
+override and is deliberately DISTINCT from the entry-level `rest=` (a
+`SHARED_FLAG`), for the same reason `target_weight=` is not `weight=`: an
+overriding set and an inheriting one must stay decidable on the wire. It parses
+to `setRestSeconds` on the line and folds into the set's `restSeconds`; `rest=`
+stays the entry default. Both round-trip through the #295 lattice, which a new
+nullable `routine_sets` column joins automatically. The split is not cosmetic: `weight=` (logged kg) and
 `target_weight=` (prescribed kg) are different quantities that were previously
 interchangeable on the wire, so a routine line that acquired a `weight=` read as a
 *measurement* to anything downstream. This paragraph used to record that leak as open
@@ -1344,8 +1371,10 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   select SQLite vs LokiJS per platform, and `adapterMigrations.ts` is the gate
   between them and `migrations.ts` (see Schema migrations below). A routine's plan
   lives in **`routine_sets`**, one row per prescribed set; `routine_exercises` holds
-  identity, order, superset label, rest and notes, and carries no plan values at all
-  since schema v7
+  identity, order, superset label, the entry-level rest default and notes, and
+  carries no plan values at all since schema v7. A set may also carry its **own**
+  nullable `rest_seconds` (schema v8, #281) that overrides the entry default —
+  what makes a drop set (0 / 0 / full) expressible; null inherits the entry rest
 - `src/interop/` — vault markdown serializer/parser
 - `src/export/` — the only production consumer of `src/interop/serialize` (nothing
   outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
@@ -1517,7 +1546,9 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   to it, a stale one wins over the substitute's own correct numbers instead of
   quietly losing to them — and a whole inherited ramp is worse than one inherited
   number was. Only the loads go: `set_type`, reps and order are the plan's structure
-  and are near-dimensionless across movements, so a substitute keeps them. Clearing
+  and are near-dimensionless across movements, so a substitute keeps them — and that
+  now includes each set's own `rest_seconds` (#281): a substitute inherits the rest
+  pattern, because rest is dimensionless across the swap where load is not. Clearing
   the loads is only half of it: the session screen's
   prefill effect and `applyAlternateToRoutine`'s write are independent async paths
   off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`

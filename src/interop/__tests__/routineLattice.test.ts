@@ -38,9 +38,9 @@
  *    round-trip oracle for a serializer with one production caller (#262); this
  *    is that maintenance obligation expressed as an executable check.
  *
- * THE REDUCTION (45 shapes, not 192)
+ * THE REDUCTION (51 shapes, not 384)
  *
- * The full present/absent power set is 2^5 × 2 set types × 3 kinds = 192, which
+ * The full present/absent power set is 2^6 × 2 set types × 3 kinds = 384, which
  * runs fine as a one-off but is more than this suite should carry. What is kept:
  *
  * - one representative per (kind × set_type) pair — the ALL-fields shape;
@@ -85,6 +85,10 @@ const SET_COLUMN_FIELDS: Record<string, { field: keyof RoutineSetEntry; value: n
   target_weight_kg: { field: 'targetWeightKg', value: 22.68 },
   target_duration_seconds: { field: 'targetDurationSeconds', value: 300 },
   target_distance_m: { field: 'targetDistanceM', value: 1000 },
+  // The per-set rest override (#281). 45 stays under the m:ss threshold, so it
+  // round-trips as `set_rest=45` — distinct from the entry-level `rest=`, which
+  // the lattice's exercise entries never set, so there is no collision to mask.
+  rest_seconds: { field: 'restSeconds', value: 45 },
 };
 
 /** The nullable per-set columns, read off the schema rather than listed. */
@@ -192,7 +196,9 @@ describe('#295: the routine round-trip lattice', () => {
     expect(shapes).toHaveLength(
       KINDS.length * (1 + SET_TYPES.length * (NULLABLE_SET_COLUMNS.length + 2))
     );
-    expect(shapes).toHaveLength(45);
+    // 3 kinds × (1 zero-set + 2 set types × (no-fields + 6 columns + all-fields)).
+    // Was 45 at five nullable columns; rest_seconds (#281) makes it six.
+    expect(shapes).toHaveLength(51);
 
     // Every column really is exercised alone somewhere — the property rounds 3
     // and 4 turned on, asserted rather than assumed from the loop above.

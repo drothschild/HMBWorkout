@@ -1176,6 +1176,50 @@ describe('draftSchema', () => {
         })
       ).toThrow(DraftValidationError);
     });
+
+    test('#281: accepts a per-set restSeconds of 0 (the drop-set override) and preserves it', () => {
+      const result = validateRoutineDraft(
+        withSets([
+          { type: 'normal', reps: 10, weightLbs: 90, restSeconds: 0 },
+          { type: 'normal', reps: 10, weightLbs: 70, restSeconds: 0 },
+          { type: 'normal', reps: 10, weightLbs: 50, restSeconds: 120 },
+        ])
+      );
+
+      // 0 must survive as 0 — it is a real override (no rest between drops), not
+      // an absence. The three rests are distinct, which no exercise-level rest
+      // can express.
+      expect(result.exercises[0].sets.map((set) => set.restSeconds)).toEqual([0, 0, 120]);
+    });
+
+    test('#281: a set with no restSeconds keeps it absent (inherits the exercise default)', () => {
+      const result = validateRoutineDraft(withSets([{ type: 'normal', reps: 8 }]));
+      expect(result.exercises[0].sets[0].restSeconds).toBeUndefined();
+    });
+
+    test('#281: rejects a negative per-set restSeconds', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', reps: 8, restSeconds: -1 }]))
+      ).toThrow(DraftValidationError);
+    });
+
+    test('#281: rejects a fractional per-set restSeconds', () => {
+      expect(() =>
+        validateRoutineDraft(withSets([{ type: 'normal', reps: 8, restSeconds: 30.5 }]))
+      ).toThrow(DraftValidationError);
+    });
+
+    test('#281: the per-set rest bound is applied to EVERY set, not only the first', () => {
+      // Kills a loop that validates sets[0] and returns.
+      expect(() =>
+        validateRoutineDraft(
+          withSets([
+            { type: 'warmup', reps: 8, restSeconds: 30 },
+            { type: 'normal', reps: 8, restSeconds: -5 },
+          ])
+        )
+      ).toThrow(DraftValidationError);
+    });
   });
 
   describe('slugifyTitle', () => {
@@ -1288,6 +1332,7 @@ describe('draftSchema', () => {
           'durationSeconds',
           'reps',
           'repsMax',
+          'restSeconds',
           'type',
           'weightLbs',
         ]);
@@ -1313,6 +1358,9 @@ describe('draftSchema', () => {
         expect(setSchema.properties.reps).toEqual({ type: 'integer' });
         expect(setSchema.properties.repsMax).toEqual({ type: 'integer' });
         expect(setSchema.properties.durationSeconds).toEqual({ type: 'integer' });
+        // #281: per-set rest override. Integer seconds, no bound keyword — the
+        // `>= 0` bound lives in validateRoutineDraft, same as weightLbs's grid.
+        expect(setSchema.properties.restSeconds).toEqual({ type: 'integer' });
       });
 
       test('carries no minItems anywhere, and stays inside the structured-output subset', () => {
@@ -1409,6 +1457,8 @@ describe('draftSchema', () => {
       // (warmupSets/targetSets/targetReps/targetDurationSeconds/targetWeightLbs)
       // left, four per-SET optionals (reps/repsMax/weightLbs/durationSeconds)
       // arrived, and `sets` itself is required.
+      // Up to 17 in #281: the per-set restSeconds optional. Still well under the
+      // <20 ceiling and Anthropic's ~24-optional structured-output limit.
       //
       // CAVEAT worth stating, because this number went DOWN while the schema
       // got structurally deeper: the count is a proxy for grammar complexity
@@ -1416,7 +1466,7 @@ describe('draftSchema', () => {
       // array-of-objects inside an array-of-objects. If a live call ever 400s
       // with a grammar-complexity error while this assertion is comfortably
       // green, the nesting — not the count — is the thing to look at.
-      expect(optionalCount).toBe(16);
+      expect(optionalCount).toBe(17);
       expect(optionalCount).toBeLessThan(20);
 
       // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded

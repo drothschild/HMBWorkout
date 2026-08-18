@@ -76,6 +76,26 @@ let set_type_at = fn(entry) -> fn(setIndex) -> (
   }
 )
 
+-- The rest to schedule after finishing the set at `setIndex` on `entry` (#281):
+-- that set's OWN restSeconds if it overrides, else the entry-level default.
+-- BOTH ScheduleRest sites in transition.lv schedule after the JUST-COMPLETED
+-- set — currentEntry at the INPUT s.setIndex, never the advanced landing — so
+-- both resolve rest through here, reading one concept rather than branching on
+-- which site it is. The superset no-rest hop (advance_after_set's Some(nextIdx)
+-- branch) never calls this and stays rest-free regardless of a partner's
+-- per-set value. Total via `match at`, same reason as phase_for: used in value
+-- position where `?` is unavailable. An out-of-range index (should not occur —
+-- a set was just logged at setIndex) falls back to the entry rest.
+let completed_set_rest = fn(entry) -> fn(setIndex) -> (
+  match at(setIndex, entry.sets) {
+    Ok(s) -> (match s.restSeconds {
+      Some(r) -> r,
+      None -> entry.restSeconds
+    }),
+    Err(e) -> entry.restSeconds
+  }
+)
+
 -- Last index (inclusive), starting from groupStartIdx, of the contiguous run
 -- of entries sharing `label` (interop's groupSupersets only ever collapses
 -- *adjacent* same-label lines into one group, so a group is always a

@@ -56,6 +56,15 @@ export interface DraftSet {
   repsMax?: number;
   weightLbs?: number;
   durationSeconds?: number;
+  /**
+   * This set's own rest override in seconds (#281). Absent inherits the
+   * exercise-level `DraftExercise.restSeconds`; present overrides it. It is what
+   * makes a drop set programmable — 0 rest between drops, full rest after the
+   * last — which one exercise-level value cannot say. Integer >= 0; 0 is a
+   * meaningful override, not an absence. Stored in seconds, no unit conversion
+   * (unlike weightLbs).
+   */
+  restSeconds?: number;
 }
 
 export interface DraftExercise {
@@ -149,6 +158,10 @@ export const AI_TURN_SCHEMA = {
                     // validateRoutineDraft.
                     weightLbs: { type: 'number' },
                     durationSeconds: { type: 'integer' },
+                    // This set's own rest override (#281). Integer seconds, no
+                    // bound keyword — `>= 0` is enforced in validateRoutineDraft,
+                    // the same layering as weightLbs's 0.5 grid.
+                    restSeconds: { type: 'integer' },
                   },
                   required: ['type'],
                   additionalProperties: false,
@@ -303,6 +316,8 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
       validateInteger('set reps', set.reps, 1);
       validateInteger('set repsMax', set.repsMax, 1);
       validateInteger('set durationSeconds', set.durationSeconds, 0);
+      // Per-set rest override (#281). >= 0, so 0 (no rest between drops) passes.
+      validateInteger('set restSeconds', set.restSeconds, 0);
       validateHalfStepWeight('set weightLbs', set.weightLbs);
 
       if (set.repsMax !== undefined) {

@@ -1760,6 +1760,58 @@ Notes: Felt strong on the working sets. Maybe increase weight next time.
       expect(ex.sets).toEqual([{ setType: 'normal', targetReps: 8, targetRepsMax: 10 }]);
     });
 
+    test('DROP: per-set rest serializes distinctly from the exercise default and round-trips', () => {
+      // #281's discriminating fixture. A drop set is three descending loads
+      // whose rest is 0 / 0 / full — a pattern no exercise-level rest can
+      // express. The set-level `set_rest=` flag is deliberately DISTINCT from
+      // the entry-level `rest=` so an overriding set and an inheriting one stay
+      // decidable, so this pins both that the value survives AND that it lands
+      // on the SET, not the entry.
+      const DROP_SETS = [
+        { setType: 'normal' as const, targetReps: 10, targetWeightKg: 40, restSeconds: 0 },
+        { setType: 'normal' as const, targetReps: 10, targetWeightKg: 30, restSeconds: 0 },
+        { setType: 'normal' as const, targetReps: 10, targetWeightKg: 20, restSeconds: 120 },
+      ];
+      const entry = { ...rampEntry, restSeconds: 90, sets: DROP_SETS };
+
+      const markdown = serializeRoutine(routineRow as any, [entry] as any, benchPress as any);
+      const lines = markdown.split('\n').filter((l) => l.startsWith('- '));
+
+      // Each line carries the entry default `rest=1:30` AND its own
+      // `set_rest=`, and the three set_rest values differ — the distinction the
+      // exercise default cannot draw.
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toContain('rest=1:30');
+      expect(lines[0]).toContain('set_rest=0');
+      expect(lines[1]).toContain('set_rest=0');
+      expect(lines[2]).toContain('set_rest=2:00');
+
+      const parsed = parseRoutine(markdown);
+      const ex = parsed.exercises[0] as WorkoutLine;
+      // The entry default survives on the entry…
+      expect(ex.restSeconds).toBe(90);
+      // …and the per-set overrides survive on each set, in order.
+      expect(ex.sets?.map((s) => s.restSeconds)).toEqual([0, 0, 120]);
+      expect(ex.sets).toEqual(DROP_SETS);
+    });
+
+    test('DROP: a set with no per-set rest reads back with restSeconds absent, inheriting the entry', () => {
+      // The fallback path is a real, exercised one: an absent per-set rest must
+      // NOT round-trip as 0 (which would mean "override to no rest"). It must
+      // come back absent so the engine reads the exercise default.
+      const entry = {
+        ...rampEntry,
+        restSeconds: 90,
+        sets: [{ setType: 'normal' as const, targetReps: 8, targetWeightKg: 50 }],
+      };
+      const parsed = parseRoutine(
+        serializeRoutine(routineRow as any, [entry] as any, benchPress as any)
+      );
+      const ex = parsed.exercises[0] as WorkoutLine;
+      expect(ex.sets).toEqual([{ setType: 'normal', targetReps: 8, targetWeightKg: 50 }]);
+      expect(ex.sets?.[0].restSeconds).toBeUndefined();
+    });
+
     test('EMPTY: an entry with no prescribed sets is an exercise line, not a dropped exercise', () => {
       // AC5.8. Zero sets is a shape the DB can hold (convention 10), so the
       // grammar has to say it — dropping the exercise or throwing would both

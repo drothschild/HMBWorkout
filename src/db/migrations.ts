@@ -1,4 +1,8 @@
-import { schemaMigrations, addColumns, createTable } from '@nozbe/watermelondb/Schema/migrations';
+import {
+  schemaMigrations,
+  addColumns,
+  createTable,
+} from '@nozbe/watermelondb/Schema/migrations';
 
 /**
  * Schema migrations, keyed by the schema version they migrate *to*. Bump
@@ -160,6 +164,30 @@ export const migrations = schemaMigrations({
       // asymmetry ./adapterMigrations.ts exists to remove — and a module-init
       // throw lands before RuleErrorScreen can render (engine convention 4).
       steps: [],
+    },
+    {
+      toVersion: 8,
+      steps: [
+        // v7 -> v8: a prescribed set can carry its own rest_seconds, overriding
+        // the entry-level default (#281). This is what makes a drop set
+        // expressible — zero rest between drops, full rest after the last —
+        // which routine_exercises.rest_seconds alone cannot say.
+        //
+        // A REAL addColumns step, NON-destructive, unlike #276's v6 bump. There
+        // is nothing to wipe: every routine_sets row written since v6 must
+        // survive, and the column is nullable and deliberately not backfilled
+        // (the same contract as v2's exercises.description, v3's
+        // session_sets.exercise_id and v5's routine_exercises.target_weight_kg).
+        // A null rest_seconds means the set inherits the exercise default, which
+        // is exactly how every pre-v8 set behaves — so the resolution
+        // (completedSet.restSeconds ?? currentEntry.restSeconds) leaves every
+        // existing routine unchanged. migrationV7ToV8.test.ts drives a populated
+        // v7 database across the upgrade and asserts the rows survive.
+        addColumns({
+          table: 'routine_sets',
+          columns: [{ name: 'rest_seconds', type: 'number', isOptional: true }],
+        }),
+      ],
     },
   ],
 });

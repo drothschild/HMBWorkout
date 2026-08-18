@@ -216,6 +216,19 @@ describe('buildSystem: AI Coach context builder', () => {
       );
     }, 30000);
 
+    // #281: the per-set rest override, restated in the persona so a drop set
+    // reads as an intended shape rather than a validator surprise. The bound
+    // (integer >= 0) mirrors validateRoutineDraft's `validateInteger('set
+    // restSeconds', ..., 0)`; loosening or tightening one without the other
+    // fails this exact-string pin.
+    it('states the per-set restSeconds bound and its drop-set use in the set schema', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'restSeconds: the rest to take AFTER this set, in seconds; when present, must be an integer >= 0. Omit it to use the exercise\'s own restSeconds. Use it for a drop set: 0 rest between the drops, full rest after the last'
+      );
+    }, 30000);
+
     // coach-prescribed-weights.AC2.9, renamed for #276 AC4.7: the exception is
     // still the load field, which is still the only non-integer in the
     // contract; it is now spelled weightLbs and lives on the set.

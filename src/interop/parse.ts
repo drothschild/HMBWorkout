@@ -261,6 +261,7 @@ function parseWorkoutLine(line: string, context: DocContext): WorkoutLine | null
     targetRepsMax: parsedFlags.targetRepsMax,
     targetWeightKg: parsedFlags.targetWeightKg,
     targetDistanceM: parsedFlags.targetDistanceM,
+    setRestSeconds: parsedFlags.setRestSeconds,
     setType: parsedFlags.setType,
   };
 
@@ -405,6 +406,7 @@ const SET_LEVEL_FIELDS = [
   'targetWeightKg',
   'targetDurationSeconds',
   'targetDistanceM',
+  'setRestSeconds',
   'setType',
 ] as const satisfies readonly (keyof WorkoutLine)[];
 
@@ -427,6 +429,7 @@ function toRoutineSet(line: WorkoutLine): RoutineSetLine {
   if (line.targetDurationSeconds !== undefined)
     set.targetDurationSeconds = line.targetDurationSeconds;
   if (line.targetDistanceM !== undefined) set.targetDistanceM = line.targetDistanceM;
+  if (line.setRestSeconds !== undefined) set.restSeconds = line.setRestSeconds;
   return set;
 }
 
@@ -483,7 +486,7 @@ function groupRoutineSets(lines: WorkoutLine[]): WorkoutLine[] {
       previous.supersetLabel === line.supersetLabel;
 
     if (!continuesEntry) {
-      const { setsSlot, targetReps, targetDurationSeconds, targetRepsMax, targetWeightKg, targetDistanceM, setType, ...entry } = line;
+      const { setsSlot, targetReps, targetDurationSeconds, targetRepsMax, targetWeightKg, targetDistanceM, setRestSeconds, setType, ...entry } = line;
       result.push({ ...entry, sets: line.sets ?? [toRoutineSet(line)] });
       continue;
     }

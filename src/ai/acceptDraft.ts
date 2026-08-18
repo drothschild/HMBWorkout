@@ -65,6 +65,10 @@ export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoa
       // value computeSetPrefill silently ignores.
       targetWeightKg: set.weightLbs !== undefined ? lbsToKg(set.weightLbs) : undefined,
       targetDurationSeconds: set.durationSeconds,
+      // Per-set rest override (#281). Seconds, no unit conversion — unlike
+      // weightLbs, rest is dimensionless across the lbs/kg boundary. 0 is a
+      // real override and passes through (the validator accepted it).
+      restSeconds: set.restSeconds,
     })),
   }));
 

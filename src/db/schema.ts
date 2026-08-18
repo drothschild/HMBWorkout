@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 7,
+  version: 8,
   tables: [
     tableSchema({
       name: 'routines',
@@ -79,6 +79,14 @@ export const databaseSchema = appSchema({
         // No aggregate ancestor. Added because Hevy sends distance_meters and
         // the column costs nothing once a set table exists.
         { name: 'target_distance_m', type: 'number', isOptional: true },
+        // Per-set rest override (#281, schema v8). Nullable: null means the set
+        // inherits routine_exercises.rest_seconds (which STAYS). A set that
+        // prescribes its own rest overrides that default — the precedence
+        // mirrors target_weight_kg, and it is what a drop set needs, where the
+        // rest between drops is 0 and the rest after the last drop is full.
+        // Both engine ScheduleRest sites read the COMPLETED set's rest, falling
+        // back to the exercise default when it is null.
+        { name: 'rest_seconds', type: 'number', isOptional: true },
       ],
     }),
     tableSchema({

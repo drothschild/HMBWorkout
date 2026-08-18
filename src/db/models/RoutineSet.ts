@@ -34,4 +34,10 @@ export default class RoutineSet extends Model {
   @field('target_weight_kg') targetWeightKg?: number;
   @field('target_duration_seconds') targetDurationSeconds?: number;
   @field('target_distance_m') targetDistanceM?: number;
+  /**
+   * Per-set rest override (#281, schema v8). Absent means the set inherits
+   * `routine_exercises.rest_seconds`; present overrides it. A drop set uses it
+   * to say "0 rest between drops, full rest after the last".
+   */
+  @field('rest_seconds') restSeconds?: number;
 }
