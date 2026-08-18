@@ -363,17 +363,23 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
 8. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
    way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,
    `prePausePhase`/`supersetGroup` → `""` — so TS read sites can stay non-nullable.
-   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list —
-   **except that today it is not, and #305 is open on exactly that.** The `LogSet`
-   host→Rill conversion applies three more sentinels inline, off the map:
-   `reps === 0`, `weightKg === 0` and `durationSeconds === 0` each become
-   `undefined`. Those are not absence markers, they are real measurements being
-   erased, and they falsify both this sentence and the vault contract's `1x0` rule
-   further down. Until #305 lands, read the map as authoritative for the *outbound*
-   re-sentinelization it describes and check the `LogSet` case by hand. Presenters
-   must treat mapped values as *absent*: a plain null check passes `-1` through and
-   renders `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the
-   session screen's logged-set formatting (and that filtering) lives.
+   `SENTINEL_TO_OPTION_MAP` in `engine/index.ts` is the authoritative list, and
+   it is now genuinely authoritative for the fields it covers. This sentence has
+   a history worth stating so it is not mistaken for one that drifted: the
+   `LogSet` host→Rill conversion once applied three more sentinels inline, off the
+   map — `reps === 0`, `weightKg === 0` and `durationSeconds === 0` each became
+   `undefined` — which erased real measurements and made this claim and the vault
+   contract's `1x0` rule false (#305; filed by #304, which had asserted the
+   opposite). #305 removed those three: reps/weightKg/durationSeconds on `LogSet`
+   now cross through `toRillOptionalNumber` (only null/undefined → Rill None, a
+   logged 0 survives), so no inbound sentinel lives off the map anymore. `rpe`
+   keeps its `-1` sentinel on that event *and* is in the map — its scale is
+   1.0–10.0, so -1 is a free out-of-range value where 0 is a real measurement.
+   The end-to-end pins are `engine/logSetZeroPreservation.test.ts` and the #305
+   block in `state/setInputsSerializerMirror.test.ts`. Presenters must treat
+   mapped values as *absent*: a plain null check passes `-1` through and renders
+   `RPE: -1`. `formatLoggedSetLine` in `sessionPresenter.ts` is where the session
+   screen's logged-set formatting (and that filtering) lives.
 
    **`RoutineSet` is deliberately NOT in the sentinel map**, and that is the one
    place the convention is inverted. Its five optional measurements (`reps`,

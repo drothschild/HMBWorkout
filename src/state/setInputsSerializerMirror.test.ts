@@ -12,7 +12,8 @@
  * drives the real serializer and the real parser, on the same reasoning that
  * keeps `parse.ts` alive with no production caller.
  *
- * It also carries the failing pin for #305 at the bottom.
+ * It also carries the end-to-end regression for #305 at the bottom (once a
+ * failing pin, now green — a logged zero survives the engine boundary).
  */
 
 import { buildLogSetValues, type SetInputTexts } from './setInputs';
@@ -168,20 +169,22 @@ describe('buildLogSetValues mirrors buildSessionSetLine (#288)', () => {
 });
 
 /**
- * #305 — the second door, and the reason none of the `reps: 0` assertions in
- * `setInputs.test.ts` may be read as end-to-end.
+ * #305 — the second door, closed.
  *
- * `engine/index.ts` converts `reps === 0`, `weightKg === 0` and
+ * `engine/index.ts` once converted `reps === 0`, `weightKg === 0` and
  * `durationSeconds === 0` to `undefined` on the way into Rill, using three
  * zero-sentinels that are not in `SENTINEL_TO_OPTION_MAP`. So a `reps: 0`
- * that this guard correctly admits is persisted with no measurement at all —
- * the #288 shape, reached through the engine instead of the form.
+ * that the guard correctly admitted was persisted with no measurement at all —
+ * the #288 shape, reached through the engine instead of the form. That is why
+ * none of the `reps: 0` assertions in `setInputs.test.ts` could be read as
+ * end-to-end: they exercised the two sides of a boundary that erased the value
+ * between them.
  *
- * Written as `it.failing`, not skipped, deliberately: it asserts the fix is
- * still missing, and it turns red the moment #305 lands, which is what makes
- * someone come back and delete the `.failing`.
+ * The fix routes those three fields through `toRillOptionalNumber`, so only
+ * null/undefined maps to Rill None and a logged zero survives. This test drove
+ * the fix (it was `it.failing` until #305 landed) and now guards it end to end.
  */
-describe('reps: 0 survives to the database (#305 — currently it does not)', () => {
+describe('reps: 0 survives to the database (#305)', () => {
   async function persistThroughEngine(values: SetInputValues) {
     const persisted: Record<string, unknown>[] = [];
 
@@ -240,7 +243,7 @@ describe('reps: 0 survives to the database (#305 — currently it does not)', ()
     return persisted[0];
   }
 
-  it.failing('a logged set of zero reps reaches onPersistSet as reps: 0', async () => {
+  it('a logged set of zero reps reaches onPersistSet as reps: 0', async () => {
     const values = buildLogSetValues({
       isDurationBased: false,
       repsText: '0',
@@ -248,17 +251,18 @@ describe('reps: 0 survives to the database (#305 — currently it does not)', ()
       durationText: '',
       rpe: undefined,
     });
-    // The guard's half of the contract holds today; the assertion below does not.
+    // Both halves of the contract now hold: the guard admits the set, and the
+    // engine carries the 0 through to the persisted row.
     expect(values).toEqual({ reps: 0 });
 
     const persisted = await persistThroughEngine(values!);
     expect(persisted).toMatchObject({ reps: 0 });
   });
 
-  it('and because it does not, the row it writes is the #288 shape all over again', () => {
-    // Green today, and it documents the live defect rather than the fix: the
-    // erased set serializes to the same unexportable line the guard rejects.
-    // This is what the simulator pass should see as "logs, but not 0 reps".
+  it('a genuinely absent measurement is still the #288 shape — 0 and undefined stay distinct', () => {
+    // The companion invariant that shows the fix is not over-broad: a set with
+    // no reps at all (undefined, not 0) still serializes to the unexportable
+    // line the #288 guard rejects. The engine no longer conflates the two.
     const erased = serializeThenParse({ reps: undefined }, 'strength');
     expect(erased.parsed).toBe(false);
     expect(erased.error).toMatch(/missing sets.*reps/i);

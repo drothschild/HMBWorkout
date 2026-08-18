@@ -371,13 +371,21 @@ export function createEngine(executors: Partial<EffectExecutors>) {
           };
           break;
         case 'LogSet':
-          // LogSet: convert sentinels to undefined for Rill Option types
+          // LogSet → Rill Option types. reps/weightKg/durationSeconds are
+          // already `number | undefined` on the Event; a logged zero is a real
+          // measurement (a set of zero reps, a bodyweight 0 kg — see the vault
+          // contract and PR #89), so only null/undefined maps to None. Folding
+          // 0 into absence here erased those measurements (#305). rpe is the
+          // exception and keeps its documented -1 sentinel — the one entry
+          // SENTINEL_TO_OPTION_MAP owns on this event — because its scale is
+          // 1.0–10.0, so -1 is an out-of-range value free to mean "absent"
+          // where 0 would be a real measurement.
           rillEvent = {
             tag: 'LogSet',
             value: {
-              reps: e.reps === 0 ? undefined : e.reps,
-              weightKg: e.weightKg === 0.0 ? undefined : e.weightKg,
-              durationSeconds: e.durationSeconds === 0 ? undefined : e.durationSeconds,
+              reps: toRillOptionalNumber(e.reps),
+              weightKg: toRillOptionalNumber(e.weightKg),
+              durationSeconds: toRillOptionalNumber(e.durationSeconds),
               rpe: e.rpe === -1.0 ? undefined : e.rpe,
               nowMs: e.nowMs,
             },
