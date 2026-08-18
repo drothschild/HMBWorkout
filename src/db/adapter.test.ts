@@ -46,7 +46,7 @@ describe('SQLite adapter factory', () => {
     expect(migrationsForAdapter).toHaveBeenCalledWith(databaseSchema.version, migrations);
   });
 
-  it('and today that decision is the migrations themselves, because v7 covers the schema', () => {
+  it('and today that decision is the migrations themselves, because v8 covers the schema', () => {
     // The real gate, not the mock — the sentinel above proves the wiring but
     // says nothing about what actually reaches SQLiteAdapter in this build.
     //

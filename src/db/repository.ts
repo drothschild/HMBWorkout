@@ -1093,6 +1093,12 @@ export interface RoutineSetEntry {
   targetWeightKg?: number;
   targetDurationSeconds?: number;
   targetDistanceM?: number;
+  /**
+   * Per-set rest override in seconds (#281). Absent means the set inherits the
+   * entry-level `RoutineExerciseEntry.restSeconds`; present overrides it. A
+   * drop set is 0 / 0 / full — the pattern the entry-level value cannot hold.
+   */
+  restSeconds?: number;
 }
 
 export interface RoutineExerciseEntry {
@@ -1155,6 +1161,10 @@ async function replaceRoutineSets(
       if (set.targetDurationSeconds !== undefined)
         row.targetDurationSeconds = set.targetDurationSeconds;
       if (set.targetDistanceM !== undefined) row.targetDistanceM = set.targetDistanceM;
+      // Per-set rest override (#281). Guard on undefined, not falsiness: 0 is a
+      // meaningful override (no rest between drops) and must reach the column,
+      // where the engine reads it as `Some(0)` and schedules no rest.
+      if (set.restSeconds !== undefined) row.restSeconds = set.restSeconds;
     });
   }
 }
@@ -1192,6 +1202,9 @@ export async function getRoutineSets(
       if (raw.target_duration_seconds != null)
         entry.targetDurationSeconds = raw.target_duration_seconds as number;
       if (raw.target_distance_m != null) entry.targetDistanceM = raw.target_distance_m as number;
+      // `!= null` (not `!== undefined`): 0 is a real override and must pass, but
+      // WatermelonDB's null for an unset column must normalise to absent. #281.
+      if (raw.rest_seconds != null) entry.restSeconds = raw.rest_seconds as number;
       return entry;
     });
 }

@@ -90,6 +90,8 @@ export interface RoutineSetLine {
   targetWeightKg?: number;
   targetDurationSeconds?: number;
   targetDistanceM?: number;
+  /** Per-set rest override in seconds (#281); absent inherits the entry rest. */
+  restSeconds?: number;
 }
 
 /**
@@ -152,6 +154,9 @@ export interface WorkoutLine {
   targetRepsMax?: number;
   targetWeightKg?: number;
   targetDistanceM?: number;
+  // Routine sets only: this set's own rest override (#281), from `set_rest=`.
+  // Distinct from `restSeconds` above, which is the entry-level `rest=`.
+  setRestSeconds?: number;
   // Logged session: actual set type
   setType?: MarkdownSetType;
   // Session lines only: honest aliases populated by parseSession — the
@@ -221,6 +226,14 @@ export interface ParsedFlags {
   targetRepsMax?: number; // routine sets only: the top of a rep range
   targetWeightKg?: number; // kg, routine sets only: the prescribed load
   targetDistanceM?: number; // m, routine sets only
+  /**
+   * `set_rest=<sec|m:ss>` — routine sets only: THIS set's own rest override
+   * (#281), distinct from the entry-level `rest=` (`restSeconds` above). Kept a
+   * separate flag rather than reusing `rest=` precisely so a set that overrides
+   * and a set that inherits the entry default stay decidable on the wire — the
+   * same reason `target_weight=` is not spelled `weight=`.
+   */
+  setRestSeconds?: number;
   /**
    * `sets=0` — routine lines only: this line is the ENTRY, not a set, and the
    * entry prescribes nothing (#293 review). It is the one thing that tells an
@@ -578,6 +591,18 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
       return !isNaN(m) && m >= 0 ? ['targetDistanceM', m] : null;
     }
 
+    case 'set_rest': {
+      // A set's own rest override (#281). Same seconds-or-m:ss grammar as
+      // `rest=`, but a DIFFERENT key mapping to `setRestSeconds`, so an
+      // overriding set and an inheriting one stay decidable on the wire.
+      if (valueStr.includes(':')) {
+        const seconds = parseDuration(valueStr);
+        return seconds !== null ? ['setRestSeconds', seconds] : null;
+      }
+      const sec = parseInt(valueStr, 10);
+      return !isNaN(sec) && sec >= 0 ? ['setRestSeconds', sec] : null;
+    }
+
     case 'sets': {
       // `sets=0` and nothing else. The key exists to mark an entry that
       // prescribes NO sets; a nonzero count has a spelling already — that many
@@ -611,7 +636,13 @@ function parseSingleFlag(flag: string): [key: string, value: any] | null {
  */
 const SHARED_FLAGS = ['rest', 'superset', 'kind', 'duration', 'set_type'] as const;
 const SESSION_ONLY_FLAGS = ['rpe', 'weight', 'distance'] as const;
-const ROUTINE_ONLY_FLAGS = ['reps_max', 'target_weight', 'target_distance', 'sets'] as const;
+const ROUTINE_ONLY_FLAGS = [
+  'reps_max',
+  'target_weight',
+  'target_distance',
+  'set_rest',
+  'sets',
+] as const;
 
 const KNOWN_FLAGS: Record<DocContext, readonly string[]> = {
   routine: [...SHARED_FLAGS, ...ROUTINE_ONLY_FLAGS],
@@ -740,6 +771,17 @@ export function formatFlags(flags: ParsedFlags): string {
 
   if (flags.targetDistanceM !== undefined) {
     parts.push(`target_distance=${flags.targetDistanceM}`);
+  }
+
+  // The set's own rest override (#281). Same seconds/m:ss threshold as the
+  // entry-level `rest=` above, and 0 is emitted as `set_rest=0` — a drop set's
+  // "no rest between drops" is a real value, not an omission.
+  if (flags.setRestSeconds !== undefined) {
+    if (flags.setRestSeconds >= 60) {
+      parts.push(`set_rest=${formatDuration(flags.setRestSeconds)}`);
+    } else {
+      parts.push(`set_rest=${flags.setRestSeconds}`);
+    }
   }
 
   // Only a value the reader accepts is ever written (#284). This is the

@@ -75,6 +75,7 @@ export async function exportRoutine(db: Database, routineId: string): Promise<st
         targetWeightKg: set.targetWeightKg ?? undefined,
         targetDurationSeconds: set.targetDurationSeconds ?? undefined,
         targetDistanceM: set.targetDistanceM ?? undefined,
+        restSeconds: set.restSeconds ?? undefined,
       })),
     })),
     exercises.map((e) => ({

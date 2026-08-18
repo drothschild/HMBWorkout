@@ -23,8 +23,8 @@ jest.mock('./adapterMigrations', () => ({
 }));
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 7 for the aggregate removal', () => {
-    expect(databaseSchema.version).toBe(7);
+  it('has bumped the schema version to 8 for the per-set rest column', () => {
+    expect(databaseSchema.version).toBe(8);
   });
 
   it('declares the routine_sets table with a per-set prescription on every column', () => {
@@ -45,6 +45,9 @@ describe('Database schema migrations', () => {
         isOptional: true,
       },
       target_distance_m: { name: 'target_distance_m', type: 'number', isOptional: true },
+      // The per-set rest override (#281, schema v8). Nullable: null inherits
+      // the entry-level rest_seconds, a value overrides it.
+      rest_seconds: { name: 'rest_seconds', type: 'number', isOptional: true },
     });
   });
 
@@ -115,7 +118,18 @@ describe('Database schema migrations', () => {
     expect(migrations.validated).toBe(true);
   });
 
-  it('covers the schema exactly, so no install is reset on the way to v7', () => {
+  it('declares routine_sets.rest_seconds as an optional number column', () => {
+    // The per-set rest override (#281). Nullable and non-backfilled: an absent
+    // value leaves the engine reading the entry-level rest, exactly as every
+    // routine authored before v8 does.
+    expect(databaseSchema.tables['routine_sets'].columns['rest_seconds']).toEqual({
+      name: 'rest_seconds',
+      type: 'number',
+      isOptional: true,
+    });
+  });
+
+  it('covers the schema exactly, so no install is reset on the way to v8', () => {
     // AC1.7, INVERTED at Phase 6 and rewritten rather than deleted.
     //
     // Through v6 the omission WAS the mechanism: the schema outran the
@@ -128,19 +142,19 @@ describe('Database schema migrations', () => {
     // withholding the migrations again at v7 would destroy whatever the user
     // rebuilt afterwards. Coverage and schema must agree from here on, and the
     // equality — not merely `>=` — is what `migrationsForAdapter` gates on.
-    expect(migrations.maxVersion).toBe(7);
+    expect(migrations.maxVersion).toBe(8);
     expect(migrations.maxVersion).toBe(databaseSchema.version);
     expect(migrations.minVersion).toBe(1);
   });
 
-  it('returns real steps for every upgrade path into v7, from every version an install can hold', () => {
+  it('returns real steps for every upgrade path into v8, from every version an install can hold', () => {
     // The mirror of the loop this replaces, over the same domain: null was the
     // signal both adapters branch on to RESET, so a null anywhere in this range
-    // is a silent wipe of a real user's database. v6 is the one that matters —
-    // it is where every install actually is — but a gap at any starting version
-    // would show up here, and a gap is also what `schemaMigrations` refuses at
-    // module init.
-    for (let fromVersion = 1; fromVersion <= 6; fromVersion += 1) {
+    // is a silent wipe of a real user's database. v6 and v7 are the ones that
+    // matter — every install in the field is on one of them — but a gap at any
+    // starting version would show up here, and a gap is also what
+    // `schemaMigrations` refuses at module init.
+    for (let fromVersion = 1; fromVersion <= 7; fromVersion += 1) {
       expect(
         stepsForMigration({ migrations, fromVersion, toVersion: databaseSchema.version })
       ).not.toBeNull();
@@ -212,11 +226,39 @@ describe('Database schema migrations', () => {
     });
 
     // …and the drift alarm, which is a different assertion with a different
-    // remedy. A migration that creates a narrower table than the schema
+    // remedy. A migration that leaves the table NARROWER than the schema
     // declares is the same class of bug as `steps: []`, one column down instead
     // of one table. When this goes red, the fix is a NEW migration entry for
     // the column that was added — never an edit to the frozen literal above.
-    expect(steps[0].schema.columns).toEqual(databaseSchema.tables['routine_sets'].columns);
+    //
+    // The v6 createTable is no longer the whole story: v8 adds
+    // `rest_seconds` with its own addColumns entry (#281), so the alarm
+    // reconstructs the table by folding EVERY step that touches routine_sets
+    // across the full 1→8 walk and comparing THAT to the live schema. A column
+    // added to schema.ts with no migration behind it fails to appear in the
+    // reconstruction and reddens this — while the frozen v6 literal above stays
+    // exactly as v6 shipped it.
+    const reconstructed: Record<string, unknown> = {};
+    for (const step of stepsForMigration({
+      migrations,
+      fromVersion: 1,
+      toVersion: databaseSchema.version,
+    }) as {
+      type: string;
+      table?: string;
+      schema?: { name: string; columns: Record<string, unknown> };
+      columns?: { name: string }[];
+    }[]) {
+      if (step.type === 'create_table' && step.schema?.name === 'routine_sets') {
+        Object.assign(reconstructed, step.schema.columns);
+      }
+      if (step.type === 'add_columns' && step.table === 'routine_sets') {
+        for (const column of step.columns ?? []) {
+          reconstructed[column.name] = column;
+        }
+      }
+    }
+    expect(reconstructed).toEqual(databaseSchema.tables['routine_sets'].columns);
   });
 
   it('has an empty v6 to v7 migration, because the aggregates are undeclared rather than dropped', () => {
@@ -236,6 +278,24 @@ describe('Database schema migrations', () => {
     // unsafeResetDatabase. A `toEqual([])` above passes under `null` for a
     // `toBeFalsy`-shaped mistake, so the non-null is asserted on its own.
     expect(stepsForMigration({ migrations, fromVersion: 6, toVersion: 7 })).not.toBeNull();
+  });
+
+  it('adds routine_sets.rest_seconds with a real addColumns step from v7 to v8', () => {
+    // #281. Unlike the v4 and v7 undeclarations, and unlike #276's v6 wipe,
+    // this is a NON-destructive migrating bump: one nullable column, a real
+    // step, and every existing routine_sets row survives. A `steps: []` here —
+    // copying v7's shape — would leave every upgrading install with a schema
+    // declaring a column its database does not have. migrationV7ToV8.test.ts
+    // drives a populated v7 database across the upgrade end to end.
+    const steps = stepsForMigration({ migrations, fromVersion: 7, toVersion: 8 });
+
+    expect(steps).not.toBeNull();
+    expect(steps).toHaveLength(1);
+
+    const [step] = steps as { type: string; table: string; columns: unknown }[];
+    expect(step.type).toBe('add_columns');
+    expect(step.table).toBe('routine_sets');
+    expect(step.columns).toEqual([{ name: 'rest_seconds', type: 'number', isOptional: true }]);
   });
 
   it('provides a migration step from version 1 to 2 that adds exercises.description', () => {

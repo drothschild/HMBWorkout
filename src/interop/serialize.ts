@@ -435,6 +435,13 @@ export function serializeRoutine(
         flags.targetDistanceM = set.targetDistanceM;
       }
 
+      // The set's own rest override (#281), distinct from the entry-level
+      // `rest=` that `entryFlags()` already added. `!= null`, so a stored 0
+      // reaches the wire as `set_rest=0` — a drop set's zero rest between drops.
+      if (set.restSeconds != null) {
+        flags.setRestSeconds = set.restSeconds;
+      }
+
       emit(set.targetReps != null ? `1x${set.targetReps}` : '', flags);
     }
   }

@@ -57,7 +57,7 @@ describe('migrationsForAdapter', () => {
     expect(migrationsForAdapter(5, upTo(6))).toBeUndefined();
   });
 
-  it('passes the app’s real migrations through at the current schema version, now that coverage reaches v7 (#276 Phase 6)', () => {
+  it('passes the app’s real migrations through at the current schema version, now that coverage reaches v8 (#281)', () => {
     // The live wiring, not a synthetic one. Before Phase 6 this was the
     // destructive bump: v6's schema outran migration coverage (1-5) on
     // purpose, so this gate withheld `migrations` and the adapter reset
