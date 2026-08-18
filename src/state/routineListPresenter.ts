@@ -41,7 +41,7 @@ export async function routineListPresenter(db: Database): Promise<RoutineListIte
 
     let hasActiveExercise = false;
     for (const re of routineExercises) {
-      if (rowHasPrescribedSets(await getRoutineSets(db, re.id), re._raw)) {
+      if (rowHasPrescribedSets(await getRoutineSets(db, re.id))) {
         hasActiveExercise = true;
         break;
       }

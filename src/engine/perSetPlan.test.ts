@@ -1,24 +1,24 @@
 /**
- * Per-set routine plan (#276 Phase 2) — the engine advances by set list.
+ * Per-set routine plan (#276 Phase 2, aggregates removed in Phase 6) — the
+ * engine advances by set list.
  *
  * A routine entry no longer says "3 warmup sets then 4 working sets of 8". It
  * carries an ordered `sets` list and each set declares its own type, reps and
- * weight. The Rill rules read that list; the counts survive on the TS side only
- * as a derivation for the ~20 shell files that have not moved yet (Phase 6
- * deletes them).
+ * weight — `RoutineEntry.sets` is required, and the four aggregate count
+ * fields (`warmupSets`/`targetSets`/`targetReps`/`targetDurationSeconds`) no
+ * longer exist on the type at all: there is no derivation seam left to
+ * regress on. The "derivation seam, both directions" describe block that
+ * exercised the counts-to-list expansion and the re-derivation back to counts
+ * was deleted in #276 Phase 6 along with `src/engine/entrySets.ts`
+ * (`setsFromCounts`/`entrySets`) — see the top of that describe block's
+ * former location for a fuller note.
  *
- * WHY THE FIXTURES CARRY DELIBERATELY WRONG COUNTS. Every per-set fixture below
- * is built with `warmupSets: 99, targetSets: 99, targetReps: 99`. Those values
- * are unreachable nonsense, and that is the point: `toRillRoutineEntry` prefers
- * `entry.sets` when it is present, so any regression that reads a count instead
- * of the list produces a wildly different answer rather than a coincidentally
- * correct one. A fixture that passes whether the code is right or wrong is the
- * defect this file is built to avoid.
- *
- * ON `toEqual` VS `toStrictEqual`. `rillToJs` omits a `None` field entirely
- * rather than emitting `undefined`, and `fromRillState` re-spells the absent
- * keys as explicit `undefined`. Either way an expectation written without those
- * keys only matches under `toEqual`. Use `toEqual` throughout (AC2.12).
+ * ON `toEqual` VS `toStrictEqual`. `rillToJs` KEEPS a `None` field and gives it
+ * the value `undefined` (its `Record` case copies every field unconditionally);
+ * `fromRillState` then re-spells all five keys anyway. So the actual object
+ * carries every key, an expectation written without the empty ones has fewer,
+ * and `toStrictEqual` — which counts an `undefined`-valued key as present —
+ * fails on exactly that. Use `toEqual` throughout (AC2.12).
  */
 
 import { createEngine, SENTINEL_TO_OPTION_MAP } from './index';
@@ -54,7 +54,7 @@ function makeExecutors() {
   };
 }
 
-/** A per-set entry. The count fields are junk on purpose — see the file header. */
+/** A per-set entry. */
 function perSetEntry(
   idx: number,
   exerciseId: string,
@@ -65,29 +65,9 @@ function perSetEntry(
     idx,
     exerciseId,
     kind: 'strength',
-    warmupSets: 99,
-    targetSets: 99,
-    targetReps: 99,
-    targetDurationSeconds: 99,
     restSeconds: 0,
     supersetGroup: '',
     sets,
-    ...overrides,
-  };
-}
-
-/** A legacy count-built entry: no `sets`, exercising the expansion direction. */
-function countEntry(idx: number, exerciseId: string, overrides: Partial<RoutineEntry> = {}): RoutineEntry {
-  return {
-    idx,
-    exerciseId,
-    kind: 'strength',
-    warmupSets: 0,
-    targetSets: 1,
-    targetReps: 8,
-    targetDurationSeconds: 0,
-    restSeconds: 0,
-    supersetGroup: '',
     ...overrides,
   };
 }
@@ -460,6 +440,14 @@ describe('per-set routine plan: convention 10 survives (AC2.7–AC2.9)', () => {
   });
 });
 
+// The "derivation seam, both directions" describe block that used to follow
+// this one — expanding `countEntry` (`warmupSets`/`targetSets`/`targetReps`/
+// `targetDurationSeconds`) into a set list on the way in, and re-deriving
+// those same counts from `entry.sets` on the way out — was deleted in #276
+// Phase 6. `RoutineEntry.sets` is now required and the four aggregate fields
+// no longer exist on the type, so there is no seam left to cover:
+// `src/engine/entrySets.ts` (`setsFromCounts`/`entrySets`/`EntryCounts`) was
+// deleted in the same phase.
 describe('per-set routine plan: the boundary (AC2.11, AC2.12)', () => {
   it('AC2.11: ReplaceExercise swaps the id and carries the whole set list through', async () => {
     const engine = createEngine(makeExecutors());
@@ -532,114 +520,5 @@ describe('per-set routine plan: the boundary (AC2.11, AC2.12)', () => {
 
     expect(state.entries[0].sets).toEqual(rowing);
     expect(state.entries[0].sets?.[0].distanceM).toBe(2000);
-  });
-});
-
-describe('per-set routine plan: the derivation seam, both directions', () => {
-  it('expands counts into a flat set list when an entry carries no sets', async () => {
-    const { start } = startedEngine([
-      countEntry(0, 'squat', { warmupSets: 2, targetSets: 3, targetReps: 8 }),
-    ]);
-    const state = await start();
-
-    expect(state.entries[0].sets).toEqual([
-      { setType: 'warmup', reps: 8 },
-      { setType: 'warmup', reps: 8 },
-      { setType: 'normal', reps: 8 },
-      { setType: 'normal', reps: 8 },
-      { setType: 'normal', reps: 8 },
-    ]);
-  });
-
-  it('expands a duration-based entry into duration-carrying sets', async () => {
-    const { start } = startedEngine([
-      countEntry(0, 'plank', { kind: 'stretch', warmupSets: 0, targetSets: 2, targetReps: 0, targetDurationSeconds: 45 }),
-    ]);
-    const state = await start();
-
-    expect(state.entries[0].sets).toEqual([
-      { setType: 'normal', durationSeconds: 45 },
-      { setType: 'normal', durationSeconds: 45 },
-    ]);
-  });
-
-  it('a count-built entry advances exactly as it did before per-set', async () => {
-    const { engine, start } = startedEngine([
-      countEntry(0, 'squat', { warmupSets: 2, targetSets: 3, targetReps: 8 }),
-    ]);
-    const started = await start();
-    const { trace, final } = await logUntilDone(engine, started);
-
-    expect(trace.map((t) => t.phase)).toEqual(['warmup', 'warmup', 'working', 'working', 'working']);
-    expect(final.loggedSets.map((s) => s.setType)).toEqual(['warmup', 'warmup', 'working', 'working', 'working']);
-  });
-
-  it('re-derives the counts from the set list so unmigrated shell readers see no change', async () => {
-    const { start } = startedEngine([perSetEntry(0, 'bench-press-dumbbell', RAMP)]);
-    const state = await start();
-
-    // The fixture went in carrying 99s. What comes back is derived from the list.
-    expect(state.entries[0]).toEqual({
-      idx: 0,
-      exerciseId: 'bench-press-dumbbell',
-      kind: 'strength',
-      warmupSets: 3,
-      targetSets: 4,
-      targetReps: 8,
-      targetDurationSeconds: 0,
-      restSeconds: 0,
-      supersetGroup: '',
-      sets: RAMP,
-    });
-  });
-
-  it('re-derives zero counts for an empty set list', async () => {
-    const { start } = startedEngine([
-      perSetEntry(0, 'ghost', []),
-      perSetEntry(1, 'real', [{ setType: 'normal', reps: 8 }]),
-    ]);
-    const state = await start();
-
-    expect(state.entries[0].warmupSets).toBe(0);
-    expect(state.entries[0].targetSets).toBe(0);
-    expect(state.entries[0].targetReps).toBe(0);
-    expect(state.entries[0].sets).toEqual([]);
-  });
-
-  it('re-derives targetReps from the first working set, not the first warmup', async () => {
-    // RAMP's warmups are 5 and 3 reps; the plan the shell should show is 8.
-    const { start } = startedEngine([perSetEntry(0, 'bench-press-dumbbell', RAMP)]);
-    const state = await start();
-    expect(state.entries[0].targetReps).toBe(8);
-  });
-
-  it('falls back to the first set when a list is all warmups, so an all-warmup count entry round-trips', async () => {
-    const { start } = startedEngine([
-      countEntry(0, 'empty-bar-work', { warmupSets: 2, targetSets: 0, targetReps: 12 }),
-      countEntry(1, 'real', { targetSets: 1, targetReps: 8 }),
-    ]);
-    const state = await start();
-
-    expect(state.entries[0].warmupSets).toBe(2);
-    expect(state.entries[0].targetSets).toBe(0);
-    expect(state.entries[0].targetReps).toBe(12);
-  });
-
-  it('round-trips every count-built entry shape the existing suites use', async () => {
-    const shapes: Partial<RoutineEntry>[] = [
-      { warmupSets: 1, targetSets: 1, targetReps: 8, targetDurationSeconds: 0, restSeconds: 60 },
-      { warmupSets: 0, targetSets: 3, targetReps: 10, targetDurationSeconds: 0, restSeconds: 0 },
-      { warmupSets: 2, targetSets: 1, targetReps: 6, targetDurationSeconds: 0, restSeconds: 90, supersetGroup: 'A' },
-      { kind: 'cardio', warmupSets: 0, targetSets: 1, targetReps: 0, targetDurationSeconds: 600, restSeconds: 0 },
-      { kind: 'stretch', warmupSets: 0, targetSets: 2, targetReps: 0, targetDurationSeconds: 30, restSeconds: 15 },
-    ];
-    const entries = shapes.map((shape, idx) => countEntry(idx, `exercise-${idx}`, shape));
-    const { start } = startedEngine(entries);
-    const state = await start();
-
-    for (let i = 0; i < entries.length; i++) {
-      const { sets, ...roundTripped } = state.entries[i];
-      expect(roundTripped).toEqual(entries[i]);
-    }
   });
 });

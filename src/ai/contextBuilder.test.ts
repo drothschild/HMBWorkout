@@ -16,6 +16,63 @@ import {
   RECENT_WORKOUTS_IN_PROMPT,
   type AiCoachMode,
 } from './contextBuilder';
+import type { RoutineSetEntry } from '@/db/repository';
+
+/**
+ * Fixture conversion helper (#276 Phase 6): `upsertRoutineExercise`'s options
+ * no longer carry `warmupSets`/`targetSets`/`targetReps`/`targetWeightKg` — only
+ * `sets: RoutineSetEntry[]`. Reproduces exactly what the deleted `setsFromCounts`
+ * did, plus the entry-level `targetWeightKg` these fixtures also relied on,
+ * applied uniformly to every generated set the same way the deleted
+ * `prescribedSets` fallback used to.
+ */
+function setsFromCounts(
+  warmupSets: number,
+  targetSets: number,
+  targetReps: number,
+  targetWeightKg?: number
+): RoutineSetEntry[] {
+  const reps = targetReps > 0 ? targetReps : undefined;
+  return [
+    ...Array.from({ length: warmupSets }, () => ({
+      setType: 'warmup' as const,
+      targetReps: reps,
+      targetWeightKg,
+    })),
+    ...Array.from({ length: targetSets }, () => ({
+      setType: 'normal' as const,
+      targetReps: reps,
+      targetWeightKg,
+    })),
+  ];
+}
+
+/**
+ * Writes `sets` as `routine_sets` rows for `routineExerciseId`, mirroring what
+ * `replaceRoutineSets` (`src/db/repository.ts`) does — needed only by the tests
+ * below that build `routine_exercises` rows directly with `database.get(...).create()`
+ * rather than through `upsertRoutineExercise`, because upsert would collapse
+ * two rows sharing one `exerciseId`. Must be called from inside an open
+ * `database.write`.
+ */
+async function createRoutineSetsRaw(
+  db: Database,
+  routineExerciseId: string,
+  sets: readonly RoutineSetEntry[]
+): Promise<void> {
+  for (const [order, set] of sets.entries()) {
+    await db.get('routine_sets').create((row: any) => {
+      row._raw.routine_exercise_id = routineExerciseId;
+      row._raw.order = order;
+      row._raw.set_type = set.setType;
+      if (set.targetReps !== undefined) row.targetReps = set.targetReps;
+      if (set.targetRepsMax !== undefined) row.targetRepsMax = set.targetRepsMax;
+      if (set.targetWeightKg !== undefined) row.targetWeightKg = set.targetWeightKg;
+      if (set.targetDurationSeconds !== undefined) row.targetDurationSeconds = set.targetDurationSeconds;
+      if (set.targetDistanceM !== undefined) row.targetDistanceM = set.targetDistanceM;
+    });
+  }
+}
 
 describe('buildSystem: AI Coach context builder', () => {
   let database: Database;
@@ -316,17 +373,14 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-1', {
         exerciseId: 'exercise-1',
         order: 0,
-        warmupSets: 1,
-        targetSets: 3,
-        targetReps: 8,
         restSeconds: 120,
+        sets: setsFromCounts(1, 3, 8),
       });
       await upsertRoutineExercise(database, 'routine-1', {
         exerciseId: 'exercise-2',
         order: 1,
-        targetSets: 4,
-        targetReps: 10,
         restSeconds: 90,
+        sets: setsFromCounts(0, 4, 10),
       });
 
       // Seed second routine
@@ -351,9 +405,8 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-2', {
         exerciseId: 'exercise-3',
         order: 0,
-        targetSets: 3,
-        targetReps: 5,
         restSeconds: 180,
+        sets: setsFromCounts(0, 3, 5),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -363,9 +416,10 @@ describe('buildSystem: AI Coach context builder', () => {
       expect(prompt).toContain('Bench Press');
       expect(prompt).toContain('Rows');
       expect(prompt).toContain('Squat');
-      // #276 AC4.11: the plan renders as its set list. These rows are
-      // aggregate-only, so prescribedSets' fallback expands them into uniform
-      // lists and the run-length rule collapses each back to one segment.
+      // #276 AC4.11: the plan renders as its set list. These fixtures write
+      // uniform `routine_sets` lists (#276 Phase 6: there is no aggregate
+      // fallback any more), and the run-length rule collapses each uniform
+      // list back to one segment.
       expect(prompt).toContain('3 × 8 reps');
       expect(prompt).toContain('4 × 10 reps');
       expect(prompt).toContain('3 × 5 reps');
@@ -405,15 +459,13 @@ describe('buildSystem: AI Coach context builder', () => {
         exerciseId: 'exercise-barbell',
         order: 0,
         supersetGroup: supersetLabel,
-        targetSets: 3,
-        targetReps: 6,
+        sets: setsFromCounts(0, 3, 6),
       });
       await upsertRoutineExercise(database, 'routine-superset', {
         exerciseId: 'exercise-dumbbell',
         order: 1,
         supersetGroup: supersetLabel,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -461,16 +513,14 @@ describe('buildSystem: AI Coach context builder', () => {
         exerciseId: 'exercise-superset-1',
         order: 0,
         supersetGroup: supersetLabel,
-        targetSets: 3,
-        targetReps: 6,
+        sets: setsFromCounts(0, 3, 6),
       });
 
       // Standalone exercise at order 1 (between supersets)
       await upsertRoutineExercise(database, 'routine-interleave', {
         exerciseId: 'exercise-standalone',
         order: 1,
-        targetSets: 3,
-        targetReps: 12,
+        sets: setsFromCounts(0, 3, 12),
       });
 
       // Superset member at order 2
@@ -478,8 +528,7 @@ describe('buildSystem: AI Coach context builder', () => {
         exerciseId: 'exercise-superset-2',
         order: 2,
         supersetGroup: supersetLabel,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -531,27 +580,22 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-mixed-prescription', {
         exerciseId: 'exercise-squat',
         order: 0,
-        targetSets: 3,
-        targetReps: 5,
-        targetWeightKg: 83.91,
+        sets: setsFromCounts(0, 3, 5, 83.91),
       });
 
       // Unprescribed entry (absent)
       await upsertRoutineExercise(database, 'routine-mixed-prescription', {
         exerciseId: 'exercise-bench',
         order: 1,
-        targetSets: 3,
-        targetReps: 8,
         restSeconds: 120,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       // Zero-prescribed entry — kills the !== undefined and != null mutants
       await upsertRoutineExercise(database, 'routine-mixed-prescription', {
         exerciseId: 'exercise-zero',
         order: 2,
-        targetSets: 3,
-        targetReps: 5,
-        targetWeightKg: 0,
+        sets: setsFromCounts(0, 3, 5, 0),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -562,10 +606,10 @@ describe('buildSystem: AI Coach context builder', () => {
       const routineSection = prompt.substring(routineStart, historyStart);
 
       // AC3.2: Prescribed entry renders weight in lbs in correct position.
-      // #276 AC4.11 reshaped the line: the plan is now the entry's set list,
-      // and an aggregate-only row reaches it through prescribedSets' fallback
-      // (three identical normal sets), which run-length collapses back to one
-      // segment. The load still renders in lbs, still on this segment.
+      // #276 AC4.11 reshaped the line: the plan is now the entry's set list —
+      // the fixture writes three identical normal `routine_sets` rows, and the
+      // run-length rule collapses them back to one segment. The load still
+      // renders in lbs, still on this segment.
       expect(routineSection).toContain('Back Squat (strength) | 3 × 5 reps @ 185lbs');
       // Assert the rendered lbs string, not the kg value — this proves
       // the conversion happened at the display edge. kgToLbs(83.91) = 185.
@@ -680,8 +724,7 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-noted', {
         exerciseId: 'exercise-1',
         order: 0,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -712,8 +755,7 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-sneaky', {
         exerciseId: 'exercise-1',
         order: 0,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       const prompt = await buildSystem(database, { kind: 'create' });
@@ -1198,16 +1240,13 @@ describe('buildSystem: AI Coach context builder', () => {
       const bench = await upsertRoutineExercise(database, routineId, {
         exerciseId: 'exercise-bench',
         order: 0,
-        warmupSets: 1,
-        targetSets: 3,
-        targetReps: 8,
         restSeconds: 120,
+        sets: setsFromCounts(1, 3, 8),
       });
       await upsertRoutineExercise(database, routineId, {
         exerciseId: 'exercise-row',
         order: 1,
-        targetSets: 4,
-        targetReps: 10,
+        sets: setsFromCounts(0, 4, 10),
       });
 
       await createSession(database, {
@@ -1299,15 +1338,13 @@ describe('buildSystem: AI Coach context builder', () => {
         exerciseId: 'exercise-curl',
         order: 0,
         supersetGroup: 'A',
-        targetSets: 3,
-        targetReps: 12,
+        sets: setsFromCounts(0, 3, 12),
       });
       await upsertRoutineExercise(database, routineId, {
         exerciseId: 'exercise-pushdown',
         order: 1,
         supersetGroup: 'A',
-        targetSets: 4,
-        targetReps: 15,
+        sets: setsFromCounts(0, 4, 15),
       });
 
       await createSession(database, {
@@ -1367,25 +1404,23 @@ describe('buildSystem: AI Coach context builder', () => {
 
       // Same exercise twice in one routine: distinct rows, so upsert would
       // collapse them — create them directly, as the session engine's
-      // routine_exercise lookup does by (routine, order).
+      // routine_exercise lookup does by (routine, order). #276 Phase 6: the
+      // row itself carries no plan any more, so the `routine_sets` rows have
+      // to be written directly too, the way `replaceRoutineSets` would.
       let second: any;
       await database.write(async () => {
-        await database.get('routine_exercises').create((re: any) => {
+        const first = await database.get('routine_exercises').create((re: any) => {
           re.routineId = routineId;
           re.exerciseId = 'exercise-bench';
           re.order = 0;
-          re.warmupSets = 0;
-          re.targetSets = 3;
-          re.targetReps = 8;
         });
         second = await database.get('routine_exercises').create((re: any) => {
           re.routineId = routineId;
           re.exerciseId = 'exercise-bench';
           re.order = 1;
-          re.warmupSets = 0;
-          re.targetSets = 1;
-          re.targetReps = 20;
         });
+        await createRoutineSetsRaw(database, first.id, setsFromCounts(0, 3, 8));
+        await createRoutineSetsRaw(database, second.id, setsFromCounts(0, 1, 20));
       });
 
       await createSession(database, {
@@ -1468,10 +1503,8 @@ describe('buildSystem: AI Coach context builder', () => {
           re.routineId = routineId;
           re.exerciseId = 'exercise-pushups';
           re.order = 0;
-          re.warmupSets = 0;
-          re.targetSets = 3;
-          re.targetReps = 10;
         });
+        await createRoutineSetsRaw(database, re.id, setsFromCounts(0, 3, 10));
         return re.id;
       });
 
@@ -2089,8 +2122,7 @@ describe('buildSystem: AI Coach context builder', () => {
         const re = await upsertRoutineExercise(database, 'routine-place-debrief', {
           exerciseId: 'exercise-place-bench',
           order: 0,
-          targetSets: 3,
-          targetReps: 8,
+          sets: setsFromCounts(0, 3, 8),
         });
         await createSession(database, {
           sessionId: 'session-place-debrief',
@@ -2181,8 +2213,7 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-edit-test', {
         exerciseId: 'exercise-edit-test',
         order: 0,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       const prompt = await buildSystem(database, { kind: 'edit', routineId: 'routine-edit-test' });
@@ -2210,8 +2241,7 @@ describe('buildSystem: AI Coach context builder', () => {
       await upsertRoutineExercise(database, 'routine-debrief-test', {
         exerciseId: 'exercise-debrief-test',
         order: 0,
-        targetSets: 3,
-        targetReps: 8,
+        sets: setsFromCounts(0, 3, 8),
       });
 
       await createSession(database, {

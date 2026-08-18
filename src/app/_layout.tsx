@@ -8,7 +8,7 @@ import { DatabaseProvider } from '@nozbe/watermelondb/react';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { database } from '@/db';
 import { loadRules, RuleLoadError } from '@/engine/loadRules';
-import { loadActiveEngineState } from '@/db/engineState';
+import { clearEngineState, loadActiveEngineState } from '@/db/engineState';
 import { getActiveSessionStore, injectRealExecutors } from '@/state/activeSession';
 import { rehydrateActiveSession } from '@/state/sessionRehydrate';
 import { reconcileForegroundedSession } from '@/state/foregroundReconcile';
@@ -163,7 +163,9 @@ export default function RootLayout() {
         // Hydrate active session if one exists (restart recovery)
         const savedState = await loadActiveEngineState(database);
         if (savedState) {
-          await rehydrateActiveSession(getActiveSessionStore(), savedState, Date.now());
+          await rehydrateActiveSession(getActiveSessionStore(), savedState, Date.now(), {
+            clearEngineState: (sessionId) => clearEngineState(database, sessionId),
+          });
         }
 
         setRulesLoaded(true);

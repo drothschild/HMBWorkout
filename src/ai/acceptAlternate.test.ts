@@ -6,7 +6,7 @@
  * out from under another.
  */
 
-import { Database } from '@nozbe/watermelondb';
+import { Database, Q } from '@nozbe/watermelondb';
 import { closeTestDatabase, createTestDatabase } from '@/db/test-helpers';
 import { applyAlternateToRoutine, ensureAlternateExercise } from './acceptAlternate';
 import { DraftValidationError } from './draftSchema';
@@ -103,10 +103,20 @@ describe('applyAlternateToRoutine', () => {
         re.routineId = ROUTINE_ID;
         re.exerciseId = 'barbell-bench-press';
         re.order = 1;
-        re.warmupSets = 2;
-        re.targetSets = 4;
       });
       rowId = (row as any).id;
+
+      // #276 Phase 6: the plan lives in `routine_sets`, not aggregate columns
+      // on the entry — two warmup + four normal rows stand in for the old
+      // `warmupSets: 2, targetSets: 4`.
+      const setTypes = ['warmup', 'warmup', 'normal', 'normal', 'normal', 'normal'] as const;
+      for (const [order, setType] of setTypes.entries()) {
+        await database.get('routine_sets').create((set: any) => {
+          set._raw.routine_exercise_id = rowId;
+          set._raw.order = order;
+          set._raw.set_type = setType;
+        });
+      }
     });
   });
 
@@ -119,9 +129,23 @@ describe('applyAlternateToRoutine', () => {
 
     const row = (await database.get('routine_exercises').find(rowId)) as any;
     expect(row._raw.exercise_id).toBe('dumbbell-floor-press');
-    expect(row.warmupSets).toBe(2);
-    expect(row.targetSets).toBe(4);
     expect(await database.get('routine_exercises').query().fetchCount()).toBe(1);
+
+    // #276 Phase 6 equivalent of the old warmupSets/targetSets survives-the-swap
+    // assertion: the plan's structure (set_type per row) is untouched by the
+    // identity swap — only the entry's exercise_id moved.
+    const sets = (await database
+      .get('routine_sets')
+      .query(Q.where('routine_exercise_id', rowId))
+      .fetch()) as any[];
+    expect(sets.map((s) => s._raw.set_type as string).sort()).toEqual([
+      'normal',
+      'normal',
+      'normal',
+      'normal',
+      'warmup',
+      'warmup',
+    ]);
   });
 
   it('throws when no entry sits at that order, rather than writing somewhere else', async () => {

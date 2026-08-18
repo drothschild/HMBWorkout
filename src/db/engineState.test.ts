@@ -269,12 +269,14 @@ describe('engineState', () => {
             idx: 0,
             exerciseId: 'ex-1',
             kind: 'strength',
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
             restSeconds: 60,
             supersetGroup: 'A',
+            sets: [
+              { setType: 'warmup', reps: 8 },
+              { setType: 'normal', reps: 8 },
+              { setType: 'normal', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
           },
         ],
       };

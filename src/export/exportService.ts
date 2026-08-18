@@ -200,17 +200,14 @@ export async function exportSessionHistory(db: Database): Promise<SessionHistory
           rpe: (s as any).rpe ?? undefined,
           position: (s as any)._raw.position,
         })),
+        // Only what `serializeSession` actually reads. `order` and `notes` were
+        // mapped here too and consumed by nothing on this path; `notes` is the
+        // routine document's hint flag and is read by `serializeRoutine` alone.
         routineExercises.map((re) => ({
           id: re.id,
           exerciseId: re._raw.exercise_id,
-          order: re._raw.order,
           supersetGroup: re._raw.superset_group,
-          warmupSets: re._raw.warmup_sets,
-          targetSets: re._raw.target_sets ?? undefined,
-          targetReps: re._raw.target_reps ?? undefined,
-          targetDurationSeconds: re._raw.target_duration_seconds ?? undefined,
           restSeconds: re._raw.rest_seconds ?? undefined,
-          notes: re._raw.notes,
         })),
         exercises.map((e) => ({
           id: e.id,

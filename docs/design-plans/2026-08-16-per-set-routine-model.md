@@ -564,15 +564,36 @@ Fixtures referenced by name throughout:
   `src/db/adapterMigrations.ts` carries the detail. *Fails on regression:* a v6 database must open
   at v7 without wiping — a purpose-built `fromVersion: 6, toVersion: 7` assertion returns a non-null
   `[]`. **AC1.7's pins invert here and must be rewritten rather than deleted:** with coverage
-  spanning 1–7, `migrations.maxVersion` is `7` not `5`, and `stepsForMigration(1 → 6)` returns 5
+  spanning 1–7, `migrations.maxVersion` is `7` not `5`, and `stepsForMigration(1 → 6)` returns real
   steps rather than `null`.
-- **AC6.2 Success:** `rg 'targetSets|warmupSets|target_sets|warmup_sets' src --glob '!*.test.ts'`
-  returns **zero** matches. *Fails on regression:* this is the criterion that catches a forgotten
-  fallback branch, and it is mechanical.
+  ⚠️ **CORRECTED AT IMPLEMENTATION: it is FOUR steps, not five.** This AC said five and the
+  consolidated Phase-6 debt comment repeated it. Five migration *entries* are traversed (v2, v3,
+  v4, v5, v6) but `stepsForMigration` concatenates their `steps` arrays and v4's is deliberately
+  empty — `sync_status` was undeclared, not dropped. Entries and steps are not the same count, and
+  the same arithmetic applies to v7, whose array is empty for the same reason: a v1 walk to v7 is
+  the same four steps as a v1 walk to v6. Measured, not reasoned about.
+- **AC6.2 Success:** ~~`rg 'targetSets|warmupSets|target_sets|warmup_sets' src --glob '!*.test.ts'`
+  returns **zero** matches.~~ **REWRITTEN AT IMPLEMENTATION — no production CODE names an
+  aggregate**, asserted by `src/db/aggregatesGone.static.test.ts`, which sweeps every non-test
+  `.ts`/`.tsx` under `src/`, strips comments (keeping string literals, which are exactly where an
+  un-typecheckable `Q.where('target_sets', …)` would hide), and requires zero matches.
+
+  The original could not reach zero, for two reasons pulling opposite ways. `WorkoutLine.targetSets`
+  was never a routine aggregate — it is the raw `<sets>` half of a workout line's slot, 12
+  unremovable hits — and explaining what was removed requires naming it, so the migration entries,
+  the model and half a dozen presenters legitimately carry the word in prose.
+
+  Both ends were fixed rather than carved out. The field is **`setsSlot`** now, which is what it
+  always meant; and the criterion asks the question it was reaching for. **A carve-out for
+  `src/interop` was the tempting wrong answer and would have hidden four genuinely dead
+  `RoutineExerciseRow` fields** — the debt list flagged two of them, and a fix that named two would
+  have left two. *Fails on regression:* still the criterion that catches a forgotten fallback
+  branch, and now stronger than the shell command, since a comment can neither satisfy nor break
+  it.
 - **AC6.3 Success:** The derivation scaffolding is deleted: `toRillRoutineEntry` no longer derives a
   set list from counts, `fromRillState` no longer re-derives counts from a set list, and
   `RoutineEntry.sets` is required rather than optional.
-- **AC6.4 Success:** `src/state/sessionPresenter.ts.backup` is deleted.
+- ~~**AC6.4 Success:** `src/state/sessionPresenter.ts.backup` is deleted.~~ **ALREADY DONE** in #280/#285, before Phase 6 opened. Nothing to do; recorded so the next reader does not go looking for the file.
 - **AC6.5 Success:** AGENTS.md is rewritten for the new model: conventions 3, 6, 8, 9 and 10 are
   restated in per-set terms; the `rillToJs`-omits-`None` test hazard is recorded; the destructive-bump
   mechanism and its `logger.warn` silence are recorded; the `target_weight_kg` three-way precedence

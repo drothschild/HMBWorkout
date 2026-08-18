@@ -32,17 +32,37 @@ type SessionSetRow = {
   position: number;
 };
 
+/**
+ * The `routine_exercises` row as the SESSION serializer needs it, and NOTHING
+ * more. Every field here has a named reader:
+ *
+ * - `id`          — `serializeSession`'s group lookup and orphan bookkeeping
+ * - `exerciseId`  — `buildSessionSetLine`'s identity fallback for an unstamped set
+ * - `supersetGroup` / `restSeconds` — the two plan flags a logged line repeats
+ *
+ * Getting to that list took three rounds on this one type, which is the part
+ * worth recording. #276 Phase 5 spotted **two** dead aggregate fields; Phase 6
+ * removed **four** (`warmupSets`, `targetSets`, `targetReps`,
+ * `targetDurationSeconds`) after the columns were undeclared at schema v7; and
+ * the Phase 6 review found **two more** (`order`, `notes`) that had never been
+ * aggregates at all and were simply never read. Each round named an instance of
+ * the class and missed the rest.
+ *
+ * The countermeasure that actually settled it, and the one to repeat rather
+ * than another grep: run `serializeSession` with a distinct marker in every
+ * field and check which markers reach the output. `notes` had been asserted in
+ * prose to be read by this path; a marker showed it was not, in about a minute.
+ *
+ * `serializeRoutine` takes its own inline row type — it is the reader of
+ * `notes` (as `@hint`) and of `sets` — so this type was only ever the session
+ * path's, and the two must not be merged back together on the strength of
+ * their overlapping names.
+ */
 type RoutineExerciseRow = {
   id: string;
   exerciseId: string;
-  order: number;
   supersetGroup?: string;
-  warmupSets: number;
-  targetSets?: number;
-  targetReps?: number;
-  targetDurationSeconds?: number;
   restSeconds?: number;
-  notes?: string;
 };
 
 type ExerciseRow = {

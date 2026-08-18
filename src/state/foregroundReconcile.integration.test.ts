@@ -42,10 +42,10 @@ describe('reconcileForegroundedSession (foreground recovery)', () => {
       {
         exerciseId: 'ex-fg1',
         kind: 'strength' as const,
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        sets: [
+          { setType: 'normal' as const, reps: 8 },
+          { setType: 'normal' as const, reps: 8 },
+        ],
         restSeconds: 90,
         supersetGroup: '',
       },

@@ -1,6 +1,40 @@
 import { createTestDatabase } from '@/db/test-helpers';
 import { routineDetailPresenter } from './routineDetailPresenter';
 
+/**
+ * #276 Phase 6: `routine_exercises` no longer carries warmup_sets/target_sets/
+ * target_reps/target_duration_seconds — the plan lives in `routine_sets`, one
+ * row per prescribed set. This is the file's one local helper (per the
+ * migration brief) for writing fixtures that used to be expressed as
+ * aggregate counts: it expands the same counts into the equivalent
+ * `routine_sets` rows, exactly what the deleted `setsFromCounts`/
+ * `prescribedSets` used to do at read time.
+ */
+async function seedSetRows(
+  db: any,
+  routineExerciseId: string,
+  counts: {
+    warmupSets?: number;
+    targetSets?: number;
+    targetReps?: number;
+    targetDurationSeconds?: number;
+  }
+): Promise<void> {
+  const { warmupSets = 0, targetSets = 0, targetReps = 0, targetDurationSeconds = 0 } = counts;
+  let order = 0;
+  const createSet = async (setType: 'warmup' | 'normal') => {
+    await db.get('routine_sets').create((row: any) => {
+      row._raw.routine_exercise_id = routineExerciseId;
+      row._raw.order = order++;
+      row._raw.set_type = setType;
+      if (targetReps > 0) row._raw.target_reps = targetReps;
+      if (targetDurationSeconds > 0) row._raw.target_duration_seconds = targetDurationSeconds;
+    });
+  };
+  for (let i = 0; i < warmupSets; i++) await createSet('warmup');
+  for (let i = 0; i < targetSets; i++) await createSet('normal');
+}
+
 describe('routineDetailPresenter', () => {
   it('returns null when routine does not exist', async () => {
     const db = await createTestDatabase();
@@ -44,38 +78,32 @@ describe('routineDetailPresenter', () => {
       });
 
       // Superset: bench + fly
-      await db.get('routine_exercises').create((re: any) => {
+      const bench = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'bench-press';
         re._raw.order = 0;
         re._raw.superset_group = 'ss1';
-        re._raw.warmup_sets = 2;
-        re._raw.target_sets = 4;
-        re._raw.target_reps = 6;
         re._raw.rest_seconds = 120;
       });
+      await seedSetRows(db, bench.id, { warmupSets: 2, targetSets: 4, targetReps: 6 });
 
-      await db.get('routine_exercises').create((re: any) => {
+      const fly = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'db-fly';
         re._raw.order = 1;
         re._raw.superset_group = 'ss1';
-        re._raw.warmup_sets = 0;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 10;
         re._raw.rest_seconds = 90;
       });
+      await seedSetRows(db, fly.id, { warmupSets: 0, targetSets: 3, targetReps: 10 });
 
       // Standalone
-      await db.get('routine_exercises').create((re: any) => {
+      const dip = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'tricep-dip';
         re._raw.order = 2;
-        re._raw.warmup_sets = 1;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 8;
         re._raw.rest_seconds = 60;
       });
+      await seedSetRows(db, dip.id, { warmupSets: 1, targetSets: 3, targetReps: 8 });
     });
 
     const detail = await routineDetailPresenter(db, 'routine-1');
@@ -90,34 +118,44 @@ describe('routineDetailPresenter', () => {
       exerciseId: 'bench-press',
       title: 'Bench Press',
       order: 0,
-      warmupSets: 2,
-      targetSets: 4,
-      targetReps: 6,
       restSeconds: 120,
       kind: 'strength',
     });
+    expect(detail!.supersetGroups[0].exercises[0].sets.map((s) => s.setType)).toEqual([
+      'warmup',
+      'warmup',
+      'normal',
+      'normal',
+      'normal',
+      'normal',
+    ]);
     expect(detail!.supersetGroups[0].exercises[1]).toMatchObject({
       exerciseId: 'db-fly',
       title: 'Dumbbell Fly',
       order: 1,
-      warmupSets: 0,
-      targetSets: 3,
-      targetReps: 10,
       restSeconds: 90,
       kind: 'strength',
     });
+    expect(detail!.supersetGroups[0].exercises[1].sets.map((s) => s.setType)).toEqual([
+      'normal',
+      'normal',
+      'normal',
+    ]);
 
     expect(detail!.standaloneExercises).toHaveLength(1);
     expect(detail!.standaloneExercises[0]).toMatchObject({
       exerciseId: 'tricep-dip',
       title: 'Tricep Dip',
       order: 2,
-      warmupSets: 1,
-      targetSets: 3,
-      targetReps: 8,
       restSeconds: 60,
       kind: 'strength',
     });
+    expect(detail!.standaloneExercises[0].sets.map((s) => s.setType)).toEqual([
+      'warmup',
+      'normal',
+      'normal',
+      'normal',
+    ]);
   });
 
   it('handles cardio exercises with duration instead of reps', async () => {
@@ -138,12 +176,12 @@ describe('routineDetailPresenter', () => {
         e._raw.created_at = Date.now();
       });
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-2';
         re._raw.exercise_id = 'rowing';
         re._raw.order = 0;
-        re._raw.target_duration_seconds = 300;
       });
+      await seedSetRows(db, re.id, { targetSets: 1, targetDurationSeconds: 300 });
     });
 
     const detail = await routineDetailPresenter(db, 'routine-2');
@@ -153,8 +191,10 @@ describe('routineDetailPresenter', () => {
     expect(detail!.standaloneExercises[0]).toMatchObject({
       exerciseId: 'rowing',
       kind: 'cardio',
-      targetDurationSeconds: 300,
     });
+    expect(detail!.standaloneExercises[0].sets).toEqual([
+      { setType: 'normal', targetDurationSeconds: 300 },
+    ]);
   });
 
   it('includes exercise description when present, and null when absent', async () => {
@@ -313,11 +353,13 @@ describe('routineDetailPresenter', () => {
         e._raw.created_at = Date.now();
       });
 
+      // No routine_sets rows behind this entry: it prescribes nothing (#276
+      // Phase 6 — there is no aggregate target_duration_seconds column left
+      // to set instead, and none is needed to make the point).
       await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-all-zero';
         re._raw.exercise_id = 'rowing';
         re._raw.order = 0;
-        re._raw.target_duration_seconds = 1800;
       });
     });
 
@@ -344,13 +386,20 @@ describe('routineDetailPresenter', () => {
         e._raw.created_at = Date.now();
       });
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-mixed';
         re._raw.exercise_id = 'bench-press';
         re._raw.order = 0;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 8;
       });
+      // 3 normal sets x 8 reps (#276: the plan lives in routine_sets now).
+      for (let order = 0; order < 3; order++) {
+        await db.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = re.id;
+          row._raw.order = order;
+          row._raw.set_type = 'normal';
+          row._raw.target_reps = 8;
+        });
+      }
     });
 
     const detail = await routineDetailPresenter(db, 'routine-mixed');
@@ -358,79 +407,13 @@ describe('routineDetailPresenter', () => {
     expect(detail!.hasActiveExercise).toBe(true);
   });
 
-  it('includes targetWeightKg when coach has prescribed a load, and omits when absent or zero (AC3.1)', async () => {
-    const db = await createTestDatabase();
-
-    await db.write(async () => {
-      await db.get('routines').create((r: any) => {
-        r._raw.id = 'routine-prescribed';
-        r.name = 'Prescribed Loads';
-        r._raw.created_at = Date.now();
-        r._raw.updated_at = Date.now();
-      });
-
-      await db.get('exercises').create((e: any) => {
-        e._raw.id = 'squat';
-        e.title = 'Back Squat';
-        e._raw.kind = 'strength';
-        e._raw.created_at = Date.now();
-      });
-
-      await db.get('exercises').create((e: any) => {
-        e._raw.id = 'bench-press';
-        e.title = 'Bench Press';
-        e._raw.kind = 'strength';
-        e._raw.created_at = Date.now();
-      });
-
-      await db.get('exercises').create((e: any) => {
-        e._raw.id = 'deadlift';
-        e.title = 'Deadlift';
-        e._raw.kind = 'strength';
-        e._raw.created_at = Date.now();
-      });
-
-      // Entry with prescribed load
-      await db.get('routine_exercises').create((re: any) => {
-        re._raw.routine_id = 'routine-prescribed';
-        re._raw.exercise_id = 'squat';
-        re._raw.order = 0;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 5;
-        re._raw.target_weight_kg = 83.91;
-      });
-
-      // Entry without prescribed load
-      await db.get('routine_exercises').create((re: any) => {
-        re._raw.routine_id = 'routine-prescribed';
-        re._raw.exercise_id = 'bench-press';
-        re._raw.order = 1;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 8;
-      });
-
-      // Entry with 0 prescribed (boundary condition — should be falsy like absent)
-      await db.get('routine_exercises').create((re: any) => {
-        re._raw.routine_id = 'routine-prescribed';
-        re._raw.exercise_id = 'deadlift';
-        re._raw.order = 2;
-        re._raw.target_sets = 1;
-        re._raw.target_reps = 5;
-        re._raw.target_weight_kg = 0;
-      });
-    });
-
-    const detail = await routineDetailPresenter(db, 'routine-prescribed');
-
-    expect(detail).not.toBeNull();
-    expect(detail!.standaloneExercises).toHaveLength(3);
-    // Prescribed entry: 83.91 renders as-is
-    expect(detail!.standaloneExercises[0].targetWeightKg).toBe(83.91);
-    // Unprescribed entry: WatermelonDB gives null (not undefined) — kills || undefined mutants
-    expect(detail!.standaloneExercises[1].targetWeightKg).toBeNull();
-    // Zero-prescribed entry: 0 is distinct from null — kills ?? 0 and truthiness-guard mutants
-    expect(detail!.standaloneExercises[2].targetWeightKg).toBe(0);
-  });
+  // "includes targetWeightKg when coach has prescribed a load, and omits when
+  // absent or zero (AC3.1)" deleted (#276 Phase 6): `ExerciseDetail` no longer
+  // has an entry-level `targetWeightKg` — load is per set now, on
+  // `sets[].targetWeightKg` — so the null/zero/absent distinction this test
+  // pinned no longer has a column to describe. The per-set equivalent (a ramp
+  // carrying several different weights) is covered below in the "per-set
+  // prescription (#276)" block.
 
   it('preserves routine order via items, and keeps a reused superset label as a separate contiguous group rather than merging (#268)', async () => {
     const db = await createTestDatabase();
@@ -754,13 +737,6 @@ describe('routineDetailPresenter', () => {
           row._raw.routine_id = 'routine-ramp';
           row._raw.exercise_id = 'bench-press-dumbbell';
           row._raw.order = 0;
-          // Vestigial and deliberately wrong: the list is the plan. NON-ZERO
-          // on purpose — with 0/0 the aggregate fallback would produce an
-          // empty list too, so "rows win, counts ignored" would be
-          // indistinguishable from "counts win when non-zero".
-          row._raw.warmup_sets = 99;
-          row._raw.target_sets = 99;
-          row._raw.target_reps = 99;
           row._raw.rest_seconds = 120;
         });
         for (const [order, set] of RAMP_ROWS.entries()) {
@@ -799,12 +775,16 @@ describe('routineDetailPresenter', () => {
       expect(exercise.sets[0].targetRepsMax).toBeUndefined();
     });
 
-    it('hasActiveExercise comes from the set list, not the aggregate columns', async () => {
-      const db = await createTestDatabase();
-      await seedRamp(db);
-
-      expect((await routineDetailPresenter(db, 'routine-ramp'))!.hasActiveExercise).toBe(true);
-    });
+    // "hasActiveExercise comes from the set list, not the aggregate columns"
+    // and "DERIVATION SEAM: a count-only row still reports a set list and
+    // stays active" deleted (#276 Phase 6): both existed to prove the
+    // aggregate-column fallback lost to a `routine_sets` list, or filled in
+    // for an entry with rows only. There is no fallback left to lose to —
+    // `routine_exercises` no longer carries the aggregate columns at all —
+    // so both tests' subject is gone along with the seam. The remaining
+    // tests in this block (ramp intact, empty entry inactive, and the
+    // hasActiveExercise:true/false tests above) already cover the set-list
+    // behaviour on its own.
 
     it('an entry with no prescribed sets and no counts carries sets: [] and is not active', async () => {
       const db = await createTestDatabase();
@@ -833,38 +813,5 @@ describe('routineDetailPresenter', () => {
       expect(detail!.hasActiveExercise).toBe(false);
     });
 
-    it('DERIVATION SEAM: a count-only row still reports a set list and stays active', async () => {
-      const db = await createTestDatabase();
-      await db.write(async () => {
-        await db.get('routines').create((r: any) => {
-          r._raw.id = 'routine-counts';
-          r.name = 'Counts';
-          r._raw.created_at = Date.now();
-          r._raw.updated_at = Date.now();
-        });
-        await db.get('exercises').create((e: any) => {
-          e._raw.id = 'row';
-          e.title = 'Row';
-          e._raw.kind = 'strength';
-          e._raw.created_at = Date.now();
-        });
-        await db.get('routine_exercises').create((row: any) => {
-          row._raw.routine_id = 'routine-counts';
-          row._raw.exercise_id = 'row';
-          row._raw.order = 0;
-          row._raw.warmup_sets = 1;
-          row._raw.target_sets = 2;
-          row._raw.target_reps = 10;
-        });
-      });
-
-      const detail = await routineDetailPresenter(db, 'routine-counts');
-      expect(detail!.standaloneExercises[0].sets.map((s) => s.setType)).toEqual([
-        'warmup',
-        'normal',
-        'normal',
-      ]);
-      expect(detail!.hasActiveExercise).toBe(true);
-    });
   });
 });

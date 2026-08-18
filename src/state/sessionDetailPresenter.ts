@@ -46,16 +46,12 @@ export interface SessionDetailExercise {
   title: string;
   /**
    * What the routine prescribes for this row TODAY (#276) — read from
-   * `routine_sets`, which is where the plan now lives. Like the aggregate
-   * fields beside it this is the routine's current composition, not a snapshot
-   * of what was planned when the session ran; the routine may have been edited
-   * since. `[]` when the row prescribes nothing or has been destroyed.
+   * `routine_sets`, which is where the plan lives. This is the routine's
+   * CURRENT composition, not a snapshot of what was planned when the session
+   * ran; the routine may have been edited since. `[]` when the row prescribes
+   * nothing or has been destroyed.
    */
   plannedSets: RoutineSetEntry[];
-  /** Superseded by `plannedSets`; kept for the readers Phase 6 will move. */
-  targetSets?: number;
-  targetReps?: number;
-  targetDurationSeconds?: number;
   sets: SessionDetailSetLine[];
 }
 
@@ -185,9 +181,6 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
       exerciseId: entry.exerciseId,
       title: entry.title,
       plannedSets: plansByRow.get(entry.routineExerciseId) ?? [],
-      targetSets: entry.targetSets,
-      targetReps: entry.targetReps,
-      targetDurationSeconds: entry.targetDurationSeconds,
       sets: formattedSets,
     };
   });

@@ -2,7 +2,6 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createSession, appendSet, updateRoutineExerciseExerciseId } from '@/db/repository';
 import { sessionDetailPresenter } from './sessionDetailPresenter';
-import { formatPlannedSetsSummary } from './plannedSetsFormat';
 
 describe('sessionDetailPresenter', () => {
   let database: Database;
@@ -100,8 +99,10 @@ describe('sessionDetailPresenter', () => {
     // Routine order, not creation order.
     expect(detail!.exercises[0].title).toBe('Bench Press');
     expect(detail!.exercises[0].routineExerciseId).toBe('re-bench');
-    expect(detail!.exercises[0].targetSets).toBe(3);
-    expect(detail!.exercises[0].targetReps).toBe(8);
+    // targetSets/targetReps assertions removed (#276 Phase 6): SessionDetailExercise
+    // no longer carries the aggregate columns, and seedRoutine() writes no
+    // routine_sets rows for this fixture, so there is no equivalent
+    // plannedSets fact to re-point at here.
     // Warmup set is included, not filtered out.
     expect(detail!.exercises[0].sets).toHaveLength(2);
     expect(detail!.exercises[0].sets[0].setType).toBe('warmup');
@@ -494,7 +495,8 @@ describe('sessionDetailPresenter', () => {
     // First Bench Press entry (order 0) has 2 sets
     expect(detail!.exercises[0].title).toBe('Bench Press');
     expect(detail!.exercises[0].routineExerciseId).toBe('re-bench');
-    expect(detail!.exercises[0].targetReps).toBe(8);
+    // targetReps assertion removed (#276 Phase 6): no longer a field on
+    // SessionDetailExercise, and this fixture writes no routine_sets rows.
     expect(detail!.exercises[0].sets).toHaveLength(2);
     expect(detail!.exercises[0].sets[0].line).toBe('8 x 132.5lbs');
     expect(detail!.exercises[0].sets[1].line).toBe('8 x 132.5lbs');
@@ -507,7 +509,8 @@ describe('sessionDetailPresenter', () => {
     // Second Bench Press entry (order 2) has 1 set
     expect(detail!.exercises[2].title).toBe('Bench Press');
     expect(detail!.exercises[2].routineExerciseId).toBe('re-bench-2');
-    expect(detail!.exercises[2].targetReps).toBe(10);
+    // targetReps assertion removed (#276 Phase 6): no longer a field on
+    // SessionDetailExercise, and this fixture writes no routine_sets rows.
     expect(detail!.exercises[2].sets).toHaveLength(1);
     expect(detail!.exercises[2].sets[0].line).toBe('10 x 110lbs');
 
@@ -515,6 +518,14 @@ describe('sessionDetailPresenter', () => {
   });
 
   // ---- #276 Phase 3: the plan lookup moves to routine_sets ----------------
+  //
+  // #276 Phase 6 deleted the aggregate-column fallback this block used to
+  // cover: `getPrescribedSetsForRow` no longer resolves warmup_sets/target_sets/
+  // target_reps on a row with no `routine_sets` behind it (the columns
+  // themselves are gone), so "falls back to the row's aggregate counts, so
+  // history keeps its target label" no longer describes real behaviour and is
+  // deleted rather than kept as a shell that asserts nothing. `routine_sets` is
+  // now the only source `plannedSets` reads, matching the surviving test below.
 
   it('carries the row’s prescribed set list, keyed by row id and not shared between rows', async () => {
     await seedRoutine();
@@ -563,36 +574,6 @@ describe('sessionDetailPresenter', () => {
 
     expect(bench.plannedSets.map((s) => s.targetWeightKg)).toEqual([9.07, 11.34, 18.14, 22.68]);
     expect(row.plannedSets).toEqual([{ setType: 'normal', targetReps: 10 }]);
-  });
-
-  it('falls back to the row’s aggregate counts, so history keeps its target label', async () => {
-    // Every routine in the app is aggregate-only until Phase 4 gives
-    // `acceptDraft` a set list, so this — not the seeded-rows case above — is
-    // the shape the history screen actually meets. Reading `routine_sets`
-    // alone reported `[]` here and `workout/[id].tsx` rendered an empty target
-    // label where `main` rendered `3x8`.
-    await seedRoutine();
-    await createSession(database, {
-      sessionId: 'session-noplan',
-      routineId: 'routine-1',
-      startedAtMs: Date.now() - 60000,
-    });
-    await appendSet(database, 'session-noplan', 're-bench', {
-      setType: 'working',
-      reps: 8,
-      weightKg: 60,
-    });
-
-    const detail = await sessionDetailPresenter(database, 'session-noplan');
-    const bench = detail!.exercises.find((e) => e.routineExerciseId === 're-bench')!;
-
-    expect(bench.plannedSets).toEqual([
-      { setType: 'warmup', targetReps: 8 },
-      { setType: 'normal', targetReps: 8 },
-      { setType: 'normal', targetReps: 8 },
-      { setType: 'normal', targetReps: 8 },
-    ]);
-    expect(formatPlannedSetsSummary(bench.plannedSets)).toBe('1 warmup + 3×8');
   });
 
   it('reports plannedSets: [] only when the row prescribes nothing at all', async () => {

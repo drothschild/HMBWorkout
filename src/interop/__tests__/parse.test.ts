@@ -269,7 +269,7 @@ tags: []
       expect(exercise.exerciseId).toBe('cycling');
       expect(exercise.kind).toBe('cardio');
       expect(exercise.sets).toEqual([{ setType: 'normal', targetDurationSeconds: 300 }]);
-      expect(exercise.targetSets).toBeUndefined();
+      expect(exercise.setsSlot).toBeUndefined();
       expect(exercise.targetReps).toBeUndefined();
     });
 
@@ -293,7 +293,7 @@ tags: []
       expect(exercise.exerciseId).toBe('chest-stretch');
       expect(exercise.kind).toBe('stretch');
       expect(exercise.sets).toEqual([{ setType: 'normal', targetDurationSeconds: 30 }]);
-      expect(exercise.targetSets).toBeUndefined();
+      expect(exercise.setsSlot).toBeUndefined();
       expect(exercise.targetReps).toBeUndefined();
     });
 
@@ -630,7 +630,7 @@ tags: []
       // phase is not touching.
       const line = parseSession(sessionDoc('3x8 set_type=working')).exercises[0] as any;
       expect(line.loggedReps).toBe(8);
-      expect(line.targetSets).toBe(3);
+      expect(line.setsSlot).toBe(3);
     });
 
     test('a session line with nothing after the colon is still malformed', () => {

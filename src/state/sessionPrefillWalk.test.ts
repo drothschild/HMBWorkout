@@ -58,12 +58,7 @@ const REPS_DROP_SETS = [
   { set_type: 'normal', target_reps: 6, target_weight_kg: 22.68 },
 ];
 
-async function seedRoutine(
-  db: any,
-  routineId: string,
-  sets: any[],
-  counts: Record<string, unknown> = {}
-): Promise<void> {
+async function seedRoutine(db: any, routineId: string, sets: any[]): Promise<void> {
   await db.write(async () => {
     await db.get('routines').create((r: any) => {
       r._raw.id = routineId;
@@ -82,14 +77,6 @@ async function seedRoutine(
       row._raw.exercise_id = 'bench-press-dumbbell';
       row._raw.order = 0;
       row._raw.rest_seconds = 0;
-      // Deliberately wrong aggregates when set rows exist: a reader that falls
-      // back to counts while a list is present cannot pass.
-      row._raw.warmup_sets = 99;
-      row._raw.target_sets = 99;
-      row._raw.target_reps = 99;
-      for (const [column, value] of Object.entries(counts)) {
-        row._raw[column] = value;
-      }
     });
     for (const [order, set] of sets.entries()) {
       await db.get('routine_sets').create((row: any) => {
@@ -247,44 +234,18 @@ describe('the prefill an athlete actually sees, set by set (#276 C1 + C2)', () =
     ]);
   });
 
-  it('AGGREGATE-ONLY: the coach-prescribed row load reaches every set (#276 C3)', async () => {
-    // What `acceptDraft` produces TODAY: aggregate columns plus
-    // `target_weight_kg`, and no `routine_sets` rows at all. The prescription
-    // must still beat the athlete's cross-session history, exactly as it did
-    // before Phase 3.
-    const db = await createTestDatabase();
-    await seedRoutine(db, 'routine-aggregate', [], {
-      warmup_sets: 0,
-      target_sets: 2,
-      target_reps: 8,
-      target_weight_kg: 83.91,
-    });
-
-    expect(
-      await walk(db, 'routine-aggregate', { history: { reps: 8, weightLbs: 175 } })
-    ).toEqual([
-      { reps: 8, weightLbs: 185 },
-      { reps: 8, weightLbs: 185 },
-    ]);
-  });
-
-  it('AGGREGATE-ONLY: a uniform plan still defers to history for reps on set 0', async () => {
-    // The other half of C3's "byte-identical" promise. Nothing in the aggregate
-    // plan varies, so the per-set override must never fire and the athlete's
-    // own rep count keeps winning — the documented weight/reps asymmetry.
-    const db = await createTestDatabase();
-    await seedRoutine(db, 'routine-aggregate-reps', [], {
-      warmup_sets: 0,
-      target_sets: 2,
-      target_reps: 8,
-      target_weight_kg: 83.91,
-    });
-
-    expect(
-      await walk(db, 'routine-aggregate-reps', { history: { reps: 12, weightLbs: 175 } })
-    ).toEqual([
-      { reps: 12, weightLbs: 185 },
-      { reps: 12, weightLbs: 185 },
-    ]);
-  });
+  // "AGGREGATE-ONLY: the coach-prescribed row load reaches every set (#276
+  // C3)" and "AGGREGATE-ONLY: a uniform plan still defers to history for
+  // reps on set 0" deleted (#276 Phase 6): both seeded a routine with
+  // aggregate columns (warmup_sets/target_sets/target_reps/target_weight_kg)
+  // and zero `routine_sets` rows — "what `acceptDraft` produces TODAY" per
+  // their own comments, at a point before Phase 4 gave `acceptDraft` a set
+  // list. `acceptDraft` has written `routine_sets` rows since Phase 4, and
+  // Phase 6 deleted the aggregate columns and the fallback that read them,
+  // so that fixture shape is now a routine with NO prescribed sets at all —
+  // `startSessionFromRoutine` correctly refuses to start it ("no entry with
+  // any sets to perform"), which is not a bug to route around here. The
+  // walk's other cases (RAMP, FLAT, REPS DROP) already cover the
+  // prescription-vs-history precedence this pair existed to pin, through
+  // real `routine_sets` rows.
 });

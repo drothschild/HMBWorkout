@@ -1,7 +1,7 @@
 import type { SessionState } from '@/engine/types';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
-import { saveEngineState, loadActiveEngineState } from '@/db/engineState';
+import { saveEngineState, loadActiveEngineState, clearEngineState } from '@/db/engineState';
 import { createSession } from '@/db/repository';
 import { rehydrateActiveSession } from './sessionRehydrate';
 import { Database } from '@nozbe/watermelondb';
@@ -40,10 +40,10 @@ describe('Session hydration and restart recovery', () => {
         {
           exerciseId: 'ex-c1',
           kind: 'strength' as const,
-          warmupSets: 1,
-          targetSets: 1,
-          targetReps: 8,
-          targetDurationSeconds: 0,
+          sets: [
+            { setType: 'warmup' as const, reps: 8 },
+            { setType: 'normal' as const, reps: 8 },
+          ],
           restSeconds: 90,
           supersetGroup: '',
         },
@@ -51,10 +51,7 @@ describe('Session hydration and restart recovery', () => {
         {
           exerciseId: 'ex-c2',
           kind: 'strength' as const,
-          warmupSets: 0,
-          targetSets: 1,
-          targetReps: 8,
-          targetDurationSeconds: 0,
+          sets: [{ setType: 'normal' as const, reps: 8 }],
           restSeconds: 90,
           supersetGroup: '',
         },
@@ -162,10 +159,12 @@ describe('Session hydration and restart recovery', () => {
           idx: 0,
           exerciseId: 'ex-1',
           kind: 'strength',
-          warmupSets: 1,
-          targetSets: 3,
-          targetReps: 6,
-          targetDurationSeconds: 0,
+          sets: [
+            { setType: 'warmup', reps: 6 },
+            { setType: 'normal', reps: 6 },
+            { setType: 'normal', reps: 6 },
+            { setType: 'normal', reps: 6 },
+          ],
           restSeconds: 60,
           supersetGroup: '',
         },
@@ -209,6 +208,12 @@ describe('Session hydration and restart recovery', () => {
   });
 
   describe('rehydrateActiveSession (boot restart recovery)', () => {
+    // The production wiring from `_layout.tsx`, so these cases exercise the
+    // real drop-disposal path rather than a stub of it.
+    function rehydrateDeps() {
+      return { clearEngineState: (sessionId: string) => clearEngineState(database, sessionId) };
+    }
+
     // Fresh fakes per store: executors are irrelevant here beyond keeping the
     // real rest timer and notifications out of the node environment.
     function fakeExecutors() {
@@ -228,10 +233,10 @@ describe('Session hydration and restart recovery', () => {
         {
           exerciseId: 'ex-rehydrate',
           kind: 'strength' as const,
-          warmupSets: 1,
-          targetSets: 1,
-          targetReps: 8,
-          targetDurationSeconds: 0,
+          sets: [
+            { setType: 'warmup' as const, reps: 8 },
+            { setType: 'normal' as const, reps: 8 },
+          ],
           restSeconds: 90,
           supersetGroup: '',
         },
@@ -256,7 +261,7 @@ describe('Session hydration and restart recovery', () => {
       const loaded = await loadActiveEngineState(database);
       expect(loaded!.phase).toBe('warmup');
 
-      await rehydrateActiveSession(store2, loaded!, now + 60_000);
+      await rehydrateActiveSession(store2, loaded!, now + 60_000, rehydrateDeps());
 
       // The observed bug: an unconditional Resume is rejected by the engine
       // ("invalid event Resume in phase warmup") and lands in lastError, which
@@ -281,7 +286,7 @@ describe('Session hydration and restart recovery', () => {
       const loaded = await loadActiveEngineState(database);
       expect(loaded!.phase).toBe('paused');
 
-      await rehydrateActiveSession(store2, loaded!, now + 60_000);
+      await rehydrateActiveSession(store2, loaded!, now + 60_000, rehydrateDeps());
 
       // No rest was in flight when paused, so Resume returns the session to
       // the phase recorded before the pause (warmup) — never leaves it paused.
@@ -301,10 +306,10 @@ describe('Session hydration and restart recovery', () => {
         {
           exerciseId: 'ex-kmr1',
           kind: 'strength' as const,
-          warmupSets: 0,
-          targetSets: 2,
-          targetReps: 8,
-          targetDurationSeconds: 0,
+          sets: [
+            { setType: 'normal' as const, reps: 8 },
+            { setType: 'normal' as const, reps: 8 },
+          ],
           restSeconds: 90,
           supersetGroup: '',
         },
@@ -350,7 +355,7 @@ describe('Session hydration and restart recovery', () => {
       const loaded = await loadActiveEngineState(database);
       expect(loaded!.phase).toBe('resting');
 
-      await rehydrateActiveSession(store2, loaded!, now + 32_000);
+      await rehydrateActiveSession(store2, loaded!, now + 32_000, rehydrateDeps());
 
       // The rest continues against the same wall-clock deadline; the new
       // process gets its alert re-armed for the remaining time.
@@ -371,7 +376,7 @@ describe('Session hydration and restart recovery', () => {
       expect(loaded!.phase).toBe('resting');
 
       // The 90s rest ran out while the app was dead.
-      await rehydrateActiveSession(store2, loaded!, now + 200_000);
+      await rehydrateActiveSession(store2, loaded!, now + 200_000, rehydrateDeps());
 
       // Same recovery RestElapsed would have made: phase from position (set 1
       // of a 0-warmup entry → working), deadline cleared, logged set intact —
@@ -384,6 +389,152 @@ describe('Session hydration and restart recovery', () => {
       expect(s.loggedSets).toHaveLength(1);
       expect(executors2.onCancelRest).toHaveBeenCalled();
       expect(executors2.onScheduleRest).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A dropped legacy row must not shadow the sessions that come after it.
+   *
+   * `loadActiveEngineState` walks `ended_at IS NULL` rows in no particular
+   * order and returns the FIRST one carrying a non-null `engine_state`. A
+   * legacy row that is merely *declined* keeps its state and keeps being the
+   * first, so restart recovery is dead for the life of the install rather than
+   * costing the one abandoned workout the docstring used to claim.
+   *
+   * Both halves are executed here against a real database: the failure mode
+   * (control, with the clear withheld) and the fix.
+   */
+  describe('a dropped legacy row does not shadow a later valid session', () => {
+    function fakeExecutors() {
+      return {
+        onScheduleRest: jest.fn(),
+        onCancelRest: jest.fn(),
+        onNotify: jest.fn(),
+        onPersistSet: jest.fn(),
+        onCompleteSession: jest.fn(),
+      };
+    }
+
+    const liveRoutine = {
+      id: 'routine-live',
+      name: 'Live Routine',
+      entries: [
+        {
+          exerciseId: 'ex-live',
+          kind: 'strength' as const,
+          sets: [{ setType: 'normal' as const, reps: 5 }],
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+      ],
+    };
+
+    /** The pre-Phase-2 aggregate shape: entries with NO `sets` key. */
+    async function seedLegacyRow(startedAtMs: number): Promise<void> {
+      await createSession(database, {
+        sessionId: 'sess-legacy',
+        routineId: 'routine-legacy',
+        startedAtMs,
+      });
+      await saveEngineState(database, 'sess-legacy', {
+        sessionId: 'sess-legacy',
+        routineId: 'routine-legacy',
+        phase: 'working',
+        exerciseIndex: 0,
+        setIndex: 0,
+        loggedSets: [],
+        startedAtMs,
+        entries: [
+          {
+            idx: 0,
+            exerciseId: 'ex-legacy',
+            kind: 'strength',
+            warmupSets: 2,
+            targetSets: 3,
+            targetReps: 8,
+            restSeconds: 90,
+            supersetGroup: '',
+          },
+        ],
+      } as unknown as SessionState);
+    }
+
+    it('CONTROL: withholding the clear leaves the legacy row shadowing forever', async () => {
+      const now = Date.now();
+      await seedLegacyRow(now - 100_000);
+
+      // Boot 1 — the guard declines the legacy state but disposes of nothing.
+      const bootStore = createActiveSessionStore(database, fakeExecutors());
+      const firstBoot = await loadActiveEngineState(database);
+      expect(firstBoot!.sessionId).toBe('sess-legacy');
+      await rehydrateActiveSession(bootStore, firstBoot!, now, {
+        clearEngineState: async () => {},
+      });
+      expect(bootStore.getState().sessionState).toBeNull();
+
+      // The user starts a real workout, which persists to its own row.
+      const liveStore = createActiveSessionStore(database, fakeExecutors());
+      await liveStore.getState().dispatch({
+        tag: 'StartSession',
+        sessionId: 'sess-live',
+        nowMs: now,
+        routine: liveRoutine,
+      });
+
+      // Boot 2 — the stale row is handed back again and the live workout is lost.
+      const secondBoot = await loadActiveEngineState(database);
+      expect(secondBoot!.sessionId).toBe('sess-legacy');
+      const bootStore2 = createActiveSessionStore(database, fakeExecutors());
+      await rehydrateActiveSession(bootStore2, secondBoot!, now + 1000, {
+        clearEngineState: async () => {},
+      });
+      expect(bootStore2.getState().sessionState).toBeNull();
+    });
+
+    it('clearing on the drop path lets the next boot restore the live session', async () => {
+      const now = Date.now();
+      await seedLegacyRow(now - 100_000);
+
+      const deps = {
+        clearEngineState: (sessionId: string) => clearEngineState(database, sessionId),
+      };
+
+      // Boot 1 — dropped AND disposed of.
+      const bootStore = createActiveSessionStore(database, fakeExecutors());
+      const firstBoot = await loadActiveEngineState(database);
+      expect(firstBoot!.sessionId).toBe('sess-legacy');
+      await rehydrateActiveSession(bootStore, firstBoot!, now, deps);
+      expect(bootStore.getState().sessionState).toBeNull();
+
+      // The row survives as the audit trail — it is the STATE that is gone.
+      const legacyRow: any = await database.get('sessions').find('sess-legacy');
+      expect(legacyRow._raw.ended_at).toBeNull();
+      expect(legacyRow._raw.engine_state).toBeFalsy();
+
+      // With nothing else in progress the query now answers "no active state"
+      // instead of handing back the corpse.
+      expect(await loadActiveEngineState(database)).toBeNull();
+
+      // The user starts a real workout.
+      const liveStore = createActiveSessionStore(database, fakeExecutors());
+      await liveStore.getState().dispatch({
+        tag: 'StartSession',
+        sessionId: 'sess-live',
+        nowMs: now,
+        routine: liveRoutine,
+      });
+
+      // Boot 2 — restart recovery reaches the live session and restores it.
+      const secondBoot = await loadActiveEngineState(database);
+      expect(secondBoot!.sessionId).toBe('sess-live');
+      const bootStore2 = createActiveSessionStore(database, fakeExecutors());
+      await rehydrateActiveSession(bootStore2, secondBoot!, now + 1000, deps);
+
+      expect(bootStore2.getState().lastError).toBeNull();
+      const restored = bootStore2.getState().sessionState!;
+      expect(restored.sessionId).toBe('sess-live');
+      expect(restored.phase).toBe('working');
+      expect(restored.entries[0].exerciseId).toBe('ex-live');
     });
   });
 });

@@ -9,23 +9,62 @@
  */
 
 import { createEngine } from './index';
-import type { SessionState, RoutineEntry } from './types';
+import type { SessionState, RoutineEntry, RoutineSet } from './types';
 import { createSessionPresenter } from '@/state/sessionPresenter';
 
-function makeEntries(count = 1, overrides?: Partial<RoutineEntry>[]): RoutineEntry[] {
+/**
+ * This file's fixtures are overwhelmingly aggregate-shaped (warmupSets,
+ * targetSets, targetReps, targetDurationSeconds) rather than exercising a
+ * specific per-set list shape, so `makeEntries` accepts the old count
+ * overrides and expands them into `RoutineEntry.sets` itself — the same
+ * expansion the deleted `setsFromCounts` (`src/engine/entrySets.ts`,
+ * removed in #276 Phase 6) used to do at the engine boundary. A test whose
+ * point IS the per-set shape (see perSetPlan.test.ts's RAMP/INTERLEAVE)
+ * should build `sets` directly instead of adding another count override
+ * here.
+ */
+type EntryOverride = Partial<Omit<RoutineEntry, 'sets'>> & {
+  warmupSets?: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+};
+
+const DEFAULT_COUNTS = { warmupSets: 0, targetSets: 1, targetReps: 8, targetDurationSeconds: 0 };
+
+/** Aggregate counts -> ordered set list. Mirrors the deleted setsFromCounts exactly. */
+function countsToSets(counts: {
+  warmupSets: number;
+  targetSets: number;
+  targetReps: number;
+  targetDurationSeconds: number;
+}): RoutineSet[] {
+  const reps = counts.targetReps > 0 ? counts.targetReps : undefined;
+  const durationSeconds = counts.targetDurationSeconds > 0 ? counts.targetDurationSeconds : undefined;
+  const make = (setType: RoutineSet['setType']): RoutineSet => ({ setType, reps, durationSeconds });
+  return [
+    ...Array.from({ length: Math.max(0, counts.warmupSets) }, () => make('warmup')),
+    ...Array.from({ length: Math.max(0, counts.targetSets) }, () => make('normal')),
+  ];
+}
+
+function makeEntries(count = 1, overrides?: EntryOverride[]): RoutineEntry[] {
   const entries: RoutineEntry[] = [];
   for (let i = 0; i < count; i++) {
+    const { warmupSets, targetSets, targetReps, targetDurationSeconds, ...rest } = overrides?.[i] ?? {};
     entries.push({
       idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
-      warmupSets: 0,
-      targetSets: 1,
-      targetReps: 8,
-      targetDurationSeconds: 0,
       restSeconds: 60,
       supersetGroup: '',
-      ...overrides?.[i],
+      sets: countsToSets({
+        warmupSets: warmupSets ?? DEFAULT_COUNTS.warmupSets,
+        targetSets: targetSets ?? DEFAULT_COUNTS.targetSets,
+        targetReps: targetReps ?? DEFAULT_COUNTS.targetReps,
+        targetDurationSeconds: targetDurationSeconds ?? DEFAULT_COUNTS.targetDurationSeconds,
+      }),
+      ...rest,
     });
   }
   return entries;

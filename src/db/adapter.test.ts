@@ -46,14 +46,18 @@ describe('SQLite adapter factory', () => {
     expect(migrationsForAdapter).toHaveBeenCalledWith(databaseSchema.version, migrations);
   });
 
-  it('and today that decision is `undefined`, because v6 is the destructive bump', () => {
+  it('and today that decision is the migrations themselves, because v7 covers the schema', () => {
     // The real gate, not the mock — the sentinel above proves the wiring but
     // says nothing about what actually reaches SQLiteAdapter in this build.
-    // Passing `migrations` itself would make validateAdapter throw "Missing
-    // migration" out of the constructor in every non-production build,
-    // crashing a Debug boot before the reset can run.
+    //
+    // This answered `undefined` while the v6 bump was destructive by design.
+    // Phase 6 restores coverage, so withholding here would take the reset path
+    // a second time and destroy the routines the user rebuilt after that wipe.
+    // Passing them is also what stops `validateAdapter` throwing: it asserts
+    // `maxVersion === schema.version`, which is exactly the equality this gate
+    // now finds true.
     const { migrationsForAdapter: realGate } =
       jest.requireActual<typeof import('./adapterMigrations')>('./adapterMigrations');
-    expect(realGate(databaseSchema.version, migrations)).toBeUndefined();
+    expect(realGate(databaseSchema.version, migrations)).toBe(migrations);
   });
 });

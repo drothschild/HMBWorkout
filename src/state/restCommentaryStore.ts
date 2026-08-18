@@ -42,7 +42,6 @@ import { hasAiKey } from '@/state/hasAiKey';
 import { isRestingPhase, deriveSetPosition } from '@/state/sessionPresenter';
 import { createAiClient } from '@/ai/provider/factory';
 import { supersetRunEndIndex } from '@/domain/supersetGrouping';
-import { entrySets } from '@/engine/entrySets';
 import type { ExerciseKind, LoggedSet, RoutineSet, SessionState } from '@/engine/types';
 import type { AiClient, ProviderConfig } from '@/ai/provider/types';
 
@@ -181,7 +180,7 @@ function performedEntryIndex(sessionState: SessionState): number | null {
 
   for (let idx = groupEnd; idx >= groupStart; idx -= 1) {
     const entry = entries[idx];
-    if (entry && entrySets(entry).length > round) return idx;
+    if (entry && entry.sets.length > round) return idx;
   }
 
   return null;
@@ -279,7 +278,7 @@ export function restCommentaryTarget(
       exerciseTitle: exerciseTitles?.[performed.exerciseId] || performed.exerciseId,
       kind: performed.kind,
       restSeconds: performed.restSeconds,
-      sets: entrySets(performed),
+      sets: performed.sets,
       isWarmupSet: setPos.isWarmupSet,
       setNumber: setPos.setNumber,
       totalOfType: setPos.totalOfType,
@@ -300,7 +299,7 @@ export function restCommentaryTarget(
     exerciseTitle: exerciseTitles?.[currentEntry.exerciseId] || currentEntry.exerciseId,
     kind: currentEntry.kind,
     restSeconds: currentEntry.restSeconds,
-    sets: entrySets(currentEntry),
+    sets: currentEntry.sets,
     isWarmupSet: setPos.isWarmupSet,
     setNumber: setPos.setNumber,
     totalOfType: setPos.totalOfType,

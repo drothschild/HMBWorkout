@@ -8,9 +8,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
 import { startSessionFromRoutine } from './startSessionFromRoutine';
 import { createActiveSessionStore } from './activeSession';
-import { getSessionSets } from '@/db/repository';
-import { parseRoutine } from '@/interop/parse';
-import { upsertRoutine, upsertExercise } from '@/db/repository';
+import { getSessionSets, upsertRoutine, upsertExercise } from '@/db/repository';
 
 describe('Integration: Import routine + start session + log set (AC7.1)', () => {
   let database: Database;
@@ -38,20 +36,23 @@ describe('Integration: Import routine + start session + log set (AC7.1)', () => 
         {
           exerciseId: 'bench-press',
           order: 0, // Canonical 0-based
-          warmupSets: 1,
-          targetSets: 3,
-          targetReps: 8,
-          targetDurationSeconds: 0,
           restSeconds: 120,
+          sets: [
+            { setType: 'warmup', targetReps: 8 },
+            { setType: 'normal', targetReps: 8 },
+            { setType: 'normal', targetReps: 8 },
+            { setType: 'normal', targetReps: 8 },
+          ],
         },
         {
           exerciseId: 'incline-press',
           order: 1, // Canonical 0-based (second exercise)
-          warmupSets: 0,
-          targetSets: 3,
-          targetReps: 6,
-          targetDurationSeconds: 0,
           restSeconds: 120,
+          sets: [
+            { setType: 'normal', targetReps: 6 },
+            { setType: 'normal', targetReps: 6 },
+            { setType: 'normal', targetReps: 6 },
+          ],
         },
       ]
     );

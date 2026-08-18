@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 6,
+  version: 7,
   tables: [
     tableSchema({
       name: 'routines',
@@ -30,18 +30,22 @@ export const databaseSchema = appSchema({
         { name: 'exercise_id', type: 'string', isIndexed: true },
         { name: 'order', type: 'number' },
         { name: 'superset_group', type: 'string', isOptional: true },
-        { name: 'warmup_sets', type: 'number' },
-        { name: 'target_sets', type: 'number', isOptional: true },
-        { name: 'target_reps', type: 'number', isOptional: true },
-        { name: 'target_duration_seconds', type: 'number', isOptional: true },
         { name: 'rest_seconds', type: 'number', isOptional: true },
-        // A coach-prescribed target load for this entry, in canonical kg.
-        // Nullable and never backfilled: an absent prescription is the normal
-        // case and must leave the SetLogger's history-derived prefill exactly
-        // as it was. lbs exists only at the UI and prompt edges
-        // (src/state/weightUnits.ts).
-        { name: 'target_weight_kg', type: 'number', isOptional: true },
         { name: 'notes', type: 'string', isOptional: true },
+        // WHAT IS NOT HERE, AND WHY IT IS STILL IN THE FILE ON DISK (#276 v7):
+        // warmup_sets, target_sets, target_reps, target_duration_seconds and
+        // target_weight_kg. The plan is `routine_sets` now, one row per
+        // prescribed set, which is the shape a warmup ramp needs and a count
+        // cannot express.
+        //
+        // UNDECLARED, NOT DROPPED — v4's sessions.sync_status precedent.
+        // WatermelonDB 0.28 ships no destroyColumn, and the adapters simply
+        // ignore a physical column the schema omits. Two consequences worth
+        // knowing: the values Phases 1-5 derived into these columns are still
+        // on disk, so re-declaring them at a hypothetical v8 recovers them
+        // (there is no irreversible step after Phase 1's wipe); and a
+        // re-declaration must go through a migration entry, because the column
+        // exists in a v6-era file but not in one created fresh at v7.
       ],
     }),
     // A routine entry's ordered list of PRESCRIBED sets (#276, schema v6). One

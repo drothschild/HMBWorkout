@@ -12,6 +12,7 @@
 
 import { projectSchedule } from './schedule';
 import type { RoutineInput } from './schedule';
+import type { RoutineSet } from '../engine/types';
 import { createEngine } from '../engine';
 
 /**
@@ -80,17 +81,57 @@ function makeRandomRoutine(seed: number): RoutineInput {
   return { id: `r-seed-${seed}`, entries };
 }
 
-function entry(overrides: Partial<RoutineInput['entries'][number]> = {}) {
+/**
+ * Fixture conversion helper (#276 Phase 6): `RoutineEntry` no longer carries
+ * aggregate counts, only `sets: RoutineSet[]`. This reproduces exactly what the
+ * deleted `setsFromCounts` did, so a fixture built from aggregates is
+ * behaviourally identical to the pre-Phase-6 one.
+ */
+function setsFromCounts(
+  warmupSets: number,
+  targetSets: number,
+  targetReps: number,
+  targetDurationSeconds: number
+): RoutineSet[] {
+  const reps = targetReps > 0 ? targetReps : undefined;
+  const durationSeconds = targetDurationSeconds > 0 ? targetDurationSeconds : undefined;
+  return [
+    ...Array.from({ length: warmupSets }, () => ({ setType: 'warmup' as const, reps, durationSeconds })),
+    ...Array.from({ length: targetSets }, () => ({ setType: 'normal' as const, reps, durationSeconds })),
+  ];
+}
+
+interface EntryOverrides {
+  exerciseId?: string;
+  kind?: RoutineInput['entries'][number]['kind'];
+  warmupSets?: number;
+  targetSets?: number;
+  targetReps?: number;
+  targetDurationSeconds?: number;
+  restSeconds?: number;
+  supersetGroup?: string;
+  /** Bypasses the aggregate conversion entirely and is used as-is. */
+  sets?: RoutineSet[];
+}
+
+function entry(overrides: EntryOverrides = {}): RoutineInput['entries'][number] {
+  const {
+    exerciseId = 'squat',
+    kind = 'strength' as const,
+    warmupSets = 0,
+    targetSets = 3,
+    targetReps = 5,
+    targetDurationSeconds = 0,
+    restSeconds = 90,
+    supersetGroup = '',
+    sets,
+  } = overrides;
   return {
-    exerciseId: 'squat',
-    kind: 'strength' as const,
-    warmupSets: 0,
-    targetSets: 3,
-    targetReps: 5,
-    targetDurationSeconds: 0,
-    restSeconds: 90,
-    supersetGroup: '',
-    ...overrides,
+    exerciseId,
+    kind,
+    restSeconds,
+    supersetGroup,
+    sets: sets ?? setsFromCounts(warmupSets, targetSets, targetReps, targetDurationSeconds),
   };
 }
 
@@ -259,6 +300,12 @@ describe('projectSchedule', () => {
   // ---- #276 Phase 3: the projection reads the set list --------------------
 
   describe('per-set plan (#276)', () => {
+    // #276 Phase 6: `RoutineEntry` no longer carries aggregate counts alongside
+    // `sets`, so a test proving the list wins over a disagreeing aggregate no
+    // longer has an aggregate to disagree with. Deleted:
+    // "totalSets is the entry's list length, not the aggregate sum" — its
+    // subject was exactly that now-nonexistent derivation seam.
+
     /** RAMP: three warmups at ascending loads, then four working sets. */
     const RAMP = [
       { setType: 'warmup' as const, reps: 5, weightKg: 9.07 },
@@ -270,24 +317,10 @@ describe('projectSchedule', () => {
       { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
     ];
 
-    it('totalSets is the entry’s list length, not the aggregate sum', async () => {
-      const stops = await projectSchedule({
-        id: 'r-ramp',
-        // Aggregates that disagree with the list, so a reader still summing
-        // them reports 4 rather than 7.
-        entries: [entry({ warmupSets: 1, targetSets: 3, sets: RAMP })],
-      });
-
-      expect(stops).toHaveLength(7);
-      expect(stops.every((s) => s.totalSets === 7)).toBe(true);
-    });
-
     it('each stop carries its own set’s target reps, not one value for the entry', async () => {
       const stops = await projectSchedule({
         id: 'r-ramp',
-        // 3/4 is exactly RAMP's own composition, so the phase sequence
-        // below would be reproduced by count expansion. 99s cannot be.
-        entries: [entry({ warmupSets: 99, targetSets: 99, targetReps: 99, sets: RAMP })],
+        entries: [entry({ sets: RAMP })],
       });
 
       expect(stops.map((s) => s.targetReps)).toEqual([5, 5, 3, 8, 8, 8, 8]);
@@ -307,8 +340,6 @@ describe('projectSchedule', () => {
         id: 'r-interleave',
         entries: [
           entry({
-            warmupSets: 2,
-            targetSets: 1,
             sets: [
               { setType: 'warmup', reps: 5 },
               { setType: 'normal', reps: 8 },
@@ -329,10 +360,6 @@ describe('projectSchedule', () => {
           entry({
             exerciseId: 'plank',
             kind: 'stretch',
-            warmupSets: 0,
-            targetSets: 2,
-            targetReps: 0,
-            targetDurationSeconds: 999,
             sets: [
               { setType: 'normal', durationSeconds: 30 },
               { setType: 'normal', durationSeconds: 45 },

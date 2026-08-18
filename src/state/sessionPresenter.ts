@@ -1,6 +1,5 @@
 // pattern: Imperative Shell
 import { SessionState, Event, RoutineEntry, RoutineSet, LoggedSet } from '@/engine/types';
-import { entrySets } from '@/engine/entrySets';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
 
@@ -124,11 +123,11 @@ export function countSetsOfType(sets: readonly RoutineSet[], isWarmup: boolean):
  * need the same calculation.
  *
  * PER-SET (#276 AC3.3): the position is a COUNT of preceding sets of the same
- * type, not `setIndex - warmupSets + 1`. The old arithmetic assumed every
- * warmup precedes every working set, which a real plan need not honour — on
- * INTERLEAVE (`[warmup, normal, warmup]`) it renders "Set 0" at index 2. No
- * value of `warmupSets` gives the right answer there, which is what makes that
- * fixture the discriminator.
+ * type. The arithmetic it replaced subtracted a warmup COUNT from `setIndex`,
+ * which assumed every warmup precedes every working set — something a real plan
+ * need not honour. On INTERLEAVE (`[warmup, normal, warmup]`) that rendered
+ * "Set 0" at index 2, and no single warmup count gives the right answer there,
+ * which is what makes that fixture the discriminator.
  *
  * `totalOfType` is the denominator the two label builders need. It is returned
  * from here rather than recomputed by each of them so the numerator and the
@@ -147,7 +146,7 @@ export function deriveSetPosition(
 ): { isWarmupSet: boolean; setNumber: number; totalOfType: number } | null {
   if (!entry) return null;
 
-  const sets = entrySets(entry);
+  const sets = entry.sets;
   const current = sets[sessionState.setIndex];
 
   // No set at this position: nothing to count and nothing to count against.
@@ -431,7 +430,7 @@ export function computeSetPrefill(
   // The set actually being performed. Out of range — reachable through
   // `hydrate`, which no rule validates (convention 5) — means no plan, not
   // set 0's plan.
-  const plannedSets = entrySets(entry);
+  const plannedSets = entry?.sets ?? [];
   const plannedSet: RoutineSet | undefined = plannedSets[setIndex];
 
   // The prescribed load for THAT set, converted to display lbs once, here.
@@ -612,7 +611,7 @@ export function createSessionPresenter(
   const setPos = deriveSetPosition(sessionState, currentEntry);
   const isWarmupSet = setPos?.isWarmupSet ?? false;
   const setNumber = setPos?.setNumber ?? 0;
-  const currentEntrySets = entrySets(currentEntry);
+  const currentEntrySets = currentEntry?.sets ?? [];
   const totalSetsForEntry = currentEntrySets.length;
   const setPositionLabel =
     setPos && setPos.totalOfType > 0
@@ -667,7 +666,7 @@ export function createSessionPresenter(
   // that guarantee holding forever.
   const startingExerciseIndex = Math.max(
     0,
-    sessionState.entries?.findIndex((entry) => entrySets(entry).length > 0) ?? 0
+    sessionState.entries?.findIndex((entry) => entry.sets.length > 0) ?? 0
   );
   const atBeginning =
     sessionState.exerciseIndex === startingExerciseIndex &&

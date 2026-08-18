@@ -433,10 +433,12 @@ function formatExerciseLine(
   // two units for weight in one prompt — and in the same vocabulary the
   // persona above asks it to draft in.
   //
-  // An aggregate-only row (nothing in `routine_sets`) still reaches this
-  // through `prescribedSets`' fallback in routineDetailPresenter, which
-  // expands its counts into a uniform list; the run-length rule collapses that
-  // back to one segment, so such a row reads much as it always did.
+  // A row with nothing in `routine_sets` prescribes NOTHING and the segment is
+  // dropped, leaving a bare `Title (kind)` line. There is no longer a fallback
+  // that expands aggregate counts into a uniform list — #276 Phase 6 deleted it
+  // with the columns — so such a row no longer reads "much as it always did".
+  // That is the honest rendering: the row genuinely holds no plan, and inventing
+  // one for the coach to progress would be worse than saying nothing.
   const plan = summarizePlanSets(planSetsFromRoutineSetEntries(exercise.sets));
   if (plan) {
     parts.push(plan);

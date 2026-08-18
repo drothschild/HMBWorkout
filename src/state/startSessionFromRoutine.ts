@@ -44,22 +44,18 @@ export async function startSessionFromRoutine(
 
     const kind = (exercise as any)._raw.kind as ExerciseKind;
 
-    // The prescription the engine actually advances through (#276). The
-    // aggregate columns below are still written for the shell readers that
-    // have not moved to per-set yet; Phase 6 deletes them and this comment.
+    // The prescription the engine advances through, and the whole plan
+    // (#276 Phase 6 — the aggregate columns that used to ride alongside it
+    // are undeclared).
     const prescribedSets = await getRoutineSets(db, re.id);
 
     entries.push({
       idx: re._raw.order, // Use DB order directly, NOT loop counter
       exerciseId: re._raw.exercise_id,
       kind,
-      warmupSets: re._raw.warmup_sets || 0,
-      targetSets: re._raw.target_sets || 0,
-      targetReps: re._raw.target_reps || 0,
-      targetDurationSeconds: re._raw.target_duration_seconds || 0,
       restSeconds: re._raw.rest_seconds || 0,
       supersetGroup: re._raw.superset_group || '',
-      sets: entrySetsFromRows(prescribedSets, re._raw),
+      sets: entrySetsFromRows(prescribedSets),
     });
   }
 
@@ -77,7 +73,7 @@ export async function startSessionFromRoutine(
   // asks the same question one layer further out, through the same
   // `entrySetsFromRows`, so a routine that cannot start never renders as
   // startable either.
-  const hasActiveEntry = entries.some((entry) => (entry.sets?.length ?? 0) > 0);
+  const hasActiveEntry = entries.some((entry) => entry.sets.length > 0);
   if (!hasActiveEntry) {
     throw new Error(`Cannot start session: routine ${routineId} has no entry with any sets to perform`);
   }

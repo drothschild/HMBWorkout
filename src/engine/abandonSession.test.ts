@@ -30,10 +30,13 @@ function makeEntry(overrides?: Partial<SessionState['entries'][number]>) {
     idx: 0,
     exerciseId: 'ex-1',
     kind: 'strength' as const,
-    warmupSets: 1,
-    targetSets: 3,
-    targetReps: 8,
-    targetDurationSeconds: 0,
+    // warmupSets: 1, targetSets: 3, targetReps: 8, targetDurationSeconds: 0
+    sets: [
+      { setType: 'warmup' as const, reps: 8 },
+      { setType: 'normal' as const, reps: 8 },
+      { setType: 'normal' as const, reps: 8 },
+      { setType: 'normal' as const, reps: 8 },
+    ],
     restSeconds: 90,
     supersetGroup: '',
     ...overrides,

@@ -54,15 +54,21 @@ describe('startSessionFromRoutine', () => {
         e._raw.created_at = Date.now();
       });
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'bench-press';
         re._raw.order = 0;
-        re._raw.warmup_sets = 1;
-        re._raw.target_sets = 4;
-        re._raw.target_reps = 6;
         re._raw.rest_seconds = 120;
       });
+      // 1 warmup + 4 normal sets of 6 reps (#276: the plan lives in
+      // routine_sets now).
+      await addRoutineSets(db, re.id, [
+        { set_type: 'warmup', target_reps: 6 },
+        { set_type: 'normal', target_reps: 6 },
+        { set_type: 'normal', target_reps: 6 },
+        { set_type: 'normal', target_reps: 6 },
+        { set_type: 'normal', target_reps: 6 },
+      ]);
     });
 
     const sessionId = `session-${Date.now()}`;
@@ -83,13 +89,16 @@ describe('startSessionFromRoutine', () => {
       idx: 0,
       exerciseId: 'bench-press',
       kind: 'strength',
-      warmupSets: 1,
-      targetSets: 4,
-      targetReps: 6,
-      targetDurationSeconds: 0,
       restSeconds: 120,
       supersetGroup: '',
     });
+    expect((event.routine as any).entries[0].sets.map((s: any) => s.setType)).toEqual([
+      'warmup',
+      'normal',
+      'normal',
+      'normal',
+      'normal',
+    ]);
   });
 
   it('handles superset groups with idx field', async () => {
@@ -113,27 +122,32 @@ describe('startSessionFromRoutine', () => {
       }
 
       // Superset pair
-      await db.get('routine_exercises').create((re: any) => {
+      const re1 = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-2';
         re._raw.exercise_id = 'ex-1';
         re._raw.order = 0;
         re._raw.superset_group = 'ss1';
-        re._raw.warmup_sets = 1;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 8;
         re._raw.rest_seconds = 90;
       });
+      await addRoutineSets(db, re1.id, [
+        { set_type: 'warmup', target_reps: 8 },
+        { set_type: 'normal', target_reps: 8 },
+        { set_type: 'normal', target_reps: 8 },
+        { set_type: 'normal', target_reps: 8 },
+      ]);
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re2 = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-2';
         re._raw.exercise_id = 'ex-2';
         re._raw.order = 1;
         re._raw.superset_group = 'ss1';
-        re._raw.warmup_sets = 0;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 10;
         re._raw.rest_seconds = 90;
       });
+      await addRoutineSets(db, re2.id, [
+        { set_type: 'normal', target_reps: 10 },
+        { set_type: 'normal', target_reps: 10 },
+        { set_type: 'normal', target_reps: 10 },
+      ]);
     });
 
     const sessionId2 = `session-${Date.now()}`;
@@ -171,26 +185,27 @@ describe('startSessionFromRoutine', () => {
         });
       }
 
-      await db.get('routine_exercises').create((re: any) => {
+      // Persona guidance (contextBuilder.ts): duration-based exercises get
+      // targetSets: 1 ("a timed hold is still one planned set in the
+      // session flow") — these fixtures mirror an AI-authored draft, which
+      // is why each gets exactly one prescribed set (not cardio/stretch
+      // entries from parseWorkoutLine, where a plan is validly absent
+      // instead — see AGENTS.md's zero-planned-set Boundaries rule).
+      const rowing = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-3';
         re._raw.exercise_id = 'rowing';
         re._raw.order = 0;
-        // Persona guidance (contextBuilder.ts): duration-based exercises get
-        // targetSets: 1 ("a timed hold is still one planned set in the
-        // session flow") — this fixture mirrors an AI-authored draft, not
-        // cardio/stretch entries from parseWorkoutLine, where target_sets is
-        // validly absent instead (see AGENTS.md's zero-planned-set Boundaries rule).
-        re._raw.target_sets = 1;
-        re._raw.target_duration_seconds = 300;
       });
+      await addRoutineSets(db, rowing.id, [{ set_type: 'normal', target_duration_seconds: 300 }]);
 
-      await db.get('routine_exercises').create((re: any) => {
+      const stretching = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-3';
         re._raw.exercise_id = 'stretching';
         re._raw.order = 1;
-        re._raw.target_sets = 1;
-        re._raw.target_duration_seconds = 120;
       });
+      await addRoutineSets(db, stretching.id, [
+        { set_type: 'normal', target_duration_seconds: 120 },
+      ]);
     });
 
     const sessionId3 = `session-${Date.now()}`;
@@ -206,14 +221,18 @@ describe('startSessionFromRoutine', () => {
       idx: 0,
       exerciseId: 'rowing',
       kind: 'cardio',
-      targetDurationSeconds: 300,
     });
+    expect(entries[0].sets).toEqual([
+      { setType: 'normal', reps: undefined, repsMax: undefined, weightKg: undefined, durationSeconds: 300, distanceM: undefined },
+    ]);
     expect(entries[1]).toMatchObject({
       idx: 1,
       exerciseId: 'stretching',
       kind: 'stretch',
-      targetDurationSeconds: 120,
     });
+    expect(entries[1].sets).toEqual([
+      { setType: 'normal', reps: undefined, repsMax: undefined, weightKg: undefined, durationSeconds: 120, distanceM: undefined },
+    ]);
   });
 
   it('throws if routine does not exist', async () => {
@@ -245,9 +264,9 @@ describe('startSessionFromRoutine', () => {
     // Distinct from the no-exercises case above: this routine has an entry,
     // but the engine's h.next_active_landing would find nothing active in it
     // at StartSession, which now rejects rather than instantly completing
-    // (see AGENTS.md engine convention 10). Reachable in practice: targetSets
-    // is optional on an AI draft, and startSessionFromRoutine already maps a
-    // missing value to 0 below.
+    // (see AGENTS.md engine convention 10). Reachable in practice: a
+    // routine_exercises row with no routine_sets behind it (#276 Phase 6)
+    // prescribes nothing at all — no aggregate default fills it in any more.
     const db = await createTestDatabase();
 
     await db.write(async () => {
@@ -269,8 +288,6 @@ describe('startSessionFromRoutine', () => {
         re._raw.routine_id = 'routine-all-zero';
         re._raw.exercise_id = 'planking';
         re._raw.order = 0;
-        re._raw.warmup_sets = 0;
-        re._raw.target_sets = 0;
       });
     });
 
@@ -300,12 +317,6 @@ describe('startSessionFromRoutine', () => {
           row._raw.routine_id = routineId;
           row._raw.exercise_id = 'bench-press-dumbbell';
           row._raw.order = 0;
-          // 3/4/8 is EXACTLY what RAMP expands to, which would let count
-          // expansion reproduce the length and set-type assertions below
-          // character for character. 99s cannot be mistaken for the list.
-          row._raw.warmup_sets = 99;
-          row._raw.target_sets = 99;
-          row._raw.target_reps = 99;
           row._raw.rest_seconds = 120;
         });
         await addRoutineSets(db, re.id, RAMP_SETS);
@@ -385,10 +396,6 @@ describe('startSessionFromRoutine', () => {
           row._raw.routine_id = 'routine-interleave';
           row._raw.exercise_id = 'press';
           row._raw.order = 0;
-          // Aggregates that cannot reproduce the list below, whichever way
-          // they are split.
-          row._raw.warmup_sets = 2;
-          row._raw.target_sets = 1;
         });
         await addRoutineSets(db, re.id, [
           { set_type: 'warmup', target_reps: 5 },
@@ -470,40 +477,14 @@ describe('startSessionFromRoutine', () => {
       ).rejects.toThrow(/no entry with any sets to perform/);
     });
 
-    it('DERIVATION SEAM (#276, Phase 6 deletes): a count-only row still starts', async () => {
-      // `upsertRoutineExercise` and every pre-per-set fixture write aggregate
-      // columns and no routine_sets rows. Until Phase 6 those still expand,
-      // exactly as `toRillRoutineEntry` expands them at the Rill boundary.
-      const db = await createTestDatabase();
-      await db.write(async () => {
-        await db.get('routines').create((r: any) => {
-          r._raw.id = 'routine-counts';
-          r.name = 'Counts';
-          r._raw.created_at = Date.now();
-          r._raw.updated_at = Date.now();
-        });
-        await db.get('exercises').create((e: any) => {
-          e._raw.id = 'row';
-          e.title = 'Row';
-          e._raw.kind = 'strength';
-          e._raw.created_at = Date.now();
-        });
-        await db.get('routine_exercises').create((row: any) => {
-          row._raw.routine_id = 'routine-counts';
-          row._raw.exercise_id = 'row';
-          row._raw.order = 0;
-          row._raw.warmup_sets = 1;
-          row._raw.target_sets = 2;
-          row._raw.target_reps = 10;
-        });
-      });
-
-      const event = await startSessionFromRoutine(db, 'routine-counts', 'session-counts');
-      expect((event.routine as any).entries[0].sets).toEqual([
-        { setType: 'warmup', reps: 10, durationSeconds: undefined },
-        { setType: 'normal', reps: 10, durationSeconds: undefined },
-        { setType: 'normal', reps: 10, durationSeconds: undefined },
-      ]);
-    });
+    // "DERIVATION SEAM (#276, Phase 6 deletes): a count-only row still
+    // starts" deleted, exactly as its own name said it would be: it existed
+    // to prove a count-only row (aggregate columns, no routine_sets rows)
+    // still expanded into a list at the Rill boundary. `routine_exercises`
+    // no longer carries those columns and `entrySetsFromRows` has nothing
+    // left to expand, so the shape this test seeded (aggregate-only, zero
+    // routine_sets rows) is now simply an entry with `sets: []` — covered by
+    // "AC3.2: refuses a routine in which every entry has an empty set list"
+    // above.
   });
 });

@@ -7,11 +7,13 @@
  * it is the discriminating fixture precisely because no pair of counts can hold
  * it: any regression to counts collapses three distinct warmup weights to one.
  *
- * This phase is additive. `routine_exercises` keeps its aggregate columns and
- * `upsertRoutine` keeps writing them, derived from the set list, so that every
- * existing reader still works. The derivation is therefore load-bearing and is
- * tested directly: a drift between the list and the counts is a silent
- * corruption no later phase would notice.
+ * Phase 1 was additive: `routine_exercises` kept its aggregate columns and
+ * `upsertRoutine` kept writing them, derived from the set list, so every
+ * existing reader still worked while the list was proven out. #276 Phase 6
+ * deleted the aggregate columns and their derivation outright — `routine_sets`
+ * is now the only representation of the plan, so there is nothing left to keep
+ * consistent. The tests that pinned that derivation are gone with it; see the
+ * note ahead of "AC1.4" below.
  */
 
 import { Database, Q } from '@nozbe/watermelondb';
@@ -196,6 +198,16 @@ describe('Per-set routine model (#276 Phase 1)', () => {
   });
 
   describe('AC1.9 — EMPTY persists as an entry with no sets', () => {
+    // #276 Phase 6: three tests formerly lived here — "drops the derived
+    // aggregates to zero when an existing list is emptied", "does not fire
+    // the zero-total targetSets default when a set list is supplied", and
+    // "still applies the zero-total default when no set list is supplied at
+    // all". All three pinned the aggregate-derivation seam and the zero-total
+    // `targetSets` default on `upsertRoutine`; both are deleted in this phase
+    // (routine_exercises has no aggregate columns left to derive or default),
+    // so the behaviour they covered no longer exists. `sets` is also REQUIRED
+    // on `RoutineExerciseEntry` now, so the third test's aggregate-only call
+    // (`{ exerciseId: BENCH, order: 0 }`, no `sets`) is no longer expressible.
     it('writes the exercise row and returns an empty set list, rather than dropping the entry', async () => {
       await writeBench([]);
 
@@ -217,149 +229,15 @@ describe('Per-set routine model (#276 Phase 1)', () => {
       expect(await getRoutineSets(database, (await benchRow()).id)).toEqual([]);
       expect(await database.get('routine_sets').query().fetch()).toHaveLength(0);
     });
-
-    it('drops the derived aggregates to zero when an existing list is emptied', async () => {
-      await writeBench(RAMP);
-      await writeBench([]);
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(0);
-      expect(row._raw.target_sets).toBe(0);
-      expect(row._raw.target_reps).toBeNull();
-    });
-
-    it('does not fire the zero-total targetSets default when a set list is supplied', async () => {
-      // upsertRoutine defaults targetSets to 1 for an entry with no warmup and
-      // no target sets. That default must NOT fire against an explicit empty
-      // set list: it would leave target_sets = 1 while zero sets exist, which is
-      // exactly the list/aggregate drift this phase must not introduce.
-      await writeBench([]);
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(0);
-      expect(row._raw.target_sets).toBe(0);
-    });
-
-    it('still applies the zero-total default when no set list is supplied at all', async () => {
-      // The pre-existing contract for aggregate-only callers is unchanged.
-      await upsertRoutine(database, ROUTINE_ID, 'Push Day', [
-        { exerciseId: BENCH, order: 0 },
-      ]);
-
-      expect((await benchRow())._raw.target_sets).toBe(1);
-    });
   });
 
-  describe('the derived aggregates stay exactly consistent with the list', () => {
-    it('derives warmup_sets and target_sets as counts of each type, and target_reps from the first normal set', async () => {
-      await writeBench(RAMP);
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(3);
-      expect(row._raw.target_sets).toBe(4);
-      expect(row._raw.target_reps).toBe(8);
-    });
-
-    it('counts INTERLEAVE by type, not by position', async () => {
-      await writeBench(INTERLEAVE);
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(2);
-      expect(row._raw.target_sets).toBe(1);
-    });
-
-    it('takes target_reps from the FIRST normal set even when that set has none', async () => {
-      // Discriminates a derivation that scans for the first *defined* reps
-      // value. The first normal set is the plan's rule; "first set that happens
-      // to have reps" silently reports a later set's prescription.
-      await writeBench([
-        { setType: 'warmup', targetReps: 5 },
-        { setType: 'normal', targetDurationSeconds: 60 },
-        { setType: 'normal', targetReps: 12 },
-      ]);
-
-      expect((await benchRow())._raw.target_reps).toBeNull();
-    });
-
-    it('leaves the stored list as the source of truth where the aggregates cannot follow', async () => {
-      // The whole point of the phase. The aggregates for INTERLEAVE reconstruct
-      // ['warmup','warmup','normal']; the stored list is ['warmup','normal',
-      // 'warmup']. No value of warmup_sets/target_sets reproduces it.
-      await writeBench(INTERLEAVE);
-
-      const row = await benchRow();
-      const reconstructedFromCounts = [
-        ...Array<string>(row._raw.warmup_sets).fill('warmup'),
-        ...Array<string>(row._raw.target_sets).fill('normal'),
-      ];
-      const stored = (await getRoutineSets(database, row.id)).map((s) => s.setType);
-
-      expect(stored).toEqual(['warmup', 'normal', 'warmup']);
-      expect(reconstructedFromCounts).not.toEqual(stored);
-    });
-
-    it('ignores caller-supplied aggregate counts when a set list is present, so the two cannot disagree', async () => {
-      await writeBench(RAMP, { warmupSets: 99, targetSets: 99, targetReps: 99 });
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(3);
-      expect(row._raw.target_sets).toBe(4);
-      expect(row._raw.target_reps).toBe(8);
-    });
-
-    it('derives all five aggregates on the UPDATE branch, not only on create', async () => {
-      // Every other derivation fixture in this file upserts ONCE, so it only
-      // ever exercises `upsertRoutine`'s create branch. The update branch
-      // writes the same five columns from its own statements, and three of
-      // them — warmup_sets, target_duration_seconds, target_weight_kg — had no
-      // cover there at all: a derivation that reached only the create branch
-      // (or, equivalently, an update branch that fell back to the caller's
-      // aggregates) was invisible to the whole suite.
-      //
-      // The first upsert exists only to make the row already present. Every
-      // expected value below differs from BOTH the first list's derivation and
-      // the deliberately-wrong caller aggregates, so reading either source is
-      // visible rather than coincidentally right.
-      await writeBench([{ setType: 'normal', targetReps: 1, targetWeightKg: 5 }]);
-
-      await writeBench(
-        [
-          { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
-          { setType: 'warmup', targetReps: 5, targetWeightKg: 20 },
-          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
-          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
-          { setType: 'normal', targetReps: 8, targetWeightKg: 60, targetDurationSeconds: 45 },
-        ],
-        {
-          warmupSets: 99,
-          targetSets: 99,
-          targetReps: 99,
-          targetDurationSeconds: 99,
-          targetWeightKg: 99,
-        }
-      );
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(2);
-      expect(row._raw.target_sets).toBe(3);
-      expect(row._raw.target_reps).toBe(8);
-      expect(row._raw.target_duration_seconds).toBe(45);
-      expect(row._raw.target_weight_kg).toBe(60);
-    });
-
-    it('honours caller-supplied aggregates when no set list is present', async () => {
-      await upsertRoutine(database, ROUTINE_ID, 'Push Day', [
-        { exerciseId: BENCH, order: 0, warmupSets: 2, targetSets: 5, targetReps: 6 },
-      ]);
-
-      const row = await benchRow();
-      expect(row._raw.warmup_sets).toBe(2);
-      expect(row._raw.target_sets).toBe(5);
-      expect(row._raw.target_reps).toBe(6);
-      expect(await getRoutineSets(database, row.id)).toEqual([]);
-    });
-  });
-
+  // #276 Phase 6: the whole "the derived aggregates stay exactly consistent
+  // with the list" describe block (seven tests) lived here and is deleted.
+  // Its subject — `deriveAggregates` re-deriving warmup_sets/target_sets/
+  // target_reps/target_duration_seconds/target_weight_kg from the set list on
+  // every `upsertRoutine` write — no longer exists: those columns are gone
+  // from `routine_exercises` and `routine_sets` is the only representation of
+  // the plan, so there is nothing left for a derivation to keep consistent.
   describe('AC1.4 — reconciliation keeps the exercise row id and replaces the set rows', () => {
     it('keeps the routine_exercises row id, so logged history still resolves, while the set list is replaced wholesale', async () => {
       await writeBench(RAMP);
@@ -419,17 +297,15 @@ describe('Per-set routine model (#276 Phase 1)', () => {
       expect(await getRoutineSets(database, fly.id)).toHaveLength(2);
     });
 
-    it('leaves an entry’s existing set rows alone when a later upsert omits `sets` entirely', async () => {
-      // `sets: undefined` means "this caller does not speak per-set" — every
-      // production caller in Phase 1 — and must not silently destroy a list.
-      // Distinct from `sets: []`, which means "no sets" and does replace.
-      await writeBench(RAMP);
-      await upsertRoutine(database, ROUTINE_ID, 'Push Day', [
-        { exerciseId: BENCH, order: 0, targetSets: 4, targetReps: 8 },
-      ]);
-
-      expect(await getRoutineSets(database, (await benchRow()).id)).toHaveLength(7);
-    });
+    // #276 Phase 6: "leaves an entry's existing set rows alone when a later
+    // upsert omits `sets` entirely" lived here and is deleted. Its subject —
+    // `sets: undefined` on an `upsertRoutine` entry meaning "this caller does
+    // not speak per-set, leave the rows alone" — no longer exists: `sets` is
+    // REQUIRED on `RoutineExerciseEntry` now, so `upsertRoutine` can no longer
+    // be called without it, and the production code unconditionally replaces
+    // an entry's set rows on every write (see `replaceRoutineSets`'s only
+    // caller in `upsertRoutine`). The preserve-on-absent contract survives
+    // only on the test-only `upsertRoutineExercise` helper's `sets` option.
   });
 
   describe('AC1.5 — the drop branch destroys set rows, after stamping history', () => {

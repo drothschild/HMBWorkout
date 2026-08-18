@@ -36,11 +36,8 @@ describe('Integration: StartSession from Done phase (C1)', () => {
         {
           exerciseId: 'bench-press',
           order: 0,
-          warmupSets: 0,
-          targetSets: 1, // Only 1 set — quick to finish
-          targetReps: 5,
-          targetDurationSeconds: 0,
           restSeconds: 0,
+          sets: [{ setType: 'normal', targetReps: 5 }], // Only 1 set — quick to finish
         },
       ]
     );
@@ -54,11 +51,8 @@ describe('Integration: StartSession from Done phase (C1)', () => {
         {
           exerciseId: 'dumbbells',
           order: 0,
-          warmupSets: 0,
-          targetSets: 1,
-          targetReps: 8,
-          targetDurationSeconds: 0,
           restSeconds: 0,
+          sets: [{ setType: 'normal', targetReps: 8 }],
         },
       ]
     );
