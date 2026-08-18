@@ -7,10 +7,13 @@ import { migrationsForAdapter } from './adapterMigrations';
 
 jest.mock('@nozbe/watermelondb/adapters/lokijs');
 
-// See the long note in adapter.test.ts. The gate returns `undefined` at v6, so
-// pinning the web adapter's wiring against the gate's real return value is an
-// assertion with `undefined` on both sides — satisfied by hardcoding
-// `migrations: undefined` or by dropping the key. The sentinel pins the wiring.
+// See the long note in adapter.test.ts. Through v6 the gate returned
+// `undefined`, so pinning the web adapter's wiring against the gate's real
+// return value was an assertion with `undefined` on both sides — satisfied by
+// hardcoding `migrations: undefined` or by dropping the key. The sentinel pins
+// the wiring instead, and it is what caught the flip: at v7 the gate is a
+// pass-through again, and a hardcoded `undefined` here would have wiped the
+// user a second time with every declaration-level test still green.
 // Nothing else in this file touches migrationsForAdapter; `./migrations` (the
 // migrations object every other test here reads) is a different module and is
 // deliberately NOT mocked.
@@ -20,8 +23,8 @@ jest.mock('./adapterMigrations', () => ({
 }));
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 6 for the routine_sets table', () => {
-    expect(databaseSchema.version).toBe(6);
+  it('has bumped the schema version to 7 for the aggregate removal', () => {
+    expect(databaseSchema.version).toBe(7);
   });
 
   it('declares the routine_sets table with a per-set prescription on every column', () => {
@@ -45,10 +48,13 @@ describe('Database schema migrations', () => {
     });
   });
 
-  it('leaves routine_exercises untouched at v6, because this phase is additive', () => {
-    // Phases 1–5 are expand, not contract: every existing reader still reads
-    // the aggregate columns and upsertRoutine still writes them, derived from
-    // the set list. They are undeclared in Phase 6, not here.
+  it('undeclares every aggregate column on routine_exercises at v7', () => {
+    // AC6.1. The contract step: `routine_sets` is the only place a plan lives.
+    // UNDECLARED, not dropped — WatermelonDB 0.28 ships no `destroyColumn`, so
+    // the physical columns stay in the SQLite file and the adapters ignore them
+    // on read and write. That is v4's `sessions.sync_status` precedent, and it
+    // is also why Phase 6 is revertable: the derived values Phases 1–5 wrote
+    // are still on disk if a v8 ever re-declares them.
     for (const column of [
       'warmup_sets',
       'target_sets',
@@ -56,8 +62,22 @@ describe('Database schema migrations', () => {
       'target_duration_seconds',
       'target_weight_kg',
     ]) {
-      expect(databaseSchema.tables['routine_exercises'].columns[column]).toBeDefined();
+      expect(databaseSchema.tables['routine_exercises'].columns[column]).toBeUndefined();
     }
+  });
+
+  it('keeps the routine_exercises columns that are not aggregates', () => {
+    // The complement of the assertion above, so "undeclare the aggregates"
+    // cannot be satisfied by deleting the table's columns wholesale — a
+    // for-loop of `toBeUndefined` is silent about over-deletion.
+    expect(Object.keys(databaseSchema.tables['routine_exercises'].columns).sort()).toEqual([
+      'exercise_id',
+      'notes',
+      'order',
+      'rest_seconds',
+      'routine_id',
+      'superset_group',
+    ]);
   });
 
   it('declares exercises.description as an optional string column in the current schema', () => {
@@ -80,11 +100,11 @@ describe('Database schema migrations', () => {
     });
   });
 
-  it('declares routine_exercises.target_weight_kg as an optional number column', () => {
-    // Optional and nullable: a coach-prescribed load for an entry. An absent
-    // prescription (null) leaves the SetLogger's history-derived prefill
-    // unchanged.
-    expect(databaseSchema.tables['routine_exercises'].columns['target_weight_kg']).toEqual({
+  it('declares routine_sets.target_weight_kg as an optional number column', () => {
+    // The per-set successor to the entry-level column v7 undeclares. Optional
+    // and nullable: an absent prescription leaves the SetLogger's
+    // history-derived prefill unchanged.
+    expect(databaseSchema.tables['routine_sets'].columns['target_weight_kg']).toEqual({
       name: 'target_weight_kg',
       type: 'number',
       isOptional: true,
@@ -95,39 +115,95 @@ describe('Database schema migrations', () => {
     expect(migrations.validated).toBe(true);
   });
 
-  it('deliberately stops one version short of the schema, which is what wipes the database', () => {
-    // AC1.7. THE OMISSION IS THE MECHANISM — do not "fix" this by adding a
-    // toVersion: 6 entry.
+  it('covers the schema exactly, so no install is reset on the way to v7', () => {
+    // AC1.7, INVERTED at Phase 6 and rewritten rather than deleted.
     //
-    // #276 replaces the per-exercise aggregate with a per-set list, and a
-    // back-fill is impossible in the lossy direction: the count `3` cannot be
-    // turned back into the warmup ramp 9.07 → 11.34 → 18.14 kg. Every routine
-    // reconstructed from aggregates would be a flat ramp that lies about the
-    // plan. Losing the stored routines is accepted (the user said so on #276);
-    // a half-migrated database carrying aggregate routines with no routine_sets
-    // rows is worse, because nothing downstream would ever notice.
+    // Through v6 the omission WAS the mechanism: the schema outran the
+    // migrations, `stepsForMigration` returned null past `maxVersion`, and both
+    // adapters dropped and recreated the database. That wipe was deliberate and
+    // it has already happened — a per-set list cannot be back-filled from the
+    // count `3`, which says nothing about the ramp 9.07 → 11.34 → 18.14 kg.
     //
-    // So the schema is bumped and the migration is withheld. WatermelonDB's own
-    // fallback then drops and recreates: stepsForMigration returns null past
-    // maxVersion, and both adapters log "Migrations not available for this
-    // version range, resetting database instead" and set up from schema.
-    //
-    // Adding a toVersion: 6 entry makes this test go red rather than silently
-    // preserving that half-migrated database.
-    expect(migrations.maxVersion).toBe(5);
-    expect(migrations.maxVersion).toBeLessThan(databaseSchema.version);
+    // It must happen exactly once. Every install in the field is now on v6, so
+    // withholding the migrations again at v7 would destroy whatever the user
+    // rebuilt afterwards. Coverage and schema must agree from here on, and the
+    // equality — not merely `>=` — is what `migrationsForAdapter` gates on.
+    expect(migrations.maxVersion).toBe(7);
+    expect(migrations.maxVersion).toBe(databaseSchema.version);
     expect(migrations.minVersion).toBe(1);
   });
 
-  it('returns null for every upgrade path into v6, from every version an install can hold', () => {
-    // AC1.7, stated over the whole domain rather than one walk: null is the
-    // signal both adapters branch on to reset. A migration entry added for any
-    // single starting version would show up here.
-    for (let fromVersion = 1; fromVersion <= 5; fromVersion += 1) {
+  it('returns real steps for every upgrade path into v7, from every version an install can hold', () => {
+    // The mirror of the loop this replaces, over the same domain: null was the
+    // signal both adapters branch on to RESET, so a null anywhere in this range
+    // is a silent wipe of a real user's database. v6 is the one that matters —
+    // it is where every install actually is — but a gap at any starting version
+    // would show up here, and a gap is also what `schemaMigrations` refuses at
+    // module init.
+    for (let fromVersion = 1; fromVersion <= 6; fromVersion += 1) {
       expect(
         stepsForMigration({ migrations, fromVersion, toVersion: databaseSchema.version })
-      ).toBeNull();
+      ).not.toBeNull();
     }
+  });
+
+  it('walks a v1 install all the way to v7 through five steps, not four', () => {
+    // AC6.1 names this pin specifically, because it inverts in a way that is
+    // easy to get subtly wrong: `stepsForMigration(1 → 6)` used to return
+    // `null` and now returns FIVE steps. Four of them are the pre-existing
+    // chain; the fifth is the routine_sets createTable this phase adds.
+    const steps = stepsForMigration({ migrations, fromVersion: 1, toVersion: 6 }) as {
+      type: string;
+      table?: string;
+      name?: string;
+    }[];
+
+    expect(steps).toHaveLength(5);
+    expect(steps.map((step) => `${step.type}:${step.table ?? step.name ?? ''}`)).toEqual([
+      'add_columns:exercises',
+      'add_columns:session_sets',
+      'add_columns:routine_exercises',
+      'create_table:',
+      'create_table:',
+    ]);
+  });
+
+  it('adds routine_sets with a real createTable at v6, not an empty steps array', () => {
+    // AC6.1. The v6 entry is gap-filler for every install that exists in
+    // practice — they are all already on v6 and run only the 6 → 7 step — but
+    // `steps: []` here would leave a v5-direct-to-v7 install with a schema
+    // declaring a table its database does not have, which is a crash on first
+    // query rather than a wipe. Executed end to end in migrationV6ToV7.test.ts.
+    const steps = stepsForMigration({ migrations, fromVersion: 5, toVersion: 6 }) as {
+      type: string;
+      schema: { name: string; columns: Record<string, unknown> };
+    }[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].type).toBe('create_table');
+    // Mirrors schema.ts exactly. A migration that creates a narrower table than
+    // the schema declares is the same class of bug as `steps: []`, one column
+    // down instead of one table.
+    expect(steps[0].schema.columns).toEqual(databaseSchema.tables['routine_sets'].columns);
+  });
+
+  it('has an empty v6 to v7 migration, because the aggregates are undeclared rather than dropped', () => {
+    // AC6.1, and the v4 precedent applied a second time: WatermelonDB 0.28
+    // ships no column-removal step, so removing the five aggregate columns from
+    // schema.ts IS the whole change and the entry exists only to keep the
+    // version sequence gapless. `schemaMigrations` refuses a gapped list at
+    // module init (Schema/migrations/index.js:82, NODE_ENV-gated), which is why
+    // a lone toVersion: 7 is not an option.
+    expect(stepsForMigration({ migrations, fromVersion: 6, toVersion: 7 })).toEqual([]);
+  });
+
+  it('a v6 install upgrades rather than resetting — the assertion the whole phase turns on', () => {
+    // AC6.1's named regression, stated at the level the adapters branch on:
+    // `[]` and `null` are both falsy and both "no steps to run", but the
+    // adapters treat them oppositely — `[]` migrates, `null` calls
+    // unsafeResetDatabase. A `toEqual([])` above passes under `null` for a
+    // `toBeFalsy`-shaped mistake, so the non-null is asserted on its own.
+    expect(stepsForMigration({ migrations, fromVersion: 6, toVersion: 7 })).not.toBeNull();
   });
 
   it('provides a migration step from version 1 to 2 that adds exercises.description', () => {
@@ -142,11 +218,10 @@ describe('Database schema migrations', () => {
     expect(step.columns).toEqual([{ name: 'description', type: 'string', isOptional: true }]);
   });
 
-  it('still walks a v1 install to v5, the last version the migrations cover', () => {
-    // The migration chain itself is intact and unchanged by the v6 bump — it is
-    // only the step INTO v6 that is withheld. Asserting the walk against the
-    // literal 5 rather than databaseSchema.version keeps this test about the
-    // chain; the destructive step into the current version is asserted above.
+  it('still walks a v1 install to v5 through the three addColumns steps', () => {
+    // The original addColumns chain, unchanged by either bump. Asserting the
+    // walk against the literal 5 rather than databaseSchema.version keeps this
+    // test about the chain; the two later entries are asserted on their own.
     const steps = stepsForMigration({
       migrations,
       fromVersion: 1,
@@ -227,11 +302,16 @@ describe('Database schema migrations', () => {
     expect(migrationsForAdapter).toHaveBeenCalledWith(databaseSchema.version, migrations);
   });
 
-  it('and today the real gate answers `undefined` for the web adapter too', () => {
+  it('and today the real gate hands the web adapter the migrations themselves', () => {
     // The unmocked gate, so this file still records what actually reaches
     // LokiJSAdapter in this build — the sentinel above only proves the wiring.
+    //
+    // This flipped at Phase 6, and the flip is the whole safety property: while
+    // the gate answered `undefined` a v6 user was wiped on every launch of a v7
+    // build. It answers with the migrations because coverage and schema now
+    // agree at 7.
     const { migrationsForAdapter: realGate } =
       jest.requireActual<typeof import('./adapterMigrations')>('./adapterMigrations');
-    expect(realGate(databaseSchema.version, migrations)).toBeUndefined();
+    expect(realGate(databaseSchema.version, migrations)).toBe(migrations);
   });
 });
