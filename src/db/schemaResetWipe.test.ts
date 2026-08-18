@@ -1,24 +1,40 @@
 /**
- * The destructive v5 → v6 bump, demonstrated rather than asserted.
+ * The v5 → (was v6, now v7) bump, once destructive and now not.
  *
- * #276 replaces the per-exercise aggregate with a per-set list, and back-fill is
- * impossible in the lossy direction — the count `3` cannot become the warmup
- * ramp 9.07 → 11.34 → 18.14 kg. So the schema is bumped and no migration into
- * v6 is written; WatermelonDB's own fallback drops and recreates the database.
- * `migrations.test.ts` pins the `null` that triggers it. This file opens a
- * genuinely pre-existing v5 database at v6 and watches the data go.
+ * #276 Phase 1 replaced the per-exercise aggregate with a per-set list by
+ * bumping the schema to v6 with no migration written into it — back-fill was
+ * impossible in the lossy direction, the count `3` cannot become the warmup
+ * ramp 9.07 → 11.34 → 18.14 kg — so WatermelonDB's own fallback dropped and
+ * recreated the database. That was a real, one-time wipe, and this file
+ * originally demonstrated it by opening a genuinely pre-existing v5 database
+ * at the then-current v6 schema and watching the data go.
  *
- * The vehicle is LokiJS, which is what the whole node suite runs on. The branch
- * it exercises is the same one SQLite takes, line for line: `_getMigrationSteps`
- * / `_migrationSteps` returns null, the adapter logs "Migrations not available
- * for this version range, resetting database instead", and sets up from schema
+ * #276 Phase 6 changes the premise this file exercises, not just its
+ * expected outcome: `./migrations.ts` now carries a `toVersion: 6` entry
+ * (the real `createTable('routine_sets')`, backfilled after the fact) AND a
+ * `toVersion: 7` entry (undeclaring the five aggregate columns), so migration
+ * coverage is gapless from 1 to 7 — matching `databaseSchema.version`. Opening
+ * the SAME pre-existing v5 database this file has always built, now under the
+ * shipping v7 schema, therefore MIGRATES it in place (v5 → v6 → v7) instead of
+ * wiping it. `migrationV6ToV7.test.ts` is the authoritative, exhaustive proof
+ * of that upgrade path end to end, including a negative control that shows the
+ * wipe still happens if the migrations gate withholds them (its third case).
+ * This file stays narrower and closer to its original shape: same shared-Loki-
+ * store fixture, now asserting the data survives rather than asserting it is
+ * lost.
+ *
+ * The vehicle is LokiJS, which is what the whole node suite runs on. The
+ * branch it exercises is the same one SQLite takes, line for line —
+ * `_getMigrationSteps` / `_migrationSteps` resolves real steps rather than
+ * `null`, so the adapter migrates instead of logging "Migrations not
+ * available for this version range, resetting database instead" and resetting
  * (adapters/lokijs/worker/DatabaseDriver.js:354, adapters/sqlite/index.js:132).
  * A real SQLite open is still only observable in the simulator.
  *
  * Sharing one `LokiMemoryAdapter` between the two opens via WatermelonDB's own
  * `_testLokiAdapter` escape hatch is what makes the second open see a database
  * that already exists; without it every Loki open in node is a fresh "Empty
- * database, setting up" and there is nothing to reset.
+ * database, setting up" and there would be nothing to migrate.
  */
 
 import { appSchema, Database, Model } from '@nozbe/watermelondb';
@@ -78,7 +94,7 @@ class SharedMemoryStore {
   }
 }
 
-describe('A pre-existing v5 database opened at v6', () => {
+describe('A pre-existing v5 database opened at the current (v7) schema', () => {
   const sharedStore = new SharedMemoryStore();
   const DB_NAME = 'per-set-wipe-demo';
 
@@ -108,7 +124,7 @@ describe('A pre-existing v5 database opened at v6', () => {
 
   const driverOf = (database: Database) => (database.adapter as any).underlyingAdapter._driver;
 
-  it('logs the reset warning and comes up empty, losing the stored routines', async () => {
+  it('#276 Phase 6: migrates in place and keeps the stored routine, instead of wiping it', async () => {
     const before = open(v5Schema);
 
     await before.write(async () => {
@@ -120,6 +136,9 @@ describe('A pre-existing v5 database opened at v6', () => {
         re._raw.routine_id = (routine as any).id;
         re._raw.exercise_id = 'bench-press-dumbbell';
         re._raw.order = 0;
+        // No setters for these on a bare, undecorated Model class — same as
+        // before Phase 6 — but harmless: this test only ever asserted on row
+        // counts and ids, never on these values.
         re.warmupSets = 3;
         re.targetSets = 4;
       });
@@ -138,18 +157,26 @@ describe('A pre-existing v5 database opened at v6', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const after = open(databaseSchema);
-      // The reset happens during the driver's async setup, not in the
+      // The migration happens during the driver's async setup, not in the
       // constructor; the first query awaits it.
       const routinesAfter = await after.get('routines').query().fetch();
 
-      expect(warn.mock.calls.flat().join(' ')).toContain(
+      // #276 Phase 6: migration coverage now reaches v7 (1-7, gapless), so
+      // this no longer resets — the wipe warning must NOT appear.
+      expect(warn.mock.calls.flat().join(' ')).not.toContain(
         'Migrations not available for this version range, resetting database instead'
       );
-      expect(routinesAfter).toEqual([]);
-      expect(await after.get('routine_exercises').query().fetch()).toEqual([]);
+      // The routine and its entry survive the upgrade.
+      expect(routinesAfter.map((r: any) => r._raw.id)).toEqual(['routine-push']);
+      const routineExercisesAfter = await after.get('routine_exercises').query().fetch();
+      expect(routineExercisesAfter).toHaveLength(1);
+      expect((routineExercisesAfter[0] as any)._raw.exercise_id).toBe('bench-press-dumbbell');
       expect(driverOf(after)._databaseVersion).toBe(databaseSchema.version);
 
-      // And the new table is there to be written to.
+      // The new table is there and queryable — but empty. A v5 install never
+      // had per-set data to carry forward (the whole reason Phase 1 wiped
+      // instead of backfilling), and the v6 migration step is a bare
+      // createTable, so there is nothing to migrate INTO it.
       expect(await after.get('routine_sets').query().fetch()).toEqual([]);
     } finally {
       warn.mockRestore();

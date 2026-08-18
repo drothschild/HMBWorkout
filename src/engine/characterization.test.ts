@@ -122,22 +122,45 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
 }
 
 /**
+ * Aggregate counts -> ordered set list. Mirrors the deleted setsFromCounts
+ * (`src/engine/entrySets.ts`, removed in #276 Phase 6) so these count-shaped
+ * fixtures keep their original behaviour under the required `sets` field.
+ */
+function countsToSets(counts: {
+  warmupSets: number;
+  targetSets: number;
+  targetReps: number;
+  targetDurationSeconds: number;
+}): RoutineEntry['sets'] {
+  const reps = counts.targetReps > 0 ? counts.targetReps : undefined;
+  const durationSeconds = counts.targetDurationSeconds > 0 ? counts.targetDurationSeconds : undefined;
+  const make = (setType: 'warmup' | 'normal') => ({ setType, reps, durationSeconds });
+  return [
+    ...Array.from({ length: Math.max(0, counts.warmupSets) }, () => make('warmup')),
+    ...Array.from({ length: Math.max(0, counts.targetSets) }, () => make('normal')),
+  ];
+}
+
+/**
  * Fixture: build a routine structure.
  */
 function makeRoutine(exerciseCount = 1, overrides?: any): any {
   const entries: RoutineEntry[] = [];
   for (let i = 0; i < exerciseCount; i++) {
+    const override = overrides?.[i] ?? {};
+    const warmupSets = override.warmupSets ?? (i === 0 ? 1 : 0);
+    const targetSets = override.targetSets ?? 1;
+    const targetReps = override.targetReps ?? 8;
+    const targetDurationSeconds = override.targetDurationSeconds ?? 0;
+    const { warmupSets: _w, targetSets: _t, targetReps: _r, targetDurationSeconds: _d, ...rest } = override;
     entries.push({
       idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
-      warmupSets: i === 0 ? 1 : 0,
-      targetSets: 1,
-      targetReps: 8,
-      targetDurationSeconds: 0,
       restSeconds: 60,
       supersetGroup: '',
-      ...overrides?.[i],
+      sets: countsToSets({ warmupSets, targetSets, targetReps, targetDurationSeconds }),
+      ...rest,
     });
   }
   return { id: 'routine-test', entries };

@@ -513,6 +513,9 @@ describe('draftSchema', () => {
     });
 
     test('accepts fully-populated draft', () => {
+      // #276 Phase 6: dropped `warmupSets`/`targetSets`/`targetReps`/
+      // `targetDurationSeconds` from this fixture — they moved to the set list
+      // (AC4.2 – AC4.6 below) and are no longer `DraftExercise` fields at all.
       const draft = {
         name: 'My Routine',
         notes: 'Some notes',
@@ -522,10 +525,6 @@ describe('draftSchema', () => {
             kind: 'strength' as const,
             sets: [{ type: 'normal' as const }],
             supersetGroup: 'chest',
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: undefined,
             restSeconds: 60,
             notes: 'exercise notes',
           },
@@ -787,32 +786,14 @@ describe('draftSchema', () => {
       expect(result.exercises[0].supersetGroup).toBe('chest');
     });
 
-    test('accepts valid integer values', () => {
-      const draft = {
-        name: 'My Routine',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            sets: [{ type: 'normal' as const }],
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            restSeconds: 60,
-            targetDurationSeconds: 0,
-          },
-        ],
-      };
-
-      const result = validateRoutineDraft(draft);
-      expect(result.exercises[0]).toMatchObject({
-        warmupSets: 1,
-        targetSets: 3,
-        targetReps: 8,
-        restSeconds: 60,
-        targetDurationSeconds: 0,
-      });
-    });
+    // #276 Phase 6: 'accepts valid integer values' lived here and was deleted.
+    // Its whole subject was the bound-acceptance side of the entry-level
+    // `warmupSets`/`targetSets`/`targetReps`/`targetDurationSeconds` fields —
+    // the aggregate counterpart to the rejects-side tests already noted above
+    // (line ~606) as replaced by the per-set shape rule in AC4.2 – AC4.6
+    // below. Those fields are not `DraftExercise` fields any more, so there is
+    // no bound left to accept; `restSeconds`'s own valid case is still
+    // exercised by 'accepts fully-populated draft' above.
 
     test('accepts an exercise with a description string', () => {
       const draft = {

@@ -14,10 +14,8 @@ function makeEntries(count = 2, overrides?: Partial<RoutineEntry>[]): RoutineEnt
       idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
-      warmupSets: 0,
-      targetSets: 1,
-      targetReps: 8,
-      targetDurationSeconds: 0,
+      // warmupSets: 0, targetSets: 1, targetReps: 8, targetDurationSeconds: 0
+      sets: [{ setType: 'normal', reps: 8 }],
       restSeconds: 60,
       supersetGroup: '',
       ...overrides?.[i],
@@ -96,7 +94,16 @@ describe('SkipRest: cancel the rest timer early', () => {
 
 describe('SetDone mid-exercise: rest between sets of the same exercise', () => {
   const entries = () =>
-    makeEntries(2, [{ warmupSets: 1, targetSets: 2, restSeconds: 60 }]);
+    makeEntries(2, [
+      {
+        sets: [
+          { setType: 'warmup', reps: 8 },
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+        ],
+        restSeconds: 60,
+      },
+    ]);
 
   it('should enter resting for the entry rest duration when more sets remain', async () => {
     const executors = makeExecutors();
@@ -120,7 +127,16 @@ describe('SetDone mid-exercise: rest between sets of the same exercise', () => {
         phase: 'working',
         exerciseIndex: 0,
         setIndex: 1,
-        entries: makeEntries(2, [{ warmupSets: 0, targetSets: 3, restSeconds: 0 }]),
+        entries: makeEntries(2, [
+          {
+            sets: [
+              { setType: 'normal', reps: 8 },
+              { setType: 'normal', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
+            restSeconds: 0,
+          },
+        ]),
       })
     );
 
@@ -151,7 +167,16 @@ describe('SetDone mid-exercise: rest between sets of the same exercise', () => {
         phase: 'warmup',
         exerciseIndex: 0,
         setIndex: 0,
-        entries: makeEntries(2, [{ warmupSets: 2, targetSets: 1, restSeconds: 60 }]),
+        entries: makeEntries(2, [
+          {
+            sets: [
+              { setType: 'warmup', reps: 8 },
+              { setType: 'warmup', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
+            restSeconds: 60,
+          },
+        ]),
       })
     );
 
@@ -273,7 +298,16 @@ describe('Resume during resting: relaunch reconciliation', () => {
         restDeadlineMs: 10000,
         exerciseIndex: 0,
         setIndex: 1,
-        entries: makeEntries(2, [{ warmupSets: 2, targetSets: 1, restSeconds: 60 }]),
+        entries: makeEntries(2, [
+          {
+            sets: [
+              { setType: 'warmup', reps: 8 },
+              { setType: 'warmup', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
+            restSeconds: 60,
+          },
+        ]),
       })
     );
 

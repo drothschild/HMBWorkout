@@ -14,6 +14,35 @@ import {
   getSessionHistoryExportName,
 } from './exportService';
 
+/**
+ * Fixture conversion helper (#276 Phase 6): `RoutineExerciseEntry` no longer
+ * carries `warmupSets`/`targetSets`/`targetReps`/`targetDurationSeconds` — only
+ * `sets: RoutineSetEntry[]`. Reproduces exactly what the deleted
+ * `setsFromCounts` did, so a fixture built from aggregates is behaviourally
+ * identical to the pre-Phase-6 one.
+ */
+function setsFromCounts(
+  warmupSets: number,
+  targetSets: number,
+  targetReps: number,
+  targetDurationSeconds = 0
+) {
+  const reps = targetReps > 0 ? targetReps : undefined;
+  const durationSeconds = targetDurationSeconds > 0 ? targetDurationSeconds : undefined;
+  return [
+    ...Array.from({ length: warmupSets }, () => ({
+      setType: 'warmup' as const,
+      targetReps: reps,
+      targetDurationSeconds: durationSeconds,
+    })),
+    ...Array.from({ length: targetSets }, () => ({
+      setType: 'normal' as const,
+      targetReps: reps,
+      targetDurationSeconds: durationSeconds,
+    })),
+  ];
+}
+
 describe('exportService', () => {
   let db: Database;
 
@@ -30,7 +59,7 @@ describe('exportService', () => {
       // Create exercise and routine
       await upsertExercise(db, 'ex-1', 'Bench Press', 'strength');
       await upsertRoutine(db, 'routine-1', 'Push Day', [
-        { exerciseId: 'ex-1', order: 0, warmupSets: 1, targetSets: 4, targetReps: 6, restSeconds: 90 },
+        { exerciseId: 'ex-1', order: 0, restSeconds: 90, sets: setsFromCounts(1, 4, 6) },
       ]);
 
       await flush();
@@ -97,8 +126,8 @@ describe('exportService', () => {
       await upsertExercise(db, 'ex-1', 'Bench Press', 'strength');
       await upsertExercise(db, 'ex-2', 'Incline Press', 'strength');
       await upsertRoutine(db, 'routine-compound', 'Compound Day', [
-        { exerciseId: 'ex-1', order: 0, warmupSets: 1, targetSets: 4, targetReps: 6 },
-        { exerciseId: 'ex-2', order: 1, warmupSets: 0, targetSets: 3, targetReps: 8 },
+        { exerciseId: 'ex-1', order: 0, sets: setsFromCounts(1, 4, 6) },
+        { exerciseId: 'ex-2', order: 1, sets: setsFromCounts(0, 3, 8) },
       ]);
 
       await flush();
@@ -115,10 +144,8 @@ describe('exportService', () => {
         {
           exerciseId: 'ex-squat',
           order: 0,
-          warmupSets: 2,
-          targetSets: 5,
-          targetReps: 5,
           restSeconds: 120,
+          sets: setsFromCounts(2, 5, 5),
         },
       ]);
 
@@ -310,13 +337,16 @@ describe('exportService', () => {
     });
 
     it('an entry with no routine_sets rows exports as a bare exercise line', async () => {
-      // The aggregate-only shape every routine written before Phase 1 has.
+      // The aggregate-only shape every routine written before Phase 1 has —
+      // reproduced here with an explicit empty `sets` list, since #276 Phase 6
+      // removed the aggregate fields from `RoutineExerciseEntry` entirely and
+      // an empty list is now the only way to leave an entry with no rows.
       // It exports as an exercise the routine names with nothing prescribed —
       // NOT as a dropped exercise (which is what makes this worth pinning) and
-      // NOT with the aggregates re-derived, which the grammar no longer says.
+      // NOT with any aggregate re-derived, since none exists in the model any more.
       await upsertExercise(db, 'ex-row', 'Barbell Row', 'strength');
       await upsertRoutine(db, 'routine-legacy', 'Pull Day', [
-        { exerciseId: 'ex-row', order: 0, warmupSets: 2, targetSets: 4, targetReps: 8 },
+        { exerciseId: 'ex-row', order: 0, sets: [] },
       ]);
 
       await flush();
@@ -337,9 +367,9 @@ describe('exportService', () => {
       await upsertExercise(db, 'ex-pigeon', 'Pigeon Pose', 'stretch');
       await upsertExercise(db, 'ex-bench2', 'Bench Press', 'strength');
       await upsertRoutine(db, 'routine-mixed', 'Conditioning', [
-        { exerciseId: 'ex-erg', order: 0, restSeconds: 60 },
-        { exerciseId: 'ex-pigeon', order: 1 },
-        { exerciseId: 'ex-bench2', order: 2 },
+        { exerciseId: 'ex-erg', order: 0, restSeconds: 60, sets: [] },
+        { exerciseId: 'ex-pigeon', order: 1, sets: [] },
+        { exerciseId: 'ex-bench2', order: 2, sets: [] },
       ]);
 
       await flush();
@@ -454,7 +484,7 @@ describe('exportService', () => {
       // Create exercise, routine, and session with a set
       await upsertExercise(db, 'ex-deadlift', 'Deadlift', 'strength');
       await upsertRoutine(db, 'routine-strength', 'Strength', [
-        { exerciseId: 'ex-deadlift', order: 0, warmupSets: 1, targetSets: 3, targetReps: 5 },
+        { exerciseId: 'ex-deadlift', order: 0, sets: setsFromCounts(1, 3, 5) },
       ]);
 
       const reIds = await db.get('routine_exercises').query().fetch() as any[];
@@ -505,7 +535,7 @@ describe('exportService', () => {
     it('reports a session it could not serialize instead of silently dropping it', async () => {
       await upsertExercise(db, 'ex-row', 'Row', 'strength');
       await upsertRoutine(db, 'routine-pull', 'Pull', [
-        { exerciseId: 'ex-row', order: 0, warmupSets: 0, targetSets: 3, targetReps: 8 },
+        { exerciseId: 'ex-row', order: 0, sets: setsFromCounts(0, 3, 8) },
       ]);
       const reId = ((await db.get('routine_exercises').query().fetch()) as any[])[0].id;
 
@@ -562,7 +592,7 @@ describe('exportService', () => {
     it('exports multiple sessions separately', async () => {
       await upsertExercise(db, 'ex-bench', 'Bench', 'strength');
       await upsertRoutine(db, 'routine-push', 'Push', [
-        { exerciseId: 'ex-bench', order: 0, warmupSets: 1, targetSets: 3, targetReps: 8 },
+        { exerciseId: 'ex-bench', order: 0, sets: setsFromCounts(1, 3, 8) },
       ]);
 
       const reIds = await db.get('routine_exercises').query().fetch() as any[];
@@ -595,7 +625,7 @@ describe('exportService', () => {
     it('handles orphaned sets where routine_exercise row is deleted but exercise_id stamp survives', async () => {
       await upsertExercise(db, 'ex-squat', 'Squat', 'strength');
       await upsertRoutine(db, 'routine-legs', 'Legs', [
-        { exerciseId: 'ex-squat', order: 0, warmupSets: 1, targetSets: 4, targetReps: 8 },
+        { exerciseId: 'ex-squat', order: 0, sets: setsFromCounts(1, 4, 8) },
       ]);
 
       const reIds = await db.get('routine_exercises').query().fetch() as any[];

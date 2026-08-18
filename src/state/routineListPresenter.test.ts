@@ -36,25 +36,37 @@ describe('routineListPresenter', () => {
         e._raw.created_at = Date.now();
       });
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re1 = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'ex-1';
         re._raw.order = 0;
-        re._raw.warmup_sets = 1;
-        re._raw.target_sets = 4;
-        re._raw.target_reps = 6;
         re._raw.rest_seconds = 120;
       });
+      // 1 warmup + 4 normal sets of 6 reps (#276: the plan lives in
+      // routine_sets now).
+      for (const [order, setType] of ['warmup', 'normal', 'normal', 'normal', 'normal'].entries()) {
+        await db.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = re1.id;
+          row._raw.order = order;
+          row._raw.set_type = setType;
+          row._raw.target_reps = 6;
+        });
+      }
 
-      await db.get('routine_exercises').create((re: any) => {
+      const re2 = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = 'routine-1';
         re._raw.exercise_id = 'ex-2';
         re._raw.order = 1;
-        re._raw.warmup_sets = 1;
-        re._raw.target_sets = 3;
-        re._raw.target_reps = 8;
         re._raw.rest_seconds = 90;
       });
+      for (const [order, setType] of ['warmup', 'normal', 'normal', 'normal'].entries()) {
+        await db.get('routine_sets').create((row: any) => {
+          row._raw.routine_exercise_id = re2.id;
+          row._raw.order = order;
+          row._raw.set_type = setType;
+          row._raw.target_reps = 8;
+        });
+      }
     });
 
     const routines = await routineListPresenter(db);

@@ -27,10 +27,13 @@ function makeEntries(count = 3): RoutineEntry[] {
       idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
-      warmupSets: 1,
-      targetSets: 3,
-      targetReps: 8,
-      targetDurationSeconds: 0,
+      // warmupSets: 1, targetSets: 3, targetReps: 8, targetDurationSeconds: 0
+      sets: [
+        { setType: 'warmup', reps: 8 },
+        { setType: 'normal', reps: 8 },
+        { setType: 'normal', reps: 8 },
+        { setType: 'normal', reps: 8 },
+      ],
       restSeconds: 90,
       supersetGroup: '',
     });
@@ -94,12 +97,16 @@ describe('ReplaceExercise: swapping the current exercise', () => {
           idx: 0,
           exerciseId: 'barbell-bench-press',
           kind: 'strength',
-          warmupSets: 2,
-          targetSets: 4,
-          targetReps: 6,
-          targetDurationSeconds: 0,
           restSeconds: 150,
           supersetGroup: 'A',
+          sets: [
+            { setType: 'warmup', reps: 6 },
+            { setType: 'warmup', reps: 6 },
+            { setType: 'normal', reps: 6 },
+            { setType: 'normal', reps: 6 },
+            { setType: 'normal', reps: 6 },
+            { setType: 'normal', reps: 6 },
+          ],
         },
       ],
     });
@@ -111,19 +118,13 @@ describe('ReplaceExercise: swapping the current exercise', () => {
       exerciseId: 'dumbbell-floor-press',
     });
 
-    // The prescription is now an ordered set list (#276 Phase 2). This entry
-    // was built from counts, so the engine boundary expanded them into two
-    // warmups and four working sets and re-derived the counts on the way out —
-    // all of it surviving the swap, which is convention 6's closed-record
-    // hazard applied to a nested list.
+    // The prescription is an ordered set list (#276 Phase 6) that the rule
+    // rebuilds with only `exerciseId` changed — the rest of the entry,
+    // including `sets`, survives the swap untouched.
     expect(state.entries[0]).toEqual({
       idx: 0,
       exerciseId: 'dumbbell-floor-press',
       kind: 'strength',
-      warmupSets: 2,
-      targetSets: 4,
-      targetReps: 6,
-      targetDurationSeconds: 0,
       restSeconds: 150,
       supersetGroup: 'A',
       sets: [
@@ -296,10 +297,11 @@ describe('ReplaceExercise: setIndex==0 guard stays sound across a superset hop',
         idx: 0,
         exerciseId: 'exercise-a',
         kind: 'strength',
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        // warmupSets: 0, targetSets: 2, targetReps: 8, targetDurationSeconds: 0
+        sets: [
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+        ],
         restSeconds: 0,
         supersetGroup: 'X',
       },
@@ -307,10 +309,11 @@ describe('ReplaceExercise: setIndex==0 guard stays sound across a superset hop',
         idx: 1,
         exerciseId: 'exercise-b',
         kind: 'strength',
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        // warmupSets: 0, targetSets: 2, targetReps: 8, targetDurationSeconds: 0
+        sets: [
+          { setType: 'normal', reps: 8 },
+          { setType: 'normal', reps: 8 },
+        ],
         restSeconds: 0,
         supersetGroup: 'X',
       },
@@ -359,10 +362,12 @@ describe('ReplaceExercise: the swapped exercise is what the session then logs', 
             idx: 0,
             exerciseId: 'barbell-row',
             kind: 'strength',
-            warmupSets: 0,
-            targetSets: 3,
-            targetReps: 10,
-            targetDurationSeconds: 0,
+            // warmupSets: 0, targetSets: 3, targetReps: 10, targetDurationSeconds: 0
+            sets: [
+              { setType: 'normal', reps: 10 },
+              { setType: 'normal', reps: 10 },
+              { setType: 'normal', reps: 10 },
+            ],
             restSeconds: 60,
             supersetGroup: '',
           },

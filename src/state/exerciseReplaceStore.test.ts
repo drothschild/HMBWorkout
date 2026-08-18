@@ -38,13 +38,6 @@ function makeEntry(overrides?: Partial<RoutineEntry>): RoutineEntry {
     idx: 0,
     exerciseId: 'barbell-bench-press',
     kind: 'strength',
-    // The aggregate counts survive on the ENGINE entry until Phase 6; they are
-    // deliberately inconsistent with the list below so a `replaceExerciseTarget`
-    // that read them instead of `entrySets` would be visible.
-    warmupSets: 0,
-    targetSets: 0,
-    targetReps: 0,
-    targetDurationSeconds: 0,
     restSeconds: 150,
     sets: [
       { setType: 'warmup', reps: 6 },

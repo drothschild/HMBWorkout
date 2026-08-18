@@ -7,7 +7,7 @@ import {
   historyToSetInputValues,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
-import type { LoggedSet, SessionState } from '@/engine/types';
+import type { LoggedSet, RoutineSet, SessionState } from '@/engine/types';
 
 /**
  * Test: Session presenter logic
@@ -15,6 +15,31 @@ import type { LoggedSet, SessionState } from '@/engine/types';
  * Verifies AC2.2 (LogSet/SetDone dispatch) and AC9.1 (RPE rendering)
  * Note: Pure function tested in node project with direct calls
  */
+
+/**
+ * Expands the pre-#276 aggregate plan shape (warmupSets/targetSets/targetReps/
+ * targetDurationSeconds) into the per-set list `RoutineEntry.sets` now
+ * requires, so existing fixtures below can keep expressing "how many sets,
+ * how many reps/how long" without each one hand-writing a list.
+ *
+ * A `0` in targetReps/targetDurationSeconds meant "unset" under the old
+ * aggregate model, so it maps to `undefined` here, not to a literal 0 — see
+ * the zero-planned-set guard in AGENTS.md's Boundaries section.
+ */
+function makeSets(
+  warmupSets: number,
+  targetSets: number,
+  targetReps?: number,
+  targetDurationSeconds?: number
+): RoutineSet[] {
+  const reps = targetReps && targetReps > 0 ? targetReps : undefined;
+  const durationSeconds =
+    targetDurationSeconds && targetDurationSeconds > 0 ? targetDurationSeconds : undefined;
+  return [
+    ...Array.from({ length: warmupSets }, (): RoutineSet => ({ setType: 'warmup', reps, durationSeconds })),
+    ...Array.from({ length: targetSets }, (): RoutineSet => ({ setType: 'normal', reps, durationSeconds })),
+  ];
+}
 
 describe('createSessionPresenter', () => {
   const workingSet = (exerciseId: string, reps: number, weightKg: number): LoggedSet => ({
@@ -48,10 +73,7 @@ describe('createSessionPresenter', () => {
         idx: 0,
         exerciseId: 'ex-1',
         kind: 'strength',
-        warmupSets: 1,
-        targetSets: 3,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        sets: makeSets(1, 3, 8), // 1 warmup, 3 working, 8 reps each
         restSeconds: 90,
         supersetGroup: '',
       },
@@ -180,10 +202,7 @@ describe('createSessionPresenter', () => {
       state.entries[0] = {
         ...state.entries[0],
         kind: 'stretch',
-        warmupSets: 0,
-        targetSets: 0,
-        targetReps: 0,
-        targetDurationSeconds: 30,
+        sets: [],
       };
 
       const presenter = createSessionPresenter(state, jest.fn(async () => null));
@@ -231,8 +250,7 @@ describe('createSessionPresenter', () => {
 
     test('is true for last working set when there is no warmup', () => {
       const state = createMockState();
-      state.entries[0].warmupSets = 0;
-      state.entries[0].targetSets = 3;
+      state.entries[0].sets = makeSets(0, 3, 8);
       // setIndex 2 is the last one (working 1, working 2, working 3)
       state.setIndex = 2;
 
@@ -252,8 +270,7 @@ describe('createSessionPresenter', () => {
 
     test('is false for zero-set entries', () => {
       const state = createMockState();
-      state.entries[0].warmupSets = 0;
-      state.entries[0].targetSets = 0;
+      state.entries[0].sets = [];
       state.setIndex = 0;
 
       const presenter = createSessionPresenter(state, jest.fn(async () => null));
@@ -524,7 +541,7 @@ describe('createSessionPresenter', () => {
     test('a fully-empty duration set falls through to targetDurationSeconds', () => {
       const state = createMockState();
       state.entries[0].kind = 'stretch';
-      state.entries[0].targetDurationSeconds = 60;
+      state.entries[0].sets = makeSets(1, 3, 8, 60);
       state.loggedSets = [
         { exerciseId: 'ex-1', setType: 'stretch', reps: null, weightKg: null, durationSeconds: null, rpe: null },
       ];
@@ -545,7 +562,7 @@ describe('createSessionPresenter', () => {
     test('duration entries fall back to targetDurationSeconds', () => {
       const state = createMockState();
       state.entries[0].kind = 'stretch';
-      state.entries[0].targetDurationSeconds = 60;
+      state.entries[0].sets = makeSets(1, 3, 8, 60);
       state.loggedSets = [];
 
       expect(computeSetPrefill(state)).toEqual({ durationSeconds: 60 });
@@ -563,7 +580,7 @@ describe('createSessionPresenter', () => {
     test('returns undefined when there is nothing to prefill', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 0;
+      state.entries[0].sets = makeSets(1, 3, 0);
 
       expect(computeSetPrefill(state)).toBeUndefined();
     });
@@ -636,7 +653,7 @@ describe('createSessionPresenter', () => {
     test('AC4.4(a): prescription only, no history, with targetReps', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 5;
+      state.entries[0].sets = makeSets(1, 3, 5);
 
       const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
 
@@ -646,7 +663,7 @@ describe('createSessionPresenter', () => {
     test('AC4.4(b): prescription only with targetReps = 0 returns weight only, and no prescription still returns undefined', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 0;
+      state.entries[0].sets = makeSets(1, 3, 0);
 
       const withPrescription = computeSetPrefill(state, undefined, prescribedAt(83.91));
       const withoutPrescription = computeSetPrefill(state, undefined);
@@ -658,7 +675,7 @@ describe('createSessionPresenter', () => {
     test('AC4.5(a): duration-based entry with no logged set and prescription → durationSeconds only', () => {
       const state = createMockState();
       state.entries[0].kind = 'stretch';
-      state.entries[0].targetDurationSeconds = 50;
+      state.entries[0].sets = makeSets(1, 3, 8, 50);
       state.loggedSets = [];
 
       const prefill = computeSetPrefill(state, undefined, prescribedAt(83.91));
@@ -723,7 +740,7 @@ describe('createSessionPresenter', () => {
     test('AC4.9: empty history fallback falls through to target + prescription', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 5;
+      state.entries[0].sets = makeSets(1, 3, 5);
 
       const prefill = computeSetPrefill(state, { reps: 0 }, prescribedAt(83.91));
 
@@ -733,7 +750,7 @@ describe('createSessionPresenter', () => {
     test('AC4.9b: history with reps only (no weight) plus prescription → reps from history, not targetReps', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 5;
+      state.entries[0].sets = makeSets(1, 3, 5);
 
       const prefill = computeSetPrefill(state, { reps: 8 }, prescribedAt(83.91));
 
@@ -743,7 +760,7 @@ describe('createSessionPresenter', () => {
     test('AC4.10: history with weight but no reps, plus prescription → prescribed weight only (no reps)', () => {
       const state = createMockState();
       state.loggedSets = [];
-      state.entries[0].targetReps = 5;
+      state.entries[0].sets = makeSets(1, 3, 5);
 
       const withPrescription = computeSetPrefill(state, { weightLbs: 175 }, prescribedAt(83.91));
       const withoutPrescription = computeSetPrefill(state, { weightLbs: 175 });
@@ -883,10 +900,7 @@ describe('createSessionPresenter', () => {
         idx,
         exerciseId: `ex-${idx + 1}`,
         kind: 'strength' as const,
-        warmupSets: 0,
-        targetSets: 3,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        sets: makeSets(0, 3, 8),
         restSeconds: 90,
         supersetGroup: '',
       }));
@@ -952,10 +966,7 @@ describe('createSessionPresenter', () => {
       idx: 1,
       exerciseId: 'ex-2',
       kind: 'strength' as const,
-      warmupSets: 0,
-      targetSets: 3,
-      targetReps: 8,
-      targetDurationSeconds: 0,
+      sets: makeSets(0, 3, 8),
       restSeconds: 90,
       supersetGroup: '',
     };
@@ -1256,7 +1267,7 @@ describe('createSessionPresenter', () => {
       state.loggedSets = [];
       state.exerciseIndex = 1;
       state.entries = [
-        { ...state.entries[0], warmupSets: 0, targetSets: 0 },
+        { ...state.entries[0], sets: [] },
         state.entries[0],
       ];
 

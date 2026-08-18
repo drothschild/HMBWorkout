@@ -57,12 +57,17 @@ describe('migrationsForAdapter', () => {
     expect(migrationsForAdapter(5, upTo(6))).toBeUndefined();
   });
 
-  it('withholds the app’s real migrations at the current schema version, because v6 is the destructive bump', () => {
-    // The live wiring, not a synthetic one. This flips to a pass-through in
-    // Phase 6, when toVersion: 6 AND toVersion: 7 entries land alongside the v7
-    // schema — both are required, and a lone toVersion: 7 throws at module
-    // init. See the numbered Phase 6 note in ./adapterMigrations.ts.
-    expect(migrationsForAdapter(databaseSchema.version, migrations)).toBeUndefined();
+  it('passes the app’s real migrations through at the current schema version, now that coverage reaches v7 (#276 Phase 6)', () => {
+    // The live wiring, not a synthetic one. Before Phase 6 this was the
+    // destructive bump: v6's schema outran migration coverage (1-5) on
+    // purpose, so this gate withheld `migrations` and the adapter reset
+    // instead of throwing under `validateAdapter`. Phase 6 lands the
+    // `toVersion: 6` AND `toVersion: 7` entries alongside the v7 schema (both
+    // are required — see the numbered Phase 6 note in ./adapterMigrations.ts),
+    // so `migrations.maxVersion` now equals `databaseSchema.version` and this
+    // gate is a pass-through: every install upgrades in place rather than
+    // resetting.
+    expect(migrationsForAdapter(databaseSchema.version, migrations)).toBe(migrations);
   });
 
   it('would pass the real migrations through at the last version they cover', () => {

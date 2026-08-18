@@ -2,7 +2,7 @@ import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
 import { createActiveSessionStore } from './activeSession';
 import { createSessionPresenter } from './sessionPresenter';
-import type { SessionState } from '@/engine/types';
+import type { SessionState, RoutineSet } from '@/engine/types';
 import {
   findRoutineExerciseIdByOrder,
   getExerciseWorkingSetHistory,
@@ -13,6 +13,19 @@ import {
 } from '@/db/repository';
 import { loadActiveEngineState } from '@/db/engineState';
 import { injectSettingsStorage, resetForTesting, setSettings } from './settings';
+
+/**
+ * Builds a hand-built `RoutineEntry`'s `sets` list the way these fixtures
+ * expressed a plan pre-#276-Phase-6, as aggregate counts: `warmupSets`
+ * warmup sets followed by `targetSets` normal sets, all sharing `reps`. No
+ * fixture in this file prescribes a duration (every pre-migration
+ * `targetDurationSeconds` here was 0), so there is no duration parameter.
+ */
+function makeSets(warmupSets: number, targetSets: number, reps: number): RoutineSet[] {
+  const warmup = Array.from({ length: warmupSets }, (): RoutineSet => ({ setType: 'warmup', reps }));
+  const normal = Array.from({ length: targetSets }, (): RoutineSet => ({ setType: 'normal', reps }));
+  return [...warmup, ...normal];
+}
 
 describe('activeSession store', () => {
   let database: Database;
@@ -37,10 +50,7 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(1, 3, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -73,10 +83,7 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(1, 3, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -114,12 +121,9 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 0,
             // Two target sets: logging one set advances mid-exercise instead
             // of completing the workout (one-tap logging advances on log)
-            targetSets: 2,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 2, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -182,12 +186,9 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 0,
             // Two target sets: logging one set advances mid-exercise instead
             // of completing the workout (one-tap logging advances on log)
-            targetSets: 2,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 2, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -231,12 +232,9 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 0,
             // Two target sets: logging one set advances mid-exercise instead
             // of completing the workout (one-tap logging advances on log)
-            targetSets: 2,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 2, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -378,20 +376,14 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
           {
             exerciseId: 'ex-2',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 6,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 6),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -447,10 +439,7 @@ describe('activeSession store', () => {
       await upsertRoutineExercise(database, 'routine-test-i1b', {
         exerciseId: 'ex-test-i1b',
         order: 0,
-        warmupSets: 0,
-        targetSets: 1,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        sets: [{ setType: 'normal', targetReps: 8 }],
         restSeconds: 60,
       });
 
@@ -469,10 +458,7 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-test-i1b',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -552,10 +538,7 @@ describe('activeSession store', () => {
       await upsertRoutineExercise(database, 'routine-stamp', {
         exerciseId: 'ex-stamp-original',
         order: 0,
-        warmupSets: 0,
-        targetSets: 1,
-        targetReps: 8,
-        targetDurationSeconds: 0,
+        sets: [{ setType: 'normal', targetReps: 8 }],
         restSeconds: 60,
       });
 
@@ -577,10 +560,7 @@ describe('activeSession store', () => {
             {
               exerciseId: 'ex-stamp-original',
               kind: 'strength' as const,
-              warmupSets: 0,
-              targetSets: 1,
-              targetReps: 8,
-              targetDurationSeconds: 0,
+              sets: makeSets(0, 1, 8),
               restSeconds: 60,
               supersetGroup: '',
             },
@@ -653,10 +633,6 @@ describe('activeSession store', () => {
           re.routineId = 'routine-test-i2';
           re.exerciseId = 'ex-repeated';
           re.order = 0;
-          re.warmupSets = 0;
-          re.targetSets = 1;
-          re.targetReps = 8;
-          re.targetDurationSeconds = 0;
           re.restSeconds = 60;
         });
         re0 = re0Created;
@@ -665,10 +641,6 @@ describe('activeSession store', () => {
           re.routineId = 'routine-test-i2';
           re.exerciseId = 'ex-repeated';
           re.order = 1;
-          re.warmupSets = 0;
-          re.targetSets = 1;
-          re.targetReps = 8;
-          re.targetDurationSeconds = 0;
           re.restSeconds = 60;
         });
         re1 = re1Created;
@@ -688,20 +660,14 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-repeated',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
           {
             exerciseId: 'ex-repeated',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -759,20 +725,14 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-first',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
           {
             exerciseId: 'ex-second',
             kind: 'strength' as const,
-            warmupSets: 0,
-            targetSets: 1,
-            targetReps: 6,
-            targetDurationSeconds: 0,
+            sets: makeSets(0, 1, 6),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -905,10 +865,7 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-prior-history',
             kind: 'strength' as const,
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(1, 3, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -953,10 +910,7 @@ describe('activeSession store', () => {
           {
             exerciseId: 'ex-1',
             kind: 'strength' as const,
-            warmupSets: 1,
-            targetSets: 3,
-            targetReps: 8,
-            targetDurationSeconds: 0,
+            sets: makeSets(1, 3, 8),
             restSeconds: 60,
             supersetGroup: '',
           },
@@ -1051,10 +1005,7 @@ describe('activeSession store', () => {
             {
               exerciseId: 'ex-drain',
               kind: 'strength' as const,
-              warmupSets: 0,
-              targetSets: 1,
-              targetReps: 8,
-              targetDurationSeconds: 0,
+              sets: makeSets(0, 1, 8),
               restSeconds: 0,
               supersetGroup: '',
             },
@@ -1129,11 +1080,8 @@ describe('activeSession store', () => {
             {
               exerciseId: 'ex-abandon-drain',
               kind: 'strength' as const,
-              warmupSets: 0,
               // Two target sets so logging one keeps the workout in progress
-              targetSets: 2,
-              targetReps: 8,
-              targetDurationSeconds: 0,
+              sets: makeSets(0, 2, 8),
               restSeconds: 0,
               supersetGroup: '',
             },
@@ -1229,10 +1177,7 @@ describe('activeSession store', () => {
             {
               exerciseId: 'ex-debrief',
               kind: 'strength' as const,
-              warmupSets: 0,
-              targetSets: 1,
-              targetReps: 8,
-              targetDurationSeconds: 0,
+              sets: makeSets(0, 1, 8),
               restSeconds: 0,
               supersetGroup: '',
             },

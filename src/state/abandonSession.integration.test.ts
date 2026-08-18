@@ -32,10 +32,12 @@ const routine = {
     {
       exerciseId: 'ex-1',
       kind: 'strength' as const,
-      warmupSets: 1,
-      targetSets: 3,
-      targetReps: 8,
-      targetDurationSeconds: 0,
+      sets: [
+        { setType: 'warmup' as const, reps: 8 },
+        { setType: 'normal' as const, reps: 8 },
+        { setType: 'normal' as const, reps: 8 },
+        { setType: 'normal' as const, reps: 8 },
+      ],
       restSeconds: 0,
       supersetGroup: '',
     },
@@ -45,7 +47,17 @@ const routine = {
 async function seedRoutine(database: Database): Promise<void> {
   await upsertExercise(database, 'ex-1', 'Bench Press', 'strength');
   await upsertRoutine(database, ROUTINE_ID, 'Abandon Test Routine', [
-    { exerciseId: 'ex-1', order: 0, warmupSets: 1, targetSets: 3, targetReps: 8, restSeconds: 0 },
+    {
+      exerciseId: 'ex-1',
+      order: 0,
+      restSeconds: 0,
+      sets: [
+        { setType: 'warmup', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+      ],
+    },
   ]);
 }
 

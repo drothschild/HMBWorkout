@@ -23,6 +23,7 @@ import {
   findRoutineExerciseIdByOrder,
   getExerciseWorkingSetHistory,
   getRecentSessionSummaries,
+  getRoutineSets,
   getSessionExerciseLog,
   updateRoutineExerciseExerciseId,
 } from './repository';
@@ -62,9 +63,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
         re.routineId = ROUTINE_ID;
         re.exerciseId = ORIGINAL_EXERCISE;
         re.order = 0;
-        re.warmupSets = 1;
-        re.targetSets = 4;
-        re.targetReps = 6;
         re.restSeconds = 150;
       });
       rowId = (row as any).id;
@@ -74,6 +72,33 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
   afterEach(async () => {
     await closeTestDatabase(database);
   });
+
+  /**
+   * #276: the fixture's prescription (formerly warmupSets: 1, targetSets: 4,
+   * targetReps: 6, set entirely in beforeEach) now lives as routine_sets rows
+   * — one warmup, four normal, all reps: 6, per the fixture-conversion rule.
+   * Not seeded in beforeEach itself because several tests seed their own
+   * prescription onto the same row via `seedRamp` and the two would collide.
+   */
+  async function seedDefaultPrescription(): Promise<void> {
+    await database.write(async () => {
+      const prescription: ['warmup' | 'normal', number][] = [
+        ['warmup', 6],
+        ['normal', 6],
+        ['normal', 6],
+        ['normal', 6],
+        ['normal', 6],
+      ];
+      for (const [order, [setType, reps]] of prescription.entries()) {
+        await database.get('routine_sets').create((s: any) => {
+          s._raw.routine_exercise_id = rowId;
+          s._raw.order = order;
+          s._raw.set_type = setType;
+          s._raw.target_reps = reps;
+        });
+      }
+    });
+  }
 
   /** Log `count` working sets against the entry, under the given identity. */
   async function logPastSessions(
@@ -147,13 +172,21 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     });
 
     it('leaves the prescription alone — the swap changes identity only', async () => {
+      await seedDefaultPrescription();
+
       await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
 
       const row = (await database.get('routine_exercises').find(rowId)) as any;
       expect(row._raw.order).toBe(0);
-      expect(row.warmupSets).toBe(1);
-      expect(row.targetSets).toBe(4);
-      expect(row.targetReps).toBe(6);
+      // #276: the prescription now lives in routine_sets, not aggregate
+      // columns on the row. The swap re-points identity only.
+      expect(await getRoutineSets(database, rowId)).toEqual([
+        { setType: 'warmup', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+      ]);
       expect(row.restSeconds).toBe(150);
       expect(row._raw.routine_id).toBe(ROUTINE_ID);
     });
@@ -178,23 +211,17 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     // [swap-part-1, observer, swap-part-2] and the observer lands squarely in
     // the gap. Either half being deferred fails this, in both directions.
     it('never lets another writer observe a half-applied swap', async () => {
-      // Legacy (null-stamped) sets, so all FOUR effects have something to do.
+      // Legacy (null-stamped) sets, so all THREE effects have something to do.
       // Without them the stamping step is a no-op and hoisting it into its own
       // write would slip past this test.
       await logPastSessions(undefined);
-      await database.write(async () => {
-        const row = await database.get('routine_exercises').find(rowId);
-        await row.update((r: any) => {
-          r.targetWeightKg = 60;
-        });
-      });
-      // #276: the entry now also owns a prescribed set list whose weights the
-      // swap must clear. Seeded here so the fourth effect is observable too.
+      // #276: the per-exercise target_weight_kg column is gone; the entry's
+      // prescribed set list is the only thing left whose weights the swap
+      // must clear. Seeded here so that effect is observable.
       await seedRamp();
 
       const observed: {
         exerciseId: string | null;
-        targetWeightKg: number | null;
         stampedSets: number;
         setWeights: (number | null)[];
       }[] = [];
@@ -209,7 +236,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           .fetch()) as any[];
         observed.push({
           exerciseId: row._raw.exercise_id ?? null,
-          targetWeightKg: row._raw.target_weight_kg ?? null,
           stampedSets: sets.filter((s: any) => (s._raw.exercise_id ?? null) !== null).length,
           setWeights: routineSets
             .sort((a, b) => a._raw.order - b._raw.order)
@@ -228,7 +254,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
       expect(observed).toStrictEqual([
         {
           exerciseId: REPLACEMENT_EXERCISE,
-          targetWeightKg: null,
           stampedSets: 6,
           setWeights: [null, null, null],
         },
@@ -282,7 +307,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
             re.routineId = ROUTINE_ID;
             re.exerciseId = REPLACEMENT_EXERCISE;
             re.order = 1;
-            re.warmupSets = 0;
           });
           await database.get('routine_sets').create((s: any) => {
             s._raw.routine_exercise_id = (other as any).id;
@@ -429,7 +453,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           re.routineId = ROUTINE_ID;
           re.exerciseId = ORIGINAL_EXERCISE;
           re.order = 1;
-          re.warmupSets = 0;
         });
         otherRowId = (row as any).id;
       });
@@ -494,6 +517,7 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     // routine entry names today.
     it('titles a past session’s sets by the exercise they were logged as', async () => {
       await logPastSessions(ORIGINAL_EXERCISE, ['session-week-1']);
+      await seedDefaultPrescription();
 
       await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
 
@@ -505,9 +529,16 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
       expect(log[0].sets).toHaveLength(2);
       // The entry is still the same routine row, and its prescription — which
       // belongs to the plan, not the exercise — is unchanged by the swap.
+      // #276: SessionExerciseLogEntry no longer carries the prescription
+      // (that moved to routine_sets), so re-point at the row's own set rows.
       expect(log[0].routineExerciseId).toBe(rowId);
-      expect(log[0].targetSets).toBe(4);
-      expect(log[0].targetReps).toBe(6);
+      expect(await getRoutineSets(database, rowId)).toEqual([
+        { setType: 'warmup', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+        { setType: 'normal', targetReps: 6 },
+      ]);
     });
 
     it('titles a legacy set by the row’s exercise, the same fallback history uses', async () => {
@@ -567,7 +598,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           re.routineId = ROUTINE_ID;
           re.exerciseId = ORIGINAL_EXERCISE;
           re.order = 1;
-          re.warmupSets = 0;
         });
         secondRowId = (row as any).id;
       });
@@ -612,7 +642,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           re.routineId = ROUTINE_ID;
           re.exerciseId = REPLACEMENT_EXERCISE;
           re.order = 1;
-          re.warmupSets = 0;
         });
         secondRowId = (row as any).id;
       });
@@ -657,7 +686,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           re.routineId = ROUTINE_ID;
           re.exerciseId = ORIGINAL_EXERCISE;
           re.order = 1;
-          re.warmupSets = 0;
         });
         secondRowId = (row as any).id;
       });
@@ -726,7 +754,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           re.routineId = 'routine-other';
           re.exerciseId = ORIGINAL_EXERCISE;
           re.order = 0;
-          re.warmupSets = 0;
         });
       });
 
@@ -743,7 +770,6 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
           // Same exercise twice: the row id, not exercise_id, is the identity.
           re.exerciseId = ORIGINAL_EXERCISE;
           re.order = 1;
-          re.warmupSets = 0;
         });
         secondRowId = (row as any).id;
       });

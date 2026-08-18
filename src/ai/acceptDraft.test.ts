@@ -18,6 +18,21 @@ describe('acceptDraft', () => {
   const threeOf = (set: { reps?: number }) =>
     [0, 1, 2].map(() => ({ type: 'normal' as const, ...set }));
 
+  /**
+   * A routine_exercises row's `routine_sets` rows, sorted by `order`, as raw
+   * columns. #276 Phase 6 deleted the entry-level aggregate columns
+   * (`warmup_sets`/`target_sets`/`target_reps`/`target_duration_seconds`/
+   * `target_weight_kg`) — the plan lives only here now, so assertions that used
+   * to read the row directly read this instead.
+   */
+  async function routineSetsFor(routineExerciseId: string): Promise<any[]> {
+    const rows = await database
+      .get('routine_sets')
+      .query(Q.where('routine_exercise_id', routineExerciseId))
+      .fetch();
+    return rows.map((row) => (row as any)._raw).sort((a, b) => a.order - b.order);
+  }
+
   describe('AC3.1 (inert until accept)', () => {
     test('validating a draft writes nothing; accepting the same draft writes', async () => {
       const draft = {
@@ -111,13 +126,15 @@ describe('acceptDraft', () => {
       const second = entries.find((e: any) => e.order === 1);
 
       expect((first as any).exerciseId).toBe('bench-press');
-      expect((first as any).targetSets).toBe(3);
-      expect((first as any).targetReps).toBe(8);
       expect((first as any).restSeconds).toBe(60);
+      const firstSets = await routineSetsFor((first as any).id);
+      expect(firstSets).toHaveLength(3);
+      expect(firstSets.every((s) => s.target_reps === 8)).toBe(true);
 
       expect((second as any).exerciseId).toBe('incline-dumbbell');
-      expect((second as any).targetSets).toBe(3);
-      expect((second as any).targetReps).toBe(10);
+      const secondSets = await routineSetsFor((second as any).id);
+      expect(secondSets).toHaveLength(3);
+      expect(secondSets.every((s) => s.target_reps === 10)).toBe(true);
     });
 
     test('creates fully-populated exercise with all target fields', async () => {
@@ -155,12 +172,13 @@ describe('acceptDraft', () => {
       const entry = entries[0] as any;
       expect(entry.exerciseId).toBe('complex-exercise');
       expect(entry.supersetGroup).toBe('group-1');
-      expect(entry.warmupSets).toBe(2);
-      expect(entry.targetSets).toBe(4);
-      expect(entry.targetReps).toBe(6);
-      expect(entry.targetDurationSeconds).toBe(30);
       expect(entry.restSeconds).toBe(90);
       expect(entry.notes).toBe('Exercise notes');
+
+      const sets = await routineSetsFor(entry.id);
+      expect(sets.filter((s) => s.set_type === 'warmup')).toHaveLength(2);
+      expect(sets.filter((s) => s.set_type === 'normal')).toHaveLength(4);
+      expect(sets.every((s) => s.target_reps === 6 && s.target_duration_seconds === 30)).toBe(true);
     });
 
     test('writes a draft description onto a newly created exercise', async () => {
@@ -396,7 +414,9 @@ describe('acceptDraft', () => {
           .query(Q.where('routine_id', routineId))
           .fetch();
         expect(entries).toHaveLength(1);
-        expect((entries[0] as any).targetReps).toBe(6);
+        const sets = await routineSetsFor((entries[0] as any).id);
+        expect(sets).toHaveLength(3);
+        expect(sets.every((s) => s.target_reps === 6)).toBe(true);
       } finally {
         nowSpy.mockRestore();
       }
@@ -576,10 +596,12 @@ describe('acceptDraft', () => {
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
       expect(entries).toHaveLength(1);
 
-      const entry = entries[0] as any;
+      // #276 Phase 6: the load is a per-set fact, not an entry-level column.
+      const sets = await routineSetsFor((entries[0] as any).id);
+      expect(sets).toHaveLength(1);
       // Hard-code 83.91 rather than computing via lbsToKg to catch conversion bugs
-      expect(entry.targetWeightKg).toBe(83.91);
-      expect(typeof entry.targetWeightKg).toBe('number');
+      expect(sets[0].target_weight_kg).toBe(83.91);
+      expect(typeof sets[0].target_weight_kg).toBe('number');
     });
 
     // coach-prescribed-weights.AC2.11: Edge case — omitting targetWeightLbs leaves column null
@@ -601,8 +623,10 @@ describe('acceptDraft', () => {
       const entries = await routineExercisesTable.query(Q.where('routine_id', routineId)).fetch();
       expect(entries).toHaveLength(1);
 
-      const entry = entries[0] as any;
-      expect(entry.targetWeightKg).toBeNull();
+      // #276 Phase 6: the load is a per-set fact, not an entry-level column.
+      const sets = await routineSetsFor((entries[0] as any).id);
+      expect(sets).toHaveLength(1);
+      expect(sets[0].target_weight_kg).toBeNull();
     });
   });
 
@@ -779,129 +803,15 @@ describe('acceptDraft', () => {
     });
   });
 
-  // The decision Phase 1 deferred: which aggregate columns a set list drives.
-  // Answer — ALL FIVE. warmup_sets/target_sets/target_reps were already derived
-  // (Phase 1); target_duration_seconds and target_weight_kg join them here,
-  // because a per-set draft is the first writer that could make them disagree
-  // with the list. `acceptDraft` therefore passes no per-exercise load or
-  // duration at all: the set list is the only place either lives.
-  describe('derived aggregates (#276 Phase 4 decision)', () => {
-    async function storedEntry(routineId: string): Promise<any> {
-      const entries = await database
-        .get('routine_exercises')
-        .query(Q.where('routine_id', routineId))
-        .fetch();
-
-      return (entries[0] as any)._raw;
-    }
-
-    test('derives the counts and the first working set’s reps from the list', async () => {
-      const routineId = await acceptDraft(
-        database,
-        {
-          name: 'Push Day',
-          exercises: [
-            {
-              title: 'Bench Press',
-              kind: 'strength' as const,
-              sets: [
-                { type: 'warmup' as const, reps: 5, weightLbs: 20 },
-                { type: 'warmup' as const, reps: 5, weightLbs: 25 },
-                { type: 'warmup' as const, reps: 3, weightLbs: 40 },
-                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
-                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
-                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
-                { type: 'normal' as const, reps: 8, repsMax: 10, weightLbs: 50 },
-              ],
-            },
-          ],
-        },
-        { kind: 'create' }
-      );
-
-      const raw = await storedEntry(routineId);
-      expect(raw.warmup_sets).toBe(3);
-      expect(raw.target_sets).toBe(4);
-      expect(raw.target_reps).toBe(8);
-    });
-
-    test('derives target_weight_kg from the first working set, NOT from a warmup', async () => {
-      // The discriminating case: RAMP's first set is 20lbs and its first
-      // WORKING set is 50lbs. An implementation reading sets[0] writes 9.07
-      // and every surviving aggregate reader describes the ramp as a 20lb
-      // exercise.
-      const routineId = await acceptDraft(database, {
-        name: 'Push Day',
-        exercises: [
-          {
-            title: 'Bench Press',
-            kind: 'strength' as const,
-            sets: [
-              { type: 'warmup' as const, reps: 5, weightLbs: 20 },
-              { type: 'normal' as const, reps: 8, weightLbs: 50 },
-            ],
-          },
-        ],
-      }, { kind: 'create' });
-
-      expect((await storedEntry(routineId)).target_weight_kg).toBe(22.68);
-    });
-
-    test('derives target_duration_seconds from the first working set', async () => {
-      const routineId = await acceptDraft(database, {
-        name: 'Mobility',
-        exercises: [
-          {
-            title: 'Couch Stretch',
-            kind: 'stretch' as const,
-            sets: [
-              { type: 'warmup' as const, durationSeconds: 20 },
-              { type: 'normal' as const, durationSeconds: 60 },
-            ],
-          },
-        ],
-      }, { kind: 'create' });
-
-      const raw = await storedEntry(routineId);
-      expect(raw.target_duration_seconds).toBe(60);
-      expect(raw.target_sets).toBe(1);
-    });
-
-    test('leaves the load and duration columns null when no working set prescribes them', async () => {
-      const routineId = await acceptDraft(database, {
-        name: 'Bodyweight',
-        exercises: [
-          {
-            title: 'Push Up',
-            kind: 'strength' as const,
-            sets: [{ type: 'normal' as const, reps: 20 }],
-          },
-        ],
-      }, { kind: 'create' });
-
-      const raw = await storedEntry(routineId);
-      expect(raw.target_weight_kg).toBeNull();
-      expect(raw.target_duration_seconds).toBeNull();
-    });
-
-    test('a warmup-only entry derives target_sets 0 — the zero-total default must not fire', async () => {
-      // `sets` present means the list is the source of truth. Defaulting
-      // target_sets to 1 against a list holding none is exactly the drift the
-      // derivation exists to prevent.
-      const routineId = await acceptDraft(database, {
-        name: 'Warmup Only',
-        exercises: [
-          {
-            title: 'Band Pull Apart',
-            kind: 'strength' as const,
-            sets: [{ type: 'warmup' as const, reps: 15 }],
-          },
-        ],
-      }, { kind: 'create' });
-
-      const raw = await storedEntry(routineId);
-      expect(raw.warmup_sets).toBe(1);
-      expect(raw.target_sets).toBe(0);
-    });
-  });
+  // #276 Phase 6: the `describe('derived aggregates (#276 Phase 4 decision)')`
+  // block that lived here was deleted. It covered the Phase 4 decision that a
+  // per-set draft derives `warmup_sets`/`target_sets`/`target_reps`/
+  // `target_duration_seconds`/`target_weight_kg` from the entry's set list,
+  // including that `upsertRoutine`'s zero-total default must not fire against
+  // a warmup-only list — a derivation seam and a default that no longer
+  // exist, since Phase 6 deleted the five aggregate columns they wrote onto.
+  // The set-level facts the block's fixtures encoded (RAMP's distinct per-set
+  // loads and reps, in order) are still covered directly by the 'per-set
+  // drafts (AC4.9)' describe block above, which reads `routine_sets` rather
+  // than derived columns.
 });

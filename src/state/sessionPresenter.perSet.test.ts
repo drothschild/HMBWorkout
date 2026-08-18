@@ -1,11 +1,14 @@
 /**
  * #276 Phase 3 — the session reads the plan set by set.
  *
- * Kept apart from `sessionPresenter.test.ts` because its fixtures are the
- * opposite shape: every entry here carries a real `sets` list and deliberately
- * WRONG aggregate counts, so a reader that still consults `warmupSets` /
- * `targetSets` cannot pass. The sibling file's count-shaped fixtures stay
- * meaningful — they exercise the derivation seam that Phase 6 removes.
+ * Kept apart from `sessionPresenter.test.ts`: every entry here is built
+ * directly from a real `sets` list, never from aggregate counts. As of
+ * Phase 6, `RoutineEntry` has no `warmupSets`/`targetSets`/`targetReps`/
+ * `targetDurationSeconds` fields at all — the derivation seam those fixtures
+ * once guarded against is gone in both directions, so a reader that still
+ * consulted the old fields could not even compile. The sibling file's
+ * count-shaped fixtures stay meaningful by going through a `makeSets` helper
+ * that expands counts into a list at fixture-construction time.
  */
 
 import { computeSetPrefill, createSessionPresenter, deriveSetPosition } from './sessionPresenter';
@@ -43,11 +46,6 @@ export function perSetEntry(sets: RoutineSet[], over: Partial<RoutineEntry> = {}
     idx: 0,
     exerciseId: 'bench-press-dumbbell',
     kind: 'strength',
-    // Deliberately unrepresentative aggregates — see the file docstring.
-    warmupSets: 99,
-    targetSets: 99,
-    targetReps: 99,
-    targetDurationSeconds: 0,
     restSeconds: 120,
     supersetGroup: '',
     sets,
@@ -123,24 +121,26 @@ describe('deriveSetPosition (#276 AC3.3)', () => {
     });
   });
 
-  test('reads the counts when the entry predates per-set (rehydrated state)', () => {
-    const legacy: RoutineEntry = {
-      idx: 0,
-      exerciseId: 'ex-1',
-      kind: 'strength',
-      warmupSets: 1,
-      targetSets: 3,
-      targetReps: 8,
-      targetDurationSeconds: 0,
-      restSeconds: 90,
-      supersetGroup: '',
-    };
-    expect(deriveSetPosition(perSetState([legacy], { setIndex: 2 }), legacy)).toEqual({
-      isWarmupSet: false,
-      setNumber: 2,
-      totalOfType: 3,
-    });
-  });
+  // "reads the counts when the entry predates per-set (rehydrated state)"
+  // deleted (#276 Phase 6): it existed to prove `deriveSetPosition` still
+  // read a legacy, aggregate-only entry (no `sets` at all — the shape a
+  // pre-#276 rehydrated session could hold) by falling back to
+  // warmupSets/targetSets/targetReps. `RoutineEntry.sets` is REQUIRED now, so
+  // that fixture shape does not type-check any more, and there is no
+  // fallback left in `deriveSetPosition` for it to exercise — it reads
+  // `entry.sets` directly and would throw on an entry missing the field,
+  // not silently recover. Verified by temporarily forcing the fixture
+  // through an `as unknown as RoutineEntry` cast: it throws `TypeError:
+  // Cannot read properties of undefined (reading '2')` at
+  // `sessionPresenter.ts`'s `sets[sessionState.setIndex]`, so the derivation
+  // this test named is gone from the implementation, not just the type.
+  //
+  // This is a genuine finding, not a mechanical deletion: if a real device
+  // still holds a session persisted before Phase 6, rehydrating it would hit
+  // this exact crash rather than degrading gracefully. Whether that is
+  // already mitigated elsewhere (a data migration, a hydrate-time guard) is
+  // outside this test file's scope to fix — flagged here for a human to
+  // confirm rather than silently dropped.
 });
 
 describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)', () => {
@@ -227,7 +227,7 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
         { setType: 'normal', durationSeconds: 30 },
         { setType: 'normal', durationSeconds: 45 },
       ],
-      { kind: 'stretch', targetDurationSeconds: 999 }
+      { kind: 'stretch' }
     );
     expect(present(entry, 0).currentSetDurationSeconds).toBe(30);
     expect(present(entry, 1).currentSetDurationSeconds).toBe(45);
@@ -242,12 +242,16 @@ describe('setPositionLabel and isLastSetOfExercise, per-set (#276 AC3.4, AC3.6)'
 
   test('the routine-description gate skips a leading empty-set entry', () => {
     // startingExerciseIndex must find the first entry the engine can land on,
-    // which under per-set is the first with a non-EMPTY LIST. The ghost's
-    // counts are nonzero on purpose: a findIndex still summing them stops at
-    // index 0, decides the session is not at its beginning, and hides the
-    // routine description. (Mutation M12 survived until this fixture said so.)
+    // which under per-set is the first with a non-EMPTY LIST — sets.length > 0.
+    // The ghost's list is empty by construction, which is what makes it a
+    // "ghost": findIndex must not stop at index 0, or it would decide the
+    // session is not at its beginning and hide the routine description.
+    // (Mutation M12 survived until this fixture said so, back when a mutant
+    // could still fall back to summing aggregate counts instead of reading
+    // sets.length — Phase 6 removed those fields from RoutineEntry entirely,
+    // so that specific mutant can no longer even compile.)
     const ghost = perSetEntry([], { idx: 0, exerciseId: 'ghost' });
-    expect(ghost.warmupSets + ghost.targetSets).toBeGreaterThan(0);
+    expect(ghost.sets).toHaveLength(0);
 
     const real = perSetEntry(RAMP, { idx: 1, exerciseId: 'real' });
     const presenter = createSessionPresenter(
@@ -477,7 +481,7 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
         { setType: 'normal', durationSeconds: 30 },
         { setType: 'normal', durationSeconds: 60 },
       ],
-      { kind: 'stretch', targetDurationSeconds: 999 }
+      { kind: 'stretch' }
     );
     expect(computeSetPrefill(perSetState([entry], { setIndex: 1 }))).toEqual({
       durationSeconds: 60,
@@ -510,14 +514,13 @@ describe('computeSetPrefill, per-set (#276 AC3.7–AC3.9)', () => {
   // guard here must be `> 0`, not `!= null`.
 
   test('a planned set with 0 reps prefills no reps at all', () => {
-    const entry = perSetEntry([{ setType: 'normal', reps: 0 }], { targetReps: 0 });
+    const entry = perSetEntry([{ setType: 'normal', reps: 0 }]);
     expect(computeSetPrefill(perSetState([entry]))).toBeUndefined();
   });
 
   test('a planned set with a 0 duration prefills no duration at all', () => {
     const entry = perSetEntry([{ setType: 'normal', durationSeconds: 0 }], {
       kind: 'stretch',
-      targetDurationSeconds: 0,
     });
     expect(computeSetPrefill(perSetState([entry]))).toBeUndefined();
   });
@@ -553,7 +556,7 @@ describe('the presenter’s own per-set guards (#276)', () => {
         { setType: 'normal', durationSeconds: 0 },
         { setType: 'normal', durationSeconds: 45 },
       ],
-      { kind: 'stretch', targetDurationSeconds: 0 }
+      { kind: 'stretch' }
     );
 
     expect(present(entry, 0).currentSetDurationSeconds).toBeUndefined();

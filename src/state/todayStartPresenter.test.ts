@@ -7,8 +7,10 @@ interface SeedRoutine {
   name: string;
   exerciseCount: number;
   createdAt: number;
-  /** Seeds every exercise with target_sets: 0 instead of 3 — the shape of
-   *  cardio/stretch entries from parseWorkoutLine (AGENTS.md's zero-planned-set rule). */
+  /** Seeds every exercise with no routine_sets rows instead of 3 — the shape
+   *  of cardio/stretch entries from parseWorkoutLine (AGENTS.md's
+   *  zero-planned-set rule) — #276 Phase 6: a plan lives entirely in
+   *  routine_sets now, so "zero sets" is simply no rows. */
   allZeroSets?: boolean;
 }
 
@@ -22,14 +24,23 @@ async function seedRoutine(db: Database, routine: SeedRoutine): Promise<void> {
     });
 
     for (let order = 0; order < routine.exerciseCount; order++) {
-      await db.get('routine_exercises').create((re: any) => {
+      const re = await db.get('routine_exercises').create((re: any) => {
         re._raw.routine_id = routine.id;
         re._raw.exercise_id = `${routine.id}-ex-${order}`;
         re._raw.order = order;
-        re._raw.target_sets = routine.allZeroSets ? 0 : 3;
-        re._raw.target_reps = 8;
         re._raw.rest_seconds = 90;
       });
+
+      if (!routine.allZeroSets) {
+        for (let setOrder = 0; setOrder < 3; setOrder++) {
+          await db.get('routine_sets').create((row: any) => {
+            row._raw.routine_exercise_id = re.id;
+            row._raw.order = setOrder;
+            row._raw.set_type = 'normal';
+            row._raw.target_reps = 8;
+          });
+        }
+      }
     }
   });
 }

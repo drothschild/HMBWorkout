@@ -174,11 +174,21 @@ describe('liveSchemaVersionContext', () => {
     });
   });
 
-  it('currently describes a destructive bump, which is the whole point of Phase 1', () => {
-    expect(isDestructiveSchemaUpgrade(migrations.maxVersion, liveSchemaVersionContext())).toBe(
-      true
-    );
-  });
+  // "currently describes a destructive bump, which is the whole point of
+  // Phase 1" deleted (#276 Phase 6): it pinned a fact scoped to Phase 1 on
+  // purpose (`migrations.ts` stopped short of `databaseSchema.version`, so
+  // any live upgrade wiped the database) — the same commit that added it
+  // ("test(#276): failing coverage for the per-set routine table (Phase 1)")
+  // introduced the `V7_COVERED` fixture above precisely to describe what
+  // Phase 6 would make true instead. `db/migrations.ts` now carries a real
+  // `toVersion: 7` step, so `databaseSchema.version` (7) equals
+  // `migrations.maxVersion` (7) and `isDestructiveSchemaUpgrade` returns
+  // `false` for this exact call — the opposite of what this test asserted.
+  // That is not a regression to chase: it is the bump becoming covered,
+  // which "stays silent after Phase 6's covered bump, even for an
+  // established install" (above) already exercises with the same
+  // now-live values via `V7_COVERED`. Re-asserting the flipped boolean here
+  // would only duplicate that coverage.
 });
 
 describe('the notice copy', () => {

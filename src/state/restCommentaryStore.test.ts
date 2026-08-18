@@ -775,14 +775,34 @@ describe('createRestCommentaryStore', () => {
 });
 
 describe('restCommentaryTarget', () => {
+  /**
+   * #276 Phase 6: `RoutineEntry` lost `warmupSets`/`targetSets`/`targetReps`/
+   * `targetDurationSeconds` — `sets: RoutineSet[]` is the only representation
+   * of the plan now. This is the one local helper (per the migration brief)
+   * that expands the same counts this file's fixtures used to write directly,
+   * exactly what the deleted `setsFromCounts` did at read time: a `0` in
+   * `targetReps`/`targetDurationSeconds` means "unset" and becomes
+   * `undefined`, not `0`.
+   */
+  const makeSets = (
+    warmupSets: number,
+    targetSets: number,
+    targetReps = 0,
+    targetDurationSeconds = 0
+  ): RoutineEntry['sets'] => {
+    const reps = targetReps > 0 ? targetReps : undefined;
+    const durationSeconds = targetDurationSeconds > 0 ? targetDurationSeconds : undefined;
+    return [
+      ...Array.from({ length: warmupSets }, () => ({ setType: 'warmup' as const, reps, durationSeconds })),
+      ...Array.from({ length: targetSets }, () => ({ setType: 'normal' as const, reps, durationSeconds })),
+    ];
+  };
+
   const entry = (overrides: Partial<RoutineEntry> = {}): RoutineEntry => ({
     idx: 0,
     exerciseId: 'bench-press',
     kind: 'strength',
-    warmupSets: 0,
-    targetSets: 3,
-    targetReps: 8,
-    targetDurationSeconds: 0,
+    sets: makeSets(0, 3, 8),
     restSeconds: 90,
     supersetGroup: '',
     ...overrides,
@@ -898,19 +918,15 @@ describe('restCommentaryTarget', () => {
     ]);
   });
 
-  it('expands an aggregate-only upcoming entry through the derivation seam', () => {
-    // A count-shaped entry (hydrated from a pre-#276 build, or written by
-    // `upsertRoutineExercise`) must still reach the prompt as a list, or the
-    // rest remark loses its target for every routine that predates the set
-    // table.
-    const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
-
-    expect(result?.sets).toEqual([
-      { setType: 'normal', reps: 8, durationSeconds: undefined },
-      { setType: 'normal', reps: 8, durationSeconds: undefined },
-      { setType: 'normal', reps: 8, durationSeconds: undefined },
-    ]);
-  });
+  // "expands an aggregate-only upcoming entry through the derivation seam"
+  // deleted (#276 Phase 6): it existed to prove a count-shaped entry (no
+  // `routine_sets` rows / pre-#276 build) still expanded into a list through
+  // the aggregate-to-list derivation seam. `RoutineEntry.sets` is required
+  // now and there are no aggregate fields left to hydrate a "count-shaped"
+  // entry from, so the shape this test exercised cannot be constructed any
+  // more — there is no seam left to prove anything about. The sibling test
+  // above ("carries the upcoming entry's own set list...") already covers an
+  // upcoming entry's `sets` reaching the target unchanged.
 
   describe('#270: resting inside an exercise comments on the set just completed', () => {
     it('describes the completed set, not the upcoming one', () => {
@@ -938,7 +954,7 @@ describe('restCommentaryTarget', () => {
 
       const result = restCommentaryTarget(
         afterWorkingSet({
-          entries: [entry({ warmupSets: 2 }), entry({ idx: 1, exerciseId: 'squat' })],
+          entries: [entry({ sets: makeSets(2, 3, 8) }), entry({ idx: 1, exerciseId: 'squat' })],
           loggedSets: [warmup],
           lastLoggedSet: warmup,
         })
@@ -961,7 +977,7 @@ describe('restCommentaryTarget', () => {
 
       const result = restCommentaryTarget(
         afterWorkingSet({
-          entries: [entry({ exerciseId: 'rower', kind: 'cardio', targetDurationSeconds: 300 })],
+          entries: [entry({ exerciseId: 'rower', kind: 'cardio', sets: makeSets(0, 3, 8, 300) })],
           loggedSets: [cardioSet],
           lastLoggedSet: cardioSet,
         })
@@ -982,7 +998,7 @@ describe('restCommentaryTarget', () => {
 
       const result = restCommentaryTarget(
         afterWorkingSet({
-          entries: [entry({ exerciseId: 'couch-stretch', kind: 'stretch', targetDurationSeconds: 45 })],
+          entries: [entry({ exerciseId: 'couch-stretch', kind: 'stretch', sets: makeSets(0, 3, 8, 45) })],
           loggedSets: [stretchSet],
           lastLoggedSet: stretchSet,
         })
@@ -1015,7 +1031,7 @@ describe('restCommentaryTarget', () => {
       // where the two readings agree.
       const result = restCommentaryTarget(
         afterWorkingSet({
-          entries: [entry({ warmupSets: 2 })],
+          entries: [entry({ sets: makeSets(2, 3, 8) })],
           exerciseIndex: 0,
           setIndex: 4,
           loggedSets: [logged(), logged(), logged(), logged()],
@@ -1050,16 +1066,13 @@ describe('restCommentaryTarget', () => {
      * interchangeable — the "fixture chosen so two readings agree" trap.
      */
     const supersetEntries = () => [
-      entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', warmupSets: 2 }),
+      entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', sets: makeSets(2, 3, 8) }),
       entry({
         idx: 1,
         exerciseId: 'rower',
         kind: 'cardio',
         supersetGroup: 'A',
-        warmupSets: 0,
-        targetSets: 2,
-        targetReps: 0,
-        targetDurationSeconds: 60,
+        sets: makeSets(0, 2, 0, 60),
         restSeconds: 30,
       }),
     ];
@@ -1099,9 +1112,9 @@ describe('restCommentaryTarget', () => {
         exerciseTitle: 'Rower',
         kind: 'cardio',
         restSeconds: 30,
-        // The rower's own plan, expanded from its counts by `entrySets`. The
-        // bench's is two warmups plus its own working sets, so a read off
-        // `entries[exerciseIndex]` gives a visibly different list.
+        // The rower's own plan. The bench's is two warmups plus its own
+        // working sets, so a read off `entries[exerciseIndex]` gives a
+        // visibly different list.
         sets: [
           { setType: 'normal', durationSeconds: 60 },
           { setType: 'normal', durationSeconds: 60 },
@@ -1130,8 +1143,8 @@ describe('restCommentaryTarget', () => {
       // Round 1 of a mismatched group: the row plans only one set, so round 1
       // ends on the bench again.
       const entries = [
-        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', targetSets: 3 }),
-        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', targetSets: 1 }),
+        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', sets: makeSets(0, 3, 8) }),
+        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', sets: makeSets(0, 1, 8) }),
       ];
 
       const result = restCommentaryTarget(
@@ -1154,8 +1167,8 @@ describe('restCommentaryTarget', () => {
       // asked about the upcoming round would name the bench instead and then
       // reject the row's set as belonging to someone else.
       const entries = [
-        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', targetSets: 3 }),
-        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', targetSets: 2 }),
+        entry({ idx: 0, exerciseId: 'bench-press', supersetGroup: 'A', sets: makeSets(0, 3, 8) }),
+        entry({ idx: 1, exerciseId: 'barbell-row', supersetGroup: 'A', sets: makeSets(0, 2, 8) }),
       ];
       const rowSet = logged({ exerciseId: 'barbell-row' });
 
@@ -1204,7 +1217,7 @@ describe('restCommentaryTarget', () => {
       const result = restCommentaryTarget(
         state({
           entries: [
-            entry({ idx: 0, warmupSets: 2, targetSets: 0, targetReps: 0 }),
+            entry({ idx: 0, sets: makeSets(2, 0) }),
             entry({ idx: 1, exerciseId: 'squat' }),
           ],
           exerciseIndex: 1,
@@ -1258,31 +1271,16 @@ describe('restCommentaryTarget', () => {
   // ---- #276 Phase 3: the target carries the per-set denominator ------------
 
   describe('per-set position (#276 AC3.4, AC3.5)', () => {
-    /** RAMP: three warmups at ascending loads, then four working sets. */
-    const RAMP = [
-      { setType: 'warmup' as const, reps: 5, weightKg: 9.07 },
-      { setType: 'warmup' as const, reps: 5, weightKg: 11.34 },
-      { setType: 'warmup' as const, reps: 3, weightKg: 18.14 },
-      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
-      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
-      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
-      { setType: 'normal' as const, reps: 8, weightKg: 22.68 },
-    ];
-
-    it('reads the denominator off the set list, not the aggregate counts', () => {
-      // Aggregates say 1 warmup / 1 working; the list says 3 and 4.
-      const ramped = entry({ warmupSets: 1, targetSets: 1, sets: RAMP });
-      const upNext = restCommentaryTarget(
-        state({ exerciseIndex: 0, setIndex: 0, entries: [ramped] })
-      );
-
-      expect(upNext).toMatchObject({ isWarmupSet: true, setNumber: 1, totalOfType: 3 });
-    });
+    // "reads the denominator off the set list, not the aggregate counts"
+    // deleted (#276 Phase 6): it existed to prove the set list wins when it
+    // disagrees with the aggregate counts ("aggregates say 1/1; the list says
+    // 3 and 4"). `RoutineEntry` has no aggregate fields left to disagree with
+    // the list, so that claim can no longer even be expressed, let alone
+    // tested. The INTERLEAVE test below covers the same denominator
+    // computation off the set list alone.
 
     it('INTERLEAVE: the third set is Warmup 2 of 2, which no count pair gives', () => {
       const interleaved = entry({
-        warmupSets: 1,
-        targetSets: 2,
         sets: [
           { setType: 'warmup', reps: 5 },
           { setType: 'normal', reps: 8 },
@@ -1318,8 +1316,6 @@ describe('restCommentaryTarget', () => {
         idx: 0,
         exerciseId: 'member-a',
         supersetGroup: 'G5',
-        warmupSets: 0,
-        targetSets: 99,
         sets: [
           { setType: 'normal', reps: 8 },
           { setType: 'normal', reps: 8 },
@@ -1330,8 +1326,6 @@ describe('restCommentaryTarget', () => {
         idx: 1,
         exerciseId: 'member-b',
         supersetGroup: 'G5',
-        warmupSets: 0,
-        targetSets: 99,
         sets: [
           { setType: 'normal', reps: 8 },
           { setType: 'normal', reps: 8 },

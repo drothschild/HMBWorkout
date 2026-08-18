@@ -19,10 +19,8 @@ function makeEntries(count = 2, overrides?: Partial<RoutineEntry>[]): RoutineEnt
       idx: i,
       exerciseId: `exercise-${i}`,
       kind: 'strength',
-      warmupSets: 0,
-      targetSets: 1,
-      targetReps: 8,
-      targetDurationSeconds: 0,
+      // warmupSets: 0, targetSets: 1, targetReps: 8, targetDurationSeconds: 0
+      sets: [{ setType: 'normal', reps: 8 }],
       restSeconds: 60,
       supersetGroup: '',
       ...overrides?.[i],
@@ -86,7 +84,15 @@ describe('AppForegrounded: mid-rest deadline reconciliation', () => {
         restDeadlineMs: 10_000,
         exerciseIndex: 0,
         setIndex: 1,
-        entries: makeEntries(2, [{ warmupSets: 2, targetSets: 1 }]),
+        entries: makeEntries(2, [
+          {
+            sets: [
+              { setType: 'warmup', reps: 8 },
+              { setType: 'warmup', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
+          },
+        ]),
       })
     );
 
@@ -190,7 +196,15 @@ describe('RestElapsed: a straggler tick after the rest was already reconciled is
         restDeadlineMs: 10_000,
         exerciseIndex: 0,
         setIndex: 1,
-        entries: makeEntries(2, [{ warmupSets: 2, targetSets: 1 }]),
+        entries: makeEntries(2, [
+          {
+            sets: [
+              { setType: 'warmup', reps: 8 },
+              { setType: 'warmup', reps: 8 },
+              { setType: 'normal', reps: 8 },
+            ],
+          },
+        ]),
       })
     );
     await engine.dispatch({ tag: 'AppForegrounded', nowMs: 50_000 });

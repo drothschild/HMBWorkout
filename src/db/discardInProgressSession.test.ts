@@ -23,7 +23,17 @@ import { SessionState } from '@/engine/types';
 async function seedRoutine(database: Database, routineId: string): Promise<string> {
   await upsertExercise(database, 'ex-1', 'Bench Press', 'strength');
   await upsertRoutine(database, routineId, routineId, [
-    { exerciseId: 'ex-1', order: 0, warmupSets: 1, targetSets: 3, targetReps: 8, restSeconds: 90 },
+    {
+      exerciseId: 'ex-1',
+      order: 0,
+      restSeconds: 90,
+      sets: [
+        { setType: 'warmup', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+        { setType: 'normal', targetReps: 8 },
+      ],
+    },
   ]);
   const routineExercises = (await database.get('routine_exercises').query().fetch()) as any[];
   return routineExercises.find((re) => re._raw.routine_id === routineId)!.id;
