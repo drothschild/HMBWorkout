@@ -758,6 +758,29 @@ wrong was that the caller could not tell. **A UI that writes `markdown` and drop
 the user. Do not restore a `continue` on the unresolved-exercise path: silently
 skipping a set is the data-loss bug itself.
 
+**Because the serializer is all-or-nothing, the shell must not write a set it
+cannot render — and the guard is `buildLogSetValues`, not the serializer (#288).**
+`buildSessionSetLine` states a measurement two ways and only two: `reps` fills the
+`1x<reps>` slot, and failing that `durationSeconds` becomes a `duration=` flag.
+Weight, distance and rpe are *flags*, not measurements, and none of them makes a
+line the parser will take. A set with neither reps nor duration therefore emits
+`- bench-press: set_type=working`, which `parseSession` refuses, and that **one**
+set costs the export of the entire session. Blanking the reps field and tapping
+Log Set used to write exactly that. `buildLogSetValues` (`src/state/setInputs.ts`)
+now returns `undefined` — "nothing to log" — for that case, and the optional
+return type *is* the enforcement: `onLogSet` takes a non-optional
+`SetInputValues`, so `tsc` rejects an unguarded dispatch at both `.tsx` call
+sites. `setInputs.callSites.test.ts` covers the laundering (`!`, `?? {}`, `|| {}`,
+`as`) that would compile, since neither screen is jest-renderable. Two rules for
+anyone editing that predicate: it compares against `undefined` and never
+truthiness, because `reps: 0` is a real logged set of zero repetitions and
+collapsing it into "absent" reinstates the PR #89 regression; and it mirrors
+`buildSessionSetLine`'s own branch exactly, so a new measurement field
+(`SetInputValues` has no distance today) must be added to both or neither.
+Do **not** move this decision into `validate_set`/`transition.lv` instead: a
+blank form field is not a session-flow event, and rejecting it in the engine
+surfaces as the session screen's red error banner.
+
 `exportRoutine` took the opposite fix, because a single-item export has no
 partial to salvage — it renders or it doesn't, so swallowing bought nothing and
 cost the user a file that looked like an empty routine. Its blanket `catch` is
