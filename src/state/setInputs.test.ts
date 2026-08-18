@@ -175,3 +175,161 @@ describe('buildLogSetValues', () => {
     expect(values).toEqual({ reps: 5, weightLbs: 100, rpe: 7 });
   });
 });
+
+/**
+ * #288: a set carrying no measurement the session grammar can represent was
+ * reachable from the normal UI — blank the reps field, tap Log Set — and it
+ * poisoned the whole session document, because `serializeSession` is
+ * all-or-nothing.
+ *
+ * `buildSessionSetLine` (`src/interop/serialize.ts`) builds the `1x<reps>`
+ * slot from `reps` and otherwise falls back to a `duration=` flag; with
+ * neither it emits `- bench-press: set_type=working`, which `parseSession`
+ * rejects with "Strength exercise missing sets×reps". Weight and RPE are
+ * flags, not measurements — neither can rescue that line.
+ *
+ * The guard is exactly the serializer's own condition and no wider: `reps: 0`
+ * is a real measurement ("one logged set of zero repetitions", PR #89) and
+ * must keep logging and round-tripping.
+ */
+describe('buildLogSetValues rejects a set with nothing to log (#288)', () => {
+  test('blank reps and blank duration: nothing to log', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('weight alone is not a measurement: a strength line needs the reps slot', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '135',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('rpe alone is not a measurement (the last-set popup path)', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '',
+        weightText: '',
+        durationText: '',
+        rpe: 8,
+      })
+    ).toBeUndefined();
+  });
+
+  test('unparseable reps text is as absent as blank text', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: 'NaN5',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('duration-based entry with no duration: nothing to log', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '8',
+        weightText: '100',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('duration-based entry ignores reps text, so reps cannot rescue it', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '8',
+        weightText: '',
+        durationText: 'NaN',
+        rpe: undefined,
+      })
+    ).toBeUndefined();
+  });
+
+  test('reps 0 is a measurement, not an absence: it still logs (PR #89)', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '0',
+        weightText: '',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toEqual({ reps: 0 });
+  });
+
+  test('reps 0 with a 0 weight (bodyweight) still logs both zeros', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: false,
+        repsText: '0',
+        weightText: '0',
+        durationText: '',
+        rpe: undefined,
+      })
+    ).toEqual({ reps: 0, weightLbs: 0 });
+  });
+
+  test('duration 0 is a measurement, not an absence', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '',
+        weightText: '',
+        durationText: '0',
+        rpe: undefined,
+      })
+    ).toEqual({ durationSeconds: 0 });
+  });
+
+  test('a duration that truncates to 0 still logs (0.9s is a measurement)', () => {
+    expect(
+      buildLogSetValues({
+        isDurationBased: true,
+        repsText: '',
+        weightText: '',
+        durationText: '0.9',
+        rpe: undefined,
+      })
+    ).toEqual({ durationSeconds: 0 });
+  });
+
+  test('every value it does return carries a serializer-representable metric', () => {
+    const inputs = [
+      { isDurationBased: false, repsText: '0', weightText: '', durationText: '', rpe: undefined },
+      { isDurationBased: false, repsText: '5', weightText: '100', durationText: '', rpe: 8 },
+      { isDurationBased: false, repsText: '', weightText: '100', durationText: '', rpe: 8 },
+      { isDurationBased: true, repsText: '5', weightText: '', durationText: '30', rpe: 8 },
+      { isDurationBased: true, repsText: '5', weightText: '', durationText: '', rpe: 8 },
+    ];
+
+    const returned = inputs.map(buildLogSetValues).filter((values) => values !== undefined);
+    // Not vacuous: three of the five inputs are loggable.
+    expect(returned).toHaveLength(3);
+
+    for (const values of returned) {
+      // Mirrors buildSessionSetLine: reps builds the `1x<reps>` slot, duration
+      // becomes the `duration=` flag, and a line with neither is unparseable.
+      expect(values.reps !== undefined || values.durationSeconds !== undefined).toBe(true);
+    }
+  });
+});
