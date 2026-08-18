@@ -831,22 +831,23 @@ both or neither. Do **not** move this decision into `validate_set`/`transition.l
 instead: a blank form field is not a session-flow event, and rejecting it in the
 engine surfaces as the session screen's red error banner.
 
-**This guard closes the input door only, and a second door is still open
-(#305).** `buildLogSetValues` preserves `reps: 0` and `durationSeconds: 0`, and
-that is where the preservation ends: `engine/index.ts`'s `LogSet` conversion
-turns `reps === 0`, `weightKg === 0` and `durationSeconds === 0` into `undefined`
-on the way into Rill. Those three sentinels are applied inline and are **not** in
-`SENTINEL_TO_OPTION_MAP` — so convention 8's claim that the map is "the
-authoritative list" is false today, and so is this file's own rule that `1x0` is
-a real logged measurement, because such a set never reaches the serializer.
-Dispatching `LogSet { reps: 0 }` persists a row with neither reps nor duration:
-precisely the #288 shape, produced through the engine rather than the form. Until
-#305 lands, typing `0` into the reps field still writes an unexportable row, and
-the population of such rows on device is therefore not just pre-fix mis-taps —
-it is **every `reps: 0` and every `durationSeconds: 0` set ever logged**. There
-is no migration and no repair path, and any repair carries a product decision:
-writing `reps = 0` invents a measurement, deleting the row erases the fact that a
-set happened, and "unknown" has no representation in the schema.
+**This guard closes the input door, and the engine boundary was the second
+door — now closed too (#305).** `buildLogSetValues` preserves `reps: 0` and
+`durationSeconds: 0`; that preservation once ended at `engine/index.ts`'s
+`LogSet` conversion, which turned `reps === 0`, `weightKg === 0` and
+`durationSeconds === 0` into `undefined` on the way into Rill via three inline
+sentinels never in `SENTINEL_TO_OPTION_MAP` — falsifying both convention 8's
+"authoritative list" claim and this file's own `1x0`-is-real rule, because such
+a set never reached the serializer. #305 routes those three fields through
+`toRillOptionalNumber` (only null/undefined → Rill None), so a logged `0` now
+survives end to end; `engine/logSetZeroPreservation.test.ts` is the pin.
+**Pre-#305 rows on device are not repaired by the fix**: every `reps: 0` and
+every `durationSeconds: 0` set logged before it was written as the #288 shape
+(neither reps nor duration), and there is no migration and no repair path. Any
+repair carries a product decision — writing `reps = 0` invents a measurement,
+deleting the row erases the fact that a set happened, and "unknown" has no
+representation in the schema — so the fix stops the bleeding without rewriting
+history.
 
 `exportRoutine` took the opposite fix, because a single-item export has no
 partial to salvage — it renders or it doesn't, so swallowing bought nothing and
