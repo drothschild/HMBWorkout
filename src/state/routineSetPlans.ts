@@ -51,6 +51,10 @@ export function entrySetsFromRows(rows: readonly RoutineSetEntry[]): RoutineSet[
     weightKg: row.targetWeightKg,
     durationSeconds: row.targetDurationSeconds,
     distanceM: row.targetDistanceM,
+    // Per-set rest override (#281). Carried into engine state so the two
+    // advance_after_set ScheduleRest sites can read the completed set's own
+    // rest; absent inherits the entry-level restSeconds.
+    restSeconds: row.restSeconds,
   }));
 }
 

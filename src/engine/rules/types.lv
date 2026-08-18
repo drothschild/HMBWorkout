@@ -9,7 +9,11 @@ alias LoggedSet = { exerciseId: String, setType: String, reps: Option(Int), weig
 -- distinct from LoggedSet.setType, which is what was actually recorded
 -- ("warmup" | "working" | "stretch" | "cardio") and is derived at LogSet time
 -- from this plus the entry's kind.
-alias RoutineSet = { setType: String, reps: Option(Int), repsMax: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), distanceM: Option(Float) }
+-- restSeconds is the set's OWN rest override (#281): Some overrides the entry's
+-- restSeconds, None inherits it. Both ScheduleRest sites in transition.lv read
+-- the just-completed set's value via h.completed_set_rest. The superset no-rest
+-- hop never reads it and must stay rest-free regardless.
+alias RoutineSet = { setType: String, reps: Option(Int), repsMax: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), distanceM: Option(Float), restSeconds: Option(Int) }
 
 -- The entry is an ordered LIST of prescribed sets, not a pair of counts: a
 -- warmup ramp (9.07 -> 11.34 -> 18.14 kg) is unrepresentable as "3 warmup

@@ -29,6 +29,14 @@ export interface RoutineSet {
   weightKg?: number | null;
   durationSeconds?: number | null;
   distanceM?: number | null;
+  /**
+   * Per-set rest override in seconds (#281). Absent means the set inherits the
+   * entry-level `RoutineEntry.restSeconds`; present overrides it. Like the other
+   * fields here it crosses the boundary as honest `undefined` and is NOT in
+   * SENTINEL_TO_OPTION_MAP — read it with `!= null`. Both `advance_after_set`
+   * ScheduleRest sites resolve `completedSet.restSeconds ?? entry.restSeconds`.
+   */
+  restSeconds?: number | null;
 }
 
 export interface RoutineEntry {

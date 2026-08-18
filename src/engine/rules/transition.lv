@@ -60,10 +60,14 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
             let firstActiveEntry = at(firstActiveIdx, s.entries)?
             -- Rest between rounds/sets only from Warmup/Working, so
             -- RestElapsed can recover the phase from the set at setIndex.
-            let restBetweenSets = currentEntry.restSeconds > 0 && (s.phase == Warmup || s.phase == Working)
+            -- The just-completed set is currentEntry.sets[s.setIndex] — s is
+            -- the INPUT state (advancement is only in the returned record), so
+            -- s.setIndex still names the set finished, not nextRound (#281).
+            let restForCompletedSet = h.completed_set_rest(currentEntry)(s.setIndex)
+            let restBetweenSets = restForCompletedSet > 0 && (s.phase == Warmup || s.phase == Working)
             if (restBetweenSets)
             then (
-              let restDeadlineMs = nowMs + currentEntry.restSeconds * 1000
+              let restDeadlineMs = nowMs + restForCompletedSet * 1000
               Ok({
                 state: { s | phase: Resting, exerciseIndex: firstActiveIdx, setIndex: nextRound, supersetPosition: firstActiveIdx - groupStartIdx, restDeadlineMs: Some(restDeadlineMs) },
                 effects: [ScheduleRest({ deadlineMs: restDeadlineMs })]
@@ -96,7 +100,15 @@ let advance_after_set = fn(s) -> fn(nowMs) -> (
                 -- of what label it happens to carry — currentEntry.restSeconds
                 -- applies unconditionally, the same way it would if
                 -- nextEntry's label simply didn't match.
-                let restSeconds = currentEntry.restSeconds
+                -- Per #281 it is the just-completed set's OWN rest, falling
+                -- back to that entry default. The completed set is
+                -- currentEntry.sets[s.setIndex]: currentEntry is the entry being
+                -- left (at s.exerciseIndex) and s.setIndex is the round finished
+                -- on it — NOT the advanced landing (landing.idx / setIndex 0),
+                -- which exists only in the returned state. This is the site the
+                -- card called "already advanced position": the advancement is in
+                -- the output; the completed set is still at the input position.
+                let restSeconds = h.completed_set_rest(currentEntry)(s.setIndex)
                 let restDeadlineMs = nowMs + restSeconds * 1000
                 let nextSupersetPosition = landing.idx - landing.groupStart
 

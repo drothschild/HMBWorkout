@@ -28,10 +28,12 @@ export { TransitionError } from 'rill-lang';
  */
 /*
  * NOT EXTENDED FOR RoutineSet. Its optional fields (reps, repsMax, weightKg,
- * durationSeconds, distanceM) are new surface with no legacy read sites to
- * protect, so they cross the boundary as honest `undefined` and read sites use
- * `!= null`. Five more sentinels would grow the `-1`-renders-as-`RPE: -1`
- * hazard class for no benefit. See #276 AC2.12.
+ * durationSeconds, distanceM, restSeconds) are new surface with no legacy read
+ * sites to protect, so they cross the boundary as honest `undefined` and read
+ * sites use `!= null`. More sentinels would grow the `-1`-renders-as-`RPE: -1`
+ * hazard class for no benefit. See #276 AC2.12; restSeconds added in #281, and
+ * a zero rest override must stay a real 0, not collapse to a sentinel (#305's
+ * lesson).
  */
 export const SENTINEL_TO_OPTION_MAP = {
   rpe: { sentinel: -1.0, rillNone: undefined },
@@ -69,6 +71,7 @@ function toRillRoutineSet(set: RoutineSet): any {
     weightKg: toRillOptionalNumber(set.weightKg),
     durationSeconds: toRillOptionalNumber(set.durationSeconds),
     distanceM: toRillOptionalNumber(set.distanceM),
+    restSeconds: toRillOptionalNumber(set.restSeconds),
   };
 }
 
@@ -139,6 +142,7 @@ function fromRillRoutineSet(set: any): RoutineSet {
     weightKg: set.weightKg,
     durationSeconds: set.durationSeconds,
     distanceM: set.distanceM,
+    restSeconds: set.restSeconds,
   };
 }
 
