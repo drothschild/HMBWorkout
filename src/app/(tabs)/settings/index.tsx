@@ -9,7 +9,10 @@ import { useTheme } from '@/hooks/use-theme';
 interface SectionRow {
   title: string;
   description: string;
-  href: '/settings/ai' | '/settings/ai-provider';
+  // Widened for the Data route (#267 Phase 1). expo-router types `router.push`
+  // to the known static routes, so a new destination must be admitted here or
+  // the screen does not compile — the phase-greenness trap.
+  href: '/settings/ai' | '/settings/ai-provider' | '/settings/data';
 }
 
 const SECTIONS: SectionRow[] = [
@@ -22,6 +25,11 @@ const SECTIONS: SectionRow[] = [
     title: 'AI Coach',
     description: 'Goals, equipment, coaching style',
     href: '/settings/ai',
+  },
+  {
+    title: 'Data',
+    description: 'Export routines and history',
+    href: '/settings/data',
   },
 ];
 

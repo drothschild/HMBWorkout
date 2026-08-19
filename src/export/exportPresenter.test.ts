@@ -53,6 +53,25 @@ describe('exportPresenter', () => {
 
       expect(name1).not.toBe(name2);
     });
+
+    // AC1.4: the name must survive being written to disk — non-empty,
+    // `.md`-suffixed, no path separators or drive/scheme colons. A routine id
+    // is minted as `routine-<epoch>` or a `slugifyTitle` output, both of which
+    // are `[a-z0-9-]`, so this holds by construction; pinned so a future id
+    // scheme that admits `/` or `:` fails here rather than producing an
+    // unwritable filename in the share flow.
+    it('produces a disk-safe filename (AC1.4)', async () => {
+      await upsertRoutine(db, 'routine-1755555555555', 'Push Day', []);
+      await flush();
+
+      const routine = await db.get('routines').find('routine-1755555555555');
+      const name = getRoutineExportName(routine as any);
+
+      expect(name.length).toBeGreaterThan(0);
+      expect(name.endsWith('.md')).toBe(true);
+      expect(name).not.toContain('/');
+      expect(name).not.toContain(':');
+    });
   });
 
   describe('getSessionHistoryExportName', () => {
@@ -75,6 +94,16 @@ describe('exportPresenter', () => {
 
       // Same day should produce same filename
       expect(name1).toBe(name2);
+    });
+
+    // AC1.4: disk-safe. `YYYY-MM-DD` carries no `/` or `:`.
+    it('produces a disk-safe filename (AC1.4)', () => {
+      const name = getSessionHistoryExportName();
+
+      expect(name.length).toBeGreaterThan(0);
+      expect(name.endsWith('.md')).toBe(true);
+      expect(name).not.toContain('/');
+      expect(name).not.toContain(':');
     });
   });
 });
