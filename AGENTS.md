@@ -975,8 +975,11 @@ allowlist rather than by convention. `target_distance` joined at the same time, 
 is a good illustration of why the count matters: the Phase-5 AC said "two new flags",
 there were three, and a missing key makes the export drop the value **silently**.
 
-`serializeRoutine`, `exportRoutine` and all of `parse.ts` still have no production
-caller, so none of this is on a user-facing path yet.
+`serializeRoutine` and `exportRoutine` are now on a user-facing path: the Settings →
+Data screen (`src/app/(tabs)/settings/data.tsx`, #267 Phase 1) calls `exportRoutine`
+and `exportSessionHistory` to share routines and history as markdown files. `parse.ts`
+(and `parseRoutine`/`parseFlags`) still has no production caller — the import direction
+lands in Phase 2.
 
 ## HealthKit (`src/health`)
 
@@ -1378,8 +1381,12 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 - `src/interop/` — vault markdown serializer/parser
 - `src/export/` — the only production consumer of `src/interop/serialize` (nothing
   outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
-  WatermelonDB's `null` to `undefined` at the boundary. **Not yet wired to any
-  screen** — it has no callers outside its own tests
+  WatermelonDB's `null` to `undefined` at the boundary. **Wired to the Settings → Data
+  screen** (`src/app/(tabs)/settings/data.tsx`, #267 Phase 1), which calls
+  `exportRoutine`/`exportSessionHistory` and shares the markdown through the iOS share
+  sheet. `exportOutcome.ts` is the pure presenter that turns a `SessionHistoryExport`
+  (its `failures` list in particular) into the user-facing message — the first reader
+  of `failures`, so a screen can never drop it silently (#212)
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate; `aiProviderSettings.ts` (provider/key/model pure functions),
   `aiChatErrorCopy.ts` (error messages with provider attribution)
