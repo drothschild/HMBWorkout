@@ -20,6 +20,16 @@
  * `upNext` and flatly contradicts the data `lastSet` sends, so it is now
  * per-shape rather than unconditional.
  *
+ * A THIRD DIMENSION, layered on `lastSet` rather than a third shape (#325):
+ * when the round that just ended was a superset round, `lastSet` additionally
+ * carries `groupMembers` — every OTHER member of the group and what it did
+ * this round (its own set, or `null` for a skipped turn). `hasGroup` in
+ * `buildRestCommentaryPrompt` is the single gate that both picks the
+ * superset-aware brief and appends the `## Rest of the Superset Round`
+ * section; a standalone `lastSet` (no group, or a group with no other
+ * contiguous member) never sets it and reads exactly as it did before this
+ * field existed.
+ *
  * Like `contextBuilder`, this prompt carries data and never secrets: it is
  * handed a personality string and a history list, and has no access to
  * `anthropicKey`. A regression test in
@@ -101,6 +111,28 @@ export interface RestCommentaryCompletedSet {
   rpe?: number | null;
 }
 
+/**
+ * One OTHER member of the superset round that just finished alongside
+ * `exercise` (#325 — "comment on all the exercises in the superset just
+ * completed"). Deliberately smaller than `RestCommentaryExercise`: no target
+ * prescription or rest length, because the remark is about what the group
+ * just did together, not about ramping any one member toward a target.
+ *
+ * `completedSet: null` means this member's turn in the round was skipped
+ * (`SetDone`/"Skip Set"), not logged — the caller must never fabricate
+ * numbers for it. A member whose own set list was already exhausted before
+ * this round (engine convention 9/10) took no turn at all and is left out of
+ * the list entirely, rather than appearing here with a null set.
+ */
+export interface RestCommentaryGroupMember {
+  title: string;
+  kind: ExerciseKind;
+  isWarmupSet: boolean;
+  setNumber: number;
+  totalOfType: number;
+  completedSet: RestCommentaryCompletedSet | null;
+}
+
 /** Which of the two remarks this prompt asks for. */
 export type RestCommentaryShape = 'upNext' | 'lastSet';
 
@@ -123,6 +155,14 @@ export type RestCommentaryPromptInput =
   | (RestCommentaryPromptCommon & {
       shape: 'lastSet';
       completedSet: RestCommentaryCompletedSet;
+      /**
+       * The rest of the superset group's members, present only when
+       * `exercise` (the round's last-visited member) is itself part of a
+       * superset (#325). Absent for every standalone rest, so a non-superset
+       * `lastSet` prompt is unaffected by this field's existence — see
+       * `buildRestCommentaryPrompt`'s `hasGroup` gate.
+       */
+      groupMembers?: readonly RestCommentaryGroupMember[];
     });
 
 export interface RestCommentaryPrompt {
@@ -160,15 +200,18 @@ function targetSummary(exercise: RestCommentaryExercise): string {
  *
  * PER-SET (#276 AC3.5): the denominator is the count of same-typed sets in the
  * entry's own list, carried in as `totalOfType`, and the zero-total guard is
- * now the empty-list guard transported. Both `## Up Next` and `## Last Set`
- * build their line through here, so one guard covers both shapes; the caller
- * drops an empty segment rather than printing a dangling separator.
+ * now the empty-list guard transported. `## Up Next`, `## Last Set` and each
+ * `## Rest of the Superset Round` member line all build their position label
+ * through here, so one guard covers all three; the caller drops an empty
+ * segment rather than printing a dangling separator.
+ *
+ * Takes just the three fields rather than a full `RestCommentaryExercise` so
+ * `RestCommentaryGroupMember` — which carries no target/rest — can share it
+ * too.
  */
-function setPosition(exercise: RestCommentaryExercise): string {
-  if (exercise.totalOfType <= 0) return '';
-  return exercise.isWarmupSet
-    ? `Warmup ${exercise.setNumber} of ${exercise.totalOfType}`
-    : `Set ${exercise.setNumber} of ${exercise.totalOfType}`;
+function setPosition(pos: { isWarmupSet: boolean; setNumber: number; totalOfType: number }): string {
+  if (pos.totalOfType <= 0) return '';
+  return pos.isWarmupSet ? `Warmup ${pos.setNumber} of ${pos.totalOfType}` : `Set ${pos.setNumber} of ${pos.totalOfType}`;
 }
 
 /**
@@ -202,6 +245,26 @@ function formatHistorySet(set: RestCommentaryHistorySet): string {
   if (metrics === '') return '';
 
   return set.loggedDate ? `${metrics} (${set.loggedDate})` : metrics;
+}
+
+/**
+ * Render one OTHER group member's line for `## Rest of the Superset Round`
+ * (#325). Shares `setPosition`/`formatSetMetrics` with the lead exercise line
+ * so the two can never disagree about how a position or a set reads; the one
+ * thing this adds is the explicit "skipped" word when `completedSet` is
+ * `null`, so the model sees a stated fact rather than a blank it might fill
+ * in with an invented number.
+ */
+function formatGroupMember(member: RestCommentaryGroupMember): string {
+  const segments = [
+    setPosition(member),
+    member.completedSet ? formatSetMetrics(member.completedSet) : 'skipped this round, no set logged',
+  ].filter((segment) => segment.length > 0);
+
+  return [
+    `${neutralizeForPrompt(member.title)} (${member.kind})`,
+    ...segments,
+  ].join(' | ');
 }
 
 function historySection(history: RestCommentaryHistorySet[]): string {
@@ -252,6 +315,28 @@ Rules:
 - The recent-sets list is this same exercise's own history and may already contain the set above. A listed set identical to it is that same set, not a second one: do not count it twice or treat it as prior evidence for itself. Every other set in the list, today's earlier sets included, is fair to compare against.`;
 
 /**
+ * The THIRD brief (#325), used in place of `LAST_SET_BRIEF` when the round
+ * that just ended was a superset round — every member of the group took a
+ * turn (or had its turn skipped), not just the one named in `## Last Set`.
+ * Layered on top of the `lastSet` shape rather than a fourth shape of its own
+ * (see `buildRestCommentaryPrompt`'s `hasGroup` gate): the lead exercise's own
+ * data still comes from `exercise`/`completedSet` exactly as it always has,
+ * and this only changes which brief is read and whether a group section is
+ * appended to the message.
+ */
+const SUPERSET_LAST_SET_BRIEF = `You are a strength-training coach in a workout-logging app. The athlete just finished a full round of a superset — one set on every exercise in the group, described in the next message — and is resting before the next round.
+
+Reply with 1-2 short sentences about that round as a whole: how the group's exercises are landing together, a cue for the round coming up, or a call-out of whichever exercise stood out. Speak to them directly.
+
+Rules:
+- Plain text only. No headings, lists, markdown, quotation marks, or preamble.
+- Two sentences at most. They are reading this on a countdown screen.
+- Only reference numbers that appear in the next message. Never invent history.
+- Comment on the round they just finished, not on some other exercise outside the group.
+- One or more exercises in the group may be marked "skipped this round, no set logged." That is a stated fact, not a missing number to fill in — never invent reps, weight, duration, or RPE for a skipped exercise. It is fine to leave a skipped exercise unmentioned, or to note plainly that it was skipped.
+- The recent-sets list belongs to the lead exercise named in "## Last Set" only, not to the rest of the group, and may already contain the set shown there. A listed set identical to it is that same set, not a second one: do not count it twice or treat it as prior evidence for itself. Every other set in the list, today's earlier sets included, is fair to compare against.`;
+
+/**
  * Build the one-shot commentary prompt for whichever remark the rest calls for.
  *
  * The system half is the coach's brief and the output contract; the message
@@ -262,8 +347,16 @@ export function buildRestCommentaryPrompt(input: RestCommentaryPromptInput): Res
   const personality = input.personality?.trim();
   const directives = input.directives?.trim();
 
+  // #325: a superset round has data for every member, not just the one
+  // `## Last Set` describes, so it earns its own brief. `groupMembers` only
+  // ever exists on the `lastSet` variant (see the type), and an EMPTY list —
+  // a group label with no other contiguous member — reads exactly like no
+  // group at all: nothing else about the round is worth a second brief.
+  const groupMembers = input.shape === 'lastSet' ? input.groupMembers : undefined;
+  const hasGroup = groupMembers !== undefined && groupMembers.length > 0;
+
   const sections = [
-    input.shape === 'lastSet' ? LAST_SET_BRIEF : UP_NEXT_BRIEF,
+    hasGroup ? SUPERSET_LAST_SET_BRIEF : input.shape === 'lastSet' ? LAST_SET_BRIEF : UP_NEXT_BRIEF,
     `## Coaching Style
 
 ${personality ? neutralizeForPrompt(personality) : 'Not specified.'}`,
@@ -305,11 +398,23 @@ ${neutralizeForPrompt(directives)}`);
 
   const heading = input.shape === 'lastSet' ? '## Last Set' : '## Up Next';
 
-  const message = `${heading}
+  // #325: the group section sits between the lead exercise line and the
+  // history, present only under the same `hasGroup` gate that picked the
+  // brief above — so a non-superset (or ungrouped) `lastSet` message stays
+  // byte-identical to before this field existed.
+  const groupSection = hasGroup
+    ? `## Rest of the Superset Round
 
-${exerciseLine}
+${groupMembers!.map((member) => `- ${formatGroupMember(member)}`).join('\n')}`
+    : null;
 
-${historySection(input.history)}`;
+  const message = [
+    `${heading}\n\n${exerciseLine}`,
+    groupSection,
+    historySection(input.history),
+  ]
+    .filter((section): section is string => section !== null)
+    .join('\n\n');
 
   return { system: sections.join('\n\n'), message };
 }
