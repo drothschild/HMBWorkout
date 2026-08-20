@@ -9,7 +9,10 @@ module.exports = {
       roots: ['<rootDir>/src'],
       // Note: state tests run here (pure TS Zustand store, no RN dependencies).
       // RN-specific tests will move to jest-expo rn project if needed in future phases.
-      testMatch: ['<rootDir>/src/{engine,db,domain,interop,state,health,helpers,ai,theme,watch,components,export}/**/*.test.ts'],
+      // `hevy` (#267 Phase 3) must stay on this list: a new src/ domain gets NO
+      // coverage until it is named here, and the failure mode is a green run
+      // that executed none of the new suite (AGENTS.md Testing gotchas).
+      testMatch: ['<rootDir>/src/{engine,db,domain,interop,state,health,helpers,ai,hevy,theme,watch,components,export}/**/*.test.ts'],
       moduleFileExtensions: ['ts', 'js', 'json'],
       moduleNameMapper: {
         '\\.wav$': '<rootDir>/src/test-setup/wav-stub.js',

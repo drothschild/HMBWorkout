@@ -1,0 +1,65 @@
+{
+  "_comment": "HAND-BUILT, not captured from the API. No real routine in the account contains a non-contiguous superset (every run in PUSH is contiguous), so the case that AC3.6 governs can only be exercised synthetically. Label 1 owns two runs (index 0 and index 3) separated by label 2's run; label 2 is a legitimate contiguous group and must survive the demotion of label 1.",
+  "routine": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "title": "Noncontiguous",
+    "created_at": "2026-08-19T00:00:00.000Z",
+    "updated_at": "2026-08-19T00:00:00.000Z",
+    "exercises": [
+      {
+        "title": "Squat (Barbell)",
+        "index": 0,
+        "exercise_template_id": "AAAA0001",
+        "notes": "First half of the split label.",
+        "rest_seconds": 90,
+        "supersets_id": 1,
+        "sets": [
+          { "index": 0, "type": "normal", "weight_kg": 60, "reps": 5 }
+        ]
+      },
+      {
+        "title": "Lunge (Dumbbell)",
+        "index": 1,
+        "exercise_template_id": "AAAA0002",
+        "notes": "",
+        "rest_seconds": 30,
+        "supersets_id": 2,
+        "sets": [
+          { "index": 0, "type": "normal", "weight_kg": 20, "reps": 10 }
+        ]
+      },
+      {
+        "title": "Leg Press",
+        "index": 2,
+        "exercise_template_id": "AAAA0003",
+        "notes": "",
+        "rest_seconds": 30,
+        "supersets_id": 2,
+        "sets": [
+          { "index": 0, "type": "normal", "weight_kg": 100, "reps": 10 }
+        ]
+      },
+      {
+        "title": "Calf Raise (Machine)",
+        "index": 3,
+        "exercise_template_id": "AAAA0004",
+        "notes": "Second half of the split label.",
+        "rest_seconds": 45,
+        "supersets_id": 1,
+        "sets": [
+          { "index": 0, "type": "normal", "weight_kg": 40, "reps": 15 }
+        ]
+      },
+      {
+        "title": "Hamstring Curl (Machine)",
+        "index": 4,
+        "exercise_template_id": "AAAA0005",
+        "notes": "",
+        "rest_seconds": 60,
+        "sets": [
+          { "index": 0, "type": "normal", "weight_kg": 30, "reps": 12 }
+        ]
+      }
+    ]
+  }
+}
