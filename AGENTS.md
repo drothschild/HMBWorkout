@@ -1029,9 +1029,10 @@ the corresponding client factory.
 
 The AI settings fields (`anthropicKey`, `openaiKey`, `aiProvider`, `aiModel`, `aiGoals`,
 `aiEquipment`, `aiPersonality`) are persisted under the storage key `'bridge_settings'`,
-alongside the profile and onboarding fields — do not rename this key, as it holds every
-user's API key and onboarding state, and renaming it orphans existing users. `BridgeSettings`
-in `src/state/settings.ts` is a misnomer — the blob holds AI, profile, and onboarding
+alongside the profile and onboarding fields **and `hevyApiKey`** (#267 Phase 3) — do not
+rename this key, as it holds every one of the user's API keys and their onboarding state,
+and renaming it orphans existing users. `BridgeSettings`
+in `src/state/settings.ts` is a misnomer — the blob holds AI, Hevy, profile, and onboarding
 settings, and no bridge settings at all — kept because renaming the *type* is churn and
 renaming the *key* is forbidden.
 
@@ -1283,7 +1284,7 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 ## Testing gotchas
 
 - Jest runs a **single `node` project** (`jest.config.js`), not jest-expo. Its
-  `testMatch` covers `engine/db/domain/interop/state/health/helpers/ai/theme/watch/components/export` — all pure TS, no
+  `testMatch` covers `engine/db/domain/interop/state/health/helpers/ai/hevy/theme/watch/components/export` — all pure TS, no
   RN runtime. A new `src/` domain gets no test coverage until it is added to that list.
   The commented-out `rn` project is intentional future work; don't assume RN-env tests
   run — screens (including `ai-coach.tsx`) are therefore untested by `npm test`.
@@ -1428,7 +1429,31 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `applyRoutineImport.ts` (#267 Phase 2 — the DB half of the file import:
   create-only exercises, a minted `routine-<epoch>` id, one `upsertRoutine`;
   structurally `acceptDraft` with a different entry source) and
-  `routineImportOutcome.ts` (its banner copy, `exportOutcome`'s counterpart)
+  `routineImportOutcome.ts` (its banner copy, `exportOutcome`'s counterpart),
+  and `hevySettings.ts` (#267 Phase 3 — `hevyApiKeyPatch`, the one boundary
+  where a raw input becomes the stored Hevy key; clears to `''` and never
+  `undefined`, because `JSON.stringify` drops `undefined` and would leave no
+  evidence of the clear)
+- `src/hevy/` — read-only Hevy API import (#267 Phase 3). `hevyClient.ts` is a
+  hand-rolled `fetch` with **no SDK**, the same decision `anthropicClient.ts`
+  records and for the same reasons (RN-bundle-safe, `fetchFn`-injectable);
+  `HevyUnreachable` vs `HevyHttpError` are distinct. The request contract was
+  read from the published OpenAPI document, not guessed, because a wrong
+  parameter name is a 400 rather than a compile error: `page` + **camelCase
+  `pageSize`** (max 10), the key in an **`api-key` header** and nowhere else.
+  `hevyRoutineMap.ts` is **pure** and owns the whole mapping table; it emits the
+  same `ImportedRoutine` the markdown importer does, so `applyRoutineImport` is
+  shared rather than duplicated. Three of its rules are easy to break: order is
+  `exercise.index` and **never** `supersets_id`; weight is kg rounded to 2dp
+  with **no round trip through lbs** (`lbsToKg` in `acceptDraft` is this app's
+  only conversion site and this must not become a second); and a `0`
+  measurement is **absent**, while a `rest_seconds` of `0` is a real "no rest"
+  and is kept. A **non-contiguous superset is demoted to standalone and named in
+  the lossiness summary, not rejected** (settled on #267, 2026-08-19) — and
+  entries are never reordered to force contiguity. `hevyImportOutcome.ts` words
+  the banner from the HTTP **status alone** and never interpolates
+  `HevyHttpError.message`, which carries Hevy's raw response body; that is what
+  makes "the key cannot reach the screen" structural
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, system-prompt builders,
   coach directives, draft→repository accept path, plus the one-shot features
