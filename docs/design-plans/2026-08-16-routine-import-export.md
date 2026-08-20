@@ -197,8 +197,10 @@ Five facts that drive the mapping, each now *cheaper* than under the aggregate m
    routine. Every run is **contiguous in `index` order**, which is what engine convention 9 /
    `h.group_end_idx` requires — but **sorting by `supersets_id` would reorder the routine**, and a
    *non-contiguous* Hevy superset is not representable in our engine at all. Map `supersets_id: 5`
-   to the string `"5"`; never sort by it; reject a non-contiguous run. Unchanged hazard from the
-   original card; still the highest-risk item.
+   to the string `"5"`; never sort by it; and — per the 2026-08-19 decision, which supersedes this
+   paragraph's original "reject a non-contiguous run" — demote a non-contiguous label's members to
+   standalone and name the demotion in the lossiness summary. Unchanged hazard from the original
+   card; still the highest-risk item.
 5. **`weight_kg: 0` and `reps: 0` occur** (Cycling's warmup set: `weight_kg:0, reps:0,
    distance_meters:2000, duration_seconds:300`) and must map to **absent**, not stored zero —
    `computeSetPrefill` treats a non-positive weight as absent, and a routine set with `reps:0` has
@@ -245,7 +247,14 @@ Fixtures referenced throughout:
   `src/hevy/__tests__/fixtures/hevy-push-routine.json`. Several ACs are discriminating *only*
   against the real payload (its superset ids run 5,6,7,4; its rep shapes vary).
 - **NONCONTIG** — a synthetic Hevy payload whose `supersets_id` run is non-contiguous in `index`
-  order. Not present in any real routine, which is the point.
+  order (`src/hevy/__tests__/fixtures/hevy-noncontiguous-superset.json`). Not present in any real
+  routine, which is the point. It carries a second, legitimately contiguous label so the assertion
+  can tell "demote the offending group" apart from "drop every superset".
+- **DISAGREEING** — a synthetic payload with a set whose `reps` disagrees with its `rep_range`
+  (`src/hevy/__tests__/fixtures/hevy-disagreeing-reps.json`). Required because PUSH's Dead Bug
+  carries `reps: 12` next to `{12,12}` — the two AGREE, so no assertion on it can pin AC3.3's
+  precedence rule. It also carries the metric-native `weight_kg: 20` that AC3.5 needs, since every
+  imperial value in PUSH rounds identically under both candidate implementations.
 
 ### routine-import-export.AC1: The user can get a file out of the app
 
@@ -330,10 +339,20 @@ Fixture for AC3.1–AC3.10 is **PUSH**, checked in verbatim.
   *Discrimination:* the metric case is the only one separating "round kg to 2dp" from "round-trip
   through lbs" (`lbsToKg(kgToLbs(20)) === 19.96`); every imperial value in PUSH agrees under both.
 - **AC3.6 Success:** Push's four superset runs produce contiguous `supersetGroup` labels such that
-  `h.group_end_idx`'s contiguity assumption holds; **NONCONTIG is rejected** with a named error and
-  nothing is written. *Discrimination:* NONCONTIG must be hand-built because no real routine
-  contains the case — our engine cannot represent it, so leaving it undefined ships a mis-grouped
-  routine.
+  `h.group_end_idx`'s contiguity assumption holds. **NONCONTIG is IMPORTED, not rejected:** the
+  offending label's members are demoted to standalone entries (no `supersetGroup`), every other
+  group keeps its grouping, and the demotion is **named in the lossiness summary shown before the
+  write**. Entries are **never reordered** to force contiguity. *Discrimination:* NONCONTIG must be
+  hand-built because no real routine contains the case — our engine cannot represent a split label,
+  so leaving it undefined ships a mis-grouped routine. The order assertion is what separates
+  demotion from the forbidden repair: a mapper that reordered would also produce a runnable
+  routine and would pass every grouping assertion on its own.
+
+  > **Superseded text, kept so the change is legible.** This AC originally read "**NONCONTIG is
+  > rejected** with a named error and nothing is written", and Open Decision 1 below recommended it.
+  > **The user settled the decision on 2026-08-19 the other way** (see the issue comment), and the
+  > text above is the settled behaviour. An implementer following the original wording would build
+  > the wrong thing.
 - **AC3.7 Success:** each exercise's `notes` maps to `routine_exercises.notes` (never
   `exercises.description`), each exercise's `rest_seconds` to `routine_exercises.rest_seconds`, and
   **no** `routine_sets.rest_seconds` is written (Hevy has no per-set rest). *Discrimination:* seed a
@@ -424,7 +443,7 @@ losses; nearly every "Lossy? **Yes**" row is now "No".
 | `exercise.title` | `exercises.id` via `slugifyTitle`, `exercises.title` | Create-only; existing wins | Only on rare cross-title slug collision |
 | `exercise_template_id` | *(dropped)* | No column | **Yes** — re-import matches by slug, not Hevy identity |
 | `exercise.index` | `routine_exercises.order` | Direct. **Never sort by `supersets_id`** | No |
-| `supersets_id` (int) | `routine_exercises.superset_group` (string) | Stringified; contiguity verified, non-contiguous rejected (AC3.6) | No, when accepted |
+| `supersets_id` (int) | `routine_exercises.superset_group` (string) | Stringified; contiguity verified, a non-contiguous label's members demoted to standalone and reported (AC3.6, settled 2026-08-19) | Only for a split label, and named in the summary |
 | `set.type` | `routine_sets.set_type` (per set) | `warmup`→`warmup`, `normal`→`normal`, 1:1 | **No** (was Yes — the ramp survives) |
 | `set.weight_kg` | `routine_sets.target_weight_kg` (per set) | Round to 2dp; **no unit conversion**; `0` → absent | **No** (was Yes — per-set weights preserved) |
 | `set.rep_range {start,end}` | `target_reps` + `target_reps_max` | `start`→reps, `end`→max; `start==end` → reps only | **No** (was Yes — range preserved) |
@@ -553,7 +572,8 @@ lossiness summary, and gets a per-set native routine. Read-only against Hevy thr
   RoutineExerciseEntry[], lossiness }`. Owns the per-set mapping table above: 1:1 set types, 2dp kg
   (no unit conversion), rep-range → `targetReps`+`targetRepsMax`, `0` → absent, `distance_meters` →
   `targetDistanceM`, per-exercise rest → entry rest, `supersets_id` → string label (never sorted),
-  and the **contiguity check that rejects a non-contiguous run**.
+  and the **contiguity check that demotes a non-contiguous label's members to standalone and names
+  the demotion in the lossiness summary** (settled 2026-08-19; never reorder to force contiguity).
 - `jest.config.js` — **add `hevy` to `testMatch`** in the same commit that creates `src/hevy/`, or
   the new domain's tests never run (a green-but-uncovered trap). Alternatively place the two files
   under `src/interop/`, which is already covered; the explicit `testMatch` edit is preferred so the
@@ -586,20 +606,29 @@ account; `tsc`/`jest`/`lint` green.
   AC3.3 and pinned by a synthetic disagreeing fixture. No decision required.
 - **Which CSV weight columns / all-four-phases / entry point** — settled on the issue and unchanged.
 
+### Resolved by the user
+
+1. **What should a non-contiguous Hevy superset do? — SETTLED 2026-08-19: (b) demote and report.**
+   Our engine requires a contiguous run (convention 9; `h.group_end_idx`). Every group in the real
+   Push routine is contiguous, so this may never fire — but leaving it undefined ships a silently
+   mis-grouped routine, and it was the highest-risk item in Phase 3.
+   *Options were:* (a) reject the whole import with a named error; (b) drop the offending group to
+   standalone entries and report it; (c) reorder entries to make the group contiguous.
+   **The plan recommended (a). The user chose (b).** The import succeeds; the offending label's
+   members become standalone entries; the demotion is named in the lossiness summary shown *before*
+   the write; every other group keeps its grouping. Rationale: a refused import gives the user
+   nothing and no path forward, whereas a demoted superset still yields a usable routine — and the
+   lossiness summary is already the designed channel for exactly this kind of "we could not
+   represent X" disclosure, consistent with AC3.8 naming dropped content by content rather than by
+   count.
+   **(c) stays rejected.** Silently rewriting the user's routine order is the one surprise an import
+   path must never produce. AC3.6 above was rewritten to the settled behaviour and carries the
+   superseded text so the change is legible; `hevyRoutineMap.ts` implements it and its suite asserts
+   both halves — the demotion, and the unchanged order.
+
 ### Still open — needs the user
 
-1. **What should a non-contiguous Hevy superset do?** (Carried over from the original card; still
-   real.) Our engine requires a contiguous run (convention 9; `h.group_end_idx`). Every group in the
-   real Push routine is contiguous, so this may never fire — but leaving it undefined ships a
-   silently mis-grouped routine, and it is the highest-risk item in Phase 3.
-   *Options:* (a) **reject the whole import** with a named error; (b) drop the offending group to
-   standalone entries and report it; (c) reorder entries to make the group contiguous.
-   **Recommendation: (a) reject** (AC3.6). (c) silently rewrites the user's routine order — exactly
-   the surprise an import path must never produce. (b) is the natural later softening if (a) ever
-   proves annoying, but since the case is not known to occur, failing loudly the first time is worth
-   more than guessing. Easy to soften to (b) later; hard to notice if (b) is wrong from the start.
-
-2. **Does the Settings → Data screen export session history as well as routines, or routines only?**
+1. **Does the Settings → Data screen export session history as well as routines, or routines only?**
    The ticket is about routines. `exportSessionHistory` already exists and returns
    `{ markdown, failures }`, so adding a history-export button is nearly free and is the reason
    AC1.2/AC1.3 exist. But it is scope beyond the card's wording.
