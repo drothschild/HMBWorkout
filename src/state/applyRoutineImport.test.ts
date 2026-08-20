@@ -156,20 +156,16 @@ describe('applyRoutineImport', () => {
       // write would be a no-op.
       await seedRampRoutine('routine-original', 'Push');
       const markdown = await exportRoutine(database, 'routine-original');
-      await upsertExercise(
-        database,
-        'bench-press-dumbbell',
-        'Bench Press (Dumbbell)',
-        'cardio',
-        'Shared across every routine.'
-      );
+      await upsertExercise(database, 'bench-press-dumbbell', 'Bench Press (Dumbbell)', 'cardio');
 
       await importedRoutineFrom(markdown);
 
       const row = await database.get('exercises').find('bench-press-dumbbell');
       expect((row as any)._raw.kind).toBe('cardio');
       expect((row as any).title).toBe('Bench Press (Dumbbell)');
-      expect((row as any).description).toBe('Shared across every routine.');
+      // The description came from the seed and the document has no way to carry
+      // one, so an import that touched the row at all would blank it.
+      expect((row as any).description).toBe('The original description.');
     });
 
     it('imports a document whose exported kind differs, without re-kinding', async () => {
