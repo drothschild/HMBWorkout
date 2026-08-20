@@ -46,7 +46,7 @@ function entryFor(entries: readonly RoutineExerciseEntry[], exerciseId: string):
   return entry;
 }
 
-describe('mapHevyRoutine — AC3.1 order follows Hevy index, never supersets_id', () => {
+describe('mapHevyRoutine — AC3.1 order follows Hevy index, never superset_id', () => {
   it('maps PUSH to 12 entries ordered 0…11 in Hevy index order', () => {
     const { routine } = mapped(PUSH);
 
@@ -57,12 +57,12 @@ describe('mapHevyRoutine — AC3.1 order follows Hevy index, never supersets_id'
     ]);
   });
 
-  it('never sorts by supersets_id — PUSH’s ids run 5,6,7,4, so a sort moves the core group to the front', () => {
+  it('never sorts by superset_id — PUSH’s ids run 5,6,7,4, so a sort moves the core group to the front', () => {
     const { routine } = mapped(PUSH);
 
     // The full sequence, pinned. PUSH's superset ids are non-ascending
     // (undefined, undefined, 5,5, 6,6, 7,7, 4,4,4, undefined), so ANY sort by
-    // supersets_id lifts the three id-4 core exercises above the id-5 pair.
+    // superset_id lifts the three id-4 core exercises above the id-5 pair.
     expect(routine.entries.map((entry) => entry.exerciseId)).toEqual([
       'cycling',
       'bench-press-dumbbell',

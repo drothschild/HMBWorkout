@@ -14,7 +14,7 @@
  *
  * ## The mapping table, as rules
  *
- * - **Order is `exercise.index`, never `supersets_id`** (AC3.1). Entries are
+ * - **Order is `exercise.index`, never `superset_id`** (AC3.1). Entries are
  *   sorted by `index` and `order` is the resulting position. PUSH's ids run
  *   5,6,7,4, so a sort by id is a visible reordering — which is the whole
  *   reason PUSH is the fixture.
@@ -219,7 +219,7 @@ function mapEntry(exercise: HevyExercise, order: number): RoutineExerciseEntry {
     sets: exercise.sets.map((set, index) => mapSet(set, `${exercise.title} set ${index + 1}`)),
   };
 
-  if (exercise.supersets_id != null) entry.supersetGroup = String(exercise.supersets_id);
+  if (exercise.superset_id != null) entry.supersetGroup = String(exercise.superset_id);
   // Kept when 0: a rest of 0 is a real "no rest", unlike a 0 measurement.
   if (exercise.rest_seconds != null && Number.isFinite(exercise.rest_seconds)) {
     entry.restSeconds = exercise.rest_seconds;
