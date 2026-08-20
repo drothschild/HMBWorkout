@@ -98,7 +98,7 @@ created: 2026-08-16
 - bench-press-dumbbell: 1x8 rest=2:00 reps_max=10 target_weight=22.68 @"Up to 50 lb."
 - cable-fly: 1x12 rest=1:00 superset=5 set_rest=0
 - lateral-raise: 1x15 rest=1:00 superset=5
-- treadmill: rest=0:00 kind=cardio duration=5:00 target_distance=2000
+- treadmill: kind=cardio duration=5:00 target_distance=2000
 - stretching: sets=0 kind=stretch
 \`\`\`
 `;

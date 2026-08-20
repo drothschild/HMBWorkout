@@ -337,10 +337,25 @@ export function serializeRoutine(
   const createdStr = routineRow.createdAt.toISOString().split('T')[0];
   const updatedStr = routineRow.updatedAt.toISOString().split('T')[0];
 
+  // `name:` is the routine's own name, and it is here because the document had
+  // nowhere else to put it (#267 Phase 2). The workout block is exercise lines
+  // only, so before this key an exported routine could not round-trip its own
+  // name — `importRoutine` had to fall back to the id, and a re-imported "Push"
+  // came back called `routine-1755300000000`.
+  //
+  // Additive and header-only ON PURPOSE. It touches no workout line, no flag
+  // allowlist and nothing in `format.ts`: frontmatter is an open
+  // `Record<string, string>` that `parseFrontmatter` reads generically, so a
+  // document written before the key still parses and a reader that does not
+  // know the key still ignores it. A single-line value is safe against the
+  // first-colon split (`name: Push: Day One` reads whole); the routine's
+  // multi-line `notes` deliberately stays out of the document rather than
+  // silently truncating at the first newline.
   const frontmatter = [
     '---',
     'type: workout-routine',
     `id: ${routineRow.id}`,
+    `name: ${routineRow.name}`,
     `updated: ${updatedStr}`,
     `tags: []`,
     `created: ${createdStr}`,
