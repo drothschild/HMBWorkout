@@ -263,6 +263,7 @@ Guidance:
 - Give a duration-based exercise (durationSeconds instead of reps) a single set in the list unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
 - The "Existing Routines" section below shows every routine in exactly this vocabulary, so read a set list there the way you would write one here
 - A set's own "rest Ns" in "Existing Routines" is that set's restSeconds, not the exercise default — when you revise a routine, carry each one back onto the set you re-emit, or a drop set's 0 / 0 / full pattern is flattened
+- An exercise's "[label]" in "Existing Routines" is its existing supersetGroup — when you revise a routine, reuse that label verbatim rather than inventing a new grouping or renaming/reassigning labels, unless the user explicitly asked to change the superset structure
 
 Planning from history:
 - The "Recent Workouts" section below lists the last ${RECENT_WORKOUTS_IN_PROMPT} completed sessions, so read training frequency and recovery from it rather than assuming a schedule
