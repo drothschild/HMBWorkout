@@ -262,6 +262,7 @@ Guidance:
 - Write a warmup ramp out set by set, each warmup carrying its own weightLbs, rather than repeating one load — the set list exists so a ramp can be programmed
 - Give a duration-based exercise (durationSeconds instead of reps) a single set in the list unless the user asks for multiple timed sets — a timed hold is still one planned set in the session flow
 - The "Existing Routines" section below shows every routine in exactly this vocabulary, so read a set list there the way you would write one here
+- A set's own "rest Ns" in "Existing Routines" is that set's restSeconds, not the exercise default — when you revise a routine, carry each one back onto the set you re-emit, or a drop set's 0 / 0 / full pattern is flattened
 
 Planning from history:
 - The "Recent Workouts" section below lists the last ${RECENT_WORKOUTS_IN_PROMPT} completed sessions, so read training frequency and recovery from it rather than assuming a schedule
@@ -445,6 +446,10 @@ function formatExerciseLine(
     parts.push(plan);
   }
 
+  // The entry-level default, once per line. A set carrying its OWN rest renders
+  // it inside the plan segment above (#308), so the two can both appear —
+  // `… rest 0s, … rest 90s | rest 120s` — which is the honest reading: the
+  // trailing value is what a set without an override inherits.
   if (exercise.restSeconds) {
     parts.push(`rest ${exercise.restSeconds}s`);
   }

@@ -36,6 +36,18 @@ export interface PlanSetView {
   weightLbs?: number | null;
   durationSeconds?: number | null;
   distanceM?: number | null;
+  /**
+   * This set's own rest override in seconds (#308, the read-back half of #281).
+   *
+   * Absent is not "no rest" — it is "this set inherits the entry's rest", which
+   * the caller already renders once per line. So the presence of the field IS
+   * the "differs from the entry default" condition, exactly as it is for
+   * `weightLbs`; there is nothing to compare against and no default to pass in.
+   *
+   * Unlike a load, 0 is a real prescription — a drop set is 0 / 0 / full — so
+   * this deliberately does NOT get `lbsFromKg`'s `> 0` treatment.
+   */
+  restSeconds?: number | null;
 }
 
 /**
@@ -55,6 +67,7 @@ export function planSetsFromRoutineSets(sets: readonly RoutineSet[]): PlanSetVie
     weightLbs: lbsFromKg(set.weightKg),
     durationSeconds: set.durationSeconds,
     distanceM: set.distanceM,
+    restSeconds: set.restSeconds,
   }));
 }
 
@@ -68,6 +81,7 @@ export function planSetsFromRoutineSetEntries(
     weightLbs: lbsFromKg(set.targetWeightKg),
     durationSeconds: set.targetDurationSeconds,
     distanceM: set.targetDistanceM,
+    restSeconds: set.restSeconds,
   }));
 }
 
@@ -79,6 +93,7 @@ export function planSetsFromDraftSets(sets: readonly DraftSet[]): PlanSetView[] 
     repsMax: set.repsMax,
     weightLbs: set.weightLbs,
     durationSeconds: set.durationSeconds,
+    restSeconds: set.restSeconds,
   }));
 }
 
@@ -97,6 +112,13 @@ function formatReps(set: PlanSetView): string | undefined {
  *
  * The unit suffix comes from `weightUnits.formatLbs`, never from a template
  * here: that module owns the suffix so no read site can regress to kg.
+ *
+ * Rest is the last part and the only one that can legitimately be 0 (#308).
+ * It is a *metric* rather than a line-level annotation on purpose: run-length
+ * collapsing in `summarizePlanSets` keys on this string, so a drop set's
+ * 0 / 0 / full rest is what breaks its three otherwise-identical sets into the
+ * two runs that show the pattern. Rendering it outside the metrics would leave
+ * them collapsed into "3 × …" and the read-back would still be lossy.
  */
 function formatMetrics(set: PlanSetView): string {
   const parts: string[] = [];
@@ -106,6 +128,7 @@ function formatMetrics(set: PlanSetView): string {
   if (set.weightLbs != null) parts.push(`@ ${formatLbs(set.weightLbs)}`);
   if (set.durationSeconds != null) parts.push(`${set.durationSeconds}s`);
   if (set.distanceM != null) parts.push(`${set.distanceM}m`);
+  if (set.restSeconds != null) parts.push(`rest ${set.restSeconds}s`);
 
   return parts.join(' ');
 }

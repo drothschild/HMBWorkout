@@ -2,6 +2,7 @@
 import { SessionState, Event, RoutineEntry, RoutineSet, LoggedSet } from '@/engine/types';
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
+import { formatRepRange } from './plannedSetsFormat';
 
 /**
  * Session presenter - derives session-screen view data from engine state.
@@ -78,6 +79,17 @@ export interface SessionPresenterOutput {
   setNumber: number;
   totalSetsForEntry: number;
   setPositionLabel: string;
+  /**
+   * The rep range the CURRENT set prescribes — `Target 8–10 reps` — or `''`
+   * (#311). Rendered beside `setPositionLabel`, and `''` means *hide*, the same
+   * convention that label follows.
+   *
+   * This exists because `computeSetPrefill` types the range's LOWER BOUND into
+   * the reps input (R5 below) and nothing ever told the athlete there was an
+   * upper one. A set with an exact prescription gets `''`: its number is
+   * already in the input directly below, and restating it is noise.
+   */
+  setRepRangeLabel: string;
   /**
    * The duration the CURRENT set prescribes, or undefined (#276). The
    * stopwatch counts up to this, so a plan whose timed sets differ — 30s then
@@ -634,6 +646,29 @@ export function createSessionPresenter(
     currentEntry && totalSetsForEntry > 0 && sessionState.setIndex === totalSetsForEntry - 1
   );
 
+  // The prescribed rep range for the set being performed (#311). Like the
+  // stopwatch target below it reads the SET, not the entry: a plan whose sets
+  // differ — a fixed warmup then a working range — must not show one figure for
+  // both, and an out-of-range `setIndex` (the `hydrate` shape, engine
+  // convention 5) indexes to undefined and so renders nothing.
+  //
+  // The `${lo}–${hi}` text itself comes from `formatRepRange`, the formatter
+  // the routine and history screens already print through, so the two surfaces
+  // cannot drift. It returns '' for everything that is not a genuine range —
+  // an exact prescription, a degenerate `8–8`, a non-positive bound — which
+  // this label passes straight through as *hide*.
+  //
+  // Suppressed entirely for a duration-based entry: those get a stopwatch and a
+  // Duration field with no reps input at all (`SetLogger`'s `isDurationBased`
+  // branch), so a rep caption there would label a control that is not on
+  // screen. `computeSetPrefill` refuses to fill reps for the same entries, for
+  // the same reason.
+  const currentSetPlan = currentEntrySets[sessionState.setIndex];
+  const repRange = isDurationBasedEntry(currentEntry)
+    ? ''
+    : formatRepRange(currentSetPlan?.reps, currentSetPlan?.repsMax);
+  const setRepRangeLabel = repRange === '' ? '' : `Target ${repRange} reps`;
+
   // The stopwatch target comes from the set being performed, not the entry —
   // two timed sets of the same hold may legitimately prescribe different
   // durations.
@@ -715,6 +750,7 @@ export function createSessionPresenter(
     setNumber,
     totalSetsForEntry,
     setPositionLabel,
+    setRepRangeLabel,
     currentSetDurationSeconds,
     isLastSetOfExercise,
 

@@ -209,8 +209,22 @@ export function SetLogger({
         </View>
       </Modal>
 
-      {presenter.setPositionLabel !== '' && (
-        <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
+      {/* Where the athlete is in the entry, and what the set asks of them.
+          Both strings are built in `createSessionPresenter` — this component is
+          invisible to every jest project (AGENTS.md Testing gotchas), so the
+          only decision left here is the `!== ''` hide check the presenter's
+          empty-string convention asks for. The row is auto-height with no
+          `flex` on it or its children, and wraps rather than truncating when
+          both strings are long. */}
+      {(presenter.setPositionLabel !== '' || presenter.setRepRangeLabel !== '') && (
+        <View style={styles.setPositionRow}>
+          {presenter.setPositionLabel !== '' && (
+            <ThemedText style={styles.setPositionText}>{presenter.setPositionLabel}</ThemedText>
+          )}
+          {presenter.setRepRangeLabel !== '' && (
+            <ThemedText style={styles.setRepRangeText}>{presenter.setRepRangeLabel}</ThemedText>
+          )}
+        </View>
       )}
 
       {!isDurationBased && presenter.progressionHint && (
@@ -463,9 +477,22 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     lineHeight: 20,
   },
-  setPositionText: {
+  setPositionRow: {
     marginTop: Spacing.one,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  setPositionText: {
     opacity: 0.7,
+  },
+  // Slightly stronger than the set position beside it: the range is the number
+  // the athlete is aiming at, and the reps input below is prefilled with only
+  // its lower bound.
+  setRepRangeText: {
+    opacity: 0.7,
+    fontWeight: '600',
   },
   hintContainer: {
     backgroundColor: '#E3F2FD',

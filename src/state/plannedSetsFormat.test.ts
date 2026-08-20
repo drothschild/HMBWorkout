@@ -1,6 +1,7 @@
 import {
   formatPlannedSetLine,
   formatPlannedSetsSummary,
+  formatRepRange,
   hasVaryingSets,
 } from './plannedSetsFormat';
 import type { RoutineSetEntry } from '@/db/repository';
@@ -187,5 +188,48 @@ describe('the summary quotes the FIRST working set (#276)', () => {
     ];
 
     expect(formatPlannedSetsSummary(sets)).toBe('1 warmup + 3×8');
+  });
+});
+
+/**
+ * #311 — `formatRepRange` is the range formatter itself, lifted out of the
+ * private `formatReps` so the session set logger can reuse it rather than
+ * growing a second one. It answers a narrower question than `formatReps`: not
+ * "what does this set prescribe" but "is this a range, and what does it read
+ * as". Anything that is not a genuine range is '' — the empty-string-means-hide
+ * convention every label builder in this codebase follows.
+ */
+describe('formatRepRange (#311)', () => {
+  it('renders a genuine range with an en dash', () => {
+    expect(formatRepRange(8, 10)).toBe('8–10');
+  });
+
+  it('returns "" for an exact prescription', () => {
+    expect(formatRepRange(8, undefined)).toBe('');
+    expect(formatRepRange(8, null)).toBe('');
+  });
+
+  it('returns "" for a degenerate range', () => {
+    expect(formatRepRange(8, 8)).toBe('');
+  });
+
+  it('treats a non-positive bound as absent, never printing "8–0" or "0–10"', () => {
+    expect(formatRepRange(8, 0)).toBe('');
+    expect(formatRepRange(0, 10)).toBe('');
+  });
+
+  it('returns "" when there are no reps at all (a duration or distance set)', () => {
+    expect(formatRepRange(undefined, undefined)).toBe('');
+    expect(formatRepRange(null, 10)).toBe('');
+  });
+
+  it('is the same string the routine screen already prints', () => {
+    // The anti-drift assertion: one formatter, two surfaces. If this file ever
+    // grows a second `${lo}–${hi}` template, this stops holding.
+    expect(
+      formatPlannedSetLine({ setType: 'normal', targetReps: 8, targetRepsMax: 10 }, 0, [
+        { setType: 'normal', targetReps: 8, targetRepsMax: 10 },
+      ])
+    ).toContain(formatRepRange(8, 10));
   });
 });
