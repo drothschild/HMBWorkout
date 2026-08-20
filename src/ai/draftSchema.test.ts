@@ -593,6 +593,45 @@ describe('draftSchema', () => {
       expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
     });
 
+    // #320: a model that emits the id it will become, instead of a
+    // human-readable name, sailed through the two checks above — the title
+    // is non-empty and slugifies to something non-empty ('dumbbell-romanian-
+    // deadlift' slugifies to itself). Root-caused live: at least 7 exercises
+    // on one device were created with a raw-slug title
+    // ('dumbbell-romanian-deadlift', 'cycling-stationary', ...) and stayed
+    // that way permanently, since the accept path is create-only and the app
+    // has no title-editing UI. The discriminating rule is "already exactly
+    // its own slug AND multi-word (contains a hyphen)" — three cases prove
+    // it fires in exactly the right place, not just "sometimes".
+    test('rejects an exercise title that is already its own multi-word slug', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [
+          { title: 'dumbbell-romanian-deadlift', kind: 'strength' as const, sets: [{ type: 'normal' as const }] },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow(DraftValidationError);
+    });
+
+    test('allows a human-readable title that merely slugifies differently from itself', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [{ title: 'Plank', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
+      };
+
+      expect(() => validateRoutineDraft(draft)).not.toThrow();
+    });
+
+    test('allows a genuinely short single-word lowercase title with no hyphen', () => {
+      const draft = {
+        name: 'My Routine',
+        exercises: [{ title: 'plank', kind: 'strength' as const, sets: [{ type: 'normal' as const }] }],
+      };
+
+      expect(() => validateRoutineDraft(draft)).not.toThrow();
+    });
+
     test('rejects invalid exercise kind', () => {
       const draft = {
         name: 'My Routine',
