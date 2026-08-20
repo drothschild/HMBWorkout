@@ -715,6 +715,64 @@ describe('buildSystem: AI Coach context builder', () => {
     }, 30000);
   });
 
+  // #308: the read-back half of #281's per-set rest. The write side already
+  // accepts DraftSet.restSeconds; without this the model editing a drop set
+  // cannot see the 0 / 0 / full pattern it wrote and re-emits it flattened.
+  describe('Per-set rest read-back (#308)', () => {
+    async function writeDropSet(): Promise<void> {
+      await database.write(async () => {
+        await database.get('routines').create((r: any) => {
+          r._raw.id = 'routine-drop';
+          r.name = 'Drop Day';
+          r.created_at = Date.now();
+          r.updated_at = Date.now();
+        });
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'lateral-raise';
+          e.title = 'Lateral Raise';
+          e.kind = 'strength';
+          e.created_at = Date.now();
+        });
+      });
+
+      // DROP: identical in every metric but rest, so a grammar that omits rest
+      // renders one collapsed run and loses the structure entirely.
+      await upsertRoutine(database, 'routine-drop', 'Drop Day', [
+        {
+          exerciseId: 'lateral-raise',
+          order: 0,
+          restSeconds: 120,
+          sets: [
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 0 },
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 0 },
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 90 },
+          ],
+        },
+      ]);
+    }
+
+    it('renders each set\'s own rest beside the entry default', async () => {
+      await writeDropSet();
+
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        '  - Lateral Raise (strength) | 2 × 8 reps @ 50lbs rest 0s, 8 reps @ 50lbs rest 90s | rest 120s'
+      );
+    }, 30000);
+
+    it('tells the coach to carry per-set rest through a revision, not just author it', async () => {
+      // Exact-string pin, the convention every persona sentence here follows.
+      // A prompt-wording change cannot be PROVEN correct by a unit test; this
+      // only holds the sentence against silent drift.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'A set\'s own "rest Ns" in "Existing Routines" is that set\'s restSeconds, not the exercise default — when you revise a routine, carry each one back onto the set you re-emit, or a drop set\'s 0 / 0 / full pattern is flattened'
+      );
+    }, 30000);
+  });
+
   describe('Routine description', () => {
     it('emits the routine notes directly under its heading in Existing Routines', async () => {
       await database.write(async () => {
