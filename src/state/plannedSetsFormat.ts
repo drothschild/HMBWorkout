@@ -25,12 +25,39 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-/** `8`, or `8–10` for a range. An en dash, not a hyphen: this is a range. */
+/**
+ * `8–10` when the pair is a genuine rep range, `''` otherwise. An en dash, not
+ * a hyphen: this is a range.
+ *
+ * This is the ONLY place the range template lives. It is exported (#311)
+ * because the in-session set logger has to show the athlete the same range the
+ * routine screen shows, and a second `${lo}–${hi}` somewhere else is how the
+ * two surfaces start printing the same plan two different ways.
+ *
+ * `''` rather than undefined for the non-range cases: it is what the callers
+ * that render this directly already read as *hide*, matching the convention
+ * every label builder in `sessionPresenter.ts` follows.
+ *
+ * Not a range, and therefore `''`:
+ *  - no upper bound at all (`8` is an exact prescription, not a range)
+ *  - a degenerate range (`8–8` reads as a mistake in the plan)
+ *  - a non-positive bound on either end. Zero is absence, not a bound, and the
+ *    shell reads sentinels rather than Options (engine convention 8) — without
+ *    this a `repsMax` of 0 renders `8–0`.
+ */
+export function formatRepRange(
+  reps: number | null | undefined,
+  repsMax: number | null | undefined
+): string {
+  if (reps == null || reps <= 0) return '';
+  if (repsMax == null || repsMax <= 0 || repsMax === reps) return '';
+  return `${reps}–${repsMax}`;
+}
+
+/** `8`, or `8–10` for a range. */
 function formatReps(set: RoutineSetEntry): string | undefined {
   if (set.targetReps == null) return undefined;
-  return set.targetRepsMax != null && set.targetRepsMax !== set.targetReps
-    ? `${set.targetReps}–${set.targetRepsMax}`
-    : `${set.targetReps}`;
+  return formatRepRange(set.targetReps, set.targetRepsMax) || `${set.targetReps}`;
 }
 
 /** 1-based position within the entry's run of same-typed sets. */
