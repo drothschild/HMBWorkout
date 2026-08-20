@@ -1,4 +1,4 @@
-import { RoutineEntry } from '@/engine/types';
+import { RoutineEntry, RoutineSet } from '@/engine/types';
 import {
   LEAD_IN_SECONDS,
   MILESTONE_INTERVAL_SECONDS,
@@ -43,14 +43,45 @@ function armed(): StopwatchRun {
 }
 
 describe('isDurationBasedEntry', () => {
-  test('stretch and cardio entries are duration-based', () => {
-    expect(isDurationBasedEntry(entry({ kind: 'stretch' }))).toBe(true);
-    expect(isDurationBasedEntry(entry({ kind: 'cardio' }))).toBe(true);
+  test('stretch and cardio entries are duration-based regardless of the planned set', () => {
+    expect(isDurationBasedEntry(entry({ kind: 'stretch' }), undefined)).toBe(true);
+    expect(isDurationBasedEntry(entry({ kind: 'cardio' }), undefined)).toBe(true);
   });
 
-  test('strength entries and a missing entry are not', () => {
-    expect(isDurationBasedEntry(entry({ kind: 'strength' }))).toBe(false);
-    expect(isDurationBasedEntry(undefined)).toBe(false);
+  test('a missing entry is not duration-based', () => {
+    expect(isDurationBasedEntry(undefined, undefined)).toBe(false);
+  });
+
+  // #319: "High Plank" carries `kind: 'strength'` on-device, yet every planned
+  // set has `target_duration_seconds` and no `target_reps` at all — an
+  // unambiguous duration-only plan by the data itself. `kind` alone said
+  // "strength", so the set logger rendered empty Reps/Weight fields with
+  // nothing to type into either. The plan data must win over a `kind` that
+  // disagrees with it.
+  test('a strength-kind entry whose planned set has a duration and no reps is duration-based', () => {
+    const plannedSet: RoutineSet = { setType: 'normal', durationSeconds: 45 };
+    expect(isDurationBasedEntry(entry({ kind: 'strength' }), plannedSet)).toBe(true);
+  });
+
+  // Inverse: a genuine strength set (reps, no duration prescribed) must stay
+  // classified as strength — this must not just flip the function to
+  // always-true.
+  test('a strength-kind entry whose planned set has reps is not duration-based', () => {
+    const plannedSet: RoutineSet = { setType: 'normal', reps: 8 };
+    expect(isDurationBasedEntry(entry({ kind: 'strength' }), plannedSet)).toBe(false);
+  });
+
+  // A set with both a duration and reps reads as a strength set with a rest
+  // hint, not a duration-based one — reps is the more specific signal.
+  test('a strength-kind entry whose planned set has both reps and a duration is not duration-based', () => {
+    const plannedSet: RoutineSet = { setType: 'normal', reps: 8, durationSeconds: 45 };
+    expect(isDurationBasedEntry(entry({ kind: 'strength' }), plannedSet)).toBe(false);
+  });
+
+  // No planned set at all (e.g. an out-of-range setIndex reachable through
+  // `hydrate`, engine convention 5) falls back to `kind` alone.
+  test('a strength-kind entry with no planned set is not duration-based', () => {
+    expect(isDurationBasedEntry(entry({ kind: 'strength' }), undefined)).toBe(false);
   });
 });
 
@@ -60,35 +91,73 @@ describe('isDurationBasedEntry', () => {
  * thing that resets the run.
  */
 describe('makeStopwatchKey', () => {
+  const durationOnlySet: RoutineSet = { setType: 'normal', durationSeconds: 60 };
+  const repsOnlySet: RoutineSet = { setType: 'normal', reps: 8 };
+
   test('is undefined for entries that are not duration-based', () => {
     expect(
-      makeStopwatchKey(entry({ kind: 'strength' }), { isWarmupSet: false, setNumber: 1 })
+      makeStopwatchKey(entry({ kind: 'strength' }), repsOnlySet, {
+        isWarmupSet: false,
+        setNumber: 1,
+      })
     ).toBeUndefined();
-    expect(makeStopwatchKey(undefined, { isWarmupSet: false, setNumber: 1 })).toBeUndefined();
+    expect(
+      makeStopwatchKey(undefined, durationOnlySet, { isWarmupSet: false, setNumber: 1 })
+    ).toBeUndefined();
+  });
+
+  // #319: a strength-kind entry whose CURRENT planned set is duration-only
+  // (no reps) must still activate the stopwatch, the same as a stretch/cardio
+  // entry does.
+  test('is defined for a strength-kind entry whose planned set is duration-only', () => {
+    expect(
+      makeStopwatchKey(entry({ kind: 'strength' }), durationOnlySet, {
+        isWarmupSet: false,
+        setNumber: 1,
+      })
+    ).toBeDefined();
   });
 
   test('is stable for the same entry and set position', () => {
-    const a = makeStopwatchKey(entry(), { isWarmupSet: false, setNumber: 2 });
-    const b = makeStopwatchKey(entry(), { isWarmupSet: false, setNumber: 2 });
+    const a = makeStopwatchKey(entry(), durationOnlySet, { isWarmupSet: false, setNumber: 2 });
+    const b = makeStopwatchKey(entry(), durationOnlySet, { isWarmupSet: false, setNumber: 2 });
     expect(a).toBeDefined();
     expect(a).toBe(b);
   });
 
   test('changes when the set number advances', () => {
-    const first = makeStopwatchKey(entry(), { isWarmupSet: false, setNumber: 1 });
-    const second = makeStopwatchKey(entry(), { isWarmupSet: false, setNumber: 2 });
+    const first = makeStopwatchKey(entry(), durationOnlySet, {
+      isWarmupSet: false,
+      setNumber: 1,
+    });
+    const second = makeStopwatchKey(entry(), durationOnlySet, {
+      isWarmupSet: false,
+      setNumber: 2,
+    });
     expect(first).not.toBe(second);
   });
 
   test('changes when the current entry changes', () => {
-    const first = makeStopwatchKey(entry({ idx: 0 }), { isWarmupSet: false, setNumber: 1 });
-    const second = makeStopwatchKey(entry({ idx: 1 }), { isWarmupSet: false, setNumber: 1 });
+    const first = makeStopwatchKey(entry({ idx: 0 }), durationOnlySet, {
+      isWarmupSet: false,
+      setNumber: 1,
+    });
+    const second = makeStopwatchKey(entry({ idx: 1 }), durationOnlySet, {
+      isWarmupSet: false,
+      setNumber: 1,
+    });
     expect(first).not.toBe(second);
   });
 
   test('distinguishes warmup set 1 from working set 1 of the same entry', () => {
-    const warmup = makeStopwatchKey(entry(), { isWarmupSet: true, setNumber: 1 });
-    const working = makeStopwatchKey(entry(), { isWarmupSet: false, setNumber: 1 });
+    const warmup = makeStopwatchKey(entry(), durationOnlySet, {
+      isWarmupSet: true,
+      setNumber: 1,
+    });
+    const working = makeStopwatchKey(entry(), durationOnlySet, {
+      isWarmupSet: false,
+      setNumber: 1,
+    });
     expect(warmup).not.toBe(working);
   });
 });
