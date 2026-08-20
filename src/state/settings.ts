@@ -36,6 +36,17 @@ export interface BridgeSettings {
   aiModel?: AiModelConfig;
 
   /**
+   * Hevy API key, for the read-only routine import (#267 Phase 3).
+   *
+   * Rides in this same `bridge_settings` blob rather than a key of its own,
+   * which is why the storage key's docstring above says "every user's API key"
+   * and now means more than one. `''` is a deliberate clear, never `undefined`
+   * — `JSON.stringify` drops `undefined` and would leave no evidence of it.
+   * The only writer is `hevyApiKeyPatch` (`src/state/hevySettings.ts`).
+   */
+  hevyApiKey?: string;
+
+  /**
    * The `databaseSchema.version` this install last came up at (#276).
    *
    * Lives here rather than in the database because it has to survive the
