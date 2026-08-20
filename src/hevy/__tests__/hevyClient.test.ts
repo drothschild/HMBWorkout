@@ -32,6 +32,20 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
+/**
+ * The error a call raised, as an `Error`. Fails loudly when the call RESOLVED —
+ * a leak assertion that silently ran against a success value would pass for the
+ * wrong reason, which is the one way an absence test can go quietly wrong.
+ */
+async function raised(call: () => Promise<unknown>): Promise<Error> {
+  try {
+    await call();
+  } catch (error) {
+    return error as Error;
+  }
+  throw new Error('expected the call to reject, but it resolved');
+}
+
 const ONE_ROUTINE = {
   id: 'routine-uuid',
   title: 'Push',
@@ -83,7 +97,8 @@ describe('createHevyClient — AC3.9 the key travels in a header, never in a URL
     const client = createHevyClient({ apiKey: KEY }, httpFetch);
     await expect(client.listRoutines({ page: 1 })).rejects.toBeInstanceOf(HevyHttpError);
 
-    const httpError = await client.listRoutines({ page: 1 }).catch((error: Error) => error);
+    const httpError = await raised(() => client.listRoutines({ page: 1 }));
+    expect(httpError).toBeInstanceOf(HevyHttpError);
     expect(String(httpError.message)).not.toContain(KEY);
     expect(String(httpError.stack ?? '')).not.toContain(KEY);
 
@@ -92,7 +107,7 @@ describe('createHevyClient — AC3.9 the key travels in a header, never in a URL
       throw new Error('getaddrinfo ENOTFOUND api.hevyapp.com');
     }) as unknown as typeof fetch;
     const offline = createHevyClient({ apiKey: KEY }, throwingFetch);
-    const netError = await offline.listRoutines({ page: 1 }).catch((error: Error) => error);
+    const netError = await raised(() => offline.listRoutines({ page: 1 }));
     expect(netError).toBeInstanceOf(HevyUnreachable);
     expect(String(netError.message)).not.toContain(KEY);
     expect(String(netError.stack ?? '')).not.toContain(KEY);
