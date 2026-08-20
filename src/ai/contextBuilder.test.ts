@@ -793,6 +793,25 @@ describe('buildSystem: AI Coach context builder', () => {
     }, 30000);
   });
 
+  // #321: same gap class as #308, but for supersetGroup instead of per-set
+  // rest. formatExerciseLine already renders "[label]" on each exercise line
+  // in "Existing Routines" — the model can see the grouping — but nothing in
+  // the persona told it to preserve that grouping on a revision, so a whole-
+  // routine redraft was free to reinvent it (renamed labels, a newly-invented
+  // grouping between two previously-standalone exercises, observed live).
+  describe('Superset grouping preservation (#321)', () => {
+    it('tells the coach to reuse an existing superset label verbatim on revision', async () => {
+      // Exact-string pin, the convention every persona sentence here follows.
+      // A prompt-wording change cannot be PROVEN correct by a unit test; this
+      // only holds the sentence against silent drift.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'An exercise\'s "[label]" in "Existing Routines" is its existing supersetGroup — when you revise a routine, reuse that label verbatim rather than inventing a new grouping or renaming/reassigning labels, unless the user explicitly asked to change the superset structure'
+      );
+    }, 30000);
+  });
+
   describe('Routine description', () => {
     it('emits the routine notes directly under its heading in Existing Routines', async () => {
       await database.write(async () => {
