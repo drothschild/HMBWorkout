@@ -91,3 +91,71 @@ describe('Settings → Data export wiring (#267 AC1.5)', () => {
     expect(collapsed).toContain("title:'Data'");
   });
 });
+
+/**
+ * The import half (#267 Phase 2). Same reasoning as above: the screen is
+ * jest-invisible, so its one real decision — that a REFUSED document never
+ * reaches the DB half — is read out of the source.
+ */
+describe('Settings → Data import wiring (#267 Phase 2)', () => {
+  const dataSource = () => readFileSync(DATA_SCREEN, 'utf8');
+  const TODAY_SCREEN = join(__dirname, '..', 'app', '(tabs)', 'index.tsx');
+
+  it('calls the pure importer and the state-layer writer, holding neither decision itself', () => {
+    const source = dataSource();
+    expect(source).toContain("from '@/interop/importRoutine'");
+    expect(source).toContain("from '@/state/applyRoutineImport'");
+    expect(source).toContain("from '@/state/routineImportOutcome'");
+  });
+
+  it('guards applyRoutineImport behind the importer verdict (AC2.5: a refused file writes nothing)', () => {
+    const collapsed = dataSource().replace(/\s+/g, '');
+
+    const parseAt = collapsed.indexOf('parsed=importRoutine(markdown)');
+    const guardAt = collapsed.indexOf('if(!parsed.ok)');
+    const writeAt = collapsed.indexOf('applyRoutineImport(database,parsed.routine)');
+
+    // Each anchor must exist — a rename that quietly removes one would
+    // otherwise make the ordering assertion below pass on -1s.
+    expect(parseAt).toBeGreaterThanOrEqual(0);
+    expect(guardAt).toBeGreaterThanOrEqual(0);
+    expect(writeAt).toBeGreaterThanOrEqual(0);
+
+    // ...and the write must come after the guard, which must come after the
+    // parse. Deleting the early return puts the write before nothing at all.
+    expect(parseAt).toBeLessThan(guardAt);
+    expect(guardAt).toBeLessThan(writeAt);
+    expect(collapsed.slice(guardAt, writeAt)).toContain('return');
+  });
+
+  it('renders an Import Routine control', () => {
+    const collapsed = dataSource().replace(/\s+/g, '');
+    expect(collapsed).toContain('onPress={handleImportRoutine}');
+    expect(collapsed).toContain('ImportRoutine');
+  });
+
+  it('routes every import banner through the pure presenter', () => {
+    // A `setStatus('...')` literal on the import path would be a decision the
+    // node project cannot execute. The catch-all `catch` keeps one, which is
+    // the export path's existing precedent; every *outcome* arm goes through
+    // the presenter.
+    const collapsed = dataSource().replace(/\s+/g, '');
+    for (const arm of ["kind:'cancelled'", "kind:'unreadable'", "kind:'refused'", "kind:'imported'"]) {
+      expect(collapsed).toContain(`routineImportOutcome({${arm}`);
+    }
+  });
+
+  it("names two ways to create a routine on the Today tab, without the word 'vault'", () => {
+    // `remove-vault-sync.AC2.7` — the copy this feature is allowed to narrow,
+    // but not by reintroducing the vocabulary that plan removed.
+    const source = readFileSync(TODAY_SCREEN, 'utf8');
+    const emptyState = /No routines yet\.[^<]*/.exec(source);
+    if (!emptyState) {
+      throw new Error('Today-tab empty-state copy not found; re-anchor this gate');
+    }
+    expect(emptyState[0]).toMatch(/AI Coach/);
+    expect(emptyState[0]).toMatch(/import/i);
+    expect(emptyState[0].toLowerCase()).not.toContain('vault');
+    expect(emptyState[0].toLowerCase()).not.toContain('sync');
+  });
+});

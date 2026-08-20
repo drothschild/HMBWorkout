@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -18,6 +19,9 @@ import {
   getSessionHistoryExportName,
 } from '@/export/exportService';
 import { exportOutcome } from '@/export/exportOutcome';
+import { importRoutine } from '@/interop/importRoutine';
+import { applyRoutineImport } from '@/state/applyRoutineImport';
+import { routineImportOutcome } from '@/state/routineImportOutcome';
 
 /**
  * Settings → Data. The first production caller of `src/export` (AGENTS.md: this
@@ -32,6 +36,13 @@ import { exportOutcome } from '@/export/exportOutcome';
  * partial-export bug (AGENTS.md). `src/app` has no jest project, so the wiring
  * this screen owns is pinned structurally in
  * `src/state/dataExportWiring.static.test.ts`.
+ *
+ * The import direction (#267 Phase 2) follows the same shape and holds even
+ * less: `DocumentPicker` and `File` fetch a string, the pure `importRoutine`
+ * decides whether it is a routine, `applyRoutineImport` writes it and
+ * `routineImportOutcome` words the banner. The ONE rule this file owns is the
+ * ordering — `applyRoutineImport` runs only on `parsed.ok`, so a refused
+ * document writes nothing (AC2.5).
  */
 
 /**
@@ -111,6 +122,50 @@ export default function DataSettingsScreen() {
     }
   };
 
+  const handleImportRoutine = async () => {
+    setStatus(null);
+    setBusy(true);
+    try {
+      // `*/*` alongside the markdown UTIs: iOS types a `.md` file inconsistently
+      // (often `public.plain-text`, sometimes nothing at all), and a picker that
+      // greys out the file the app itself just exported is worse than one that
+      // shows everything and refuses what it cannot read.
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ['net.daringfireball.markdown', 'public.plain-text', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled || picked.assets.length === 0) {
+        setStatus(routineImportOutcome({ kind: 'cancelled' }));
+        return;
+      }
+
+      let markdown: string;
+      try {
+        markdown = await new File(picked.assets[0].uri).text();
+      } catch (error) {
+        console.error('Could not read the picked file:', error);
+        setStatus(routineImportOutcome({ kind: 'unreadable' }));
+        return;
+      }
+
+      const parsed = importRoutine(markdown);
+      if (!parsed.ok) {
+        // Nothing is written on this path — the DB half is below the guard.
+        setStatus(routineImportOutcome({ kind: 'refused', error: parsed.error }));
+        return;
+      }
+
+      await applyRoutineImport(database, parsed.routine);
+      setStatus(routineImportOutcome({ kind: 'imported', name: parsed.routine.name }));
+      setRoutines(await routineListPresenter(database));
+    } catch (error) {
+      console.error('Routine import failed:', error);
+      setStatus('Could not import that routine. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
@@ -134,7 +189,8 @@ export default function DataSettingsScreen() {
               Data
             </ThemedText>
             <ThemedText type="small" style={styles.caption}>
-              Export routines and history as markdown files.
+              Export routines and history as markdown files, or import a routine
+              file back in.
             </ThemedText>
           </View>
 
@@ -167,6 +223,20 @@ export default function DataSettingsScreen() {
           <ThemedText type="subtitle" style={styles.sectionHeading}>
             Routines
           </ThemedText>
+          <Pressable
+            disabled={busy}
+            onPress={handleImportRoutine}
+            style={({ pressed }) => [
+              styles.button,
+              { backgroundColor: ActionButtonColor.primary },
+              pressed && styles.buttonPressed,
+              busy && styles.buttonDisabled,
+            ]}
+          >
+            <ThemedText type="default" style={styles.buttonText}>
+              Import Routine
+            </ThemedText>
+          </Pressable>
           {routines.length === 0 ? (
             <ThemedText type="small" style={styles.caption}>
               No routines yet.

@@ -162,8 +162,15 @@ export default function TodayScreen() {
       case 'no-routines':
         return (
           <View style={styles.centered}>
+            {/*
+              Two ways in, since #267 Phase 2 (`remove-vault-sync.AC2.7`: this
+              copy must not say "vault"). The AI Coach is no longer the only way
+              to get a routine into the app — Settings → Data reads a routine
+              markdown file back.
+            */}
             <ThemedText type="default" style={styles.placeholder}>
-              No routines yet. Build one with the AI Coach to get started.
+              No routines yet. Build one with the AI Coach, or import a routine
+              file from Settings → Data.
             </ThemedText>
             <View style={styles.buttonRow}>
               <Pressable
@@ -171,6 +178,12 @@ export default function TodayScreen() {
                 onPress={() => router.push('/ai-coach')}
               >
                 <ThemedText style={styles.buttonText}>AI Coach</ThemedText>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
+                onPress={() => router.push('/settings/data')}
+              >
+                <ThemedText style={styles.buttonText}>Import a File</ThemedText>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
