@@ -563,3 +563,93 @@ describe('the presenter’s own per-set guards (#276)', () => {
     expect(present(entry, 1).currentSetDurationSeconds).toBe(45);
   });
 });
+
+/**
+ * #311 — the prescribed rep range, shown to the athlete while they perform the
+ * set.
+ *
+ * The range already renders on routine detail and workout history, both via
+ * `plannedSetsFormat`. The one surface that never showed it is the one where
+ * it matters: `computeSetPrefill` types the range's LOWER BOUND into the reps
+ * input (`sessionPresenter.ts` R5) and its own comment calls `repsMax`
+ * "guidance for the athlete" — guidance nothing displayed.
+ *
+ * The label is derived HERE rather than in `SetLogger.tsx` because
+ * `src/components` is invisible to every jest project (AGENTS.md Testing
+ * gotchas): a branch written in the component would have no cover at all.
+ */
+describe('setRepRangeLabel (#311)', () => {
+  const present = (entry: RoutineEntry, setIndex: number) =>
+    createSessionPresenter(perSetState([entry], { setIndex }), jest.fn(async () => null));
+
+  test('a working set in a range names the range', () => {
+    // RAMP's working sets are 8–10. The en dash is the one from
+    // `plannedSetsFormat.formatRepRange`, not a second formatter: a duplicated
+    // range format is how the session screen and the routine screen drift into
+    // printing the same plan two different ways.
+    expect(present(perSetEntry(RAMP), 3).setRepRangeLabel).toBe('Target 8–10 reps');
+    expect(present(perSetEntry(RAMP), 6).setRepRangeLabel).toBe('Target 8–10 reps');
+  });
+
+  test('a fixed-reps set shows nothing extra', () => {
+    // RAMP's warmups prescribe exact reps (5, 5, 3) with no `repsMax`. The reps
+    // input is already prefilled with that number, so a "Target 5 reps" line
+    // would restate the input directly above it.
+    expect(present(perSetEntry(RAMP), 0).setRepRangeLabel).toBe('');
+    expect(present(perSetEntry(RAMP), 2).setRepRangeLabel).toBe('');
+  });
+
+  test('a degenerate range collapses to nothing, never "8–8"', () => {
+    const entry = perSetEntry([{ setType: 'normal', reps: 8, repsMax: 8 }]);
+    expect(present(entry, 0).setRepRangeLabel).toBe('');
+  });
+
+  test('a zero upper bound is absence, not a bound — never "8–0"', () => {
+    // Engine convention 8: the shell reads sentinels, not Options, and a plain
+    // null check passes 0 straight through to the UI. `repsMax` is documented
+    // as staying honestly absent across the Rill boundary, so this is layer-2
+    // defense — the same standing this file's other out-of-range guards have.
+    const entry = perSetEntry([{ setType: 'normal', reps: 8, repsMax: 0 }]);
+    expect(present(entry, 0).setRepRangeLabel).toBe('');
+  });
+
+  test('a zero lower bound renders nothing rather than "0–10"', () => {
+    const entry = perSetEntry([{ setType: 'normal', reps: 0, repsMax: 10 }]);
+    expect(present(entry, 0).setRepRangeLabel).toBe('');
+  });
+
+  test('an entry prescribing zero sets renders nothing', () => {
+    // AGENTS.md Boundaries, "a routine entry may plan zero sets": no display
+    // path may build a label out of a plan that is not there.
+    expect(present(perSetEntry([]), 0).setRepRangeLabel).toBe('');
+  });
+
+  test('an out-of-range setIndex renders nothing', () => {
+    // The `hydrate` shape (engine convention 5) — a session persisted by an
+    // older build comes back sitting past the end of its own list.
+    expect(present(perSetEntry(RAMP), 99).setRepRangeLabel).toBe('');
+  });
+
+  test('a duration-based entry renders nothing even if its set carries a range', () => {
+    // A stretch/cardio entry has no reps input at all — SetLogger shows the
+    // stopwatch and a Duration field. `computeSetPrefill` already refuses to
+    // fill reps for these (`planAssertsReps = !isDurationBased && ...`); the
+    // label follows the same rule rather than captioning an input that is not
+    // on screen.
+    const entry = perSetEntry(
+      [{ setType: 'normal', reps: 8, repsMax: 10, durationSeconds: 45 }],
+      { kind: 'stretch' }
+    );
+    expect(present(entry, 0).setRepRangeLabel).toBe('');
+  });
+
+  test('a distance-only set renders nothing', () => {
+    const entry = perSetEntry([{ setType: 'normal', distanceM: 400 }]);
+    expect(present(entry, 0).setRepRangeLabel).toBe('');
+  });
+
+  test('renders nothing when there is no current entry at all', () => {
+    const presenter = createSessionPresenter(perSetState([]), jest.fn(async () => null));
+    expect(presenter.setRepRangeLabel).toBe('');
+  });
+});
