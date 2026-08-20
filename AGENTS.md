@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-18
+Last verified: 2026-08-19
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -600,20 +600,32 @@ Not every value is exercised by existing
 fixtures, so test coverage is incomplete by construction; add targeted roundtrip tests
 when you discover or fix a case the current suite misses.
 
-**`parse.ts` has no production caller and is kept deliberately (#262) — it is a
-maintained contract, not dead code.** Vault import went away with #203 and
-`src/export` uses `serialize` only, so a dead-code sweep finds nothing importing it
-outside tests. It stays because it is still load-bearing twice over: it is the
-mechanism that enforces the symmetry asserted in the paragraph above (delete it and
-`serialize` can drift from the grammar with nothing to notice — most of the interop
+**`parse.ts` HAS a production caller now (#267 Phase 2), and the argument that
+kept it alive while it did not is worth keeping anyway.** The caller
+is `parseRoutine`, reached through `src/interop/importRoutine.ts` from the
+Settings → Data screen: a routine markdown file picked out of Files is parsed and
+written by `applyRoutineImport`. #262 kept this module deliberately as "a
+maintained contract, not dead code" after #203 removed vault import, on the
+grounds that a future backup path would want it — this feature is that caller,
+and the paragraph that used to open "has no production caller" is now false in
+its first clause and still true in everything after it.
+
+What has NOT changed is why the module has to stay in step with the grammar
+whether or not anyone calls it. It is still the mechanism that enforces the
+symmetry asserted in the paragraph above (delete it and `serialize` can drift
+from the grammar with nothing to notice — most of the interop
 suite involves parsing, and `parse.ts`'s own header docstring carries the current
 count; **re-derive it rather than copying a number into prose, which is how the
 figure that stood here — "42 of 59" — went stale unnoticed for a year**), and it is
-the test oracle for the one interop path
-that *is* production-bound, since `exportService.test.ts` verifies `exportRoutine` by
-parsing its output back rather than string-matching. The cost of that choice, and it
-is a real one: a change to `format.ts` or `serialize.ts` must keep `parse.ts` in step
-exactly as if it had callers.
+still the test oracle for the export path, since `exportService.test.ts` verifies
+`exportRoutine` by
+parsing its output back rather than string-matching. The cost has simply stopped
+being hypothetical: a change to `format.ts` or `serialize.ts` that leaves
+`parse.ts` behind used to break a test, and now breaks an import.
+
+`parseSession` and `parseFlags` are still callerless. Session *import* is not
+part of #267 — the export direction is a backup, not a sync — so do not read
+"`parse.ts` has a caller" as covering the whole module.
 
 **That oracle now runs over GENERATED shapes, not chosen ones
 (`__tests__/routineLattice.test.ts`, #295).** The same defect shipped four times here
@@ -961,9 +973,12 @@ has exercises that will actually be performed.
 A malformed `0x10` line would never reach this layer anyway: `parseWorkoutLine`
 rejects zero sets in both contexts, and `3x0` is refused by the routine sets-slot
 rule (a routine line's slot must be `1`) rather than by any zero-reps rule — there
-are no context-dependent zero rules left. That is parser-layer behavior with no
-current production producer, since nothing outside tests calls
-`parseRoutine`/`parseSession`.
+are no context-dependent zero rules left. No production *producer* writes such a
+line — `serializeRoutine` cannot emit one — but since #267 Phase 2 there is a
+production *consumer* that can be handed one: a user can pick any file out of
+Files, so `parseRoutine`'s rejections are now a user-facing refusal path rather
+than a test-only one. `importRoutine` turns each `ContractError` into a named
+`unparseable` result and the screen renders it.
 
 `serializeRoutine` **does** emit a prescribed load, under the distinct key
 `target_weight=` (#276 Phase 5). This paragraph used to say the opposite — that the
@@ -975,11 +990,27 @@ allowlist rather than by convention. `target_distance` joined at the same time, 
 is a good illustration of why the count matters: the Phase-5 AC said "two new flags",
 there were three, and a missing key makes the export drop the value **silently**.
 
-`serializeRoutine` and `exportRoutine` are now on a user-facing path: the Settings →
-Data screen (`src/app/(tabs)/settings/data.tsx`, #267 Phase 1) calls `exportRoutine`
-and `exportSessionHistory` to share routines and history as markdown files. `parse.ts`
-(and `parseRoutine`/`parseFlags`) still has no production caller — the import direction
-lands in Phase 2.
+**Both directions of the routine document are now on a user-facing path**, through
+the one Settings → Data screen (`src/app/(tabs)/settings/data.tsx`). Out: #267
+Phase 1's `exportRoutine`/`exportSessionHistory`, shared as markdown files. In:
+#267 Phase 2's `importRoutine` (`src/interop/importRoutine.ts`, pure) →
+`applyRoutineImport` (`src/state`, the write). `parseSession` and `parseFlags` are
+still callerless; `parseRoutine` is not.
+
+**The routine frontmatter carries a `name:` key (#267 Phase 2), and it is the one
+piece of the document that is NOT in the workout block.** The block is exercise
+lines, so before this key an exported routine could not round-trip its own name
+and a re-import came back called `routine-1755300000000`. It is additive and
+header-only: `parseFrontmatter` reads frontmatter as an open
+`Record<string, string>`, nothing in `format.ts` knows the key exists, and a
+document written before it still imports (`importRoutine` falls back to the `id`).
+Two rules the key inherits from that generic reader — **a value must be one line,
+and it is split on its FIRST colon**, so `name: Push: Day One` reads whole while a
+newline would silently truncate. That is why the routine's own `notes` stays out
+of the document rather than joining it: routine notes may be multi-line, and a
+frontmatter key would lose everything after the first newline without saying so.
+Per-*exercise* notes are unaffected — they ride the `@hint` flag on the line, and
+that path is quote-aware (#277).
 
 ## HealthKit (`src/health`)
 
@@ -1378,9 +1409,13 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   carries no plan values at all since schema v7. A set may also carry its **own**
   nullable `rest_seconds` (schema v8, #281) that overrides the entry default —
   what makes a drop set (0 / 0 / full) expressible; null inherits the entry rest
-- `src/interop/` — vault markdown serializer/parser
-- `src/export/` — the only production consumer of `src/interop/serialize` (nothing
-  outside tests consumes `parse.ts`); maps DB rows to the serializer, normalizing
+- `src/interop/` — vault markdown serializer/parser, plus `importRoutine.ts`
+  (#267 Phase 2): the pure markdown → `RoutineExerciseEntry[]` reader that gives
+  `parseRoutine` its production caller. It owns the two refusals the engine's
+  rules imply — a superset label split across a gap, and a routine that plans no
+  sets at all — and touches no database
+- `src/export/` — the only production consumer of `src/interop/serialize`; maps DB
+  rows to the serializer, normalizing
   WatermelonDB's `null` to `undefined` at the boundary. **Wired to the Settings → Data
   screen** (`src/app/(tabs)/settings/data.tsx`, #267 Phase 1), which calls
   `exportRoutine`/`exportSessionHistory` and shares the markdown through the iOS share
@@ -1389,7 +1424,11 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   of `failures`, so a screen can never drop it silently (#212)
 - `src/state/` — Zustand stores (session + AI chat), presenters, settings,
   session start/rehydrate; `aiProviderSettings.ts` (provider/key/model pure functions),
-  `aiChatErrorCopy.ts` (error messages with provider attribution)
+  `aiChatErrorCopy.ts` (error messages with provider attribution),
+  `applyRoutineImport.ts` (#267 Phase 2 — the DB half of the file import:
+  create-only exercises, a minted `routine-<epoch>` id, one `upsertRoutine`;
+  structurally `acceptDraft` with a different entry source) and
+  `routineImportOutcome.ts` (its banner copy, `exportOutcome`'s counterpart)
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, system-prompt builders,
   coach directives, draft→repository accept path, plus the one-shot features

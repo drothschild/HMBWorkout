@@ -2,11 +2,15 @@
  * Parser: vault markdown → structured. Strict — malformed blocks throw
  * `ContractError` rather than degrading.
  *
- * **This module has no production caller, by design (#262). Do not delete it as
- * dead code.** Vault import was removed in #203 and the export path
- * (`src/export`) uses `serialize` only, so a dead-code sweep will find nothing
- * importing this outside tests. It is kept deliberately, as a *maintained
- * contract*, because it is still doing two real jobs:
+ * **`parseRoutine` HAS a production caller as of #267 Phase 2** — `importRoutine`
+ * (`src/interop/importRoutine.ts`), reached from Settings → Data when the user
+ * picks a routine markdown file out of Files. `parseSession` and `parseFlags` do
+ * not; session import is not a feature.
+ *
+ * This module spent the stretch from #203 to #267 with no caller at all, kept deliberately
+ * (#262) as a *maintained contract* rather than deleted as dead code, on the
+ * argument that a future backup path would want it. That argument was right, and
+ * both of the jobs it named still hold now that the caller exists:
  *
  * 1. **It is what enforces the grammar's symmetry.** `format.ts` is the single
  *    source of truth and `serialize.ts` must stay symmetric with it; the
@@ -18,15 +22,15 @@
  *    (Was "42 of 59", stale since well before #276; re-derive rather than trust
  *    these, since a hardcoded count in prose goes stale by construction. The
  *    same stale pair is still in AGENTS.md and is AC6.5 item 6's job.)
- * 2. **It is the test oracle for the one interop path that IS
- *    production-bound.** `exportService.test.ts` verifies `exportRoutine`'s
+ * 2. **It is the test oracle for the export path.**
+ *    `exportService.test.ts` verifies `exportRoutine`'s
  *    output by parsing it back rather than string-matching, so the parser
  *    directly guards the export feature.
  *
- * The consequence for maintenance: changes to `format.ts` or `serialize.ts` must
- * keep this in step, exactly as if it had callers. That is the cost of the
- * option chosen in #262, and it is the point — the alternative was losing the
- * symmetry guard.
+ * The consequence for maintenance is unchanged and is no longer hypothetical:
+ * changes to `format.ts` or `serialize.ts` must keep this in step. Between #203
+ * and #267 the cost of failing to was a red test; now it is also a routine the
+ * user cannot import.
  */
 
 import {
