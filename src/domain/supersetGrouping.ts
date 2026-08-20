@@ -47,7 +47,7 @@
 /**
  * The label that identifies a superset run. `string` today; `number` is
  * included so that if #276 ever re-points `superset_group` at Hevy's integer
- * `supersets_id`, that is a type argument at the call sites and not a rewrite
+ * `superset_id`, that is a type argument at the call sites and not a rewrite
  * here. (#276's plan currently resolves that question as "keep the string".)
  */
 export type SupersetKey = string | number;

@@ -46,7 +46,7 @@ function entryFor(entries: readonly RoutineExerciseEntry[], exerciseId: string):
   return entry;
 }
 
-describe('mapHevyRoutine — AC3.1 order follows Hevy index, never supersets_id', () => {
+describe('mapHevyRoutine — AC3.1 order follows Hevy index, never superset_id', () => {
   it('maps PUSH to 12 entries ordered 0…11 in Hevy index order', () => {
     const { routine } = mapped(PUSH);
 
@@ -57,12 +57,12 @@ describe('mapHevyRoutine — AC3.1 order follows Hevy index, never supersets_id'
     ]);
   });
 
-  it('never sorts by supersets_id — PUSH’s ids run 5,6,7,4, so a sort moves the core group to the front', () => {
+  it('never sorts by superset_id — PUSH’s ids run 5,6,7,4, so a sort moves the core group to the front', () => {
     const { routine } = mapped(PUSH);
 
     // The full sequence, pinned. PUSH's superset ids are non-ascending
     // (undefined, undefined, 5,5, 6,6, 7,7, 4,4,4, undefined), so ANY sort by
-    // supersets_id lifts the three id-4 core exercises above the id-5 pair.
+    // superset_id lifts the three id-4 core exercises above the id-5 pair.
     expect(routine.entries.map((entry) => entry.exerciseId)).toEqual([
       'cycling',
       'bench-press-dumbbell',
@@ -402,5 +402,41 @@ describe('mapHevyRoutine — the refusals it keeps', () => {
 
       expect(result).toMatchObject({ ok: false, error: { code: 'invalid-weight' } });
     }
+  });
+});
+
+describe('mapHevyRoutine — #323 regression: the wire sends `superset_id` (singular), not `supersets_id`', () => {
+  it('reads the real API field name and populates supersetGroup', () => {
+    // Two raw `curl` calls against a live Hevy account (list AND single-routine
+    // endpoints, two different routines) confirm the server sends `superset_id`
+    // — singular — never `supersets_id`. The old checked-in fixture and the
+    // `supersets_id` field name both trace back to the Hevy MCP connector,
+    // which silently renames the field to match Hevy's OpenAPI *documentation*
+    // rather than what the server actually sends (#323). This routine literal
+    // is shaped exactly like the real wire payload — `as unknown as
+    // HevyRoutine` because at the time this test was written, `HevyExercise`
+    // still (incorrectly) declared `supersets_id`, not `superset_id`.
+    const routine = {
+      id: 'r-323',
+      title: 'Superset Field Regression',
+      exercises: [
+        {
+          title: 'Exercise A',
+          index: 0,
+          superset_id: 9,
+          sets: [{ index: 0, type: 'normal', weight_kg: 10, reps: 5 }],
+        },
+        {
+          title: 'Exercise B',
+          index: 1,
+          superset_id: 9,
+          sets: [{ index: 0, type: 'normal', weight_kg: 10, reps: 5 }],
+        },
+      ],
+    } as unknown as Parameters<typeof mapHevyRoutine>[0];
+
+    const { routine: mappedRoutine } = mapped(routine);
+
+    expect(mappedRoutine.entries.map((entry) => entry.supersetGroup)).toEqual(['9', '9']);
   });
 });

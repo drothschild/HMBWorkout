@@ -8,9 +8,20 @@
  *
  * Every optional field is typed `?: T | null` rather than `?: T`. The spec
  * marks most of them `nullable: true`, and the wire genuinely mixes the two:
- * PUSH omits `supersets_id` on standalone exercises while the spec documents
+ * PUSH omits `superset_id` on standalone exercises while the spec documents
  * `null` for the same thing. The mapper therefore tests `!= null` throughout,
  * exactly as the DB boundary does for WatermelonDB's own nulls (AGENTS.md).
+ *
+ * **`superset_id` is singular on the wire, NOT `supersets_id`.** Hevy's own
+ * published OpenAPI response schema documents the plural `supersets_id`, and
+ * an earlier version of this file followed the docs. Two raw `curl` calls
+ * against a live account (list endpoint and single-routine endpoint, two
+ * different routines) prove the server actually sends the singular form —
+ * matching the *request* schemas' naming, not the *response* schema's
+ * documented name, for the identical semantic field (#323). Never re-derive
+ * this field name from the docs or from a wrapper (e.g. the Hevy MCP
+ * connector) that normalizes toward them; verify against a genuinely raw
+ * HTTP response.
  */
 
 /** A rep range on a prescribed set. Both ends are independently nullable. */
@@ -53,7 +64,7 @@ export interface HevyExercise {
    * The superset this exercise belongs to; `null`/absent means standalone.
    * A number on the wire, a string in `routine_exercises.superset_group`.
    */
-  supersets_id?: number | null;
+  superset_id?: number | null;
   sets: HevySet[];
 }
 

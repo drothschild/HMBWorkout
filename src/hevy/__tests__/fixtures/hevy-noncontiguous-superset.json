@@ -12,7 +12,7 @@
         "exercise_template_id": "AAAA0001",
         "notes": "First half of the split label.",
         "rest_seconds": 90,
-        "supersets_id": 1,
+        "superset_id": 1,
         "sets": [
           { "index": 0, "type": "normal", "weight_kg": 60, "reps": 5 }
         ]
@@ -23,7 +23,7 @@
         "exercise_template_id": "AAAA0002",
         "notes": "",
         "rest_seconds": 30,
-        "supersets_id": 2,
+        "superset_id": 2,
         "sets": [
           { "index": 0, "type": "normal", "weight_kg": 20, "reps": 10 }
         ]
@@ -34,7 +34,7 @@
         "exercise_template_id": "AAAA0003",
         "notes": "",
         "rest_seconds": 30,
-        "supersets_id": 2,
+        "superset_id": 2,
         "sets": [
           { "index": 0, "type": "normal", "weight_kg": 100, "reps": 10 }
         ]
@@ -45,7 +45,7 @@
         "exercise_template_id": "AAAA0004",
         "notes": "Second half of the split label.",
         "rest_seconds": 45,
-        "supersets_id": 1,
+        "superset_id": 1,
         "sets": [
           { "index": 0, "type": "normal", "weight_kg": 40, "reps": 15 }
         ]
