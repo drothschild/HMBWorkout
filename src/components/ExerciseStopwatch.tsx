@@ -11,6 +11,8 @@ import {
   StopwatchRun,
   StopwatchView,
 } from '@/state/exerciseStopwatch';
+import { KeepAwakeTag, isExerciseStopwatchRunning } from '@/state/keepAwake';
+import { KeepScreenAwake } from './KeepScreenAwake';
 import { vibrateAtZero, vibrateForMinute } from './minuteVibration';
 import {
   playMinuteMilestoneSound,
@@ -135,6 +137,13 @@ export function ExerciseStopwatch({
   // press has to run *that* tick immediately rather than wait out the interval.
   const tickRef = useRef<() => void>(() => {});
 
+  // #312: one boolean, two consumers — the interval below and the keep-awake
+  // mount in the markup. Both pauses (the session's `running` and the card's
+  // own `control`) release the screen, because a frozen clock has no claim on
+  // it. Re-spelling this condition in either place is how the lock outlives the
+  // clock and the phone stops sleeping until the app is killed.
+  const stopwatchRunning = isExerciseStopwatchRunning({ stopwatchKey, running, control });
+
   // Tick once before paint (useLayoutEffect) to avoid a one-frame layout jump
   // when view mounts undefined. One layout effect owns both the tick and the
   // interval so they cannot drift apart. React runs layout cleanups in the
@@ -178,11 +187,11 @@ export function ExerciseStopwatch({
     // Nothing to animate while switched off, or frozen by either pause, or
     // stopped; the state is static until one of the deps changes and re-runs
     // this effect.
-    if (stopwatchKey === undefined || !running || control !== 'running') return;
+    if (!stopwatchRunning) return;
 
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [stopwatchKey, running, control, targetDurationSeconds]);
+  }, [stopwatchKey, running, control, targetDurationSeconds, stopwatchRunning]);
 
   const send = (command: StopwatchCommand) => {
     pendingCommandRef.current = command;
@@ -200,6 +209,11 @@ export function ExerciseStopwatch({
         { backgroundColor: view.isStopped ? theme.backgroundSelected : theme.backgroundElement },
       ]}
     >
+      {/*
+        #312: renders nothing; mounting is what holds the idle timer open, and
+        unmounting — a stop, either pause, or this card going away — releases it.
+      */}
+      {stopwatchRunning && <KeepScreenAwake tag={KeepAwakeTag.exerciseStopwatch} />}
       <ThemedText type="smallBold" themeColor="textSecondary">
         {view.label}
       </ThemedText>
