@@ -404,3 +404,39 @@ describe('mapHevyRoutine — the refusals it keeps', () => {
     }
   });
 });
+
+describe('mapHevyRoutine — #323 regression: the wire sends `superset_id` (singular), not `supersets_id`', () => {
+  it('reads the real API field name and populates supersetGroup', () => {
+    // Two raw `curl` calls against a live Hevy account (list AND single-routine
+    // endpoints, two different routines) confirm the server sends `superset_id`
+    // — singular — never `supersets_id`. The old checked-in fixture and the
+    // `supersets_id` field name both trace back to the Hevy MCP connector,
+    // which silently renames the field to match Hevy's OpenAPI *documentation*
+    // rather than what the server actually sends (#323). This routine literal
+    // is shaped exactly like the real wire payload — `as unknown as
+    // HevyRoutine` because at the time this test was written, `HevyExercise`
+    // still (incorrectly) declared `supersets_id`, not `superset_id`.
+    const routine = {
+      id: 'r-323',
+      title: 'Superset Field Regression',
+      exercises: [
+        {
+          title: 'Exercise A',
+          index: 0,
+          superset_id: 9,
+          sets: [{ index: 0, type: 'normal', weight_kg: 10, reps: 5 }],
+        },
+        {
+          title: 'Exercise B',
+          index: 1,
+          superset_id: 9,
+          sets: [{ index: 0, type: 'normal', weight_kg: 10, reps: 5 }],
+        },
+      ],
+    } as unknown as Parameters<typeof mapHevyRoutine>[0];
+
+    const { routine: mappedRoutine } = mapped(routine);
+
+    expect(mappedRoutine.entries.map((entry) => entry.supersetGroup)).toEqual(['9', '9']);
+  });
+});
