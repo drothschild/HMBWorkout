@@ -33,6 +33,7 @@ import {
   buildRestCommentaryPrompt,
   normalizeCommentaryText,
   type RestCommentaryCompletedSet,
+  type RestCommentaryGroupMember as RestCommentaryPromptGroupMember,
   type RestCommentaryHistorySet,
 } from '@/ai/restCommentaryPrompt';
 import { loadRestCommentaryHistory } from '@/ai/restCommentaryHistory';
@@ -81,6 +82,29 @@ interface RestCommentaryTargetBase {
   totalOfType: number;
 }
 
+/**
+ * One OTHER member of the superset group whose round just ended alongside
+ * `performed` (#325 — "comment on all the exercises in the superset just
+ * completed"). Resolved shell-side, same as `exerciseTitle` above: engine
+ * entries carry ids only.
+ *
+ * `completedSet: null` means this member's turn in the round was skipped
+ * (`SetDone`), not that it recorded nothing — the display/prompt layer must
+ * never fabricate numbers for it. A member whose own set list was already
+ * exhausted before this round (convention 9/10 — the same predicate
+ * `performedEntryIndex` uses to exclude it when finding the round's last
+ * performer) took no turn at all this round and does not appear here.
+ */
+export interface RestCommentaryGroupMember {
+  exerciseId: string;
+  exerciseTitle: string;
+  kind: ExerciseKind;
+  isWarmupSet: boolean;
+  setNumber: number;
+  totalOfType: number;
+  completedSet: RestCommentaryCompletedSet | null;
+}
+
 export type RestCommentaryTarget =
   | (RestCommentaryTargetBase & { shape: 'upNext' })
   | (RestCommentaryTargetBase & {
@@ -93,6 +117,17 @@ export type RestCommentaryTarget =
        * refused. See `claimLogIndex`.
        */
       logIndex: number;
+      /**
+       * The rest of the superset group's members (#325), present only when
+       * `performed` (this target) is itself part of a superset — i.e. its own
+       * `supersetGroup` is non-empty. Absent, never an empty array, for every
+       * standalone rest, so a non-superset `lastSet` target is unaffected by
+       * this field's existence. `undefined` here is a plain "not applicable"
+       * flag on shell-derived display data, not an engine-boundary sentinel —
+       * convention 8 governs values crossing FROM the engine, and this field
+       * never does.
+       */
+      groupMembers?: readonly RestCommentaryGroupMember[];
     });
 
 /**
@@ -161,16 +196,22 @@ interface RestCommentaryState {
  * because the true group start is the honest thing to scan. A mutation that
  * drops it therefore survives the suite, and that is expected.
  */
-function performedEntryIndex(sessionState: SessionState): number | null {
-  const round = sessionState.setIndex - 1;
-  if (round < 0) return null;
-
+/**
+ * The [start, end] contiguous run of entries sharing the CURRENT position's
+ * superset group label (engine convention 9) — a standalone entry is a
+ * "group" of just itself. Shared by `performedEntryIndex` (which member the
+ * round just ended on) and `roundGroupSiblings` (#325: what every OTHER
+ * member of that same round did), so the two can never disagree about where
+ * the group's boundary sits.
+ *
+ * `null` identifies nothing to scan: an out-of-range `groupStart`, or an
+ * entry with no `supersetGroup` field at all. (The engine always supplies the
+ * field — `""` when there is no superset — so this is the hydrate/partial-state
+ * guard, not the no-superset case.)
+ */
+function performedGroupRange(sessionState: SessionState): { start: number; end: number } | null {
   const entries = sessionState.entries ?? [];
   const groupStart = sessionState.exerciseIndex - (sessionState.supersetPosition ?? 0);
-  // An out-of-range groupStart, or an entry with no `supersetGroup` field at
-  // all, identifies nothing to scan. (The engine always supplies the field —
-  // `""` when there is no superset — so this is the hydrate/partial-state
-  // guard, not the no-superset case.)
   if (entries[groupStart]?.supersetGroup === undefined) return null;
 
   // The contiguity scan itself is shared (#278): `""` is the no-superset
@@ -178,12 +219,89 @@ function performedEntryIndex(sessionState: SessionState): number | null {
   // where it starts.
   const groupEnd = supersetRunEndIndex(entries, groupStart, (entry) => entry.supersetGroup);
 
-  for (let idx = groupEnd; idx >= groupStart; idx -= 1) {
+  return { start: groupStart, end: groupEnd };
+}
+
+function performedEntryIndex(sessionState: SessionState): number | null {
+  const round = sessionState.setIndex - 1;
+  if (round < 0) return null;
+
+  const range = performedGroupRange(sessionState);
+  if (range === null) return null;
+
+  const entries = sessionState.entries ?? [];
+  for (let idx = range.end; idx >= range.start; idx -= 1) {
     const entry = entries[idx];
     if (entry && entry.sets.length > round) return idx;
   }
 
   return null;
+}
+
+/**
+ * Every OTHER member of the just-finished round's superset group besides
+ * `performedIdx`, and what happened to it this round: the set it logged, or
+ * `null` when its turn was skipped (#325). `range` and `round` come from the
+ * caller (`performedGroupRange`/`sessionState.setIndex - 1`) so this function
+ * and `performedEntryIndex` read one boundary and one round number, never two
+ * that could disagree.
+ *
+ * ACTIVITY: a member whose own set list was already exhausted before this
+ * round (`entry.sets.length <= round`) took no turn at all this round — the
+ * same predicate `performedEntryIndex` uses to skip it when hunting for the
+ * round's last performer — and is left out of the result entirely, never
+ * reported as "skipped".
+ *
+ * MATCHING A LOGGED SET TO A MEMBER: `LoggedSet` carries only `exerciseId`,
+ * never an entry index — the same limitation `ReplaceExercise`'s same-entry
+ * guard and `performedEntryIndex`'s own exerciseId check already accept
+ * (AGENTS.md engine convention 7, #270's "same exercise listed twice" tests).
+ * The round's active members are visited strictly forward, one after another
+ * with NO rest between them (`advance_after_set`'s `next_active_idx` hands
+ * off within a round with no `ScheduleRest`), so whatever they logged landed
+ * at the very end of `loggedSets`, in that same order — except a skipped
+ * visit (`SetDone`) appends nothing at all. Walking the active members
+ * BACKWARD in lockstep with `loggedSets` from its end resolves that
+ * unambiguously: at each member (from last to first), if the cursor's
+ * exerciseId matches, that member logged it and the cursor moves back one; if
+ * it doesn't, this member's visit was a skip, and the cursor holds for the
+ * member before it. `performedIdx` is already known to have logged — the
+ * caller's own `performed.exerciseId === lastSet.exerciseId` guard — which
+ * anchors the walk at its very first comparison.
+ *
+ * Same caveat every exerciseId-keyed lookup in this file already carries: two
+ * members sharing one exerciseId within a group cannot be told apart by
+ * identity alone.
+ */
+function roundGroupSiblings(
+  sessionState: SessionState,
+  range: { start: number; end: number },
+  round: number,
+  performedIdx: number
+): { idx: number; loggedSet: LoggedSet | null }[] {
+  const entries = sessionState.entries ?? [];
+  const activeIdxs: number[] = [];
+  for (let idx = range.start; idx <= range.end; idx += 1) {
+    const memberEntry = entries[idx];
+    if (memberEntry && memberEntry.sets.length > round) activeIdxs.push(idx);
+  }
+
+  const matched = new Map<number, LoggedSet | null>();
+  let cursor = sessionState.loggedSets.length - 1;
+  for (let i = activeIdxs.length - 1; i >= 0; i -= 1) {
+    const idx = activeIdxs[i];
+    const candidate = cursor >= 0 ? sessionState.loggedSets[cursor] : undefined;
+    if (candidate && candidate.exerciseId === entries[idx]?.exerciseId) {
+      matched.set(idx, candidate);
+      cursor -= 1;
+    } else {
+      matched.set(idx, null);
+    }
+  }
+
+  return activeIdxs
+    .filter((idx) => idx !== performedIdx)
+    .map((idx) => ({ idx, loggedSet: matched.get(idx) ?? null }));
 }
 
 /** The engine hands RPE back as -1 when unset (AGENTS.md engine convention 8). */
@@ -264,11 +382,37 @@ export function restCommentaryTarget(
 
     // The completed set sat one round back; the shared derivation reads the
     // position off setIndex, so hand it the round that was actually performed.
-    const setPos = deriveSetPosition(
-      { ...sessionState, setIndex: sessionState.setIndex - 1 },
-      performed
-    );
+    const round = sessionState.setIndex - 1;
+    const setPos = deriveSetPosition({ ...sessionState, setIndex: round }, performed);
     if (!setPos) return null;
+
+    // #325: when `performed` is itself part of a superset, gather what every
+    // OTHER member of that same round did — its own logged set, or `null` for
+    // a skipped turn. A standalone entry's `supersetGroup` is `""`
+    // (convention 8's no-superset sentinel), so this is skipped entirely for
+    // the common case and `groupMembers` is left undefined, keeping every
+    // non-superset target unaffected.
+    let groupMembers: RestCommentaryGroupMember[] | undefined;
+    if (performed.supersetGroup !== '') {
+      const range = performedGroupRange(sessionState);
+      if (range !== null) {
+        groupMembers = roundGroupSiblings(sessionState, range, round, performedIdx).map(
+          ({ idx, loggedSet }) => {
+            const memberEntry = sessionState.entries[idx];
+            const memberSetPos = deriveSetPosition({ ...sessionState, setIndex: round }, memberEntry);
+            return {
+              exerciseId: memberEntry.exerciseId,
+              exerciseTitle: exerciseTitles?.[memberEntry.exerciseId] || memberEntry.exerciseId,
+              kind: memberEntry.kind,
+              isWarmupSet: memberSetPos?.isWarmupSet ?? false,
+              setNumber: memberSetPos?.setNumber ?? 1,
+              totalOfType: memberSetPos?.totalOfType ?? 0,
+              completedSet: loggedSet ? withoutRpeSentinel(loggedSet) : null,
+            };
+          }
+        );
+      }
+    }
 
     return {
       ...position,
@@ -284,6 +428,7 @@ export function restCommentaryTarget(
       totalOfType: setPos.totalOfType,
       completedSet: withoutRpeSentinel(lastSet),
       logIndex: sessionState.loggedSets.length - 1,
+      ...(groupMembers ? { groupMembers } : {}),
     };
   }
 
@@ -370,9 +515,29 @@ export function createRestCommentaryStore(deps: RestCommentaryDeps) {
         setNumber: target.setNumber,
         totalOfType: target.totalOfType,
       };
+      // #325: the target's own `groupMembers` (store shape) carries an
+      // `exerciseId` the prompt has no use for — the prompt's
+      // `RestCommentaryGroupMember` is title/kind/position/set only, same
+      // trim `exercise` above already gets relative to the target.
+      const promptGroupMembers: RestCommentaryPromptGroupMember[] | undefined =
+        target.shape === 'lastSet' && target.groupMembers
+          ? target.groupMembers.map((member) => ({
+              title: member.exerciseTitle,
+              kind: member.kind,
+              isWarmupSet: member.isWarmupSet,
+              setNumber: member.setNumber,
+              totalOfType: member.totalOfType,
+              completedSet: member.completedSet,
+            }))
+          : undefined;
+
       const prompt = buildRestCommentaryPrompt({
         ...(target.shape === 'lastSet'
-          ? { shape: 'lastSet' as const, completedSet: target.completedSet }
+          ? {
+              shape: 'lastSet' as const,
+              completedSet: target.completedSet,
+              ...(promptGroupMembers ? { groupMembers: promptGroupMembers } : {}),
+            }
           : { shape: 'upNext' as const }),
         exercise,
         history,
