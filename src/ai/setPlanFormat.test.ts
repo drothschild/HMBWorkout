@@ -155,6 +155,82 @@ describe('summarizePlanSets', () => {
       summarizePlanSets(planSetsFromRoutineSets([{ setType: 'normal', reps: 8, weightKg: null }]))
     ).toBe('8 reps');
   });
+
+  // #308: the read-back half of #281. DROP is the discriminating fixture —
+  // three sets identical in every OTHER metric, differing only in their rest.
+  // An implementation that omits rest from the grammar renders all three as one
+  // collapsed run ("3 × 8 reps @ 50lbs"), which is precisely the string that
+  // makes the coach re-emit a flattened drop set on the next revision.
+  describe('per-set rest (#308)', () => {
+    it('renders DROP with each set\'s own rest, refusing to collapse the run', () => {
+      expect(
+        summarizePlanSets(
+          planSetsFromRoutineSetEntries([
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 0 },
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 0 },
+            { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 90 },
+          ])
+        )
+      ).toBe('2 × 8 reps @ 50lbs rest 0s, 8 reps @ 50lbs rest 90s');
+    });
+
+    it('renders a zero rest rather than dropping it as falsy — 0 is the override', () => {
+      // The mutation this pins: `if (set.restSeconds)` instead of `!= null`.
+      // A drop set's whole point is the 0, so a falsy guard erases exactly the
+      // information the model needs and leaves the 90 looking like the pattern.
+      expect(
+        summarizePlanSets(planSetsFromRoutineSetEntries([{ setType: 'normal', restSeconds: 0 }]))
+      ).toBe('rest 0s');
+
+      expect(
+        summarizePlanSets(planSetsFromRoutineSets([{ setType: 'normal', restSeconds: 0 }]))
+      ).toBe('rest 0s');
+
+      expect(summarizePlanSets(planSetsFromDraftSets([{ type: 'normal', restSeconds: 0 }]))).toBe(
+        'rest 0s'
+      );
+    });
+
+    it('says nothing for a set with no override — absent means "inherit the entry rest"', () => {
+      // The entry-level rest is rendered once per LINE by formatExerciseLine.
+      // Echoing it onto every set would tell the model each set carries an
+      // override, which is the opposite error.
+      expect(
+        summarizePlanSets(planSetsFromRoutineSetEntries([{ setType: 'normal', targetReps: 8 }]))
+      ).toBe('8 reps');
+
+      expect(
+        summarizePlanSets(planSetsFromRoutineSets([{ setType: 'normal', reps: 8, restSeconds: null }]))
+      ).toBe('8 reps');
+    });
+
+    it('agrees across all three input shapes, as every other metric does', () => {
+      const rows = summarizePlanSets(
+        planSetsFromRoutineSetEntries([
+          { setType: 'normal', targetReps: 8, targetWeightKg: 22.68, restSeconds: 0 },
+          { setType: 'normal', targetReps: 6, targetWeightKg: 18.14, restSeconds: 90 },
+        ])
+      );
+
+      expect(
+        summarizePlanSets(
+          planSetsFromRoutineSets([
+            { setType: 'normal', reps: 8, weightKg: 22.68, restSeconds: 0 },
+            { setType: 'normal', reps: 6, weightKg: 18.14, restSeconds: 90 },
+          ])
+        )
+      ).toBe(rows);
+
+      expect(
+        summarizePlanSets(
+          planSetsFromDraftSets([
+            { type: 'normal', reps: 8, weightLbs: 50, restSeconds: 0 },
+            { type: 'normal', reps: 6, weightLbs: 40, restSeconds: 90 },
+          ])
+        )
+      ).toBe(rows);
+    });
+  });
 });
 
 describe('formatDraftSetLine', () => {
@@ -185,6 +261,20 @@ describe('formatDraftSetLine', () => {
       'Warmup 1',
       'Set 1',
       'Warmup 2',
+    ]);
+  });
+
+  it('shows a per-set rest override on the preview row (#308)', () => {
+    // The draft card is the last place the athlete sees the drop structure
+    // before accepting it, and it reads the same grammar deliberately.
+    const sets: DraftSet[] = [
+      { type: 'normal', reps: 8, weightLbs: 50, restSeconds: 0 },
+      { type: 'normal', reps: 8, weightLbs: 40 },
+    ];
+
+    expect(sets.map((set, index) => formatDraftSetLine(set, index, sets))).toEqual([
+      'Set 1 · 8 reps @ 50lbs rest 0s',
+      'Set 2 · 8 reps @ 40lbs',
     ]);
   });
 });
