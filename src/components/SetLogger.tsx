@@ -117,13 +117,17 @@ export function SetLogger({
     }
   }, [questionExpanded, questionText]);
 
-  const isDurationBased = isDurationBasedEntry(presenter.currentEntry);
+  // Reads the same planned set the presenter already resolved for
+  // `setRepRangeLabel`/`currentSetDurationSeconds`, so this classification
+  // can never drift from theirs (#319: `kind` alone is not reliable — see
+  // isDurationBasedEntry's docstring).
+  const isDurationBased = isDurationBasedEntry(presenter.currentEntry, presenter.currentSetPlan);
 
   // Identity of the stopwatch run: the current entry plus its set position, so
   // it restarts when the exercise changes or a set is logged or skipped. Pure
   // and undefined for anything that isn't duration-based, which switches the
   // stopwatch off. Display only — it never decides what the session does next.
-  const stopwatchKey = makeStopwatchKey(presenter.currentEntry, {
+  const stopwatchKey = makeStopwatchKey(presenter.currentEntry, presenter.currentSetPlan, {
     isWarmupSet: presenter.isWarmupSet,
     setNumber: presenter.setNumber,
   });

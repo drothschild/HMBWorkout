@@ -686,7 +686,10 @@ export default function SessionScreen() {
                   // cleared behind the sheet; an rpe alone is a flag, not a
                   // measurement, and must not be logged as a set (#288).
                   const values = buildLogSetValues({
-                    isDurationBased: isDurationBasedEntry(presenter.currentEntry),
+                    isDurationBased: isDurationBasedEntry(
+                      presenter.currentEntry,
+                      presenter.currentSetPlan
+                    ),
                     repsText,
                     weightText,
                     durationText,

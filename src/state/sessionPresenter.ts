@@ -98,6 +98,16 @@ export interface SessionPresenterOutput {
    * points past the list.
    */
   currentSetDurationSeconds: number | undefined;
+  /**
+   * The entry's prescribed set at the CURRENT `setIndex` — the same value
+   * this presenter reads to decide `setRepRangeLabel`/`currentSetDurationSeconds`
+   * (#319). Exposed so callers that classify duration-vs-strength on their
+   * own (`isDurationBasedEntry`, `makeStopwatchKey`) read the plan the
+   * presenter is ALREADY looking at, rather than a stale or re-derived one.
+   * Undefined when `setIndex` points past the entry's planned list (the
+   * `hydrate` shape, engine convention 5) or there is no current entry.
+   */
+  currentSetPlan: RoutineSet | undefined;
 
   // True when the current set is the exercise's last set (warmup or working).
   // Used to gate the RPE popup trigger: show RPE input only after final set.
@@ -435,7 +445,6 @@ export function computeSetPrefill(
   const entry = sessionState.entries?.[sessionState.exerciseIndex];
   if (!entry) return undefined;
 
-  const isDurationBased = isDurationBasedEntry(entry);
   const sets = sessionState.loggedSets ?? [];
   const setIndex = sessionState.setIndex;
 
@@ -444,6 +453,11 @@ export function computeSetPrefill(
   // set 0's plan.
   const plannedSets = entry?.sets ?? [];
   const plannedSet: RoutineSet | undefined = plannedSets[setIndex];
+
+  // #319: read from the CURRENT planned set, not `kind` alone — a
+  // kind:'strength' entry whose plan is duration-only must still be treated
+  // as duration-based here (see isDurationBasedEntry's docstring).
+  const isDurationBased = isDurationBasedEntry(entry, plannedSet);
 
   // The prescribed load for THAT set, converted to display lbs once, here.
   // Absent for a duration-based entry (there is no weight input to fill) and
@@ -664,7 +678,7 @@ export function createSessionPresenter(
   // screen. `computeSetPrefill` refuses to fill reps for the same entries, for
   // the same reason.
   const currentSetPlan = currentEntrySets[sessionState.setIndex];
-  const repRange = isDurationBasedEntry(currentEntry)
+  const repRange = isDurationBasedEntry(currentEntry, currentSetPlan)
     ? ''
     : formatRepRange(currentSetPlan?.reps, currentSetPlan?.repsMax);
   const setRepRangeLabel = repRange === '' ? '' : `Target ${repRange} reps`;
@@ -752,6 +766,7 @@ export function createSessionPresenter(
     setPositionLabel,
     setRepRangeLabel,
     currentSetDurationSeconds,
+    currentSetPlan,
     isLastSetOfExercise,
 
     // Handlers dispatch events to the engine

@@ -1,4 +1,4 @@
-import { RoutineEntry } from '@/engine/types';
+import { RoutineEntry, RoutineSet } from '@/engine/types';
 
 /**
  * Exercise stopwatch — pure logic for the timed-exercise clock.
@@ -160,9 +160,36 @@ export interface StopwatchAdvanceResult {
   recordedSeconds: number | undefined;
 }
 
-/** Duration-based entries are the ones that get a stopwatch. */
-export function isDurationBasedEntry(entry: RoutineEntry | undefined): boolean {
-  return entry?.kind === 'stretch' || entry?.kind === 'cardio';
+/**
+ * Duration-based entries are the ones that get a stopwatch.
+ *
+ * `kind` alone is not a reliable signal (#319): a hand-authored or
+ * AI-drafted exercise can carry `kind: 'strength'` while every one of its
+ * planned sets has only a duration and no reps at all — "High Plank" on a
+ * real device is exactly this shape. Trusting `kind` there left the set
+ * logger showing empty Reps/Weight inputs with nothing to type into either.
+ *
+ * `stretch`/`cardio` still short-circuit to true regardless of the planned
+ * set — that part of the signal was never wrong. For every other `kind`,
+ * `plannedSet` — the entry's set at the CURRENT `setIndex`, the same one
+ * `computeSetPrefill`'s reps/duration guards read — decides: a positive
+ * `durationSeconds` with no positive `reps` means the plan itself is
+ * unambiguously duration-only, so the UI follows the plan rather than the
+ * exercise's own (possibly mismatched) classification. A set with both reps
+ * and a duration reads as strength-with-a-hold, not duration-based — reps is
+ * the more specific signal. `RoutineSet`'s optional fields are NOT in
+ * SENTINEL_TO_OPTION_MAP (engine convention 8; see the type's own docstring),
+ * so absence is read with `!= null`, not a bare falsy check.
+ */
+export function isDurationBasedEntry(
+  entry: RoutineEntry | undefined,
+  plannedSet: RoutineSet | undefined
+): boolean {
+  if (!entry) return false;
+  if (entry.kind === 'stretch' || entry.kind === 'cardio') return true;
+  const hasReps = plannedSet?.reps != null && plannedSet.reps > 0;
+  const hasDuration = plannedSet?.durationSeconds != null && plannedSet.durationSeconds > 0;
+  return hasDuration && !hasReps;
 }
 
 /**
@@ -172,14 +199,17 @@ export function isDurationBasedEntry(entry: RoutineEntry | undefined): boolean {
  * have to detect it. Warmup and working sets are namespaced apart because both
  * segments count from 1.
  *
- * Returns undefined for entries that are not duration-based, which switches
- * the stopwatch off entirely.
+ * `plannedSet` is the entry's set at the current `setIndex` — see
+ * `isDurationBasedEntry`, which this defers to. Returns undefined for
+ * entries that are not duration-based, which switches the stopwatch off
+ * entirely.
  */
 export function makeStopwatchKey(
   entry: RoutineEntry | undefined,
+  plannedSet: RoutineSet | undefined,
   position: { isWarmupSet: boolean; setNumber: number }
 ): string | undefined {
-  if (!entry || !isDurationBasedEntry(entry)) return undefined;
+  if (!entry || !isDurationBasedEntry(entry, plannedSet)) return undefined;
   return `${entry.idx}:${position.isWarmupSet ? 'w' : 's'}${position.setNumber}`;
 }
 
