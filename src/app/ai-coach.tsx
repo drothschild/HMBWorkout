@@ -7,9 +7,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
@@ -23,6 +24,7 @@ import type { AiDisplayMessage, AiChatError } from '@/state/aiChatStore';
 import { aiChatErrorMessage, aiChatErrorAllowsRetry } from '@/state/aiChatErrorCopy';
 import { aiCoachModeFromParams } from '@/state/postWorkoutDebrief';
 import { computeChatScrollTarget, isScrollableIndex, ChatScrollTarget } from '@/state/chatScrollTarget';
+import { shouldWarnBeforeLeaving } from '@/state/coachNavGuard';
 import { getSettings, setSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
 import { optOutPatch } from '@/state/coachOnboarding';
@@ -91,6 +93,60 @@ export default function AiCoachScreen() {
   const pendingSettingsProposal = store((s) => s.pendingSettingsProposal);
   const status = store((s) => s.status);
   const error = store((s) => s.error);
+
+  // Issue #327: warn before losing an unaccepted routine draft or an
+  // unapproved settings proposal. `ai-coach` is a root Stack.Screen sibling
+  // of `(tabs)` (see src/app/_layout.tsx), not nested inside the tabs
+  // navigator, so the tab bar is not rendered while this screen is on
+  // screen — there is no tab-switch surface to guard here. The only ways
+  // this screen is REMOVED from the stack are the header back button and
+  // the hardware/gesture back, and both dispatch the same GO_BACK action
+  // through this navigator, so one `beforeRemove` listener covers both.
+  // (`router.push`/`router.replace` to a *different* route, e.g. the
+  // Settings button or the post-accept `/routine/${id}` push, do not fire
+  // this: push leaves the coach screen mounted underneath rather than
+  // removing it, and the one `replace` call in this file — the onboarding
+  // opt-out — already calls `store.getState().reset()` first, which clears
+  // both pending fields before the replace happens, so the guard correctly
+  // stays silent there too.)
+  //
+  // The decision itself is delegated to `shouldWarnBeforeLeaving`
+  // (src/state/coachNavGuard.ts) so it has real jest coverage; this effect's
+  // own wiring has none, since src/app carries no RN runtime in the jest
+  // project (AGENTS.md Testing gotchas) — verified only by a structural read
+  // plus a manual simulator walk.
+  const navigation = useNavigation();
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!shouldWarnBeforeLeaving(pendingDraft, pendingSettingsProposal)) {
+        // Nothing pending: must be a true no-op — no dialog, no delay.
+        return;
+      }
+
+      e.preventDefault();
+
+      Alert.alert(
+        'Leave conversation?',
+        "Your proposed routine hasn't been saved yet.",
+        [
+          { text: 'Stay', style: 'cancel' },
+          {
+            text: 'Leave',
+            onPress: () => {
+              // Replays the exact action beforeRemove intercepted (GO_BACK,
+              // etc.) rather than calling router.back() again, so the
+              // original gesture/button press is honored as-is. The pending
+              // draft/proposal is left untouched in the store — confirming
+              // "Leave" does not decline it, only leaves the screen.
+              navigation.dispatch(e.data.action);
+            },
+          },
+        ]
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation, pendingDraft, pendingSettingsProposal]);
 
   const [inputText, setInputText] = useState('');
   const [accepting, setAccepting] = useState(false);
