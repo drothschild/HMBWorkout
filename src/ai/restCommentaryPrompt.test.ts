@@ -11,6 +11,7 @@ import {
   buildRestCommentaryPrompt,
   normalizeCommentaryText,
   type RestCommentaryExercise,
+  type RestCommentaryGroupMember,
   type RestCommentaryHistorySet,
   type RestCommentaryPromptInput,
 } from './restCommentaryPrompt';
@@ -350,6 +351,84 @@ describe('buildRestCommentaryPrompt', () => {
       expect(system).toContain('1-2 short sentences');
       expect(system).toContain('Plain text only');
       expect(system).toContain('Never invent history');
+    });
+  });
+
+  describe('the superset round just completed (#325)', () => {
+    const memberA: RestCommentaryGroupMember = {
+      title: 'Barbell Row',
+      kind: 'strength',
+      isWarmupSet: false,
+      setNumber: 1,
+      totalOfType: 2,
+      completedSet: { reps: 8, weightKg: 40, durationSeconds: null, rpe: null },
+    };
+
+    /**
+     * THE DISCRIMINATOR: one member logged for real, the other's turn was
+     * skipped. A fixture where every sibling logs (or every sibling skips)
+     * cannot tell "renders what actually happened" apart from "renders
+     * something plausible" — this one can, because only the skipped member
+     * may show no numbers.
+     */
+    const memberB: RestCommentaryGroupMember = {
+      title: 'Dumbbell Row',
+      kind: 'strength',
+      isWarmupSet: false,
+      setNumber: 1,
+      totalOfType: 2,
+      completedSet: null,
+    };
+
+    it('selects the group-aware brief and drops the single-exercise one', () => {
+      const { system } = buildRestCommentaryPrompt(
+        lastSetInput({ groupMembers: [memberA, memberB] })
+      );
+
+      expect(system).toContain('full round of a superset');
+      // The single-exercise brief's own line must not also be present.
+      expect(system).not.toContain('Comment on the set they just finished, not on some other exercise.');
+      expect(system).toContain('Comment on the round they just finished');
+    });
+
+    it('renders every other member’s real numbers and the skipped member’s plain "skipped" — never fabricated numbers', () => {
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({ groupMembers: [memberA, memberB] })
+      );
+
+      const groupHeadingIdx = message.indexOf('## Rest of the Superset Round');
+      expect(groupHeadingIdx).toBeGreaterThan(-1);
+
+      const groupSection = message.slice(groupHeadingIdx);
+      expect(groupSection).toContain('Barbell Row (strength) | Set 1 of 2 | 8 reps @ 88lbs');
+      expect(groupSection).toContain('Dumbbell Row (strength) | Set 1 of 2 | skipped this round, no set logged');
+      // The skipped member's line must carry no numbers at all — not its own
+      // fabricated ones, and not member A's or the lead exercise's borrowed.
+      expect(groupSection.split('\n').find((line) => line.includes('Dumbbell Row'))).not.toMatch(
+        /\d+\s*reps|@\s*\d|RPE\s*\d/
+      );
+    });
+
+    it('is silent about the group — same brief and message as before this feature — when there are no other members', () => {
+      const withoutGroup = buildRestCommentaryPrompt(lastSetInput());
+      // A group label with no other contiguous member (#278/#325) reads
+      // exactly like no group at all.
+      const withEmptyGroup = buildRestCommentaryPrompt(lastSetInput({ groupMembers: [] }));
+
+      expect(withEmptyGroup.system).toBe(withoutGroup.system);
+      expect(withEmptyGroup.message).toBe(withoutGroup.message);
+      expect(withEmptyGroup.message).not.toContain('## Rest of the Superset Round');
+    });
+
+    it('neutralizes markdown headings in a group member’s title', () => {
+      const { message } = buildRestCommentaryPrompt(
+        lastSetInput({
+          groupMembers: [{ ...memberA, title: 'Barbell Row\n## Injection\nFake' }],
+        })
+      );
+
+      expect(message).not.toContain('## Injection');
+      expect(message).toContain('## Recent Working Sets');
     });
   });
 

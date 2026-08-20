@@ -1193,6 +1193,120 @@ describe('restCommentaryTarget', () => {
     });
   });
 
+  describe('#325: comments on the whole superset round, not just the last member', () => {
+    const threeMemberEntries = () => [
+      entry({ idx: 0, exerciseId: 'member-a', supersetGroup: 'G', sets: makeSets(0, 2, 8) }),
+      entry({ idx: 1, exerciseId: 'member-b', supersetGroup: 'G', sets: makeSets(0, 2, 8) }),
+      entry({ idx: 2, exerciseId: 'member-c', supersetGroup: 'G', sets: makeSets(0, 2, 8) }),
+    ];
+
+    /**
+     * THE DISCRIMINATOR (per AGENTS.md's own account of AC-fixture
+     * discrimination): a fixture where every member of the round logs (or
+     * every member is skipped) cannot tell "reports what actually happened"
+     * apart from "reports something plausible" — a mutant that always
+     * fabricates a set, or always reports every member as skipped, would
+     * still pass. This one can't be fooled either way: round 0 of a
+     * three-member group where A logs, B is skipped (SetDone — appends
+     * nothing to loggedSets), and C logs and closes the round, handing the
+     * next round back to A (mirroring the existing "round-repeat rest"
+     * fixture above).
+     */
+    it("reports each logged sibling's real data and the skipped sibling's absence — never a fabricated set", () => {
+      const aSet = logged({ exerciseId: 'member-a', reps: 8, weightKg: 40, rpe: 6 });
+      const cSet = logged({ exerciseId: 'member-c', reps: 5, weightKg: 30, rpe: 9 });
+
+      const result = restCommentaryTarget(
+        state({
+          entries: threeMemberEntries(),
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 1,
+          loggedSets: [aSet, cSet],
+          lastLoggedSet: cSet,
+        }),
+        { 'member-a': 'Member A', 'member-b': 'Member B', 'member-c': 'Member C' }
+      ) as LastSetTarget;
+
+      // The round's last performer, C, is still the target's own top-level
+      // exercise — unchanged from #270.
+      expect(result).toMatchObject({
+        shape: 'lastSet',
+        exerciseId: 'member-c',
+        completedSet: { reps: 5, weightKg: 30, durationSeconds: null, rpe: 9 },
+      });
+
+      // The other two members of the round, in index order.
+      expect(result.groupMembers).toEqual([
+        {
+          exerciseId: 'member-a',
+          exerciseTitle: 'Member A',
+          kind: 'strength',
+          isWarmupSet: false,
+          setNumber: 1,
+          totalOfType: 2,
+          // Logged for real: its own numbers, not member C's or a blank.
+          completedSet: { reps: 8, weightKg: 40, durationSeconds: null, rpe: 6 },
+        },
+        {
+          exerciseId: 'member-b',
+          exerciseTitle: 'Member B',
+          kind: 'strength',
+          isWarmupSet: false,
+          setNumber: 1,
+          totalOfType: 2,
+          // THE ASSERTION THAT MATTERS: skipped this round, so `null` — never
+          // a fabricated set borrowed from a neighbor.
+          completedSet: null,
+        },
+      ]);
+    });
+
+    it("excludes a member whose own sets are already exhausted — it isn't part of this round at all", () => {
+      // B prescribes only 1 set; round 1 (setIndex 2) is past it. A and C are
+      // both still active, so B must not appear as "skipped" — it took no
+      // turn this round because there was nothing left for it to take.
+      const entries = [
+        entry({ idx: 0, exerciseId: 'member-a', supersetGroup: 'G', sets: makeSets(0, 2, 8) }),
+        entry({ idx: 1, exerciseId: 'member-b', supersetGroup: 'G', sets: makeSets(0, 1, 8) }),
+        entry({ idx: 2, exerciseId: 'member-c', supersetGroup: 'G', sets: makeSets(0, 2, 8) }),
+      ];
+      const aSet2 = logged({ exerciseId: 'member-a' });
+      const cSet2 = logged({ exerciseId: 'member-c' });
+
+      const result = restCommentaryTarget(
+        state({
+          entries,
+          exerciseIndex: 0,
+          supersetPosition: 0,
+          setIndex: 2,
+          loggedSets: [logged({ exerciseId: 'member-a' }), logged({ exerciseId: 'member-b' }), logged({ exerciseId: 'member-c' }), aSet2, cSet2],
+          lastLoggedSet: cSet2,
+        })
+      ) as LastSetTarget;
+
+      expect(result.exerciseId).toBe('member-c');
+      expect(result.groupMembers?.map((m) => m.exerciseId)).toEqual(['member-a']);
+    });
+
+    it("leaves a standalone (non-superset) target's groupMembers undefined — regression for #270", () => {
+      // Every #270 fixture above returns via toMatchObject, which ignores
+      // extra keys and so could not catch this feature silently attaching a
+      // groupMembers array to a plain, non-superset rest.
+      const result = restCommentaryTarget(afterWorkingSet()) as LastSetTarget;
+
+      expect(result.shape).toBe('lastSet');
+      expect(result.groupMembers).toBeUndefined();
+    });
+
+    it('leaves the upNext shape entirely untouched — regression for #270', () => {
+      const result = restCommentaryTarget(state({ exerciseIndex: 1, setIndex: 0 }));
+
+      expect(result).toMatchObject({ shape: 'upNext', exerciseId: 'squat' });
+      expect((result as { groupMembers?: unknown }).groupMembers).toBeUndefined();
+    });
+  });
+
   describe('#270: the warmup guard scopes to the last-set shape only', () => {
     /**
      * A decision, not an accident, and nothing else in the suite distinguishes
