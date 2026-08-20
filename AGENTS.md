@@ -601,7 +601,7 @@ fixtures, so test coverage is incomplete by construction; add targeted roundtrip
 when you discover or fix a case the current suite misses.
 
 **`parse.ts` HAS a production caller now (#267 Phase 2), and the argument that
-kept it alive for the four years it did not is worth keeping anyway.** The caller
+kept it alive while it did not is worth keeping anyway.** The caller
 is `parseRoutine`, reached through `src/interop/importRoutine.ts` from the
 Settings → Data screen: a routine markdown file picked out of Files is parsed and
 written by `applyRoutineImport`. #262 kept this module deliberately as "a

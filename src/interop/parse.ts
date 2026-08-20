@@ -7,7 +7,7 @@
  * picks a routine markdown file out of Files. `parseSession` and `parseFlags` do
  * not; session import is not a feature.
  *
- * This module spent from #203 to #267 with no caller at all, kept deliberately
+ * This module spent the stretch from #203 to #267 with no caller at all, kept deliberately
  * (#262) as a *maintained contract* rather than deleted as dead code, on the
  * argument that a future backup path would want it. That argument was right, and
  * both of the jobs it named still hold now that the caller exists:
