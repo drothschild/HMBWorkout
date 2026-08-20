@@ -5,6 +5,8 @@ import { Spacing } from '@/constants/theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { playRestCompleteSound } from './timerSoundPlayer';
 import { vibrateAtRestComplete } from './minuteVibration';
+import { KeepAwakeTag, isRestTimerRunning } from '@/state/keepAwake';
+import { KeepScreenAwake } from './KeepScreenAwake';
 
 interface RestCountdownProps {
   /** Active deadline while the timer is running (undefined when paused) */
@@ -94,8 +96,18 @@ export function RestCountdown({
     onRestElapsedRef.current = onRestElapsed;
   }, [onRestElapsed]);
 
+  // #312: one boolean, two consumers — the tick interval below and the
+  // keep-awake mount in the markup. Deriving both from the same value is what
+  // guarantees the screen lock cannot outlive the countdown; re-spelling the
+  // condition in either place is how they drift apart and the lock leaks.
+  const restTimerRunning = isRestTimerRunning({ deadlineMs, isPaused });
+
   useEffect(() => {
-    if (isPaused || !deadlineMs) return;
+    if (!restTimerRunning) return;
+    // Type narrowing only, never a second decision: isRestTimerRunning is
+    // already false for undefined *and* for the engine's 0 sentinel, so this
+    // can never fire. TypeScript simply cannot see through the predicate call.
+    if (deadlineMs === undefined) return;
 
     let elapsedDispatched = false;
     const tick = () => {
@@ -121,12 +133,19 @@ export function RestCountdown({
     tick();
     const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [deadlineMs, isPaused]);
+  }, [deadlineMs, restTimerRunning]);
 
   const displayMs = isPaused ? frozenRemainingMs ?? 0 : remainingMs;
 
   return (
     <View style={styles.container}>
+      {/*
+        #312: the screen stays lit while the countdown runs and is released the
+        moment it stops, pauses, or this screen goes away. Mounting is the
+        condition — useKeepAwake cannot be called conditionally — so React's own
+        unmount is what releases the lock.
+      */}
+      {restTimerRunning && <KeepScreenAwake tag={KeepAwakeTag.restCountdown} />}
       <View style={styles.timerArea}>
         <ThemedText type="subtitle" style={styles.label}>
           {isPaused ? 'Rest Paused' : 'Rest'}
