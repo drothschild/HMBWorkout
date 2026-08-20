@@ -771,6 +771,26 @@ describe('buildSystem: AI Coach context builder', () => {
         'A set\'s own "rest Ns" in "Existing Routines" is that set\'s restSeconds, not the exercise default — when you revise a routine, carry each one back onto the set you re-emit, or a drop set\'s 0 / 0 / full pattern is flattened'
       );
     }, 30000);
+
+    // #320: validateRoutineDraft now rejects a title that is already exactly
+    // its own slug and multi-word (e.g. 'dumbbell-romanian-deadlift'), but a
+    // model that never wrote a human-readable name in the first place has
+    // nothing to fall back to — root-caused live, at least 7 exercises on
+    // one device were created with a raw-slug title and stayed that way
+    // permanently (create-only accept path, no title-editing UI). Same gap
+    // class and same fix shape as #308/#321: one sentence in the Guidance
+    // block telling the model what to write, not just a validator rejecting
+    // what it shouldn't have written.
+    it('tells the coach to write a human-readable exercise title, not the id it will become', async () => {
+      // Exact-string pin, the convention every persona sentence here follows.
+      // A prompt-wording change cannot be PROVEN correct by a unit test; this
+      // only holds the sentence against silent drift.
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'Write a NEW exercise\'s title as a human-readable name (e.g. "Dumbbell Romanian Deadlift"), never the lowercase-hyphenated id it will become — the id is derived from the title you write, not something to write directly'
+      );
+    }, 30000);
   });
 
   describe('Routine description', () => {

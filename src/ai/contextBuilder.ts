@@ -257,6 +257,7 @@ Settings proposal constraints:
 
 Guidance:
 - Prefer reusing exercise titles that already exist in the user's data — they will map to the same records
+- Write a NEW exercise's title as a human-readable name (e.g. "Dumbbell Romanian Deadlift"), never the lowercase-hyphenated id it will become — the id is derived from the title you write, not something to write directly
 - All numeric values must be integers, except weightLbs, which may use 0.5 steps
 - Write out one set object per set performed: four working sets of 8-10 is four objects in the list, not one object saying four
 - Write a warmup ramp out set by set, each warmup carrying its own weightLbs, rather than repeating one load — the set list exists so a ramp can be programmed

@@ -238,6 +238,18 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
       throw new DraftValidationError(`exercise title "${exercise.title}" does not contain valid characters`);
     }
 
+    // #320: a title that is already exactly its own slug AND multi-word is
+    // the id it will become, not a name someone typed — e.g.
+    // 'dumbbell-romanian-deadlift' slugifies to itself and passed the two
+    // checks above unnoticed. The hyphen check is what keeps this from also
+    // rejecting a genuinely short lowercase name ('plank' also equals its
+    // own slug, but is one word and not slug-shaped).
+    if (exercise.title.trim() === slugifyTitle(exercise.title) && exercise.title.includes('-')) {
+      throw new DraftValidationError(
+        `exercise title "${exercise.title}" looks like a slug/id, not a human-readable name`
+      );
+    }
+
     if (!Object.keys(KIND_SET).includes(exercise.kind as string)) {
       throw new DraftValidationError(
         `exercise kind must be one of: ${Object.keys(KIND_SET).join(', ')}, got "${exercise.kind}"`
