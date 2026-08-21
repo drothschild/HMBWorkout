@@ -1,0 +1,8 @@
+{
+  "name": "watermelondb-safety",
+  "version": "0.1.0",
+  "description": "WatermelonDB schema migrations that do not silently wipe the user's database, plus the test idioms its fire-and-forget write queue and decorator models require.",
+  "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+  "license": "MIT",
+  "homepage": "https://github.com/drothschild/HMBWorkout/tree/main/claude-plugins/watermelondb-safety"
+}
