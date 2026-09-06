@@ -67,7 +67,7 @@ describe('formatPlannedSetLine', () => {
 
 describe('formatPlannedSetsSummary', () => {
   it('summarises RAMP as its warmup count plus its working prescription', () => {
-    expect(formatPlannedSetsSummary(RAMP)).toBe('3 warmup + 4×8–10');
+    expect(formatPlannedSetsSummary(RAMP)).toBe('3 warmup + 4×8–10 @ 50lbs');
   });
 
   it('summarises a plain strength entry', () => {
@@ -78,6 +78,16 @@ describe('formatPlannedSetsSummary', () => {
         { setType: 'normal', targetReps: 5 },
       ])
     ).toBe('3×5');
+  });
+
+  it('includes a uniform prescribed load in the compact routine summary (#333)', () => {
+    expect(
+      formatPlannedSetsSummary([
+        { setType: 'normal', targetReps: 8, targetWeightKg: 22.68 },
+        { setType: 'normal', targetReps: 8, targetWeightKg: 22.68 },
+        { setType: 'normal', targetReps: 8, targetWeightKg: 22.68 },
+      ])
+    ).toBe('3×8 @ 50lbs');
   });
 
   it('summarises a timed entry by its duration', () => {
