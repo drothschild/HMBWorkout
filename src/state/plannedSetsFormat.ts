@@ -144,12 +144,14 @@ export function formatPlannedSetsSummary(sets: readonly RoutineSetEntry[]): stri
     // mixed prescriptions is rendered honestly only by the per-set rows above.
     const first = working[0];
     const reps = formatReps(first);
+    const load =
+      first.targetWeightKg != null ? ` @ ${formatWeightLbs(first.targetWeightKg)}` : '';
     if (reps != null) {
-      parts.push(`${working.length}×${reps}`);
+      parts.push(`${working.length}×${reps}${load}`);
     } else if (first.targetDurationSeconds != null) {
-      parts.push(`${working.length}×${formatDuration(first.targetDurationSeconds)}`);
+      parts.push(`${working.length}×${formatDuration(first.targetDurationSeconds)}${load}`);
     } else {
-      parts.push(`${working.length} ${working.length === 1 ? 'set' : 'sets'}`);
+      parts.push(`${working.length} ${working.length === 1 ? 'set' : 'sets'}${load}`);
     }
   }
 
