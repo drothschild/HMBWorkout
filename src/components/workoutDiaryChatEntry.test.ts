@@ -45,6 +45,7 @@ function harness(source = fs.existsSync(sourcePath) ? fs.readFileSync(sourcePath
   new Function('require', 'exports', output)((name: string) => { if (!(name in modules)) throw new Error(`Unexpected dependency ${name}`); return modules[name]; }, exports);
   return {
     reads,
+    keepOpeningVisible: exports.shouldKeepDiaryEntryVisible,
     render(id = 'session-a') { cursor = 0; effectCursor = 0; const tree = exports.WorkoutDiaryChatEntry({ sessionId: id }); queued.splice(0).forEach(run => run()); return tree; },
     unmount() { effects.forEach(effect => effect.cleanup?.()); },
   };
@@ -103,4 +104,12 @@ test('an unreadable local photo has an explicit fallback while keeping the journ
 test('debrief screen places the saved entry in the list header before replies', () => {
   const screen = fs.readFileSync(path.join(__dirname, '../app/ai-coach.tsx'), 'utf8');
   expect(screen).toMatch(/ListHeaderComponent=\{mode.kind === 'debrief' \?\s*<WorkoutDiaryChatEntry key=\{mode.sessionId\} sessionId=\{mode.sessionId\} \/> : null\}/);
+});
+
+
+test('the initial debrief keeps its journal visible, while a user follow-up restores reply anchoring', () => {
+  const h = harness();
+  expect(h.keepOpeningVisible).toBeDefined();
+  expect(h.keepOpeningVisible([{ role: 'user', hidden: true }, { role: 'assistant' }])).toBe(true);
+  expect(h.keepOpeningVisible([{ role: 'user', hidden: true }, { role: 'assistant' }, { role: 'user' }, { role: 'assistant' }])).toBe(false);
 });
