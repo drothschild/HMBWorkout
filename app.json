@@ -49,7 +49,15 @@
           "NSHealthUpdateUsageDescription": "We use HealthKit to write your workout data to Apple Health"
         }
       ],
-      "./plugins/withSceneLifecycle"
+      "./plugins/withSceneLifecycle",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Take an optional selfie to save with your workout diary.",
+          "photosPermission": "Choose an optional photo to save with your workout diary.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

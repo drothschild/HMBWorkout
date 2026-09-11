@@ -13,6 +13,9 @@ export default class Session extends Model {
   @readonly @date('started_at') startedAt!: Date;
   @readonly @date('ended_at') endedAt?: Date;
   @text('engine_state') engineState?: string;
+  @text('diary_entry') diaryEntry?: string | null;
+  @text('selfie_path') selfiePath?: string | null;
+  @field('debrief_ready') debriefReady?: boolean | null;
   @readonly @date('created_at') createdAt!: Date;
 
   @children('session_sets') sessionSets: any;

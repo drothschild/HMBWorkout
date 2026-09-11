@@ -174,7 +174,10 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 - **A finished workout opens a debrief conversation.** The `debrief` mode carries the
   routine plus the session that was just performed, and the prompt gains a
   "Just-Finished Workout" section (every planned exercise against the sets actually
-  logged, warmups included — unlike the history section). The coach speaks first:
+  logged, warmups included — unlike the history section). Before any provider turn,
+  `WorkoutDiaryGate` asks for and saves a diary, then offers a selfie or Skip.
+  It resumes incomplete collection from the session row after reopening. Once
+  that local prelude is complete, the coach speaks first in the conversation:
   `aiChatStore.openDebrief` resets and sends `DEBRIEF_OPENING_MESSAGE` for the user,
   because the Messages API needs a user turn before a reply. The opening turn is
   flagged hidden and suppressed in the UI while staying byte-identical on the wire,
@@ -282,5 +285,11 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   (`src/ai/alternatesPrompt.ts`), `buildExerciseQuestionPrompt` (`src/ai/exerciseQuestionPrompt.ts`),
   and `buildCatalogPickPrompt` (`src/ai/catalogPickPrompt.ts`, #335);
   the directive text itself lives in `src/ai/coachDirectives.ts`.
+
+#332 adds the saved diary to debrief context before immutable directives; no
+selfie path or bytes enter the prompt. `WorkoutDiarySummary` refreshes on focus,
+so returning from collection updates history immediately. Native UI, camera,
+permissions, SQLite upgrade and provider-response behavior remain human QA;
+see [the diary design and QA checklist](../plans/2026-09-10-workout-diary-design.md).
 
 [Back to reference index](README.md)

@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 9,
+  version: 10,
   tables: [
     tableSchema({
       name: 'routines',
@@ -101,6 +101,9 @@ export const databaseSchema = appSchema({
         { name: 'started_at', type: 'number' },
         { name: 'ended_at', type: 'number', isOptional: true },
         { name: 'engine_state', type: 'string', isOptional: true },
+        { name: 'diary_entry', type: 'string', isOptional: true },
+        { name: 'selfie_path', type: 'string', isOptional: true },
+        { name: 'debrief_ready', type: 'boolean', isOptional: true },
         { name: 'created_at', type: 'number' },
       ],
     }),

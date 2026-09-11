@@ -1660,7 +1660,7 @@ describe('buildSystem: AI Coach context builder', () => {
   // bounds: the persona is what the model reads, so a behaviour change here
   // has to be a deliberate edit rather than a silent drift.
   describe('Debrief persona', () => {
-    it('tells the coach to open by asking how the workout went', async () => {
+    it('tells the coach to discuss the saved diary before proposing changes', async () => {
       const prompt = await buildSystem(database, {
         kind: 'debrief',
         routineId: 'routine-1',
@@ -1668,7 +1668,7 @@ describe('buildSystem: AI Coach context builder', () => {
       });
 
       expect(prompt).toContain(
-        'Open the conversation by asking how the workout went before proposing any changes'
+        'Use their saved diary to discuss the workout'
       );
     }, 30000);
 
@@ -1688,7 +1688,7 @@ describe('buildSystem: AI Coach context builder', () => {
       const prompt = await buildSystem(database, { kind: 'create' });
 
       expect(prompt).not.toContain(
-        'Open the conversation by asking how the workout went before proposing any changes'
+        'Use their saved diary to discuss the workout'
       );
     }, 30000);
   });

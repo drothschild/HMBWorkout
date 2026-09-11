@@ -1,3 +1,5 @@
+import { WorkoutDiaryChatEntry, shouldKeepDiaryEntryVisible } from '@/components/WorkoutDiaryChatEntry';
+import { WorkoutDiaryGate } from '@/components/WorkoutDiaryGate';
 import {
   StyleSheet,
   FlatList,
@@ -63,6 +65,7 @@ export default function AiCoachScreen() {
   // does not guarantee to cache. Use the key to detect when params change.
   const modeKey = `${mode.kind}:${routineId ?? ''}:${debriefSessionId ?? ''}:${onboarding ?? ''}`;
   const startedModeRef = useRef<string | null>(null);
+  const [debriefReadySession, setDebriefReadySession] = useState<string | null>(null);
 
   // Start the conversation before paint on first mount (and whenever the params
   // name a different one). A layout effect rather than a render-body write:
@@ -76,9 +79,9 @@ export default function AiCoachScreen() {
     startedModeRef.current = modeKey;
 
     if (mode.kind === 'debrief') {
-      // A debrief is the coach's conversation to open; the store sends the
-      // first turn so the user arrives to a question, not a blank thread.
-      void store.getState().openDebrief(mode);
+      // Collect and persist the diary/selfie choice before starting any AI turn.
+      setDebriefReadySession(null);
+      store.getState().reset(mode);
     } else if (mode.kind === 'onboarding') {
       // Onboarding is also a coach-speaks-first conversation; the store sends
       // the opening turn so the user arrives to a question, not a blank thread.
@@ -248,8 +251,12 @@ export default function AiCoachScreen() {
       flatListRef.current.scrollToEnd({ animated: true });
       return;
     }
+    if (mode.kind === 'debrief' && shouldKeepDiaryEntryVisible(messages)) {
+      flatListRef.current.scrollToOffset({ offset: 0, animated: false });
+      return;
+    }
     flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
-  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError, error]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError, error, mode.kind]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -398,6 +405,20 @@ export default function AiCoachScreen() {
 
   const headerTitle = HEADER_TITLES[mode.kind];
 
+  if (mode.kind === 'debrief' && debriefReadySession !== mode.sessionId) {
+    return <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <ThemedText>← Back</ThemedText>
+        </Pressable>
+        <WorkoutDiaryGate key={mode.sessionId} sessionId={mode.sessionId} onComplete={() => {
+          setDebriefReadySession(mode.sessionId);
+          void store.getState().openDebrief(mode);
+        }} />
+      </SafeAreaView>
+    </ThemedView>;
+  }
+
   if (hasMissingKey) {
     return (
       <ThemedView style={styles.container}>
@@ -456,6 +477,8 @@ export default function AiCoachScreen() {
             data={messages}
             keyExtractor={(_, index) => String(index)}
             renderItem={({ item }) => <MessageBubble message={item} />}
+            ListHeaderComponent={mode.kind === 'debrief' ?
+              <WorkoutDiaryChatEntry key={mode.sessionId} sessionId={mode.sessionId} /> : null}
             ListFooterComponent={footer}
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}

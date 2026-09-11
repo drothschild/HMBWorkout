@@ -1,3 +1,4 @@
+import { WorkoutDiarySummary } from '@/components/WorkoutDiarySummary';
 import { StyleSheet, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -129,6 +130,13 @@ export default function SessionDetailScreen() {
           <ThemedText type="default" style={styles.dateText}>
             {formatSessionDate(detail.endedAt)}
           </ThemedText>
+
+          <WorkoutDiarySummary key={detail.sessionId} sessionId={detail.sessionId} />
+          <Pressable style={styles.backButton} onPress={() => router.push({
+            pathname: '/ai-coach', params: { routineId: detail.routineId, debriefSessionId: id },
+          })}>
+            <ThemedText style={styles.backButtonText}>Diary and workout debrief</ThemedText>
+          </Pressable>
 
           {detail.exercises.map((exercise) => {
             // The plan is the routine's set list (#276); '' when the row

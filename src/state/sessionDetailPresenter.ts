@@ -57,6 +57,7 @@ export interface SessionDetailExercise {
 
 export interface SessionDetail {
   sessionId: string;
+  routineId: string;
   /** The routine's current name, or its raw id if the routine has since
    *  been deleted — same fallback convention as sessionHistoryPresenter. */
   routineName: string;
@@ -192,6 +193,7 @@ export async function sessionDetailPresenter(db: Database, sessionId: string): P
 
   return {
     sessionId: session.id,
+    routineId,
     routineName: routineDisplay?.name ?? routineId,
     endedAt,
     exercises,

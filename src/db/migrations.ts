@@ -205,5 +205,17 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    {
+      // #332: preserve existing workouts; diary and selfie are optional local data.
+      toVersion: 10,
+      steps: [addColumns({
+        table: 'sessions',
+        columns: [
+          { name: 'diary_entry', type: 'string', isOptional: true },
+          { name: 'selfie_path', type: 'string', isOptional: true },
+          { name: 'debrief_ready', type: 'boolean', isOptional: true },
+        ],
+      })],
+    },
   ],
 });

@@ -1,3 +1,4 @@
+import type Session from '@/db/models/Session';
 // pattern: Imperative Shell
 import { Database } from '@nozbe/watermelondb';
 import { getSettings } from '@/state/settings';
@@ -137,6 +138,12 @@ export async function buildSystem(
 
   if (mode.kind === 'debrief') {
     sections.push(await debriefSection(db, mode, routineDetails));
+    const session = await db.get<Session>('sessions').find(mode.sessionId).catch(() => null);
+    if (session?.diaryEntry) {
+      sections.push(`## Workout Diary
+
+${neutralizeNotesForPrompt(session.diaryEntry)}`);
+    }
   }
 
   // Placement (immutable half): deliberately last, after every section built
@@ -293,7 +300,7 @@ At the end of the interview, offer to draft a first routine based on what you've
 
 Debrief mode:
 - The user has just finished the workout summarised under "Just-Finished Workout" below
-- Open the conversation by asking how the workout went before proposing any changes
+- Use their saved diary to discuss the workout and ask relevant follow-up questions before proposing changes; do not ask them to repeat their diary or request a selfie
 - Any draft you propose is a complete revision of the routine the user just performed, for next time`;
   }
 
