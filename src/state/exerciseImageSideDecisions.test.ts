@@ -114,3 +114,16 @@ it('keeps failed repairs eligible and preserves a racing URL override', async ()
   expect(d.download).toHaveBeenCalledTimes(2);
   expect(d.deleteFile).toHaveBeenCalledWith('exercise-images/right-2.jpg');
 });
+
+it('shares a rejected ask within a pass but retries on the next pass', async () => {
+  await add('left', 'Calf Stretch Left'); await add('right', 'Calf Stretch Right');
+  const d = deps({ ask: jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue('Standing_Gastrocnemius_Calf_Stretch') });
+  await runImageResolutionPass(d, matcher);
+  expect(d.ask).toHaveBeenCalledTimes(1);
+  expect((await row('left')).imageSource).toBeNull();
+  expect((await row('right')).imageSource).toBeNull();
+  await runImageResolutionPass(d, matcher);
+  expect(d.ask).toHaveBeenCalledTimes(2);
+  expect((await row('left')).imageSource).toBe('catalog:Standing_Gastrocnemius_Calf_Stretch');
+  expect((await row('right')).imageSource).toBe('catalog:Standing_Gastrocnemius_Calf_Stretch');
+});
