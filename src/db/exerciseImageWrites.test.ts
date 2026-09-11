@@ -1,5 +1,10 @@
 import { closeTestDatabase, createTestDatabase, flush } from './test-helpers';
-import { upsertExercise, setExerciseImageIfSourceUnchanged, setExerciseImage } from './repository';
+import {
+  upsertExercise,
+  setExerciseImageIfSourceUnchanged,
+  setExerciseImage,
+  getExerciseImagePaths,
+} from './repository';
 import type { Database } from '@nozbe/watermelondb';
 
 describe('exerciseImageWrites (AC4.5)', () => {
@@ -174,6 +179,41 @@ describe('exerciseImageWrites (AC4.5)', () => {
 
       const exercise = (await db.get('exercises').find('test-exercise')) as any;
       expect(exercise.imageSource).toBe('url:https://example.com/override.jpg');
+    });
+  });
+
+  describe('getExerciseImagePaths (#335)', () => {
+    beforeEach(async () => {
+      await upsertExercise(db, 'bench-press', 'Bench Press', 'strength');
+      await upsertExercise(db, 'couch-stretch', 'Couch Stretch', 'stretch');
+      await setExerciseImage(db, 'bench-press', {
+        imagePath: 'exercise-images/bench-press-a1.jpg',
+        imageSource: 'catalog:Barbell_Bench_Press',
+      });
+      await flush();
+    });
+
+    it('maps a resolved exercise to its relative path and leaves an unresolved one out', async () => {
+      const paths = await getExerciseImagePaths(db, ['bench-press', 'couch-stretch']);
+
+      expect(paths).toEqual({ 'bench-press': 'exercise-images/bench-press-a1.jpg' });
+      expect('couch-stretch' in paths).toBe(false);
+    });
+
+    it('leaves an unknown id out instead of throwing, and keeps reading the ids after it', async () => {
+      const paths = await getExerciseImagePaths(db, ['no-such-exercise', 'bench-press']);
+
+      expect(paths).toEqual({ 'bench-press': 'exercise-images/bench-press-a1.jpg' });
+    });
+
+    it('is unaffected by duplicate ids (a routine may list an exercise twice)', async () => {
+      const paths = await getExerciseImagePaths(db, ['bench-press', 'couch-stretch', 'bench-press']);
+
+      expect(paths).toEqual({ 'bench-press': 'exercise-images/bench-press-a1.jpg' });
+    });
+
+    it('returns an empty map for no ids', async () => {
+      expect(await getExerciseImagePaths(db, [])).toEqual({});
     });
   });
 });

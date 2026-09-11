@@ -337,6 +337,30 @@ export async function getExerciseTitles(
 }
 
 /**
+ * exerciseId → image_path (RELATIVE to the documents directory) for the given
+ * ids (#335). Ids with no image, and ids whose exercise no longer exists, are
+ * left out — the caller reads absence as "placeholder". The display-data twin
+ * of getExerciseTitles (engine convention 6: engine state carries ids only).
+ */
+export async function getExerciseImagePaths(
+  database: Database,
+  exerciseIds: readonly string[]
+): Promise<Record<string, string>> {
+  const paths: Record<string, string> = {};
+
+  for (const exerciseId of exerciseIds) {
+    try {
+      const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+      if (exercise.imagePath) paths[exerciseId] = exercise.imagePath;
+    } catch {
+      // Exercise no longer exists; leave it out so the caller shows the placeholder.
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Normalize a raw routine notes value for display: trim it, and collapse
  * missing or whitespace-only notes to null so read sites can treat null as
  * "absent", matching the exercise description convention.
