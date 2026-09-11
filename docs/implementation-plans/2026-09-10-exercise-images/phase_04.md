@@ -205,7 +205,7 @@ import {
 
 export type ExerciseImageResolverDeps = {
   readonly database: Database;
-  readonly catalog: ReadonlyArray<CatalogEntry>;
+  readonly catalog: readonly CatalogEntry[];
   /** Read EXACTLY ONCE at the start of every pass. */
   readonly getAiKeyConfigured: () => boolean;
   /** Called only in a pass where getAiKeyConfigured() was true. */

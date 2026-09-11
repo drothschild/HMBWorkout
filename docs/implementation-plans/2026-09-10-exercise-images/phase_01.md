@@ -22,7 +22,7 @@
 
 ## Design deviations recorded in this phase (from codebase investigation)
 
-1. **The catalog ships as a generated `.ts` module, not a `.json` file.** (`resolveJsonModule` is in fact on — inherited from `node_modules/expo/tsconfig.base.json` — so a JSON import would type-check.) The reasons are the repo's conventions, not the compiler: no `src/` module imports JSON today, and `jest.config.js`'s `transform` table covers only `.ts` and `.lv`, which is why `src/hevy/__tests__/loadFixture.ts` reads JSON with `fs.readFileSync` rather than importing it. A generated `export const EXERCISE_CATALOG_DATA: ReadonlyArray<CatalogEntry> = [...]` module also carries a provenance header and a type annotation, and works identically under Metro, `tsc`, and ts-jest with no config change. The design's "reproduces the committed JSON byte-for-byte" becomes "reproduces the committed data module byte-for-byte".
+1. **The catalog ships as a generated `.ts` module, not a `.json` file.** (`resolveJsonModule` is in fact on — inherited from `node_modules/expo/tsconfig.base.json` — so a JSON import would type-check.) The reasons are the repo's conventions, not the compiler: no `src/` module imports JSON today, and `jest.config.js`'s `transform` table covers only `.ts` and `.lv`, which is why `src/hevy/__tests__/loadFixture.ts` reads JSON with `fs.readFileSync` rather than importing it. A generated `export const EXERCISE_CATALOG_DATA: readonly CatalogEntry[] = [...]` module also carries a provenance header and a type annotation, and works identically under Metro, `tsc`, and ts-jest with no config change. The design's "reproduces the committed JSON byte-for-byte" becomes "reproduces the committed data module byte-for-byte".
 2. **Measured figures differ from the design's.** At pinned commit `a859101d633a01c4a1a920d6a8ce41dabba0705f`, `dist/exercises.json` has **876** entries, **3** have no image, so the catalog has **873** entries and the generated module is ~157 KB (the design said ~124 KB; the script prints the exact figure). The script prints the real figures; the design's numbers are superseded by them.
 
 ## Acceptance Criteria Coverage
@@ -96,7 +96,7 @@ function render(entries, sourceCount) {
     `// ${entries.length} of ${sourceCount} entries (entries with no image are dropped).`,
     "import type { CatalogEntry } from './exerciseCatalog';",
     '',
-    'export const EXERCISE_CATALOG_DATA: ReadonlyArray<CatalogEntry> = [',
+    'export const EXERCISE_CATALOG_DATA: readonly CatalogEntry[] = [',
     ...entries.map((entry) => `  ${JSON.stringify(entry)},`),
     '];',
     '',
@@ -175,7 +175,7 @@ export type CatalogEntry = {
   /** 'strength' | 'stretching' | 'cardio' | 'plyometrics' | ... (upstream vocabulary). */
   readonly category: string;
   readonly equipment: string | null;
-  readonly primaryMuscles: ReadonlyArray<string>;
+  readonly primaryMuscles: readonly string[];
   /** First image path relative to the upstream `exercises/` dir, e.g. 'Barbell_Squat/0.jpg'. */
   readonly image: string;
 };
@@ -183,7 +183,7 @@ export type CatalogEntry = {
 /** Must equal COMMIT in scripts/build-exercise-catalog.mjs. */
 export const FREE_EXERCISE_DB_COMMIT = 'a859101d633a01c4a1a920d6a8ce41dabba0705f';
 
-export const EXERCISE_CATALOG: ReadonlyArray<CatalogEntry> = EXERCISE_CATALOG_DATA;
+export const EXERCISE_CATALOG: readonly CatalogEntry[] = EXERCISE_CATALOG_DATA;
 
 /** The raw.githubusercontent.com URL of an entry's first image, at the pinned commit. */
 export function catalogImageUrl(entry: Pick<CatalogEntry, 'image'>): string {

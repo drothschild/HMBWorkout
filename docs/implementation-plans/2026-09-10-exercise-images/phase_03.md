@@ -116,7 +116,7 @@ export type ShortlistHit = { readonly entry: CatalogEntry; readonly score: numbe
 
 export type CatalogMatcher = {
   /** Up to SHORTLIST_SIZE hits, best first. Empty when nothing is close enough. */
-  shortlist(title: string): ReadonlyArray<ShortlistHit>;
+  shortlist(title: string): readonly ShortlistHit[];
 };
 
 export type ImageDecision =
@@ -137,7 +137,7 @@ export function normalizeExerciseTitle(title: string): string {
     .join(' ');
 }
 
-export function createCatalogMatcher(catalog: ReadonlyArray<CatalogEntry>): CatalogMatcher {
+export function createCatalogMatcher(catalog: readonly CatalogEntry[]): CatalogMatcher {
   const fuse = new Fuse([...catalog], {
     keys: [{ name: 'name', getFn: (entry: CatalogEntry) => normalizeExerciseTitle(entry.name) }],
     includeScore: true,
@@ -146,7 +146,7 @@ export function createCatalogMatcher(catalog: ReadonlyArray<CatalogEntry>): Cata
     useTokenSearch: true,
   });
   return {
-    shortlist(title: string): ReadonlyArray<ShortlistHit> {
+    shortlist(title: string): readonly ShortlistHit[] {
       const query = normalizeExerciseTitle(title);
       if (query.length === 0) return [];
       return fuse
@@ -164,7 +164,7 @@ export function createCatalogMatcher(catalog: ReadonlyArray<CatalogEntry>): Cata
  * the pass forever (see phase_03.md, "Design deviation").
  */
 export function decideByScore(
-  hits: ReadonlyArray<ShortlistHit>,
+  hits: readonly ShortlistHit[],
   options: { readonly aiConsulted: boolean }
 ): ImageDecision {
   const top = hits[0];
@@ -278,7 +278,7 @@ export const CATALOG_PICK_NONE = 'NONE';
 
 export type CatalogPickPromptInput = {
   readonly title: string;
-  readonly candidates: ReadonlyArray<CatalogEntry>;
+  readonly candidates: readonly CatalogEntry[];
   /** `IMMUTABLE_DIRECTIVES` from `src/ai/coachDirectives.ts`. */
   readonly directives?: string;
 };
@@ -320,7 +320,7 @@ Rules:
  * NONE. Anything else — an id outside the shortlist, an id inside prose, an
  * empty reply — is 'untrusted', and the caller falls back to the score rule.
  */
-export function parseCatalogPick(reply: string, candidateIds: ReadonlyArray<string>): CatalogPick {
+export function parseCatalogPick(reply: string, candidateIds: readonly string[]): CatalogPick {
   const trimmed = reply.trim();
   if (trimmed === CATALOG_PICK_NONE) return { kind: 'none' };
   if (candidateIds.includes(trimmed)) return { kind: 'id', id: trimmed };
@@ -340,7 +340,7 @@ import type { CatalogPick } from '@/ai/catalogPickPrompt';
  * `pick` must have been parsed against these same hits' ids.
  */
 export function decideFromAiPick(
-  hits: ReadonlyArray<ShortlistHit>,
+  hits: readonly ShortlistHit[],
   pick: CatalogPick
 ): ImageDecision {
   if (pick.kind === 'none') return { kind: 'none' };
