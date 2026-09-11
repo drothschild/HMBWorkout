@@ -44,6 +44,14 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   scripts/build-exercise-catalog.mjs --check` exits 1 if the committed file differs
   from a fresh build. The pin is what keeps an already-resolved row's source URL
   from moving under it. Never hand-edit the data file.
+- **Every pinned catalog entry is present in the on-device exercise library (#360).**
+  `seedExerciseCatalog` runs at boot before the image resolver starts. It creates
+  all 876 `exercises` rows with the upstream name, mapped kind, first primary
+  muscle, equipment and newline-separated instructions, while preserving every
+  field of an existing row. Seeded rows receive a terminal `catalog:<id>` source
+  but no local image path, so boot does not turn the import into model calls or
+  876 downloads. The existing resolver continues to handle unresolved
+  user-created exercises; catalog seeding itself performs no network access.
 - **Two nullable columns (schema v9) and `ImageSource` states.**
   `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
   `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
