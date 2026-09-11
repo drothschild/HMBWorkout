@@ -33,7 +33,7 @@ describe('tiny exercise image full-size preview (#361)', () => {
     );
     expect(source).toContain('onLoad={()=>setLoadedPath(imagePath)}');
     expect(source).toContain(
-      'onError={()=>{setLoadedPath(null);setFailedPath(imagePath);}}'
+      'onError={()=>{setPreviewVisible(false);setLoadedPath(null);setFailedPath(imagePath);}}'
     );
     expect(source).toContain('if(!previewable){returnrenderedImage;}');
     expect(source).toContain(
@@ -54,8 +54,16 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(source).toContain('accessibilityViewIsModal');
     expect(source).toContain('source={{uri:imageUri}}contentFit="contain"');
     expect(source).toContain('accessibilityLabel="Full-sizeexerciseimage"');
-    expect(source.match(/onError=\{\(\)=>\{setLoadedPath\(null\);setFailedPath\(imagePath\);\}\}/g) ?? [])
+    expect(
+      source.match(
+        /onError=\{\(\)=>\{setPreviewVisible\(false\);setLoadedPath\(null\);setFailedPath\(imagePath\);\}\}/g
+      ) ?? []
+    )
       .toHaveLength(2);
+    expect(source).toContain(
+      '<Pressablestyle={StyleSheet.absoluteFill}onPress={()=>setPreviewVisible(false)}' +
+      'accessible={false}/>'
+    );
     expect(source).toContain(
       '<Pressablestyle={styles.previewCloseButton}onPress={()=>setPreviewVisible(false)}' +
       'accessibilityRole="button"accessibilityLabel="Closeexerciseimagepreview">'
@@ -67,12 +75,16 @@ describe('tiny exercise image full-size preview (#361)', () => {
     const rowStart = routineDetail.indexOf('function ExerciseRow(');
     const rowEnd = routineDetail.indexOf('export default function', rowStart);
     const row = routineDetail.slice(rowStart, rowEnd);
+    const rowCompact = row.replace(/\s+/g, '');
     const rowImage = row.indexOf('<ExerciseImage');
     const rowNavigation = row.indexOf('<Pressable');
 
     expect(rowStart).toBeGreaterThanOrEqual(0);
     expect(rowImage).toBeGreaterThanOrEqual(0);
     expect(rowImage).toBeLessThan(rowNavigation);
+    expect(rowCompact).toContain(
+      'return(<Viewstyle={styles.exerciseItem}><ExerciseImageimagePath={exercise.imagePath}size="row"/>'
+    );
     expect(row).toContain('accessibilityLabel={`Edit ${exercise.title}`}');
 
     const routines = readFileSync(ROUTINES_TAB, 'utf8').replace(/\s+/g, ' ');
