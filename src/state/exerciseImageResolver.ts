@@ -18,6 +18,7 @@ import { setExerciseImageIfSourceUnchanged } from '@/db/repository';
 import type Exercise from '@/db/models/Exercise';
 import { catalogImageUrl, type CatalogEntry } from './exerciseCatalog';
 import {
+  catalogImageCorrection,
   createCatalogMatcher,
   decideByScore,
   decideFromAiPick,
@@ -69,10 +70,13 @@ async function decide(
 async function resolveOne(
   deps: ExerciseImageResolverDeps,
   matcher: CatalogMatcher,
-  exercise: { readonly id: string; readonly title: string; readonly imageSource: string | null },
-  hasAiKey: boolean
+  exercise: { readonly id: string; readonly title: string; readonly imageSource: string | null; readonly imagePath: string | null },
+  hasAiKey: boolean,
+  correction?: CatalogEntry
 ): Promise<void> {
-  const decision = await decide(deps, matcher, exercise.title, hasAiKey);
+  const decision: ImageDecision = correction
+    ? { kind: 'catalog', entry: correction }
+    : await decide(deps, matcher, exercise.title, hasAiKey);
   let imagePath: string | null = null;
   if (decision.kind === 'catalog') {
     imagePath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
@@ -97,6 +101,12 @@ async function resolveOne(
     }
     throw error;
   }
+  if (applied && correction && exercise.imagePath && exercise.imagePath !== imagePath) {
+    const previous = exercise.imagePath;
+    await deps.deleteFile(previous).catch((error: unknown) =>
+      deps.log(`exercise image: deleting replaced ${previous} failed`, error)
+    );
+  }
   if (!applied && imagePath !== null) {
     // Someone (a pasted URL) decided this row while we were downloading. Their
     // write wins; the file we fetched is now an orphan.
@@ -116,9 +126,10 @@ export async function runImageResolutionPass(
   const rows = (await deps.database.get('exercises').query().fetch()) as Exercise[];
   for (const row of rows) {
     const imageSource = row.imageSource ?? null;
-    if (!isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
+    const correction = catalogImageCorrection(row.title, imageSource, deps.catalog);
+    if (!correction && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
     try {
-      await resolveOne(deps, matcher, { id: row.id, title: row.title, imageSource }, hasAiKey);
+      await resolveOne(deps, matcher, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, hasAiKey, correction);
     } catch (error) {
       deps.log(`exercise image: resolving ${row.id} failed; will retry on a later pass`, error);
     }

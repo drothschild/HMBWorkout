@@ -29,6 +29,28 @@ const ABBREVIATIONS: Readonly<Record<string, string>> = {
   kbs: 'kettlebell',
 };
 
+// Exact aliases only: additional words describe a variant and must reach Fuse.
+const TITLE_ALIASES: Readonly<Record<string, { id: string; previousId: string }>> = {
+  'dumbbell lateral raise': { id: 'Side_Lateral_Raise', previousId: 'Dumbbell_Lying_Rear_Lateral_Raise' },
+  'dumbbell row': { id: 'One-Arm_Dumbbell_Row', previousId: 'Dumbbell_Incline_Row' },
+  'glute bridge': { id: 'Butt_Lift_Bridge', previousId: 'Barbell_Glute_Bridge' },
+};
+
+function titleAlias(title: string) {
+  return TITLE_ALIASES[normalizeExerciseTitle(title.replace(/-/g, ' '))];
+}
+
+/** Only the three observed title/source pairs qualify; URL overrides never do. */
+export function catalogImageCorrection(
+  title: string,
+  imageSource: string | null,
+  catalog: readonly CatalogEntry[]
+): CatalogEntry | undefined {
+  const alias = titleAlias(title);
+  if (!alias || imageSource !== `catalog:${alias.previousId}`) return undefined;
+  return catalog.find(entry => entry.id === alias.id);
+}
+
 export type ShortlistHit = { readonly entry: CatalogEntry; readonly score: number };
 
 export type CatalogMatcher = {
@@ -71,9 +93,15 @@ export function createCatalogMatcher(catalog: readonly CatalogEntry[]): CatalogM
     shortlist(title: string): readonly ShortlistHit[] {
       const query = normalizeExerciseTitle(title);
       if (query.length === 0) return [];
-      return fuse
+      const hits = fuse
         .search(query, { limit: SHORTLIST_SIZE })
         .map((result) => ({ entry: result.item, score: result.score ?? 1 }));
+      const alias = titleAlias(title);
+      const entry = alias && catalog.find(candidate => candidate.id === alias.id);
+      // A known exact synonym has the same confidence as an exact catalog name.
+      return entry
+        ? [{ entry, score: 0 }, ...hits.filter(hit => hit.entry.id !== entry.id)].slice(0, SHORTLIST_SIZE)
+        : hits;
     },
   };
 }
