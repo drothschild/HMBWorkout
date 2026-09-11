@@ -178,11 +178,17 @@ export default function ExerciseDetailScreen() {
             </ThemedText>
           </Pressable>
         </View>
+        {/* automaticallyAdjustKeyboardInsets insets the content by the keyboard
+            and scrolls the focused field into view. The #335 hero and Image URL
+            field push both inputs to the bottom, where the keyboard covered
+            them (device-verified). Same fix as Settings → AI / AI Provider;
+            gated by exerciseImageWiring.static.test.ts. */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           <ThemedText type="title" style={styles.title}>
             {exercise.title}
