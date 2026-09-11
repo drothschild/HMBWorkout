@@ -4,8 +4,8 @@
  *
  * Tuning was measured, not guessed: fuse.js 7.5.0 token search with fuse
  * threshold 0.5 gives the recall AC1.7 names, and a no-key acceptance score of
- * 0.15 sits in the gap between every accepted match (≤ 0.046) and every
- * rejected one (≥ 0.252) on the pinned catalog. TF-IDF scores are
+ * 0.15 sits in the gap between every accepted match (≤ 0.0186) and every
+ * rejected one (≥ 0.2521) on the pinned catalog. TF-IDF scores are
  * corpus-relative, so exerciseImageMatch.test.ts pins that margin table — a
  * catalog rebuild that moves it must fail there, not ship.
  */
@@ -14,13 +14,12 @@ import type { CatalogEntry } from './exerciseCatalog';
 import type { CatalogPick } from '@/ai/catalogPickPrompt';
 
 export const SHORTLIST_SIZE = 8;
-/** fuse score: 0 = perfect, 1 = total mismatch. A hit "clears" when score <= this. */
-export const NO_KEY_ACCEPT_SCORE = 0.15;
-
 /**
- * Highest accepted score from corpus: 0.0186 (Upright_Barbell_Row for 'BB Row').
- * Lowest rejected score from corpus: 0.2521 (Bent_Over_Barbell_Row for 'Back Squat').
+ * fuse score: 0 = perfect, 1 = total mismatch. A hit "clears" when score <= this.
+ * Highest accepted score from corpus: 0.0186 (Upright_Barbell_Row for 'BB Row', Dumbbell_Bench_Press for 'DB Bench Press').
+ * Lowest rejected score from corpus: 0.2521 (Hack_Squat for 'Back Squat').
  */
+export const NO_KEY_ACCEPT_SCORE = 0.15;
 
 const ABBREVIATIONS: Readonly<Record<string, string>> = {
   db: 'dumbbell',

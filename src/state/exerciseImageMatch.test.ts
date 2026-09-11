@@ -17,8 +17,13 @@ describe('exercise image matching — #335', () => {
   });
 
   describe('normalizeExerciseTitle', () => {
-    it("converts 'Farmer's Carry' to 'farmers carry'", () => {
+    it("converts 'Farmer's Carry' (straight apostrophe) to 'farmers carry'", () => {
       expect(normalizeExerciseTitle("Farmer's Carry")).toBe('farmers carry');
+    });
+
+    it("converts 'Farmer's Carry' (curly apostrophe U+2019) to 'farmers carry'", () => {
+      const curly = String.fromCharCode(0x2019);
+      expect(normalizeExerciseTitle(`Farmer${curly}s Carry`)).toBe('farmers carry');
     });
 
     it("converts 'DB Bench Press' to 'dumbbell bench press'", () => {
@@ -79,11 +84,18 @@ describe('exercise image matching — #335', () => {
       expect(ids).toContain('Barbell_Squat');
     });
 
-    it("AC1.7: Farmer's Carry shortlist contains Farmers_Walk", () => {
+    it("AC1.7: Farmer's Carry (straight apostrophe) shortlist contains Farmers_Walk", () => {
       const hits = matcher.shortlist("Farmer's Carry");
       expect(hits.length).toBeGreaterThan(0);
       const ids = hits.map((h) => h.entry.id);
       expect(ids).toContain('Farmers_Walk');
+    });
+
+    it("AC1.7: Farmer's Carry (curly apostrophe U+2019) shortlist has Farmers_Walk at [0]", () => {
+      const curly = String.fromCharCode(0x2019);
+      const hits = matcher.shortlist(`Farmer${curly}s Carry`);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0].entry.id).toBe('Farmers_Walk');
     });
 
     it('AC1.7: Cable Face Pull shortlist contains Face_Pull', () => {
