@@ -5,6 +5,16 @@ import { firstExerciseDescriptionLine } from './exerciseDescriptionSummary';
 
 const ROOT = path.resolve(__dirname, '..');
 
+function compact(source: string): string {
+  return source.replace(/\s+/g, '');
+}
+
+function hasAllKindsDescriptionGate(source: string): boolean {
+  return compact(source).includes(
+    '{presenter.exerciseDescriptionLine&&(<Viewstyle={styles.hintContainer}>'
+  );
+}
+
 describe('issue #357 active-workout exercise description cue', () => {
   test('uses only the first trimmed physical line of the stored description', () => {
     expect(firstExerciseDescriptionLine('  Brace hard, then squat.\nKeep the knees tracking over toes.  '))
@@ -25,10 +35,35 @@ describe('issue #357 active-workout exercise description cue', () => {
 
     expect(sessionSource).toContain('getExerciseDescriptions');
     expect(sessionSource).toContain('exerciseDescriptions');
-    expect(setLoggerSource).toContain('presenter.exerciseDescriptionLine');
+    expect(hasAllKindsDescriptionGate(setLoggerSource)).toBe(true);
     expect(setLoggerSource).not.toContain('presenter.progressionHint');
-    expect(setLoggerSource).not.toMatch(
-      /!isDurationBased\s*&&\s*presenter\.exerciseDescriptionLine/
+  });
+
+  test('rejects suppression of the description cue for duration-based exercises', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const durationSuppressionMutant = setLoggerSource.replace(
+      '{presenter.exerciseDescriptionLine && (',
+      '{(isDurationBased ? undefined : presenter.exerciseDescriptionLine) && ('
     );
+
+    expect(durationSuppressionMutant).not.toBe(setLoggerSource);
+    expect(hasAllKindsDescriptionGate(durationSuppressionMutant)).toBe(false);
+  });
+
+  test('discards a stale title/description read after Replace changes the exercise ids', () => {
+    const sessionSource = fs.readFileSync(path.join(ROOT, 'app/session.tsx'), 'utf8');
+    const effectStart = sessionSource.indexOf('// Engine state carries only exercise ids');
+    const effectEnd = sessionSource.indexOf('// Exercise images (#335)', effectStart);
+    const effect = sessionSource.slice(effectStart, effectEnd);
+    const compactEffect = compact(effect);
+
+    expect(effectStart).toBeGreaterThanOrEqual(0);
+    expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(compactEffect).toContain('constids:string[]=JSON.parse(entryExerciseIdsKey);');
+    expect(compactEffect).toContain('letcancelled=false;');
+    expect(compactEffect).toContain(
+      'if(cancelled)return;setExerciseTitles(titles);setExerciseDescriptions(descriptions);'
+    );
+    expect(compactEffect).toContain('return()=>{cancelled=true;};');
   });
 });
