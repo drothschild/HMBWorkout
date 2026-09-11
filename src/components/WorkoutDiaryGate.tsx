@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { Host, Column, Button, TextInput } from '@expo/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { database } from '@/db';
@@ -17,8 +17,7 @@ export function WorkoutDiaryGate({ sessionId, onComplete }: { sessionId: string;
   const { stage, diary, busy, error } = store();
   const [text, setText] = useState('');
   const theme = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
-  const contentWidth = Math.min(screenWidth, 600) - Spacing.four * 2;
+  const [contentWidth, setContentWidth] = useState(0);
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const pickingRef = useRef(false);
@@ -75,7 +74,8 @@ export function WorkoutDiaryGate({ sessionId, onComplete }: { sessionId: string;
         <ThemedText selectable>{diary}</ThemedText>
       </View>}
       {(error || pickerError) && <ThemedText accessibilityRole="alert">{pickerError ?? error}</ThemedText>}
-      {stage === 'diary' && <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
+      <View onLayout={({ nativeEvent }) => setContentWidth(nativeEvent.layout.width)}>
+      {contentWidth > 0 && stage === 'diary' && <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
         <Column spacing={Spacing.three}>
           <TextInput placeholder="My workout journal…" multiline numberOfLines={6}
             style={{ width: contentWidth, padding: 16, backgroundColor: theme.backgroundElement, borderRadius: 16 }}
@@ -86,13 +86,14 @@ export function WorkoutDiaryGate({ sessionId, onComplete }: { sessionId: string;
             onPress={() => { void store.getState().saveDiary(text); }} />
         </Column>
       </Host>}
-      {stage === 'selfie' && <WorkoutPhotoActions width={contentWidth} disabled={busy || picking}
+      {contentWidth > 0 && stage === 'selfie' && <WorkoutPhotoActions width={contentWidth} disabled={busy || picking}
         onCamera={() => { void chooseSelfie(true); }}
         onLibrary={() => { void chooseSelfie(false); }}
         onSkip={() => { setPickerError(null); void store.getState().complete(null); }} />}
       {stage === 'loading' && error && <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
         <Button label="Try again" disabled={busy} onPress={() => { void store.getState().load(); }} />
       </Host>}
+      </View>
       {stage === 'selfie' && <ThemedText type="small" themeColor="textSecondary">
         Only your journal is shared with your coach. Photos stay on this device.
       </ThemedText>}
