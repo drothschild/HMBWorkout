@@ -15,6 +15,12 @@ function hasAllKindsDescriptionGate(source: string): boolean {
   );
 }
 
+function hasRejectedReadCancellationGuard(source: string): boolean {
+  return compact(source).includes(
+    "}catch(error){if(cancelled)return;console.error('Failedtoloadexercisedisplayfields:',error);"
+  );
+}
+
 describe('issue #357 active-workout exercise description cue', () => {
   test('uses only the first trimmed physical line of the stored description', () => {
     expect(firstExerciseDescriptionLine('  Brace hard, then squat.\nKeep the knees tracking over toes.  '))
@@ -65,5 +71,17 @@ describe('issue #357 active-workout exercise description cue', () => {
       'if(cancelled)return;setExerciseTitles(titles);setExerciseDescriptions(descriptions);'
     );
     expect(compactEffect).toContain('return()=>{cancelled=true;};');
+  });
+
+  test('rejects a late failed read clearing the newer exercise display maps', () => {
+    const sessionSource = fs.readFileSync(path.join(ROOT, 'app/session.tsx'), 'utf8');
+    const rejectedReadMutant = sessionSource.replace(
+      '} catch (error) {\n        if (cancelled) return;',
+      '} catch (error) {'
+    );
+
+    expect(hasRejectedReadCancellationGuard(sessionSource)).toBe(true);
+    expect(rejectedReadMutant).not.toBe(sessionSource);
+    expect(hasRejectedReadCancellationGuard(rejectedReadMutant)).toBe(false);
   });
 });
