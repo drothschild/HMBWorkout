@@ -1135,8 +1135,15 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the override's existing `download-failed` path (row and previous file untouched)
   and, for a catalog URL, on the resolver's untouched-and-retried row. SVG is
   deliberately not accepted, because it is text with no signature to tell it from
-  an HTML page. `exerciseImageFiles.ts` cannot be imported by a test, so
+  an HTML page. A header that cannot be read at all takes the same exit — file
+  deleted, the read's own error rethrown — and the delete is best-effort, so it
+  never masks the rejection. `exerciseImageFiles.ts` cannot be imported by a test, so
   `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
+  One input-side guard sits in front of all this: the exercise detail screen's
+  `applyImageUrl` returns early on a blank field, because `onSubmitEditing`
+  reaches the handler directly and the Apply button's `disabled` does not cover
+  it. Without that, Return on an empty field ran the override and showed the red
+  `invalid-url` error. `exerciseImageWiring.static.test.ts` pins the guard.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
@@ -1290,8 +1297,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   cleanup, and the detail `ScrollView`'s prop. It also pins the three
   `session.tsx` gates as exact strings (the footer, the Replace slot, and the
   notes clamp), `session.tsx`'s single hook call above its early return, and
-  exactly four `keyboardVisible` occurrences in that file: the declaration and
-  those three gates. A fifth, wrapping `SetLogger` for instance, would hide the
+  exactly four `keyboardVisible` occurrences in that file's code: the declaration
+  and those three gates. The count runs on comment-stripped source, so a raw
+  `grep` of the file finds more (the explanatory comments name it too). A fifth, wrapping `SetLogger` for instance, would hide the
   very inputs being typed in. Structural pins are the only
   option because the node jest project cannot load either `.tsx` file and
   `src/hooks` is outside its `testMatch`. **Every keyboard fix here (the hero,
@@ -1773,8 +1781,10 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `exerciseImageMatch.ts` (pure fuse.js shortlist and decisions),
   `exerciseImageResolver.ts` (the observer-driven background pass),
   `exerciseImageResolverRegistry.ts` (the one running resolver),
-  `exerciseImageOverride.ts` (paste-a-URL) and `exerciseImageFiles.ts` (the real
-  I/O deps — never imported by a test)
+  `exerciseImageOverride.ts` (paste-a-URL), `imageSignature.ts` (pure
+  magic-number check: `looksLikeImageBytes`, `IMAGE_SIGNATURE_BYTES`,
+  `NotAnImageError`) and `exerciseImageFiles.ts` (the real I/O deps — never
+  imported by a test)
 - `src/hevy/` — read-only Hevy API import (#267 Phase 3). `hevyClient.ts` is a
   hand-rolled `fetch` with **no SDK**, the same decision `anthropicClient.ts`
   records and for the same reasons (RN-bundle-safe, `fetchFn`-injectable);
