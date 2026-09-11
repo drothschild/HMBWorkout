@@ -10,6 +10,9 @@ describe('web exercise image search', () => {
   it('ignores scripts, thumbnails, malformed metadata and non-https URLs', () => {
     expect(parseWebImageResults('<script>{"murl":"https://bad.org/a.jpg"}</script><a class="iusc" m="broken">' + result('file:///tmp/a') + result('https://good.org/a.png'))).toEqual(['https://good.org/a.png']);
   });
+  it('rejects malformed URLs instead of recording a permanent miss', () => {
+    expect(() => parseWebImageResults(result('not a URL'))).toThrow();
+  });
   it('rejects unexpected markup instead of permanently recording a miss', () => {
     expect(() => parseWebImageResults('<html>captcha</html>')).toThrow();
   });
