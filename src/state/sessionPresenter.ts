@@ -22,6 +22,11 @@ export interface SetInputValues {
 export interface SessionPresenterOutput {
   currentExerciseId: string;
   currentExerciseTitle: string;
+  /**
+   * Relative image path of the current exercise, or null (placeholder).
+   * Keyed on exerciseId, so a Replace swap follows the entry (#335).
+   */
+  currentExerciseImagePath: string | null;
   currentEntry: RoutineEntry | undefined;
   phase: string;
   isPaused: boolean;
@@ -606,19 +611,24 @@ export function computeSetPrefill(
  * @param routineDisplay Optional routine name/description resolved by the caller
  *                          (getRoutineDisplay) — engine state carries only routineId,
  *                          so display fields must be looked up shell-side.
+ * @param exerciseImagePaths Optional exerciseId → relative image path map resolved by the
+ *                          caller (getExerciseImagePaths). Engine state carries only ids,
+ *                          so image paths must be looked up shell-side.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
   dispatch: (event: Event) => Promise<SessionState | null>,
   progressionHint?: string,
   exerciseTitles?: Record<string, string>,
-  routineDisplay?: { name: string; notes: string | null }
+  routineDisplay?: { name: string; notes: string | null },
+  exerciseImagePaths?: Record<string, string>
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
   const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
   const currentExerciseId = currentEntry?.exerciseId || '';
   const currentExerciseTitle = exerciseTitles?.[currentExerciseId] || currentExerciseId;
+  const currentExerciseImagePath = exerciseImagePaths?.[currentExerciseId] ?? null;
 
   // Host sentinel boundary: 0 means "no value" for both rest fields
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
@@ -740,6 +750,7 @@ export function createSessionPresenter(
   return {
     currentExerciseId,
     currentExerciseTitle,
+    currentExerciseImagePath,
     currentEntry,
     phase: sessionState.phase,
     isPaused: sessionState.phase === 'paused',
