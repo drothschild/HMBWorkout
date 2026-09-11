@@ -86,3 +86,8 @@ with an AI coach backed by the Anthropic API (bring your own key).
 
 See `AGENTS.md` for architecture invariants and contributor conventions, and
 `docs/` for design plans, implementation plans, and test plans.
+
+## Credits
+
+Exercise images are provided by
+[free-exercise-db](https://github.com/yuhonas/free-exercise-db).
