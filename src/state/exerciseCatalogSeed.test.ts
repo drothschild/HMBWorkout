@@ -1,6 +1,10 @@
 import type { Database } from '@nozbe/watermelondb';
 import { closeTestDatabase, createTestDatabase } from '@/db/test-helpers';
-import { EXERCISE_CATALOG, type CatalogEntry } from './exerciseCatalog';
+import {
+  EXERCISE_LIBRARY_CATALOG,
+  type CatalogEntry,
+  type ExerciseLibraryEntry,
+} from './exerciseCatalog';
 import { seedExerciseCatalog } from './exerciseCatalogSeed';
 
 describe('seedExerciseCatalog', () => {
@@ -15,7 +19,7 @@ describe('seedExerciseCatalog', () => {
   });
 
   it('creates every missing catalog exercise with mapped on-device metadata', async () => {
-    const catalog: readonly CatalogEntry[] = [
+    const catalog: readonly ExerciseLibraryEntry[] = [
       {
         id: 'strength-id-marker',
         name: 'Strength title marker',
@@ -43,13 +47,22 @@ describe('seedExerciseCatalog', () => {
         instructions: [],
         image: 'cardio/image-marker.jpg',
       },
+      {
+        id: 'imageless-id-marker',
+        name: 'Imageless title marker',
+        category: 'strongman',
+        equipment: 'kettlebell marker',
+        primaryMuscles: ['triceps marker'],
+        instructions: ['Imageless description marker'],
+        image: null,
+      },
     ];
 
-    expect(await seedExerciseCatalog(db, catalog, 123_456)).toBe(3);
+    expect(await seedExerciseCatalog(db, catalog, 123_456)).toBe(4);
 
     const rows = (await db.get('exercises').query().fetch()) as any[];
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(byId['strength-id-marker']._raw).toMatchObject({
       title: 'Strength title marker',
       kind: 'strength',
@@ -57,7 +70,7 @@ describe('seedExerciseCatalog', () => {
       equipment: 'barbell marker',
       description: 'Strength first line marker\nStrength second line marker',
       image_path: null,
-      image_source: null,
+      image_source: 'catalog:strength-id-marker',
       created_at: 123_456,
     });
     expect(byId['stretch-id-marker']._raw).toMatchObject({
@@ -73,6 +86,16 @@ describe('seedExerciseCatalog', () => {
       muscle_group: null,
       equipment: 'machine marker',
       description: null,
+      image_source: 'catalog:cardio-id-marker',
+    });
+    expect(byId['imageless-id-marker']._raw).toMatchObject({
+      title: 'Imageless title marker',
+      kind: 'strength',
+      muscle_group: 'triceps marker',
+      equipment: 'kettlebell marker',
+      description: 'Imageless description marker',
+      image_path: null,
+      image_source: 'none',
     });
   });
 
@@ -128,8 +151,11 @@ describe('seedExerciseCatalog', () => {
     expect(await db.get('exercises').query().fetchCount()).toBe(2);
   });
 
-  it('loads all 873 entries from the pinned production catalog', async () => {
-    expect(await seedExerciseCatalog(db, EXERCISE_CATALOG, 42)).toBe(873);
-    expect(await db.get('exercises').query().fetchCount()).toBe(873);
+  it('loads all 876 entries from the pinned production library without resolving images', async () => {
+    expect(await seedExerciseCatalog(db, EXERCISE_LIBRARY_CATALOG, 42)).toBe(876);
+    const rows = (await db.get('exercises').query().fetch()) as any[];
+    expect(rows).toHaveLength(876);
+    expect(rows.filter((row) => row.imageSource?.startsWith('catalog:'))).toHaveLength(873);
+    expect(rows.filter((row) => row.imageSource === 'none')).toHaveLength(3);
   });
 });
