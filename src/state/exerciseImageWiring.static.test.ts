@@ -224,6 +224,13 @@ describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () =
   it('words the outcome with exerciseImageOverrideMessage', () => {
     expect(normalized(FILES.exerciseDetail)).toContain('text: exerciseImageOverrideMessage(outcome)');
   });
+
+  it('refuses a second save while one is in flight', () => {
+    // The button's `disabled` covers taps, but onSubmitEditing reaches the
+    // handler directly; the handler's own guard is what stops two overrides
+    // racing to download and delete each other's files.
+    expect(compact(FILES.exerciseDetail)).toContain('if(!id||savingImage)return;');
+  });
 });
 
 describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
@@ -239,8 +246,20 @@ describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
     // The same size as the exercise detail hero (user request on #335), not
     // the 48pt "row" thumbnail it started as.
     expect(heroTag).toContain('size="hero"');
-    // Under the title row, not inside it: a full-width image cannot share a
-    // row with the title, so it must come after the title in the source.
+    // Under the title row, not inside it: exerciseTitleRow is a
+    // flexDirection 'row' container, so a 100%-wide image anywhere inside it —
+    // before the title or between the title and the `?` button — crushes the
+    // title. Anchor on the hero's own wrapper, and require that wrapper to open
+    // after the title row closes. The row holds no nested View (the `?` is a
+    // Pressable), so its first `</View>` is its own close.
+    const heroWrapperAt = indexOfOrThrow(
+      source,
+      '<View style={styles.exerciseHero}> <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />',
+      'SetLogger.tsx'
+    );
+    const titleRowAt = indexOfOrThrow(source, 'styles.exerciseTitleRow', 'SetLogger.tsx');
+    const titleRowCloseAt = indexOfOrThrow(source.slice(titleRowAt), '</View>', 'SetLogger.tsx') + titleRowAt;
+    expect(heroWrapperAt).toBeGreaterThan(titleRowCloseAt);
     const titleAt = indexOfOrThrow(source, 'presenter.currentExerciseTitle', 'SetLogger.tsx');
     expect(source.indexOf(heroTag)).toBeGreaterThan(titleAt);
   });

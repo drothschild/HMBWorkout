@@ -94,6 +94,13 @@ describe('exercise image override — #335', () => {
       'https://',
       'https:// spaced.com/a.jpg',
       '//example.com/a.jpg',
+      // Anchor fixtures: each carries a valid-looking http(s) run AFTER a bad
+      // prefix or BEFORE a space, so dropping `^` or `$` from the pattern
+      // accepts it. Without these, every other reject above still rejects
+      // an unanchored pattern.
+      "javascript:alert('https://evil.example')",
+      'file:///a?u=https://x',
+      'https://example.com/a b.jpg',
     ])('rejects %j', (raw) => {
       expect(parseImageUrl(raw)).toStrictEqual({ kind: 'invalid' });
     });
@@ -192,6 +199,50 @@ describe('exercise image override — #335', () => {
         error: deleteError,
       },
     ]);
+  });
+
+  describe('a row write that rejects after a successful download', () => {
+    // No such row, so setExerciseImage's find() rejects AFTER the download
+    // landed. The error must reach the caller (the screen's catch-all is the
+    // only thing that tells the user the save failed), and the file just
+    // downloaded must not be left orphaned on disk.
+    const MISSING_ID = 'no-such-exercise';
+    const MISSING_PATH = 'exercise-images/no-such-exercise-n1.jpg';
+
+    it('propagates the error and deletes only the just-downloaded file', async () => {
+      // A real previous image on another row, so a delete of any path other
+      // than the downloaded one is observable.
+      await seedPreviousImage();
+      const rec = makeRecorder(db);
+
+      await expect(overrideExerciseImage(rec.deps, MISSING_ID, NEW_URL)).rejects.toThrow(MISSING_ID);
+
+      expect(rec.downloadCalls).toStrictEqual([{ url: NEW_URL, relativePath: MISSING_PATH }]);
+      expect(rec.deleteCalls.map((call) => call.path)).toStrictEqual([MISSING_PATH]);
+      expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: OLD_PATH, imageSource: OLD_SOURCE });
+      expect(rec.logCalls).toStrictEqual([]);
+    });
+
+    it('a failing cleanup delete is logged, and the ORIGINAL row-write error still propagates', async () => {
+      const deleteError = new Error('EACCES');
+      const rec = makeRecorder(db, { deleteError });
+
+      const rejection = await overrideExerciseImage(rec.deps, MISSING_ID, NEW_URL).then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+      expect(rejection).toBeInstanceOf(Error);
+      expect(rejection).not.toBe(deleteError);
+      expect((rejection as Error).message).toContain(MISSING_ID);
+      expect(rec.deleteCalls.map((call) => call.path)).toStrictEqual([MISSING_PATH]);
+      expect(rec.logCalls).toStrictEqual([
+        {
+          message: `exercise image override: row write failed for ${MISSING_ID}; deleting downloaded ${MISSING_PATH} failed`,
+          error: deleteError,
+        },
+      ]);
+    });
   });
 
   describe('exerciseImageOverrideMessage', () => {
