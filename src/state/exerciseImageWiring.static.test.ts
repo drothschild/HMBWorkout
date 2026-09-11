@@ -25,6 +25,7 @@ const FILES = {
   routineDetail: join(APP, 'routine', '[id].tsx'),
   routinesTab: join(APP, '(tabs)', 'routines.tsx'),
   setLogger: join(COMPONENTS, 'SetLogger.tsx'),
+  exerciseImage: join(COMPONENTS, 'ExerciseImage.tsx'),
   // src/hooks is outside jest's testMatch, so the hook is gated structurally too.
   keyboardVisibleHook: join(__dirname, '..', 'hooks', 'use-keyboard-visible.ts'),
 };
@@ -333,6 +334,118 @@ describe('SetLogger hides the hero while the keyboard is open (#335 Phase 7)', (
     expect(effect).toContain('return()=>{show.remove();hide.remove();};');
     // Subscribed once per mount, not re-subscribed on every render.
     expect(deps).toEqual([]);
+  });
+});
+
+/**
+ * The top-level `key: value` pairs of one `StyleSheet.create` entry, whitespace
+ * removed. The key must follow `{` or `,` so `hero` never matches `exerciseHero`.
+ */
+function styleEntry(source: string, name: string, file: string): string[] {
+  const sheetAt = indexOfOrThrow(source, 'StyleSheet.create({', file);
+  const key = new RegExp(`[{,]${name}:\\{`, 'g');
+  key.lastIndex = sheetAt;
+  const found = key.exec(source);
+  if (!found) {
+    throw new Error(`${file} StyleSheet has no ${name} entry; re-anchor this gate`);
+  }
+  const open = found.index + found[0].length - 1;
+  const props: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '{' || ch === '(' || ch === '[') {
+      depth++;
+      if (depth === 1) continue;
+    } else if (ch === '}' || ch === ')' || ch === ']') {
+      depth--;
+      if (depth === 0) {
+        if (current.length > 0) props.push(current);
+        return props;
+      }
+    } else if (ch === ',' && depth === 1) {
+      if (current.length > 0) props.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  throw new Error(`unterminated ${name} style in ${file}; re-anchor this gate`);
+}
+
+describe('the workout hero shrinks to fit instead of overlapping the buttons (#335 Phase 7)', () => {
+  // On an iPhone 15 Pro Release build, real routines overflowed the session
+  // screen's fixed column: a 6-line routine description plus the stopwatch card
+  // put "Finish Session / Abandon" on top of "Log Set / Skip Set", and with the
+  // Replace button present the logged-sets list was squeezed to nothing. The
+  // user chose: the image is big when there is room and shrinks when there
+  // isn't, the list keeps a small minimum, and the column still does not scroll.
+  //
+  // A 3:2 `aspectRatio` flex child cannot shrink, so the WRAPPER yields: basis
+  // auto (= the image's natural 3:2 height), flexShrink 1, no grow, clipping
+  // the full-size image with a centered crop. Nothing can render SetLogger, so
+  // the styles are pinned structurally, as exact prop sets.
+  const LAYOUT_PROPS_THAT_LOCK_HEIGHT = ['height', 'aspectRatio', 'flex', 'flexGrow', 'flexBasis'];
+  const keysOf = (props: string[]) => props.map((prop) => prop.slice(0, prop.indexOf(':')));
+
+  it('the hero wrapper shrinks, clips, and can never grow past the 3:2 image', () => {
+    const props = styleEntry(compact(FILES.setLogger), 'exerciseHero', 'SetLogger.tsx');
+
+    expect(new Set(props)).toEqual(
+      new Set([
+        'marginTop:Spacing.two',
+        'flexShrink:1',
+        'minHeight:0',
+        "overflow:'hidden'",
+        "justifyContent:'center'",
+        'borderRadius:EXERCISE_IMAGE_BORDER_RADIUS',
+      ])
+    );
+    // Not a fixed-height or aspect-locked flex child, and no grow: basis auto
+    // is what caps the wrapper at the image's own 3:2 height.
+    for (const locked of LAYOUT_PROPS_THAT_LOCK_HEIGHT) {
+      expect(keysOf(props)).not.toContain(locked);
+    }
+  });
+
+  it('the clipped corners match the image, and the image itself is still the 3:2 hero', () => {
+    // The exercise detail screen scrolls and keeps the fixed 3:2 hero, so the
+    // shrink lives on the session wrapper only; ExerciseImage's hero is intact.
+    const image = compact(FILES.exerciseImage);
+
+    expect(image).toContain('exportconstEXERCISE_IMAGE_BORDER_RADIUS=6;');
+    expect(styleEntry(image, 'base', 'ExerciseImage.tsx')).toEqual([
+      'borderRadius:EXERCISE_IMAGE_BORDER_RADIUS',
+      "overflow:'hidden'",
+    ]);
+    expect(styleEntry(image, 'hero', 'ExerciseImage.tsx')).toEqual(["width:'100%'", 'aspectRatio:3/2']);
+    expect(compact(FILES.setLogger)).toContain(
+      "import{ExerciseImage,EXERCISE_IMAGE_BORDER_RADIUS}from'./ExerciseImage';"
+    );
+  });
+
+  it('the logged-sets list keeps a floor of two rows, derived from the row style', () => {
+    const source = compact(FILES.setLogger);
+
+    expect(source).toContain(
+      'constLOGGED_SET_ROW_HEIGHT=TypeRamp.default.lineHeight+2*Spacing.one+SET_ROW_BORDER_WIDTH;'
+    );
+    expect(source).toContain('constLOGGED_SETS_MIN_HEIGHT=2*LOGGED_SET_ROW_HEIGHT;');
+    expect(new Set(styleEntry(source, 'setRow', 'SetLogger.tsx'))).toEqual(
+      new Set(['paddingVertical:Spacing.one', 'borderBottomWidth:SET_ROW_BORDER_WIDTH'])
+    );
+    expect(styleEntry(source, 'loggedSetsFloor', 'SetLogger.tsx')).toEqual(['minHeight:LOGGED_SETS_MIN_HEIGHT']);
+  });
+
+  it('the floor applies only while the hero is shown', () => {
+    // With the keyboard up the hero is gone and nothing else in the column can
+    // yield, so a floor there could only push the buttons down; the list goes
+    // back to being the elastic element, as it was before #335.
+    const source = compact(FILES.setLogger);
+    const tag = '<ScrollViewstyle={[styles.loggedSets,!keyboardVisible&&styles.loggedSetsFloor]}';
+
+    expect(occurrences(source, tag)).toBe(1);
   });
 });
 
