@@ -40,6 +40,7 @@ export type ExerciseImageResolverDeps = {
   /** Called only in a pass where getAiKeyConfigured() was true. */
   readonly ask: (request: { system: string; message: string }) => Promise<string>;
   /** Download `url` to `relativePath` under the documents directory. Rejects on failure. */
+  readonly searchWebImages?: (title: string) => Promise<readonly string[]>;
   readonly download: (url: string, relativePath: string) => Promise<void>;
   readonly deleteFile: (relativePath: string) => Promise<void>;
   readonly makeImageSuffix: () => string;
@@ -72,14 +73,34 @@ async function resolveOne(
   deps: ExerciseImageResolverDeps,
   exercise: { readonly id: string; readonly title: string; readonly imageSource: string | null; readonly imagePath: string | null },
   decision: ImageDecision,
-  correction?: CatalogEntry
+  correction?: CatalogEntry,
+  webCandidates?: readonly string[],
+  hasAiKey = false
 ): Promise<void> {
   let imagePath: string | null = null;
   if (decision.kind === 'catalog') {
     imagePath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
     await deps.download(catalogImageUrl(decision.entry), imagePath); // rejection → row untouched
   }
-  const imageSource = decision.kind === 'catalog' ? catalogImageSource(decision.entry.id) : decision.kind;
+  let imageSource: string = decision.kind === 'catalog' ? catalogImageSource(decision.entry.id) : decision.kind;
+  if (webCandidates !== undefined && decision.kind !== 'catalog') {
+    imageSource = hasAiKey ? 'web:none' : 'web:none:nokey';
+    let lastError: unknown;
+    for (const url of webCandidates.slice(0, 5)) {
+      const candidatePath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
+      try {
+        await deps.download(url, candidatePath);
+        imagePath = candidatePath;
+        imageSource = `web:${url}`;
+        break;
+      } catch (error) {
+        lastError = error;
+        await deps.deleteFile(candidatePath).catch(deleteError => deps.log('exercise image: candidate cleanup failed', deleteError));
+      }
+    }
+    // Results existed but none was available: preserve the row for retry.
+    if (webCandidates.length > 0 && imagePath === null) throw lastError;
+  }
   let applied: boolean;
   try {
     applied = await setExerciseImageIfSourceUnchanged(deps.database, exercise.id, exercise.imageSource, {
@@ -126,6 +147,7 @@ export async function runImageResolutionPass(
     return { title: row.title, imageSource: correction ? catalogImageSource(correction.id) : row.imageSource ?? null };
   }), deps.catalog);
   const decisions = new Map<string, Promise<ImageDecision>>();
+  const webSearches = new Map<string, Promise<readonly string[]>>();
   for (const row of rows) {
     const imageSource = row.imageSource ?? null;
     const correction = catalogImageCorrection(row.title, imageSource, deps.catalog);
@@ -137,7 +159,11 @@ export async function runImageResolutionPass(
     // arbitrary NONEs, URL overrides or unknown sources. #341 separately admits
     // its three exact title/old-catalog-source corrections.
     const repair = known && (imageSource === 'none' || imageSource === 'none:nokey');
-    if (!correction && !repair && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
+    const webRetry = deps.searchWebImages && (
+      imageSource === 'none' || imageSource === 'none:nokey' ||
+      (imageSource === 'web:none:nokey' && hasAiKey)
+    );
+    if (!correction && !repair && !webRetry && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
     try {
       let pending = decisions.get(title);
       if (!pending || correction) {
@@ -145,7 +171,16 @@ export async function runImageResolutionPass(
         decisions.set(title, pending);
       }
       const decision = await pending;
-      await resolveOne(deps, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, decision, correction);
+      let webCandidates: readonly string[] | undefined;
+      if (decision.kind !== 'catalog' && deps.searchWebImages) {
+        let search = webSearches.get(title);
+        if (!search) {
+          search = deps.searchWebImages(title);
+          webSearches.set(title, search);
+        }
+        webCandidates = await search;
+      }
+      await resolveOne(deps, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, decision, correction, webCandidates, hasAiKey);
     } catch (error) {
       deps.log(`exercise image: resolving ${row.id} failed; will retry on a later pass`, error);
     }
