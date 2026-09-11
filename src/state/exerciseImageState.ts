@@ -6,6 +6,9 @@
  * key-added retry — there is no separate mechanism for any of them.
  */
 
+/** Directory under Paths.document that holds every downloaded exercise image. */
+export const EXERCISE_IMAGE_DIR = 'exercise-images';
+
 export type ImageSource = `catalog:${string}` | `url:${string}` | 'none' | 'none:nokey';
 
 /** No acceptable match. Final: never re-resolved by a pass. */
@@ -20,6 +23,19 @@ export function catalogImageSource(catalogId: string): ImageSource {
 
 export function urlImageSource(url: string): ImageSource {
   return `url:${url}`;
+}
+
+/**
+ * `exercise-images/<exerciseId>-<suffix>.jpg` — RELATIVE to the documents
+ * directory, because iOS moves the app container on reinstall/restore and an
+ * absolute `file://` path would go stale. The suffix makes every download a
+ * NEW file, so an override never overwrites a file a render may be reading.
+ * Any character outside [a-z0-9-] in the id (ids are slugs today) is replaced,
+ * so the result can never contain '/' past the directory or start with one.
+ */
+export function buildImageRelativePath(exerciseId: string, suffix: string): string {
+  const safe = (value: string) => value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return `${EXERCISE_IMAGE_DIR}/${safe(exerciseId)}-${safe(suffix)}.jpg`;
 }
 
 /**

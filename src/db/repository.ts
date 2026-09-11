@@ -1062,6 +1062,56 @@ export async function updateExerciseDescription(
   });
 }
 
+export type ExerciseImageFields = {
+  readonly imagePath: string | null;
+  readonly imageSource: string;
+};
+
+/**
+ * Compare-and-set (#335): applies `next` only if the row's image_source still
+ * equals `expectedSource` — the value read when resolution BEGAN. One
+ * database.write, so the check and the update cannot interleave with another
+ * writer (WatermelonDB serializes writers FIFO). Returns whether it applied.
+ * A URL pasted while a pass was downloading therefore wins.
+ */
+export async function setExerciseImageIfSourceUnchanged(
+  database: Database,
+  exerciseId: string,
+  expectedSource: string | null,
+  next: ExerciseImageFields
+): Promise<boolean> {
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    if ((exercise.imageSource ?? null) !== expectedSource) return false;
+    await exercise.update((record: any) => {
+      record.imagePath = next.imagePath;
+      record.imageSource = next.imageSource;
+    });
+    return true;
+  });
+}
+
+/**
+ * Unconditional image write for the user's own override (Phase 6). Returns the
+ * image_path the row held BEFORE the write, so the caller can delete that file
+ * strictly after the row no longer points at it.
+ */
+export async function setExerciseImage(
+  database: Database,
+  exerciseId: string,
+  next: ExerciseImageFields
+): Promise<string | null> {
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    const previous = exercise.imagePath ?? null;
+    await exercise.update((record: any) => {
+      record.imagePath = next.imagePath;
+      record.imageSource = next.imageSource;
+    });
+    return previous;
+  });
+}
+
 /**
  * Upsert a routine (create if not exists, update if exists).
  * When upserting, reconciles the routine's routine_exercises in place:

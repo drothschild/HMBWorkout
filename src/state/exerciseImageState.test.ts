@@ -4,6 +4,8 @@ import {
   catalogImageSource,
   urlImageSource,
   isImageResolutionEligible,
+  EXERCISE_IMAGE_DIR,
+  buildImageRelativePath,
 } from './exerciseImageState';
 
 describe('exerciseImageState', () => {
@@ -52,5 +54,48 @@ describe('exerciseImageState', () => {
         expect(isImageResolutionEligible(row, hasAiKey)).toBe(expected);
       }
     );
+  });
+
+  describe('buildImageRelativePath (AC3.3)', () => {
+    it('builds correct relative path for normal id and suffix', () => {
+      expect(buildImageRelativePath('back-squat', '3f9a')).toBe(
+        'exercise-images/back-squat-3f9a.jpg'
+      );
+    });
+
+    it('uses EXERCISE_IMAGE_DIR as the directory prefix', () => {
+      const path = buildImageRelativePath('bench-press', 'abc1');
+      expect(path.startsWith(EXERCISE_IMAGE_DIR + '/')).toBe(true);
+    });
+
+    it('never starts path with / or file://', () => {
+      const hostileIds = ['/etc/passwd', 'file://x', '../up', 'Back Squat'];
+      for (const id of hostileIds) {
+        const path = buildImageRelativePath(id, 's1');
+        expect(path.startsWith('/')).toBe(false);
+        expect(path.startsWith('file://')).toBe(false);
+      }
+    });
+
+    it('contains exactly one / (directory separator)', () => {
+      const hostileIds = ['/etc/passwd', 'file://x', '../up', 'Back Squat'];
+      for (const id of hostileIds) {
+        const path = buildImageRelativePath(id, 's1');
+        const slashCount = (path.match(/\//g) || []).length;
+        expect(slashCount).toBe(1);
+      }
+    });
+
+    it('normalizes uppercase characters to lowercase', () => {
+      const path = buildImageRelativePath('Back Squat', 'ABC1');
+      expect(path).toMatch(/[a-z0-9\-/]+\.jpg$/);
+      expect(path).not.toMatch(/[A-Z]/);
+    });
+
+    it('replaces non-alphanumeric characters with hyphens', () => {
+      const path = buildImageRelativePath('back/squat', 's1');
+      expect(path).toContain('-');
+      expect(path).not.toContain('/squat');
+    });
   });
 });
