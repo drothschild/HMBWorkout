@@ -8,6 +8,7 @@ import {
   parseImageUrl,
 } from './exerciseImageOverride';
 import type { ExerciseImageOverrideDeps } from './exerciseImageOverride';
+import { NotAnImageError } from './imageSignature';
 
 const EXERCISE_ID = 'bench-press';
 const OLD_PATH = 'exercise-images/old-a.jpg';
@@ -173,6 +174,28 @@ describe('exercise image override — #335', () => {
     const outcome = await overrideExerciseImage(rec.deps, EXERCISE_ID, NEW_URL);
 
     expect(outcome).toStrictEqual({ kind: 'download-failed' });
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: OLD_PATH, imageSource: OLD_SOURCE });
+    expect(rec.deleteCalls).toStrictEqual([]);
+    expect(rec.logCalls).toStrictEqual([
+      { message: 'exercise image override: download failed for bench-press', error: downloadError },
+    ]);
+  });
+
+  it('AC4.4: a download that is not an image (a pasted page URL) returns download-failed and touches nothing', async () => {
+    // The real download (exerciseImageFiles.ts) rejects with NotAnImageError
+    // when the bytes fail looksLikeImageBytes, because downloadFileAsync checks
+    // only the HTTP status. This pins that the override treats that rejection
+    // like any failed download: the previous, working image survives.
+    await seedPreviousImage();
+    const downloadError = new NotAnImageError('https://example.com/some-page');
+    const rec = makeRecorder(db, { downloadError });
+
+    const outcome = await overrideExerciseImage(rec.deps, EXERCISE_ID, 'https://example.com/some-page');
+
+    expect(outcome).toStrictEqual({ kind: 'download-failed' });
+    expect(exerciseImageOverrideMessage(outcome)).toBe(
+      "Couldn't download that image. Use a direct https:// link to the image file."
+    );
     expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: OLD_PATH, imageSource: OLD_SOURCE });
     expect(rec.deleteCalls).toStrictEqual([]);
     expect(rec.logCalls).toStrictEqual([
