@@ -44,6 +44,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
       recyclingKey={imagePath}
       onLoad={() => setLoadedPath(imagePath)}
       onError={() => {
+        setPreviewVisible(false);
         setLoadedPath(null);
         setFailedPath(imagePath);
       }}
@@ -87,6 +88,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
             contentFit="contain"
             recyclingKey={`preview-${imagePath}`}
             onError={() => {
+              setPreviewVisible(false);
               setLoadedPath(null);
               setFailedPath(imagePath);
             }}
