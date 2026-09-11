@@ -112,7 +112,7 @@ export default function ExerciseDetailScreen() {
   // only from exerciseImageOverrideMessage, except a thrown row write (e.g. the
   // exercise was deleted), which overrideExerciseImage deliberately propagates.
   const applyImageUrl = async () => {
-    if (!id || savingImage) return;
+    if (!id || savingImage || imageUrl.trim() === '') return;
     setSavingImage(true);
     try {
       const outcome = await overrideExerciseImage(
