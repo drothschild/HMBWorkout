@@ -233,6 +233,44 @@ describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () =
   });
 });
 
+describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)', () => {
+  // #335 put a full-width 3:2 hero under the title and an Image URL field above
+  // Description, pushing both inputs to the bottom of the screen; on an iPhone
+  // 15 Pro Release build the keyboard covered whichever one was focused. The
+  // fix is the Settings → AI / AI Provider pattern: the screen's ScrollView
+  // insets its content by the keyboard and scrolls the focused field into
+  // view. Nothing can render this screen, so the prop is pinned structurally,
+  // together with the two things it depends on: there is ONE ScrollView, and
+  // both inputs sit inside it (an input moved outside it gets no inset).
+  function scrollViewTags(source: string): string[] {
+    return source.match(/<ScrollView\b[^>]*>/g) ?? [];
+  }
+
+  it('the single ScrollView sets automaticallyAdjustKeyboardInsets', () => {
+    const tags = scrollViewTags(normalized(FILES.exerciseDetail));
+    if (tags.length === 0) {
+      throw new Error('exercise/[id].tsx no longer renders a <ScrollView>; re-anchor this gate');
+    }
+
+    expect(tags).toHaveLength(1);
+    // Bare (or ={true}), never ={false}.
+    expect(tags[0]).toMatch(/\sautomaticallyAdjustKeyboardInsets(?:=\{true\})?[\s/>]/);
+  });
+
+  it('both text inputs are inside that ScrollView', () => {
+    const source = normalized(FILES.exerciseDetail);
+    const open = indexOfOrThrow(source, '<ScrollView', 'exercise/[id].tsx');
+    const close = indexOfOrThrow(source, '</ScrollView>', 'exercise/[id].tsx');
+    const imageUrlInput = indexOfOrThrow(source, 'onChangeText={setImageUrl}', 'exercise/[id].tsx');
+    const descriptionInput = indexOfOrThrow(source, 'queueSave(value);', 'exercise/[id].tsx');
+
+    for (const at of [imageUrlInput, descriptionInput]) {
+      expect(at).toBeGreaterThan(open);
+      expect(at).toBeLessThan(close);
+    }
+  });
+});
+
 describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
   it('SetLogger renders the current exercise image as a full-width hero under the title', () => {
     const source = normalized(FILES.setLogger);
