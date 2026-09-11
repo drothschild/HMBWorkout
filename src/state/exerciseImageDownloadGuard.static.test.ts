@@ -11,7 +11,9 @@
  * cannot be exercised here — only its shape. This gate reads it as text and
  * pins, by identifier: download → read the header of the downloaded file →
  * `if (!looksLikeImageBytes(header))` → discard the file → throw
- * `NotAnImageError`. `looksLikeImageBytes` itself is tested behaviourally in
+ * `NotAnImageError`. It also pins the read-failure path — a header read that
+ * throws deletes the file and rethrows — and that `readImageHeader` closes its
+ * handle in a `finally`. `looksLikeImageBytes` itself is tested behaviourally in
  * imageSignature.test.ts; the override's handling of the rejection in
  * exerciseImageOverride.test.ts.
  *
@@ -55,6 +57,15 @@ const DOWNLOAD_HEADER = 'exportasyncfunctiondownloadExerciseImage(';
 const CHECK = 'if(!looksLikeImageBytes(header))';
 const DISCARD = 'discardDownloadedFile(destination);';
 const THROW = 'thrownewNotAnImageError(url);';
+/**
+ * A download that cannot be read is a failure, not a success: the read sits in
+ * the `try`, and its `catch` deletes the file and rethrows. Swallowing it
+ * would let the override write the row and delete the previous image.
+ */
+const READ_FAILURE =
+  'try{header=readImageHeader(destination);}catch(error){discardDownloadedFile(destination);throwerror;}';
+/** readImageHeader closes its handle whether or not the read throws. */
+const CLOSE_HANDLE = 'finally{handle.close();}';
 
 /** Every way the source falls short of the guard. Empty means the guard is intact. */
 function guardViolations(source: string): string[] {
@@ -81,10 +92,16 @@ function guardViolations(source: string): string[] {
     if (throwAt === -1) violations.push('a non-image must throw NotAnImageError');
     if (discardAt !== -1 && throwAt !== -1 && discardAt > throwAt) violations.push('delete must precede the throw');
   }
+  if (count(body, READ_FAILURE) !== 1) {
+    violations.push(`an unreadable download must be deleted and rethrown, exactly once: ${READ_FAILURE}`);
+  }
 
   const reader = bodyOf(text, 'functionreadImageHeader(');
   if (reader === null || !reader.includes('.readBytes(IMAGE_SIGNATURE_BYTES)')) {
     violations.push('readImageHeader must read IMAGE_SIGNATURE_BYTES bytes');
+  }
+  if (reader === null || count(reader, CLOSE_HANDLE) !== 1) {
+    violations.push(`readImageHeader must close its handle in a finally, exactly once: ${CLOSE_HANDLE}`);
   }
   const discard = bodyOf(text, 'functiondiscardDownloadedFile(');
   if (discard === null || !discard.includes('.delete()')) {
@@ -111,7 +128,9 @@ describe('downloadExerciseImage rejects non-image bytes (#335)', () => {
       const text = strip(source());
       // A mutant whose anchor misses is indistinguishable from a real gap.
       if (count(text, from) !== 1) throw new Error(`re-anchor this gate: mutant anchor ${from} is not unique`);
-      return text.replace(from, to);
+      const mutated = text.replace(from, to);
+      if (mutated === text) throw new Error(`mutant ${from} -> ${to} left the source unchanged`);
+      return mutated;
     };
 
     it.each([
@@ -120,6 +139,17 @@ describe('downloadExerciseImage rejects non-image bytes (#335)', () => {
       ['the throw removed', THROW, ''],
       ['the download call removed', 'awaitFile.downloadFileAsync(url,destination);', ''],
       ['discardDownloadedFile no longer deleting', 'destination.delete();', ''],
+      [
+        'a read failure swallowed (the catch returns instead of rethrowing)',
+        '}catch(error){discardDownloadedFile(destination);throwerror;}',
+        '}catch(error){discardDownloadedFile(destination);return;}',
+      ],
+      [
+        'the delete-on-read-failure removed (orphan file)',
+        '}catch(error){discardDownloadedFile(destination);throwerror;}',
+        '}catch(error){throwerror;}',
+      ],
+      ['handle.close() removed from readImageHeader (handle leak)', 'finally{handle.close();}', 'finally{}'],
     ])('%s', (_name, from, to) => {
       expect(guardViolations(mutate(from, to))).not.toStrictEqual([]);
     });
