@@ -1362,6 +1362,70 @@ describe('createSessionPresenter', () => {
       expect(presenter.currentExerciseTitle).toBe('ex-1');
     });
   });
+
+  describe('currentExerciseImagePath — #335', () => {
+    const IMAGE_PATHS: Record<string, string> = {
+      'bench-press': 'exercise-images/bench-press-a1.jpg',
+      'dumbbell-press': 'exercise-images/dumbbell-press-b2.jpg',
+    };
+
+    /** A two-entry session sitting on entry 1, so "the current entry" is not simply entries[0]. */
+    const stateOnSecondEntry = (secondExerciseId: string): SessionState => {
+      const state = createMockState();
+      state.loggedSets = [];
+      state.entries = [
+        {
+          idx: 0,
+          exerciseId: 'dumbbell-press',
+          kind: 'strength',
+          sets: makeSets(0, 3, 8),
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+        {
+          idx: 1,
+          exerciseId: secondExerciseId,
+          kind: 'strength',
+          sets: makeSets(0, 3, 8),
+          restSeconds: 90,
+          supersetGroup: '',
+        },
+      ];
+      state.exerciseIndex = 1;
+      return state;
+    };
+
+    const presentWithImages = (state: SessionState, imagePaths?: Record<string, string>) =>
+      createSessionPresenter(state, jest.fn(), undefined, undefined, undefined, imagePaths);
+
+    test('AC3.6: resolves the current exercise’s relative path from the caller-supplied map', () => {
+      const presenter = presentWithImages(stateOnSecondEntry('bench-press'), IMAGE_PATHS);
+
+      expect(presenter.currentExerciseImagePath).toBe('exercise-images/bench-press-a1.jpg');
+    });
+
+    test('AC3.6: is null when no map is supplied', () => {
+      const presenter = presentWithImages(stateOnSecondEntry('bench-press'));
+
+      expect(presenter.currentExerciseImagePath).toBeNull();
+    });
+
+    test('AC3.6: is null when the map has no entry for the current exercise', () => {
+      const presenter = presentWithImages(stateOnSecondEntry('couch-stretch'), IMAGE_PATHS);
+
+      expect(presenter.currentExerciseImagePath).toBeNull();
+    });
+
+    test('AC4.1: follows the entry across a Replace swap, because the lookup is keyed on exerciseId', () => {
+      // A ReplaceExercise Ok rewrites the current entry's exerciseId in place
+      // (engine convention 7); everything else about the state is unchanged.
+      const before = presentWithImages(stateOnSecondEntry('bench-press'), IMAGE_PATHS);
+      const after = presentWithImages(stateOnSecondEntry('dumbbell-press'), IMAGE_PATHS);
+
+      expect(before.currentExerciseImagePath).toBe('exercise-images/bench-press-a1.jpg');
+      expect(after.currentExerciseImagePath).toBe('exercise-images/dumbbell-press-b2.jpg');
+    });
+  });
 });
 
 describe('formatLoggedSetLine', () => {

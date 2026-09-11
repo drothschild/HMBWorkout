@@ -337,6 +337,30 @@ export async function getExerciseTitles(
 }
 
 /**
+ * exerciseId → image_path (RELATIVE to the documents directory) for the given
+ * ids (#335). Ids with no image, and ids whose exercise no longer exists, are
+ * left out — the caller reads absence as "placeholder". The display-data twin
+ * of getExerciseTitles (engine convention 6: engine state carries ids only).
+ */
+export async function getExerciseImagePaths(
+  database: Database,
+  exerciseIds: readonly string[]
+): Promise<Record<string, string>> {
+  const paths: Record<string, string> = {};
+
+  for (const exerciseId of exerciseIds) {
+    try {
+      const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+      if (exercise.imagePath) paths[exerciseId] = exercise.imagePath;
+    } catch {
+      // Exercise no longer exists; leave it out so the caller shows the placeholder.
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Normalize a raw routine notes value for display: trim it, and collapse
  * missing or whitespace-only notes to null so read sites can treat null as
  * "absent", matching the exercise description convention.
@@ -1059,6 +1083,56 @@ export async function updateExerciseDescription(
     });
 
     return exercise as Exercise;
+  });
+}
+
+export type ExerciseImageFields = {
+  readonly imagePath: string | null;
+  readonly imageSource: string;
+};
+
+/**
+ * Compare-and-set (#335): applies `next` only if the row's image_source still
+ * equals `expectedSource` — the value read when resolution BEGAN. One
+ * database.write, so the check and the update cannot interleave with another
+ * writer (WatermelonDB serializes writers FIFO). Returns whether it applied.
+ * A URL pasted while a pass was downloading therefore wins.
+ */
+export async function setExerciseImageIfSourceUnchanged(
+  database: Database,
+  exerciseId: string,
+  expectedSource: string | null,
+  next: ExerciseImageFields
+): Promise<boolean> {
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    if ((exercise.imageSource ?? null) !== expectedSource) return false;
+    await exercise.update((record: Exercise) => {
+      record.imagePath = next.imagePath;
+      record.imageSource = next.imageSource;
+    });
+    return true;
+  });
+}
+
+/**
+ * Unconditional image write for the user's own override (Phase 6). Returns the
+ * image_path the row held BEFORE the write, so the caller can delete that file
+ * strictly after the row no longer points at it.
+ */
+export async function setExerciseImage(
+  database: Database,
+  exerciseId: string,
+  next: ExerciseImageFields
+): Promise<string | null> {
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    const previous = exercise.imagePath ?? null;
+    await exercise.update((record: Exercise) => {
+      record.imagePath = next.imagePath;
+      record.imageSource = next.imageSource;
+    });
+    return previous;
   });
 }
 

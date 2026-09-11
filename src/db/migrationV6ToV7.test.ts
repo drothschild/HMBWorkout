@@ -62,6 +62,8 @@ const V6_AGGREGATE_COLUMNS: ColumnSchema[] = [
  * aggregate columns, and v5 is v6 minus `routine_sets`. Writing either out as a
  * literal would make this file a second declaration of the schema that goes
  * stale the first time an unrelated column lands.
+ *
+ * Schema v9 (#335) adds exercises.image_path and image_source.
  */
 function historicalSchema(version: 5 | 6): AppSchema {
   return appSchema({
@@ -74,6 +76,10 @@ function historicalSchema(version: 5 | 6): AppSchema {
           columns:
             table.name === 'routine_exercises'
               ? [...table.columnArray, ...V6_AGGREGATE_COLUMNS]
+              : table.name === 'exercises'
+              ? table.columnArray.filter(
+                  (column) => column.name !== 'image_path' && column.name !== 'image_source'
+                )
               : [...table.columnArray],
         })
       ),

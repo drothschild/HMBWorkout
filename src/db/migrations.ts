@@ -189,5 +189,21 @@ export const migrations = schemaMigrations({
         }),
       ],
     },
+    {
+      // #335: an image per exercise. Non-destructive: two nullable columns, a
+      // real addColumns step, every existing exercises row survives with both
+      // reading null — which is exactly what makes the first resolver pass a
+      // backfill (see src/state/exerciseImageState.ts).
+      toVersion: 9,
+      steps: [
+        addColumns({
+          table: 'exercises',
+          columns: [
+            { name: 'image_path', type: 'string', isOptional: true },
+            { name: 'image_source', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
   ],
 });

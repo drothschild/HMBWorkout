@@ -8,6 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
 import { ReplaceExercise } from '@/components/ReplaceExercise';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { WorkoutStopwatch } from '@/components/WorkoutStopwatch';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import {
@@ -35,10 +36,13 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import {
+  getExerciseImagePaths,
   getExerciseTitles,
   getExerciseWorkingSetHistory,
   getRoutineDisplay,
 } from '@/db/repository';
+import type { RoutineEntry } from '@/engine/types';
+import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 import { getPrescribedSetsForEntry } from '@/state/routineSetPlans';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
@@ -126,6 +130,7 @@ export default function SessionScreen() {
   const [rpePopupOpen, setRpePopupOpen] = useState(false);
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
+  const [exerciseImagePaths, setExerciseImagePaths] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
     { name: string; notes: string | null } | undefined
   >();
@@ -147,6 +152,14 @@ export default function SessionScreen() {
   // the effect's own re-run (via currentEntryExerciseId) races it. See
   // exerciseReplaceStore.routineRevision.
   const routineRevision = exerciseReplaceStore((state) => state.routineRevision);
+
+  // While a Reps/Weight/Duration field has the keyboard up, the fixed column
+  // below keeps only what the set being typed needs: the Finish/Abandon
+  // footer and the Replace button hide and the routine notes clamp to two
+  // lines. With the decimal pad up the column did not fit on timed exercises
+  // (user decision on #335 after a device test). Above the early return, like
+  // every hook here.
+  const keyboardVisible = useKeyboardVisible();
 
   // The exercise being performed, as a primitive effect key. Every per-exercise
   // effect below depends on this rather than on exerciseIndex alone:
@@ -331,9 +344,13 @@ export default function SessionScreen() {
   // rewrites one entry's exerciseId mid-session — so the reload is keyed on the
   // ids themselves, not just the session, or the swapped exercise would render
   // as its raw slug until the next launch.
-  const entryExerciseIdsKey = (sessionState?.entries ?? [])
-    .map((entry: any) => entry.exerciseId)
-    .join('|');
+  //
+  // JSON rather than a delimiter join so the key is lossless: the image effect
+  // below parses its ids back out of it, which keeps `sessionState` itself out
+  // of that effect's body (and so out of its dependency array).
+  const entryExerciseIdsKey = JSON.stringify(
+    (sessionState?.entries ?? []).map((entry: RoutineEntry) => entry.exerciseId)
+  );
 
   useEffect(() => {
     const loadTitles = async () => {
@@ -353,6 +370,44 @@ export default function SessionScreen() {
     };
 
     loadTitles();
+  }, [sessionState?.sessionId, entryExerciseIdsKey]);
+
+  // Exercise images (#335): re-read on EVERY `exercises` change, not just when
+  // the entry list changes, so an image the background resolver finishes
+  // mid-workout appears in place (AC3.7). withChangesForTables emits once on
+  // subscribe, so this is also the initial load. On that first load, if any
+  // entry's exercise has no image, ask for a pass (first-view retry, AC2.9).
+  // With no session the map is left as is rather than reset: the screen
+  // renders "No active session" and never reads it, and paths are keyed on
+  // exerciseId, so a leftover entry is never wrong for a later session.
+  useEffect(() => {
+    if (!sessionState?.sessionId) return;
+    const ids: string[] = JSON.parse(entryExerciseIdsKey);
+    const db = getDatabase();
+    let cancelled = false;
+    let latestRead = 0;
+    // Per effect run, so resolver writes that re-fire the subscription never
+    // re-request a pass — no loop.
+    let requestedPass = false;
+    const subscription = db.withChangesForTables(['exercises']).subscribe(() => {
+      const read = ++latestRead;
+      getExerciseImagePaths(db, ids)
+        .then((paths) => {
+          // Reads can resolve out of order; only the newest may land, or a
+          // stale map could stick with no later emission to correct it.
+          if (cancelled || read !== latestRead) return;
+          setExerciseImagePaths(paths);
+          if (!requestedPass && ids.some((id) => !paths[id])) {
+            requestedPass = true;
+            requestExerciseImagePass();
+          }
+        })
+        .catch((error: unknown) => console.error('Failed to load exercise images:', error));
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [sessionState?.sessionId, entryExerciseIdsKey]);
 
   // Engine state carries only routineId, so the routine's name and description
@@ -487,7 +542,8 @@ export default function SessionScreen() {
     dispatch,
     progressionHint,
     exerciseTitles,
-    routineDisplay
+    routineDisplay,
+    exerciseImagePaths
   );
 
   // Destructive and unrecoverable: an abandoned session emits DiscardSession,
@@ -591,6 +647,9 @@ export default function SessionScreen() {
   // Fixed column, no whole-screen scrolling: the only scroller is the
   // logged-set list inside SetLogger. Without the outer ScrollView the
   // KeyboardAvoidingView is mandatory or the keyboard covers the inputs.
+  // Even so the column can be taller than what the keyboard leaves, so while
+  // it is up the notes, the Replace slot and the footer give way
+  // (keyboardVisible above).
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -639,7 +698,11 @@ export default function SessionScreen() {
               </View>
             </View>
             {presenter.routineNotes && (
-              <ThemedText type="small" style={styles.routineNotes}>
+              <ThemedText
+                type="small"
+                style={styles.routineNotes}
+                numberOfLines={keyboardVisible ? 2 : undefined}
+              >
                 {presenter.routineNotes}
               </ThemedText>
             )}
@@ -705,37 +768,47 @@ export default function SessionScreen() {
                      is closed — note the conjunction: a non-idle store renders even
                      without a target, so "no target" alone is not why it stays out of
                      the way here. The unmount cleanup below keeps the store idle across
-                     mounts, which is what actually makes that safe. */
-                  <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+                     mounts, which is what actually makes that safe.
+                     Hidden while the keyboard is open (keyboardVisible). That
+                     also unmounts the picker Modal, which is harmless: the
+                     picker covers the inputs, so no keyboard opens under it. */
+                  !keyboardVisible && (
+                    <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+                  )
                 }
               />
             )}
           </View>
 
-          <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
-            {presenter.phase === 'done' ? (
-              <Pressable
-                style={[styles.button, styles.finishButton]}
-                onPress={() => {
-                  router.back();
-                }}
-              >
-                <ThemedText style={styles.buttonText}>Close</ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.footerRow}>
+          {/* Hidden while the keyboard is open (keyboardVisible). The Close
+              variant shows only at phase 'done', where SetLogger and so every
+              input is gone, so in practice the keyboard never hides it. */}
+          {!keyboardVisible && (
+            <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
+              {presenter.phase === 'done' ? (
                 <Pressable
-                  style={[styles.button, styles.finishButton, styles.footerButton]}
-                  onPress={confirmFinish}
+                  style={[styles.button, styles.finishButton]}
+                  onPress={() => {
+                    router.back();
+                  }}
                 >
-                  <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                  <ThemedText style={styles.buttonText}>Close</ThemedText>
                 </Pressable>
-                <Pressable style={[styles.button, styles.footerButton]} onPress={confirmAbandon}>
-                  <ThemedText style={styles.abandonText}>Abandon</ThemedText>
-                </Pressable>
-              </View>
-            )}
-          </View>
+              ) : (
+                <View style={styles.footerRow}>
+                  <Pressable
+                    style={[styles.button, styles.finishButton, styles.footerButton]}
+                    onPress={confirmFinish}
+                  >
+                    <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                  </Pressable>
+                  <Pressable style={[styles.button, styles.footerButton]} onPress={confirmAbandon}>
+                    <ThemedText style={styles.abandonText}>Abandon</ThemedText>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>

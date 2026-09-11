@@ -1,6 +1,6 @@
 # HMB Workout
 
-Last verified: 2026-08-19
+Last verified: 2026-09-10
 
 Local-first React Native (Expo SDK 57, iOS) workout logger. Data lives on-device
 (WatermelonDB). The session flow is driven by a pure functional Rill-lang state
@@ -22,6 +22,15 @@ on memory of older Expo/Router/Reanimated APIs.
   Node-only `createFsResolver` lives behind the `rill-lang/fs-resolver` subpath
 - Zustand 5 — active-session store (imperative shell)
 - @kingstinct/react-native-healthkit — write-only workout export
+- fuse.js **7.5.0, exact pin** — exercise-title → catalog matching (#335). Not a
+  caret range on purpose: `useTokenSearch` is new in 7.x, and the acceptance
+  threshold was measured against 7.5.0's scores (see Exercise images below)
+- expo-image (display) and expo-file-system's `File`/`Paths` API (storage) for
+  exercise images (#335). Both were **already dependencies, and already in use,
+  before #335** — `expo-image` by `animated-icon.tsx`, `expo-file-system` by the
+  Settings → Data export — so #335 reuses them. **#335 added no native module**:
+  its only new dependency is fuse.js, which is pure JS, so this feature does not
+  by itself require an `expo prebuild`
 - Anthropic Messages API — called over plain `fetch`, **no SDK dependency** (see AI
   Coach below)
 - Jest + ts-jest (node env) — tests
@@ -151,6 +160,20 @@ documented Debug path silently finds nothing and reads as "not linked":
     strings <App>.app/HMBWorkout | grep -c ExpoAudio               # Release: 31 when linked
 
 Any non-zero count means linked; the exact numbers are just what was observed.
+
+**That rule is true for static pods only, and the heading's "do not read
+`Frameworks/`" was too broad.** Some Expo modules ship as **dynamic** frameworks:
+`ExpoImage`, `ExpoFileSystem` and `ExpoFont` sit in `<App>.app/Frameworks/` as
+`.framework` bundles, and `strings <binary> | grep -c ExpoImage` is **0 on a
+correctly linked build** — the same zero that means "missing" for ExpoAudio.
+Measured 2026-09-10 on both the Debug simulator build (`HMBWorkout.debug.dylib`:
+ExpoImage 0, ExpoAudio 38) and the Release iphoneos build (`HMBWorkout`:
+ExpoImage 0, ExpoAudio 31; `Frameworks/` holds `ExpoImage.framework`,
+`ExpoFileSystem.framework`, `ExpoFont.framework`). Check **both** places before
+calling a module missing:
+
+    ls <App>.app/Frameworks | grep ExpoImage                       # dynamic: the .framework is the evidence
+    strings <App>.app/HMBWorkout | grep -c ExpoAudio               # static: the binary is the evidence
 
 **In DerivedData, mtime does not imply completeness.** Several `HMBWorkout-*`
 directories accumulate, and the newest by mtime can be an *empty* `.app` from an
@@ -586,6 +609,11 @@ real upgrade of the first database. It asserts both outcomes — data surviving 
 covered upgrade, and data destroyed when the migrations are withheld — because a
 harness that can only observe one of them proves nothing.
 
+The schema is at **v9**. v9 (#335, `exercises.image_path` + `exercises.image_source`)
+is a non-destructive `addColumns` bump like v8, proved by `migrationV8ToV9.test.ts`
+on the same two-open harness; LokiJS ignores column declarations, so the step's
+*presence* is pinned separately in `migrations.test.ts`.
+
 ## The vault markdown contract (`src/interop`)
 
 `format.ts` is the single source of truth for the grammar; `serialize.ts` and
@@ -1018,6 +1046,285 @@ Write-only. All HealthKit errors are logged and swallowed — a Health failure m
 never affect DB state. Dependencies are injected (`HealthKitSaveDeps`) so the
 save path is testable in the node jest project.
 
+## Exercise images (#335)
+
+Every exercise can carry one photo, resolved in the background from a bundled
+catalog (or pasted by the user) and stored on-device so it renders offline. Like
+the AI slice, this is **data, never session flow**: the Rill `RoutineEntry` and
+engine state carry no image field, and `src/engine/exerciseImageEngineBoundary.test.ts`
+pins that no `.lv` rule mentions one. Every display site reads the path
+shell-side, off the `exercises` row, and there are four readers, not one: the
+session screen through `getExerciseImagePaths` (`src/db/repository.ts`), whose
+`exerciseId`-keyed map reaches `createSessionPresenter` as `exerciseImagePaths` —
+the same shape as `exerciseTitles` in engine convention 6, which is why a Replace
+swap shows the new exercise's image with no extra wiring; `routineDetailPresenter`,
+which reads each exercise's raw `image_path`; `routineListPresenter`'s
+`readThumbnailPaths`, which reads `Exercise.imagePath`; and the exercise detail
+screen (`src/app/exercise/[id].tsx`), which reads the row it loads and then
+observes it (see the observers bullet below). The markdown export is byte-identical
+with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
+
+- **The catalog is generated code pinned to one upstream commit.**
+  `src/state/exerciseCatalogData.ts` is written by `scripts/build-exercise-catalog.mjs`
+  from yuhonas/free-exercise-db at the script's `COMMIT`, which must equal
+  `FREE_EXERCISE_DB_COMMIT` in `src/state/exerciseCatalog.ts`; `node
+  scripts/build-exercise-catalog.mjs --check` exits 1 if the committed file differs
+  from a fresh build. The pin is what keeps an already-resolved row's source URL
+  from moving under it. Never hand-edit the data file.
+- **Two nullable columns (schema v9) and four `ImageSource` states.**
+  `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
+  `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
+  acceptable match — terminal) and `none:nokey` (the no-key name match missed;
+  re-resolved once a key exists). `null` means never decided, or every attempt so
+  far failed without writing. **`isImageResolutionEligible` is the single rule**:
+  it alone drives the first-launch backfill, the first-view retry and the
+  key-added retry — there is no separate mechanism for any of them. An
+  unrecognised value is left alone, never overwritten.
+- **`image_path` is relative to `Paths.document`, never `file://` and never
+  absolute.** iOS moves the app container on reinstall and restore, so an absolute
+  path goes stale. `buildImageRelativePath` builds `exercise-images/<id>-<suffix>.jpg`;
+  the suffix makes every download a NEW file, so an override never overwrites a
+  file a render may be reading. `ExerciseImage` (`src/components/ExerciseImage.tsx`)
+  is the only place a path becomes a URI (`new File(Paths.document, imagePath).uri`).
+- **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
+  `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
+  shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question
+  surface's request contract and budget. `AiClient`'s member set and the model list
+  are unchanged (`src/ai/exerciseImageAiBoundary.test.ts`). `ask` returns free text,
+  so **`parseCatalogPick` is strict**: the trimmed reply must be exactly a shortlist
+  id or exactly `NONE`, and anything else — an id wrapped in prose, backticks, an id
+  outside the shortlist — is `untrusted` and falls back to the score rule. A model
+  that habitually wraps its answer therefore degrades the feature to no-key quality
+  *silently*; `src/ai/catalogPickPrompt.live.test.ts` (env-gated, skipped without
+  `HMB_LIVE_ANTHROPIC_KEY`/`HMB_LIVE_OPENAI_KEY`) is the only detector. It probes
+  each provider's default `oneShot` model unless `HMB_LIVE_MODEL` names another
+  (see AI Coach for when that is required). Do not
+  loosen the parser to make a reply pass — tighten the prompt, or add a deliberate,
+  tested normalization.
+- **With a key, a fallback miss is `none`, never `none:nokey`.** `decideByScore`
+  takes `{ aiConsulted }` and `decideFromAiPick` passes `true`. This is not
+  cosmetic: `none:nokey` with a key configured is *eligible*, so writing it would
+  make the row's own write trigger the observer, the next pass re-resolve it, bill
+  another `ask`, and write `none:nokey` again — forever. An empty shortlist is
+  `none` in both modes, with no `ask`.
+- **Two writers, two write shapes.** The resolver writes through
+  `setExerciseImageIfSourceUnchanged`, a compare-and-set against the
+  `image_source` read when the pass *began*, inside one `database.write` — so a URL
+  the user pastes while a pass is downloading wins, and the pass deletes its now
+  orphaned file. The user's override (`overrideExerciseImage`,
+  `src/state/exerciseImageOverride.ts`) writes through `setExerciseImage`,
+  **unconditionally**, because it is the user's explicit choice. Its order is
+  load-bearing: download to a NEW file → write the row → delete the previous file
+  only once the row no longer points at it (`setExerciseImage` returns the previous
+  path for exactly this). **Failure cleanup, both writers:** if the row write
+  rejects after a successful download, the just-downloaded file is deleted
+  best-effort (logged, never thrown) and the ORIGINAL error is rethrown — in the
+  override so the screen's catch-all reports it, in the resolver's `resolveOne` so
+  the per-row catch logs it and the row stays eligible. The previous file is never
+  touched on that path. A failed download changes nothing at all.
+- **A 2xx is not proof of an image, so downloads are validated by magic number.**
+  `File.downloadFileAsync` checks only the HTTP status (the iOS
+  `FileSystemDownload.swift` accepts any 2xx) and never the content type. Before
+  this check, a pasted *page* URL — an image-search result or a product page, the
+  most common wrong paste — saved HTML as `<id>-<suffix>.jpg`, wrote the row,
+  deleted the previous, working image and reported "Image updated.".
+  `downloadExerciseImage` now reads the downloaded file's first
+  `IMAGE_SIGNATURE_BYTES` bytes and, unless `looksLikeImageBytes`
+  (`src/state/imageSignature.ts`) recognises JPEG, PNG, GIF, WebP or a HEIF/AVIF
+  `ftyp` brand, deletes the file and rejects with `NotAnImageError`. That lands on
+  the override's existing `download-failed` path (row and previous file untouched)
+  and, for a catalog URL, on the resolver's untouched-and-retried row. SVG is
+  deliberately not accepted, because it is text with no signature to tell it from
+  an HTML page. A header that cannot be read at all takes the same exit — file
+  deleted, the read's own error rethrown — and the delete is best-effort, so it
+  never masks the rejection. `exerciseImageFiles.ts` cannot be imported by a test, so
+  `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
+  One input-side guard sits in front of all this: the exercise detail screen's
+  `applyImageUrl` returns early on a blank field, because `onSubmitEditing`
+  reaches the handler directly and the Apply button's `disabled` does not cover
+  it. Without that, Return on an empty field ran the override and showed the red
+  `invalid-url` error. `exerciseImageWiring.static.test.ts` pins the guard.
+- **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
+  (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
+  TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
+  `NO_KEY_ACCEPT_SCORE` is pinned by the margin fixture in
+  `exerciseImageMatch.test.ts` (rows that must accept and rows that must reject).
+  If a rebuild moves a row across the line, re-measure and re-pick the threshold
+  deliberately; never loosen one row to make it pass.
+- **No-key match quality on real data (informational, measured during #335).** On a
+  real 110-exercise database the launch backfill with no key decided every row:
+  32 `catalog:` / 78 `none:nokey`. About 2 of the 32 were the wrong *variant*
+  although the right entry exists — "Dumbbell Lateral Raise" →
+  `Dumbbell_Lying_Rear_Lateral_Raise` rather than `Side_Lateral_Raise`, and
+  `dumbbell-row` → `Dumbbell_Incline_Row` rather than `One-Arm_Dumbbell_Row`. The
+  remedies are the AI pick and the paste-URL override; an alias map would be the
+  no-key fix. **Do not loosen the margin fixture to chase these** — the threshold
+  is what keeps the other 78 from becoming wrong images.
+- **New pattern: database observers. #335 added the app's first THREE, not one.**
+  Before #335 nothing in `src` subscribed to a WatermelonDB observable. This bullet
+  used to call the resolver "the app's first database observer". That was false
+  when written, because the same feature also added two observers in `src/app`. It
+  was copied word for word from the plan (`phase_07.md`), so a false claim
+  arrived looking already approved — the faithfully-transcribed-AC hazard engine
+  convention 8 describes. In WatermelonDB 0.28, `withChangesForTables` emits **once
+  immediately on subscribe** and after **every** batch on the table, **including
+  the subscriber's own writes and any writes it causes**. So each observer needs
+  its own termination argument:
+  - **The resolver.** `startExerciseImageResolver` subscribes to
+    `database.withChangesForTables(['exercises'])`, which covers every
+    exercise-creating path (`acceptDraft`, `applyRoutineImport`,
+    `ensureAlternateExercise`) without any of them calling in; subscribing *is* the
+    launch backfill. It terminates because of the eligibility rule, not the
+    observer: every resolver write makes its row ineligible, so the follow-up pass
+    finds nothing. Passes run one at a time and requests during a pass coalesce
+    into one follow-up.
+  - **The session screen** (`src/app/session.tsx`, the exercise-image effect)
+    subscribes to the same table and calls `requestExerciseImagePass()` from
+    inside the subscription. It therefore feeds the resolver whose writes re-fire
+    it. It terminates because of `requestedPass`, a latch local to each effect run:
+    at most one request per run, however many resolver writes follow. A re-run
+    (a new session, or a Replace changing `entryExerciseIdsKey`) resets it, so
+    requests are bounded by user actions. `latestRead` is the other half: reads can
+    resolve out of order, and only the newest may write the map, or a stale read
+    could land last with no later emission to correct it.
+    `exerciseImageWiring.static.test.ts` pins both, since the screen is
+    jest-invisible.
+  - **The exercise detail screen** (`src/app/exercise/[id].tsx`) observes its one
+    row with `exercise.observe()`, and that observer only sets state
+    (`setImagePath`): it neither writes nor requests. Its first-view request fires
+    once, from the load effect keyed on `id` (`if (!found.imagePath)
+    requestExerciseImagePass()`), never from the observer.
+    `exerciseImageWiring.static.test.ts` pins that request and the observer hook's
+    placement, but **not** that the observer body stays write-free. That part
+    rests on review.
+
+  **Anyone adding another observer must re-derive termination for it.** A
+  long-lived one must also go through a registry like `ensureExerciseImageResolver`
+  (`src/state/exerciseImageResolverRegistry.ts`), which stops a re-run boot effect
+  (Fast Refresh) from starting a second subscription. The two screen subscriptions
+  are per-mount and unsubscribe in their effect cleanups. The resolver is started
+  from `_layout.tsx`'s boot effect, not awaited, and every failure in it is logged
+  and swallowed: nothing about a workout waits on an image.
+- **`src/state/exerciseImageFiles.ts` must never be imported by a test.** It holds
+  the real deps (expo-file-system, `createAiClient`), and the jest project is plain
+  ts-jest in node, where `expo-file-system` fails at import time because it
+  requires its native module. Everything testable takes those as injected deps
+  (`ExerciseImageResolverDeps`, `ExerciseImageOverrideDeps`).
+  `exerciseImageResolverWiring.static.test.ts` enforces it by scanning every test
+  file for an import or `require` of the module.
+- **The session screen shows the image as a large 3:2 picture, not a thumbnail.**
+  `SetLogger` (`src/components/SetLogger.tsx`) renders `<ExerciseImage size="fit">`
+  inside the measured-height `styles.exerciseHero` wrapper, directly under the
+  title row. When there is room it is full width at 3:2, the same size as the
+  exercise detail screen's hero; when there isn't, it becomes a smaller 3:2 (see
+  the next bullet). The plan called for a 48pt thumbnail in the title row; it
+  changed on the user's request during Phase 5. The title row holds only
+  the title and the `?` button, and the title's `flex: 1` (not `flexShrink: 1`) is
+  what keeps a long exercise name from pushing `?` off screen.
+- **The session hero is full width up to 3:2, and it is the first thing to give
+  up height.** On an iPhone 15 Pro Release build with real routines, the fixed
+  3:2 hero overflowed the session screen's fixed column. With a 6-line routine
+  description and a timed exercise's stopwatch card, "Finish Session / Abandon"
+  was drawn on top of "Log Set / Skip Set". With the Replace button present, the
+  logged-sets list was squeezed to nothing. The column does not scroll (the user
+  declined that), so by the user's decision the image is big when there is room
+  and shrinks when there isn't, **keeping its 3:2 proportions** (a second user
+  decision: the first version kept the image full width and clipped it to a
+  centered banner, via a basis-`auto` wrapper with `overflow: 'hidden'`; the user
+  rejected the crop, so that mechanism and its `EXERCISE_IMAGE_BORDER_RADIUS`
+  export are gone). `onLayout` records the column width in a `useState(0)` hook,
+  and the wrapper's full size is an explicit `height` of that width divided by
+  `EXERCISE_IMAGE_ASPECT_RATIO` (exported from `ExerciseImage.tsx`).
+  `flexShrink: 1` with `minHeight: 0` makes Yoga take the column's overflow out
+  of the wrapper, down to zero. It is a `height` and not a `flexBasis` because
+  Yoga uses a style height as the flex basis unconditionally, but honors an
+  explicit `flexBasis` only when the parent's main size is definite. The image
+  uses the `fit` size (`height: '100%'`, `maxWidth: '100%'`, `aspectRatio: 3 / 2`),
+  so it takes its width from the wrapper's already-shrunk height, and the
+  wrapper's `alignItems: 'center'` centers it. Nothing is clipped. There is no
+  layout loop, because the wrapper's width comes from the column's stretch, never
+  from the image. For the single frame before `onLayout` the width is 0, so the
+  image is 0 tall. The width lives in `SetLogger`, so the image does not flash
+  again when it reappears after the keyboard closes. The logged-sets list keeps a floor,
+  `LOGGED_SETS_MIN_HEIGHT` in `SetLogger` (two rows, derived from `setRow`'s
+  padding and border and `TypeRamp.default`'s line height), so the hero gives
+  way before the list does. The floor applies only while the hero is shown
+  (`styles.loggedSetsFloor` under `!keyboardVisible`): with the keyboard up
+  nothing is left to yield, and a floor could only push the buttons down.
+  `ExerciseImage`'s own `hero` style is unchanged, so the exercise detail screen,
+  which scrolls, keeps the fixed 3:2 hero. A column that still overflows with the
+  hero at zero (extreme routine notes on a small screen) is out of scope.
+  **Device-verified 2026-09-10** on an iPhone 15 Pro Release build with the
+  user's real routines (commit c168604): no overlap, and the image keeps 3:2
+  whether it is full width or shrunk.
+- **The session hero hides while the keyboard is open; the exercise detail
+  screen scrolls instead.** On an iPhone 15 Pro Release build the hero pushed the
+  Reps/Weight/Duration inputs so far down that the keyboard covered the focused
+  one. The session screen is deliberately a fixed column with no outer
+  ScrollView, its buttons held above the keyboard by the `KeyboardAvoidingView`
+  in `session.tsx`, so by the user's decision on #335 `SetLogger` renders the
+  `styles.exerciseHero` wrapper only under `!keyboardVisible`. It renders
+  nothing, not a thumbnail, so with the keyboard up the layout is the pre-#335
+  one. **This sentence used to end "which fit", and a device test disproved
+  it.** On the same build, hero already hidden, a timed exercise under a
+  six-line routine description (Push Day → Stationary Bike) drew Finish Session
+  / Abandon over the Duration input and pushed Log Set / Skip Set behind the
+  decimal pad, and a timed exercise with no notes but an AI key (Forearm Plank)
+  put the footer over the Replace button. Since the column was the pre-#335
+  one, the overflow probably predates #335, and "which fit" was asserted rather
+  than measured. The user's second decision: while typing, `session.tsx` itself
+  drops more, reading its own `useKeyboardVisible()` (called once, above the
+  `if (!sessionState)` early return). The whole footer block renders only under
+  `!keyboardVisible`: Finish Session / Abandon, plus the phase-`done` Close,
+  which no keyboard reaches in practice because `SetLogger` and its inputs are
+  already gone by then. The Replace button is gated where the slot is decided,
+  `belowButtonsSlot={!keyboardVisible && (<ReplaceExercise …/>)}`, which also
+  unmounts its picker `Modal`. That is harmless, because the picker covers the
+  inputs, so no keyboard can open under it. The routine notes take
+  `numberOfLines={keyboardVisible ? 2 : undefined}`. The timer card, the
+  focused input and Log Set / Skip Set stay. The column still does not scroll,
+  and the `KeyboardAvoidingView` is unchanged. `keyboardVisible` comes from `useKeyboardVisible`
+  (`src/hooks/use-keyboard-visible.ts`), which listens on `keyboardWillShow`/
+  `keyboardWillHide` on iOS, so the hero collapses as the keyboard animates in
+  rather than after it covers the field, and on `keyboardDidShow`/
+  `keyboardDidHide` on Android, where the Will events never fire. The exercise
+  detail screen already scrolls, so it takes the other route: its single
+  `ScrollView` sets `automaticallyAdjustKeyboardInsets` (commit 9024f72,
+  following `settings/ai.tsx` and `settings/ai-provider.tsx`).
+  `exerciseImageWiring.static.test.ts` pins all of this structurally: the hero's
+  `fit` size, measured height and placement, the keyboard condition, the hook call above any early
+  return in `SetLogger`, the hook's per-platform events and subscription
+  cleanup, and the detail `ScrollView`'s prop. It also pins the three
+  `session.tsx` gates as exact strings (the footer, the Replace slot, and the
+  notes clamp), `session.tsx`'s single hook call above its early return, and
+  exactly four `keyboardVisible` occurrences in that file's code: the declaration
+  and those three gates. The count runs on comment-stripped source, so a raw
+  `grep` of the file finds more (the explanatory comments name it too). A fifth, wrapping `SetLogger` for instance, would hide the
+  very inputs being typed in. Structural pins are the only
+  option because the node jest project cannot load either `.tsx` file and
+  `src/hooks` is outside its `testMatch`. **Every keyboard fix here (the hero,
+  the detail screen's inset, and the session footer, Replace and notes) was
+  device-verified on 2026-09-10** by the user, on an iPhone 15 Pro Release build
+  (commit c168604), using the two failing screens above (Stationary Bike, Forearm
+  Plank) and the exercise detail screen's Image URL and Description fields. The
+  device is the only place these can be checked: the Xcode-beta simulator used
+  here cannot raise a keyboard, so a simulator pass says nothing about them.
+- **Accepted cost: a failing row is retried on every `exercises` write.** A row
+  whose resolution keeps failing writes nothing, stays eligible, and is retried by
+  the next pass — and a pass follows *any* write to the table: the exercise detail
+  screen's description autosave (`AUTOSAVE_DELAY_MS`, 500 ms), a Replace, opening a
+  screen that requests a first-view pass. With a key, each retry bills one `ask`
+  call if the failure is at the download step (the pick happens before the
+  download). The retry is required (AC2.3), the triggers are human-paced, and a
+  persistent download failure means the pinned catalog URL itself is broken. **Do
+  not add a cooldown without revisiting AC2.3.**
+- **Known edge: both keys set, no provider.** `getAiKeyConfigured` uses the
+  canonical `hasAiKey` (`src/state/hasAiKey.ts`), but `createAiClient` also needs a
+  resolvable provider. With both keys set and no `aiProvider`, `hasAiKey` is true
+  yet every `ask` throws, so rows stay `null` and retry. The one-key-per-install
+  invariant (AI Coach, "One key per install") makes that state unreachable through
+  the UI; it is documented in `exerciseImageFiles.ts` rather than special-cased.
+
 ## AI Coach (`src/ai`)
 
 Conversational routine authoring. The user brings their own API key (Anthropic or OpenAI);
@@ -1050,9 +1357,13 @@ opposite, and stayed wrong for the whole of #246's life; the wiring landed in PR
 The asymmetry is deliberate and is why the picker count does not match the surface count:
 `AiModelConfig` has exactly two fields, `chat` and `oneShot`, so `applyModelSelection`'s
 field union is `'chat' | 'oneShot'`. `chat` drives the conversation and routine drafting;
-`oneShot` drives all three one-shot features (alternates, exercise question, rest
-commentary) from a single choice. Adding a third picker means widening `AiModelConfig`
-and `resolveModels`, not just adding UI.
+`oneShot` drives all **four** one-shot uses from a single choice: alternates (`suggest`),
+exercise question (`ask`), rest commentary (`comment`) and, since #335, the exercise-image
+catalog pick. The catalog pick calls the same `ask` through `createExerciseImageResolverDeps`
+(`src/state/exerciseImageFiles.ts`, `createAiClient(getSettings()).ask`), so it uses the
+exercise-question client, model and budget. **The Quick Replies Model picker therefore
+also picks the image-matching model.** Adding a third picker means widening
+`AiModelConfig` and `resolveModels`, not just adding UI.
 
 **One key per install.** Switching provider clears the outgoing provider's key, to `''`
 rather than `undefined` because `setSettings` persists through `JSON.stringify`, which drops
@@ -1089,9 +1400,17 @@ Every client sends a fixed request contract — `reasoning: { effort: 'none' }` 
 rest commentary — against fixed budgets (chat 4096, alternates 1024, exerciseQuestion 512,
 restCommentary 256). A model that rejects those, or whose minimum reasoning effort exceeds
 `none`, either 400s or returns `status: 'incomplete'` with no text and a bill — and every AI
-failure here is swallowed, so the symptom is four silently dead features. **Adding an id
-therefore requires one live call per surface returning rendered text; it is not a config
-edit.** The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
+failure here is swallowed, so the symptom is every surface silently dead, and the catalog
+pick with them. **Adding an id therefore requires one live call per surface returning
+rendered text; it is not a config edit.** **It also requires
+`src/ai/catalogPickPrompt.live.test.ts` to pass against that id** (`HMB_LIVE_MODEL=<id>`
+plus that provider's key). Every listed id can be chosen as `oneShot`, and for the catalog
+pick rendered text is not enough. `parseCatalogPick` trusts only a bare shortlist id or
+`NONE`, so a model that wraps its answer in quotes, backticks or prose passes the
+per-surface probe and still turns every pick into `untrusted`. That falls back to no-key
+quality silently, with no error. Put the id on the list before running it:
+`resolveModels` ignores an off-list id, and the live test fails rather than probe the
+default in its place. The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
 membership in the repo — its `toStrictEqual` is load-bearing, since a loose matcher
 (`arrayContaining`) silently readmits unprobed ids. `resolveModels` ignores an id not on the selected provider's list and falls
 back per field, without rewriting the setting.
@@ -1266,19 +1585,25 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   each have their own prompt builder, and their own client per provider. All follow the
   same rules: free text neutralized, immutable directives last, secret-leak regression
   tests, network-vs-HTTP failure types, every failure swallowed (a workout never depends
-  on the AI), deps injected for the node jest project. Known accepted debt: `neutralizeForPrompt`
-  exists in multiple copies and the POST/parse boilerplate is duplicated across both
+  on the AI), deps injected for the node jest project. `neutralizeForPrompt` is no
+  longer duplicated: #335 hoisted the three private copies (alternates, exercise
+  question, rest commentary) into the one shared `src/ai/neutralizeForPrompt.ts`,
+  which the catalog-pick prompt also imports. `contextBuilder.ts`'s
+  `neutralizeNotesForPrompt` is a **separate** function and was deliberately left
+  alone — do not fold it in by name. Known accepted debt: the POST/parse boilerplate
+  is duplicated across both
   `anthropicClient.ts` and `openaiClient.ts` (plus the one-shot alternates and question
-  clients for each provider, totaling 8 copies) — hoisting them is a tracked follow-up;
-  don't add another of either. `buildOpenAiBody` (`src/ai/provider/requestBuilder.ts`)
+  clients for each provider, totaling 8 copies) — hoisting it is a tracked follow-up;
+  don't add another copy. `buildOpenAiBody` (`src/ai/provider/requestBuilder.ts`)
   centralizes the Responses API body format to reduce drift; Anthropic clients build
   their own request bodies and prompt builders are kept per-surface.
 - **Immutable directives must remain the last section of every system prompt.** They are placed
   after every section built from user-controlled free text (goals, equipment, personality,
   routine notes, exercise titles) to preserve their precedence against injection attempts.
-  The placement is enforced in four builders: `buildSystem` (`src/ai/contextBuilder.ts`),
+  The placement is enforced in five builders: `buildSystem` (`src/ai/contextBuilder.ts`),
   `buildRestCommentaryPrompt` (`src/ai/restCommentaryPrompt.ts`), `buildAlternatesPrompt`
-  (`src/ai/alternatesPrompt.ts`), and `buildExerciseQuestionPrompt` (`src/ai/exerciseQuestionPrompt.ts`);
+  (`src/ai/alternatesPrompt.ts`), `buildExerciseQuestionPrompt` (`src/ai/exerciseQuestionPrompt.ts`),
+  and `buildCatalogPickPrompt` (`src/ai/catalogPickPrompt.ts`, #335);
   the directive text itself lives in `src/ai/coachDirectives.ts`.
 
 ## Testing gotchas
@@ -1294,6 +1619,16 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   Verify layout changes in the simulator, or model the node tree with Yoga, before
   calling them done.
 - `watchman: false` is required — watchman's crawl hangs jest startup on this machine.
+- **Never apply a mutant IN PLACE to a file under `src/app` or `src/components`
+  while Metro is serving a simulator or device.** Metro hot-reloads the mutated file
+  into the running app. During #335 a hook-placement mutant (a hook moved below an
+  early return, to prove a structural test fails) produced a real "Rendered more
+  hooks than during the previous render" crash and a full reload in the app someone
+  was using. Mutate an in-memory copy of the source and run the structural test's
+  checks against that string instead. The incident also proves the phase plans'
+  hook-placement warnings are not hypothetical: that crash is exactly what the
+  `exercise/[id].tsx` hook-placement guard in `exerciseImageWiring.static.test.ts`
+  stands in for.
 - **A mutation harness on this repo MUST count a failed *suite* as a kill, not just a
   failed test.** Plenty of mutations here break a module at import time rather than at
   assertion time — a gapped `migrations` list throws from `validateAdapter` during
@@ -1409,7 +1744,14 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   identity, order, superset label, the entry-level rest default and notes, and
   carries no plan values at all since schema v7. A set may also carry its **own**
   nullable `rest_seconds` (schema v8, #281) that overrides the entry default —
-  what makes a drop set (0 / 0 / full) expressible; null inherits the entry rest
+  what makes a drop set (0 / 0 / full) expressible; null inherits the entry rest.
+  `exercises` carries nullable `image_path`/`image_source` since schema v9 (#335),
+  written only by `setExerciseImageIfSourceUnchanged` (resolver) and
+  `setExerciseImage` (user override). `image_path` is read by
+  `getExerciseImagePaths` (session screen), `routineDetailPresenter`,
+  `routineListPresenter`'s `readThumbnailPaths` and the exercise detail screen;
+  `image_source` is read by the resolver's `runImageResolutionPass` for
+  `isImageResolutionEligible`. See Exercise images
 - `src/interop/` — vault markdown serializer/parser, plus `importRoutine.ts`
   (#267 Phase 2): the pure markdown → `RoutineExerciseEntry[]` reader that gives
   `parseRoutine` its production caller. It owns the two refusals the engine's
@@ -1433,7 +1775,16 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   and `hevySettings.ts` (#267 Phase 3 — `hevyApiKeyPatch`, the one boundary
   where a raw input becomes the stored Hevy key; clears to `''` and never
   `undefined`, because `JSON.stringify` drops `undefined` and would leave no
-  evidence of the clear)
+  evidence of the clear). Exercise images (#335): `exerciseCatalog.ts` +
+  generated `exerciseCatalogData.ts` (the pinned catalog), `exerciseImageState.ts`
+  (the `ImageSource` vocabulary and `isImageResolutionEligible`),
+  `exerciseImageMatch.ts` (pure fuse.js shortlist and decisions),
+  `exerciseImageResolver.ts` (the observer-driven background pass),
+  `exerciseImageResolverRegistry.ts` (the one running resolver),
+  `exerciseImageOverride.ts` (paste-a-URL), `imageSignature.ts` (pure
+  magic-number check: `looksLikeImageBytes`, `IMAGE_SIGNATURE_BYTES`,
+  `NotAnImageError`) and `exerciseImageFiles.ts` (the real I/O deps — never
+  imported by a test)
 - `src/hevy/` — read-only Hevy API import (#267 Phase 3). `hevyClient.ts` is a
   hand-rolled `fetch` with **no SDK**, the same decision `anthropicClient.ts`
   records and for the same reasons (RN-bundle-safe, `fetchFn`-injectable);
@@ -1457,7 +1808,9 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 - `src/health/` — HealthKit write-only export
 - `src/ai/` — AI coach: turn/draft schema + validators, system-prompt builders,
   coach directives, draft→repository accept path, plus the one-shot features
-  (rest commentary, exercise question, replace alternates)
+  (rest commentary, exercise question, replace alternates), the catalog-pick prompt
+  (`catalogPickPrompt.ts`, #335 — a prompt over the existing `ask`, not a surface)
+  and the one shared `neutralizeForPrompt.ts`
 - `src/ai/provider/` — multi-provider abstraction: `createAiClient` factory routes to
   Anthropic or OpenAI based on configured keys; unified `AiClient` interface; `buildOpenAiBody`
   centralizes the OpenAI Responses API format (Anthropic clients build requests inline);
@@ -1479,6 +1832,17 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   under WCAG 1.4.11 — that 3:1 check does not extend to every non-text
   graphical fill in the app (e.g. slider `minimumTrackTintColor` values are
   unchecked), only to this module's own fill/track pairs
+- `src/components/` — shared RN components; jest-invisible for rendering (see
+  Testing gotchas), so wiring is gated by structural tests. `ExerciseImage.tsx`
+  (#335) is the one component that turns a stored relative `image_path` into a
+  URI, in four sizes (`hero`, `fit`, `row`, `strip`), with a same-size placeholder
+  when there is no image. It also exports `EXERCISE_IMAGE_ASPECT_RATIO`, which
+  `SetLogger`'s `exerciseHero` wrapper divides the measured column width by to
+  get its full height (see Exercise images)
+- `src/hooks/` — shared React hooks (theme, color scheme, and since #335
+  `use-keyboard-visible.ts`, whose `useKeyboardVisible` hides the session hero,
+  and in `session.tsx` the footer and Replace button, while the keyboard is open). **Outside jest's `testMatch`**, so a hook here is
+  covered only by structural reads such as `exerciseImageWiring.static.test.ts`
 - `src/app/` — expo-router screens
 
 ## Boundaries

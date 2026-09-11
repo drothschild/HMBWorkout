@@ -5,12 +5,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
+import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
+import { exerciseImageOverrideMessage, overrideExerciseImage } from '@/state/exerciseImageOverride';
+import { deleteExerciseImage, downloadExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 
 const AUTOSAVE_DELAY_MS = 500;
 
@@ -22,6 +26,15 @@ export default function ExerciseDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [description, setDescription] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Every hook in this screen sits ABOVE the `if (!id || loading)` early
+  // return: a hook after it crashes the screen ("Rendered more hooks than
+  // during the previous render"), and no test can render this screen.
+  // exerciseImageWiring.static.test.ts gates the placement.
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  // The paste-URL override (#335 Phase 6).
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [savingImage, setSavingImage] = useState(false);
 
   useEffect(() => {
     const loadExercise = async () => {
@@ -29,6 +42,10 @@ export default function ExerciseDetailScreen() {
       try {
         const found = (await database.get('exercises').find(id)) as Exercise;
         setExercise(found);
+        setImagePath(found.imagePath ?? null);
+        // First-view retry (#335 AC2.9): opening an exercise with no image
+        // asks the background resolver for a pass. No-op until it has started.
+        if (!found.imagePath) requestExerciseImagePass();
         setDescription(found.description ?? '');
       } catch (error) {
         console.error('Failed to load exercise:', error);
@@ -39,6 +56,14 @@ export default function ExerciseDetailScreen() {
 
     loadExercise();
   }, [id]);
+
+  // Keeps the hero live while the screen is open: the resolver may finish (or
+  // the image may be replaced) after mount.
+  useEffect(() => {
+    if (!exercise) return;
+    const subscription = exercise.observe().subscribe((record) => setImagePath(record.imagePath ?? null));
+    return () => subscription.unsubscribe();
+  }, [exercise]);
 
   const pendingValueRef = useRef('');
   const hasPendingRef = useRef(false);
@@ -80,6 +105,35 @@ export default function ExerciseDetailScreen() {
       clearTimeout(timerRef.current);
     }
     timerRef.current = setTimeout(flush, AUTOSAVE_DELAY_MS);
+  };
+
+  // Plain function, not a hook. The hero updates by itself: the
+  // exercise.observe() effect above picks up the row write. Message copy comes
+  // only from exerciseImageOverrideMessage, except a thrown row write (e.g. the
+  // exercise was deleted), which overrideExerciseImage deliberately propagates.
+  const applyImageUrl = async () => {
+    if (!id || savingImage || imageUrl.trim() === '') return;
+    setSavingImage(true);
+    try {
+      const outcome = await overrideExerciseImage(
+        {
+          database,
+          download: downloadExerciseImage,
+          deleteFile: deleteExerciseImage,
+          makeImageSuffix: makeExerciseImageSuffix,
+          log: (message, error) => console.warn(message, error),
+        },
+        id,
+        imageUrl
+      );
+      setImageMessage({ text: exerciseImageOverrideMessage(outcome), isError: outcome.kind !== 'saved' });
+      if (outcome.kind === 'saved') setImageUrl('');
+    } catch (error) {
+      console.error('Failed to save exercise image:', error);
+      setImageMessage({ text: "Couldn't save that image. Try again.", isError: true });
+    } finally {
+      setSavingImage(false);
+    }
   };
 
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
@@ -124,15 +178,23 @@ export default function ExerciseDetailScreen() {
             </ThemedText>
           </Pressable>
         </View>
+        {/* automaticallyAdjustKeyboardInsets insets the content by the keyboard
+            and scrolls the focused field into view. The #335 hero and Image URL
+            field push both inputs to the bottom, where the keyboard covered
+            them on a device; this fix was verified on an iPhone 15 Pro
+            (2026-09-10). Same fix as Settings → AI / AI Provider;
+            gated by exerciseImageWiring.static.test.ts. */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           <ThemedText type="title" style={styles.title}>
             {exercise.title}
           </ThemedText>
+          <ExerciseImage imagePath={imagePath} size="hero" />
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
@@ -144,6 +206,42 @@ export default function ExerciseDetailScreen() {
               {saveError}
             </ThemedText>
           )}
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Image URL
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="https://… (paste an image link to replace the picture)"
+              placeholderTextColor={placeholderColor}
+              value={imageUrl}
+              onChangeText={setImageUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="done"
+              onSubmitEditing={applyImageUrl}
+            />
+            <Pressable
+              disabled={savingImage || imageUrl.trim() === ''}
+              onPress={applyImageUrl}
+              style={({ pressed }) => [
+                styles.button,
+                pressed && styles.buttonPressed,
+                (savingImage || imageUrl.trim() === '') && styles.buttonDisabled,
+              ]}
+            >
+              <ThemedText type="default" style={styles.buttonText}>
+                {savingImage ? 'Saving…' : 'Use this image'}
+              </ThemedText>
+            </Pressable>
+            {imageMessage && (
+              <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
+                {imageMessage.text}
+              </ThemedText>
+            )}
+          </ThemedView>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -239,5 +337,24 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 120,
     textAlignVertical: 'top',
+  },
+  // Same shape as the Settings → Data screen's primary buttons.
+  button: {
+    backgroundColor: ActionButtonColor.primary,
+    borderRadius: 10,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    alignItems: 'center',
+    marginTop: Spacing.one,
+  },
+  buttonPressed: {
+    opacity: 0.7,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });

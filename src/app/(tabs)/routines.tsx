@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
@@ -120,6 +121,19 @@ export default function RoutinesScreen() {
                       <ThemedText type="default" style={styles.exerciseCount}>
                         {item.exerciseCount} exercises
                       </ThemedText>
+                      {/* No images → no strip, rather than four placeholders.
+                          Keyed by position, not path: AC3.5 guarantees
+                          distinct exercises, not distinct paths, and the
+                          presenter emits a duplicate path when two exercises
+                          share one. The list is ordered and rebuilt on every
+                          poll, so position is a stable key here. */}
+                      {item.thumbnailPaths.length > 0 && (
+                        <View style={styles.thumbnailStrip}>
+                          {item.thumbnailPaths.map((path, index) => (
+                            <ExerciseImage key={index} imagePath={path} size="strip" />
+                          ))}
+                        </View>
+                      )}
                     </View>
                     <Pressable
                       accessibilityRole="button"
@@ -214,6 +228,11 @@ const styles = StyleSheet.create({
   exerciseCount: {
     opacity: 0.6,
     fontSize: 12,
+    marginTop: Spacing.one,
+  },
+  thumbnailStrip: {
+    flexDirection: 'row',
+    gap: Spacing.one,
     marginTop: Spacing.one,
   },
   deleteButton: {

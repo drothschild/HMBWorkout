@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,9 +12,12 @@ import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
+import { ExerciseImage, EXERCISE_IMAGE_ASPECT_RATIO } from './ExerciseImage';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { TypeRamp } from '@/theme/typography';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
@@ -43,6 +46,20 @@ const dismissKeyboardOnTouch = () => {
   Keyboard.dismiss();
   return false;
 };
+
+/**
+ * One logged-set row, derived from the row's own style rather than measured:
+ * the row's default-type ThemedText line (`TypeRamp.default`), `setRow`'s
+ * vertical padding, and its bottom border.
+ */
+const SET_ROW_BORDER_WIDTH = 1;
+const LOGGED_SET_ROW_HEIGHT = TypeRamp.default.lineHeight + 2 * Spacing.one + SET_ROW_BORDER_WIDTH;
+/**
+ * The logged-sets list's floor while the hero is shown: two rows (66pt), room
+ * for the "Logged sets (n)" heading and the newest set. It is what makes the
+ * hero, not the list, give way on a crowded screen (see `exerciseHero`).
+ */
+const LOGGED_SETS_MIN_HEIGHT = 2 * LOGGED_SET_ROW_HEIGHT;
 
 // The numeric inputs carry raw text; numbers exist only past
 // buildLogSetValues at the Log Set boundary. Parsing keystrokes into numeric
@@ -100,6 +117,20 @@ export function SetLogger({
   belowButtonsSlot,
 }: SetLoggerProps) {
   const theme = useTheme();
+  // The hero hides while the keyboard is open (user decision on #335): this
+  // screen is a fixed column with no outer ScrollView, and a full-width 3:2
+  // image pushes the set inputs under the keyboard. Without it the layout is
+  // the pre-#335 one, which did NOT always fit with the keyboard up: on device
+  // a timed exercise with long routine notes or a Replace button overflowed,
+  // so session.tsx also hides its footer and the Replace slot and clamps the
+  // notes to two lines while typing (its own keyboardVisible). Hooks stay
+  // above any early return.
+  const keyboardVisible = useKeyboardVisible();
+  // The column width the hero measures, so its full size can be an explicit
+  // 3:2 height (see exerciseHero). 0 until the first layout, so the hero is 0
+  // tall for that one frame rather than a guess. Held here rather than in the
+  // hero so it survives the hero unmounting while the keyboard is up.
+  const [heroColumnWidth, setHeroColumnWidth] = useState(0);
   // TextInput is not a Themed* component, so its text and border colors must
   // resolve against the scheme here — a static color renders black-on-black
   // in dark mode.
@@ -165,6 +196,14 @@ export function SetLogger({
           </Pressable>
         )}
       </View>
+      {!keyboardVisible && (
+        <View
+          style={[styles.exerciseHero, { height: heroColumnWidth / EXERCISE_IMAGE_ASPECT_RATIO }]}
+          onLayout={(event) => setHeroColumnWidth(event.nativeEvent.layout.width)}
+        >
+          <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="fit" />
+        </View>
+      )}
 
       {/* A real Modal, not an inline expand/collapse: RN blocks touches to
           the screen behind a visible Modal by default, so Close (or the
@@ -357,12 +396,20 @@ export function SetLogger({
       </Modal>
 
       {/* The one scroller on the session screen: only the current exercise's
-          sets, newest first, bounded by the fixed chrome around it. */}
+          sets, newest first, bounded by the fixed chrome around it. While the
+          hero is shown it keeps a floor (loggedSetsFloor), so a crowded screen
+          shrinks the hero instead of this list. With the keyboard up the hero
+          is gone and nothing else can yield, so the floor is off and the list
+          shrinks to nothing, as it did before #335; a floor there could only
+          push the buttons down. */}
       {/* Dragging the logged-set list also dismisses the keyboard — the
           gesture iOS users reach for without looking. This screen has no
           whole-screen scroller (it is a fixed column), so this list is where
           it belongs. */}
-      <ScrollView style={styles.loggedSets} keyboardDismissMode="on-drag">
+      <ScrollView
+        style={[styles.loggedSets, !keyboardVisible && styles.loggedSetsFloor]}
+        keyboardDismissMode="on-drag"
+      >
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
@@ -427,13 +474,49 @@ const styles = StyleSheet.create({
   exerciseTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
+  // flex: 1, not flexShrink: 1 — the title takes all the space left of the
+  // fixed 26pt "?" button and wraps inside it, so a long exercise name can
+  // never push the button off screen (#335 AC3.10).
   exerciseTitle: {
-    flexShrink: 1,
+    flex: 1,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '600',
+  },
+  // The workout view shows the exercise image full width at 3:2 when there is
+  // room (user request on #335), directly under the title row. This screen is a
+  // fixed column that does not scroll, so on a crowded screen (long routine
+  // notes, the stopwatch card, the Replace button) the image gives up height
+  // first; before that, the column overflowed and the footer buttons drew on
+  // top of Log Set / Skip Set. When it shrinks it scales down whole, keeping
+  // 3:2, centered in the column, never cropped into a banner (user decision on
+  // #335).
+  // - Full size is an explicit inline height, heroColumnWidth /
+  //   EXERCISE_IMAGE_ASPECT_RATIO, from the width onLayout measures. The wrapper
+  //   stretches across the column (the container's default alignItems), so that
+  //   width never depends on the image and recording it cannot loop; setting
+  //   the same width again is a no-op state update. A height rather than a
+  //   flexBasis: Yoga uses a definite style height as the flex basis
+  //   unconditionally, but honors an explicit flexBasis only when the parent's
+  //   main size is definite (computeFlexBasisForChild, CalculateLayout.cpp).
+  // - flexShrink 1 with minHeight 0: when the column overflows, Yoga takes the
+  //   deficit out of this wrapper, down to zero. Nothing else competes for it:
+  //   the other rows do not shrink (RN's default flexShrink is 0), and the
+  //   logged-sets ScrollView's basis is 0 from `flex: 1`, with loggedSetsFloor
+  //   holding it at its minimum. No grow, so never taller than 3:2 at full width.
+  // - The image is ExerciseImage's 'fit' variant: height 100% of this wrapper,
+  //   width from its aspectRatio. Yoga lays the wrapper's children out against
+  //   its flexed height, so a shrunk wrapper yields a smaller 3:2 image, which
+  //   alignItems center puts in the middle of the column. No overflow clip, so
+  //   nothing is cropped; the image rounds its own corners.
+  // A column that still overflows with the hero at zero (extreme routine notes
+  // on a small screen) is out of scope here.
+  exerciseHero: {
+    marginTop: Spacing.two,
+    flexShrink: 1,
+    minHeight: 0,
+    alignItems: 'center',
   },
   questionButton: {
     // borderColor is theme-resolved inline
@@ -534,10 +617,14 @@ const styles = StyleSheet.create({
     flex: 1,
     marginVertical: Spacing.two,
   },
+  // Applied only while the hero is shown; see LOGGED_SETS_MIN_HEIGHT.
+  loggedSetsFloor: {
+    minHeight: LOGGED_SETS_MIN_HEIGHT,
+  },
   setRow: {
     // borderBottomColor is theme-resolved inline (setRowStyle)
     paddingVertical: Spacing.one,
-    borderBottomWidth: 1,
+    borderBottomWidth: SET_ROW_BORDER_WIDTH,
   },
   buttonRow: {
     flexDirection: 'row',

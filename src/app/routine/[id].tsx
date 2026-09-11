@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
@@ -31,6 +32,7 @@ function ExerciseRow({ exercise, onPress }: { exercise: ExerciseDetail; onPress:
       accessibilityRole="button"
       accessibilityLabel={`Edit ${exercise.title}`}
     >
+      <ExerciseImage imagePath={exercise.imagePath} size="row" />
       <View style={styles.exerciseInfo}>
         <ThemedText type="default" style={styles.exerciseName}>
           {exercise.title}
@@ -327,6 +329,7 @@ const styles = StyleSheet.create({
   },
   exerciseInfo: {
     flex: 1,
+    marginLeft: Spacing.two,
   },
   exerciseDescription: {
     opacity: 0.6,
