@@ -13,8 +13,12 @@ Apply these gates on every review round, including follow-up reviews after fixes
 Process the board continuously until every ticket is complete or requires human
 interaction/QA. An open PR or an In review card is intermediate work, not a stop
 condition. Continue independent tickets while a human gate is pending. Finish
-authorized merges and verify merged main; if merge approval is required, identify
-the exact reviewed PRs and request it while continuing unaffected work.
+approved merges and verify merged main. Independent review approval plus passing
+required automated checks authorizes merging without a separate user permission
+prompt. After those gates pass, merge the exact reviewed head automatically; do
+not ask the user to approve the merge again. Respect repository branch protections
+and required GitHub approvals. A human-interaction/QA gate still requires release
+by the human before merging; review approval does not release that gate.
 
 - Use independent subagents and the applicable review skills. Mutation-test each
   round: deliberately break the implementation and run the relevant individual
@@ -34,7 +38,7 @@ the exact reviewed PRs and request it while continuing unaffected work.
   results on the card, such as “four beeps on rest complete; music keeps playing.”
   Tests with injected native operations do not replace on-device verification.
   **No agent may move a card out of Require Human Inteteraction; only the human may do so.**
-- After an authorized merge, fetch the actual merged `main` commit and run the
+- After each merge, fetch the actual merged `main` commit and run the
   relevant individual checks there. Record that commit and results before calling
   the work complete. A green branch does not establish that merged main is green.
 
