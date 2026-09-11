@@ -122,12 +122,15 @@ export default function RoutinesScreen() {
                         {item.exerciseCount} exercises
                       </ThemedText>
                       {/* No images → no strip, rather than four placeholders.
-                          Paths are distinct by construction (#335 AC3.5), so
-                          the path is a stable unique key. */}
+                          Keyed by position, not path: AC3.5 guarantees
+                          distinct exercises, not distinct paths, and the
+                          presenter emits a duplicate path when two exercises
+                          share one. The list is ordered and rebuilt on every
+                          poll, so position is a stable key here. */}
                       {item.thumbnailPaths.length > 0 && (
                         <View style={styles.thumbnailStrip}>
-                          {item.thumbnailPaths.map((path) => (
-                            <ExerciseImage key={path} imagePath={path} size="strip" />
+                          {item.thumbnailPaths.map((path, index) => (
+                            <ExerciseImage key={index} imagePath={path} size="strip" />
                           ))}
                         </View>
                       )}

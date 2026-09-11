@@ -123,6 +123,35 @@ describe('session.tsx exercise-image effect (#335 AC3.7)', () => {
     expect(body).toContain('.unsubscribe()');
   });
 
+  it('keeps the stale-read guard: only the newest read may write the map', () => {
+    // Reads resolve out of order. Without the guard an older read (taken
+    // before the resolver finished) can land last and blank an image that
+    // resolved mid-workout, with no later emission to correct it (AC3.7).
+    // Asserted on the effect body alone, whitespace removed, so the pins
+    // cannot be satisfied by text elsewhere in the file.
+    const body = effectAround(normalized(FILES.session), MARKER, 'session.tsx').body.replace(/\s+/g, '');
+    const guardAt = indexOfOrThrow(body, 'read!==latestRead', 'session.tsx image effect');
+
+    expect(body).toContain('constread=++latestRead;');
+    expect(body).toContain('cancelled||read!==latestRead');
+    expect(guardAt).toBeLessThan(indexOfOrThrow(body, 'setExerciseImagePaths(', 'session.tsx image effect'));
+    expect(body).toContain('cancelled=true;');
+  });
+
+  it('latches the first-view pass request once per effect run', () => {
+    // Resolver writes re-fire the subscription; without the latch every one of
+    // them would request another pass. The latch must be tested, then set,
+    // then the pass requested — in that order, inside this effect.
+    const body = effectAround(normalized(FILES.session), MARKER, 'session.tsx').body.replace(/\s+/g, '');
+    const testAt = indexOfOrThrow(body, 'if(!requestedPass&&', 'session.tsx image effect');
+    const setAt = indexOfOrThrow(body, 'requestedPass=true;', 'session.tsx image effect');
+    const requestAt = indexOfOrThrow(body, 'requestExerciseImagePass()', 'session.tsx image effect');
+
+    expect(testAt).toBeLessThan(setAt);
+    expect(setAt).toBeLessThan(requestAt);
+    expect(occurrences(body, 'requestExerciseImagePass()')).toBe(1);
+  });
+
   it('depends on exactly the session and the entry exercise ids, compared as a set', () => {
     // A set, not toContain: dropping entryExerciseIdsKey would strand a
     // Replace-swapped exercise on the outgoing exercise's image (the ids the
