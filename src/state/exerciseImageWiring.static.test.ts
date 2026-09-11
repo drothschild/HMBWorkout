@@ -228,11 +228,16 @@ describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () =
     expect(normalized(FILES.exerciseDetail)).toContain('text: exerciseImageOverrideMessage(outcome)');
   });
 
-  it('refuses a second save while one is in flight', () => {
+  it('refuses a second save while one is in flight, and a blank field', () => {
     // The button's `disabled` covers taps, but onSubmitEditing reaches the
-    // handler directly; the handler's own guard is what stops two overrides
-    // racing to download and delete each other's files.
-    expect(compact(FILES.exerciseDetail)).toContain('if(!id||savingImage)return;');
+    // handler directly, so the handler must carry both of the button's
+    // conditions itself. `savingImage` stops two overrides racing to download
+    // and delete each other's files; the blank check stops a return on an
+    // empty field from running the override and showing the red "Enter an
+    // image URL that starts with http:// or https://." error.
+    expect(compact(FILES.exerciseDetail)).toContain(
+      "if(!id||savingImage||imageUrl.trim()==='')return;",
+    );
   });
 });
 
