@@ -597,6 +597,15 @@ describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
     expect(tags.some((tag) => tag.includes('imagePath={exercise.imagePath}'))).toBe(true);
   });
 
+  it('routine detail rows align the image with the top of the exercise content (#356)', () => {
+    // Exercises with varying prescribed sets or a description are taller than
+    // the 48pt image. Center alignment leaves the image floating halfway down
+    // that content instead of beside the exercise title.
+    expect(styleEntry(compact(FILES.routineDetail), 'exerciseItem', 'routine/[id].tsx')).toContain(
+      "alignItems:'flex-start'"
+    );
+  });
+
   it('routine cards render a thumbnail strip from thumbnailPaths', () => {
     const source = normalized(FILES.routinesTab);
     const tags = exerciseImageTags(source);
