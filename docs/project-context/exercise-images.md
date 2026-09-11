@@ -32,13 +32,10 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
   acceptable match — terminal) and `none:nokey` (the no-key name match missed;
   re-resolved once a key exists). `null` means never decided, or every attempt so
-  far failed without writing. **`isImageResolutionEligible` governs ordinary
-  resolution**: first-launch backfill, first-view retry and key-added retry share
-  this predicate. #341 adds one narrow exception: `catalogImageCorrection` in
-  `exerciseImageMatch.ts` admits only an exact normalized title paired with its
-  known old `catalog:<id>` source, and only if the replacement exists in the
-  bundled catalog. The three pairs are listed below. URL overrides, unrelated
-  catalog selections and unrecognised source values are left alone.
+  far failed without writing. **`isImageResolutionEligible` is the single rule**:
+  it alone drives the first-launch backfill, the first-view retry and the
+  key-added retry — there is no separate mechanism for any of them. An
+  unrecognised value is left alone, never overwritten.
 - **`image_path` is relative to `Paths.document`, never `file://` and never
   absolute.** iOS moves the app container on reinstall and restore, so an absolute
   path goes stale. `buildImageRelativePath` builds `exercise-images/<id>-<suffix>.jpg`;
@@ -116,28 +113,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   although the right entry exists — "Dumbbell Lateral Raise" →
   `Dumbbell_Lying_Rear_Lateral_Raise` rather than `Side_Lateral_Raise`, and
   `dumbbell-row` → `Dumbbell_Incline_Row` rather than `One-Arm_Dumbbell_Row`. The
-  measurement describes the pre-#341 matcher. #341 implements three exact aliases:
-  `Dumbbell Lateral Raise` → `Side_Lateral_Raise`, `dumbbell-row` →
-  `One-Arm_Dumbbell_Row`, and `Glute Bridge` → `Butt_Lift_Bridge` (previously
-  `Barbell_Glute_Bridge`). Alias normalization accepts case, spacing, hyphens and
-  existing abbreviations such as `DB`, but additional variant words still reach
-  Fuse. An alias candidate is inserted at score 0, deduplicated and kept within
-  the eight-entry shortlist; `NO_KEY_ACCEPT_SCORE` stays 0.15. The remaining
-  `BB Row` ambiguity still reaches Fuse; it is not one of these aliases. The
-  AI pick and paste-URL override remain available. **Do not loosen the margin
-  fixture to chase further cases** — the threshold protects the other misses.
-- **Repair prior wrong catalog selections only for those three title/source
-  pairs (#341).** `runImageResolutionPass` checks `catalogImageCorrection` before
-  ordinary eligibility. A correction bypasses `ask`, downloads a fresh file,
-  and uses the existing source compare-and-set. It deletes the previous file
-  only after the row successfully points at the replacement. A download failure
-  preserves the row and old file; a racing URL override wins and the correction
-  deletes only its newly downloaded orphan. Once corrected, the row matches
-  neither the old-source exception nor ordinary eligibility, so a second pass
-  does nothing. `exerciseImageAliases.test.ts` covers all three repairs,
-  terminality, explicit variants, URL overrides, download failure and the race.
-  These contracts were checked against the implementation and tests in
-  [PR #348](https://github.com/drothschild/HMBWorkout/pull/348) on 2026-09-10.
+  remedies are the AI pick and the paste-URL override; an alias map would be the
+  no-key fix. **Do not loosen the margin fixture to chase these** — the threshold
+  is what keeps the other 78 from becoming wrong images.
 - **New pattern: database observers. #335 added the app's first THREE, not one.**
   Before #335 nothing in `src` subscribed to a WatermelonDB observable. This bullet
   used to call the resolver "the app's first database observer". That was false
@@ -152,11 +130,10 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
     `database.withChangesForTables(['exercises'])`, which covers every
     exercise-creating path (`acceptDraft`, `applyRoutineImport`,
     `ensureAlternateExercise`) without any of them calling in; subscribing *is* the
-    launch backfill. It terminates because of the eligibility predicates, not the
-    observer: every resolver write makes its row ineligible for ordinary
-    resolution and for the old-source correction exception, so the follow-up
-    pass finds nothing. Passes run one at a time and requests during a pass
-    coalesce into one follow-up.
+    launch backfill. It terminates because of the eligibility rule, not the
+    observer: every resolver write makes its row ineligible, so the follow-up pass
+    finds nothing. Passes run one at a time and requests during a pass coalesce
+    into one follow-up.
   - **The session screen** (`src/app/session.tsx`, the exercise-image effect)
     subscribes to the same table and calls `requestExerciseImagePass()` from
     inside the subscription. It therefore feeds the resolver whose writes re-fire
