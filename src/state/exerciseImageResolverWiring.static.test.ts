@@ -19,51 +19,72 @@ const LAYOUT = join(__dirname, '..', 'app', '_layout.tsx');
 describe('_layout.tsx exercise image resolver wiring (#335 AC2.10)', () => {
   const source = () => readFileSync(LAYOUT, 'utf8');
 
-  it('calls ensureExerciseImageResolver exactly once', () => {
+  it('calls ensureExerciseImageResolver with the exact callback, immediately before setRulesLoaded(true)', () => {
     const text = source();
-    const matches = text.match(/ensureExerciseImageResolver\s*\(/g);
-    expect(matches).toHaveLength(1);
+    // Strip comments (// and /* */) and whitespace to detect exact placement
+    const stripped = text
+      .replace(/\/\/.*$/gm, '') // remove line comments
+      .replace(/\/\*[\s\S]*?\*\//g, '') // remove block comments
+      .replace(/\s+/g, ''); // remove all whitespace
+
+    // The exact sequence: call (possibly wrapped in try/catch) immediately followed by setRulesLoaded
+    // Match: try{ensureExerciseImageResolver(()=>startExerciseImageResolver(createExerciseImageResolverDeps(database)));}catch...setRulesLoaded(true);
+    const pattern = 'try\\{ensureExerciseImageResolver\\(\\(\\)=>startExerciseImageResolver\\(createExerciseImageResolverDeps\\(database\\)\\)\\);\\}catch\\([^)]*\\)\\{[^}]*\\}setRulesLoaded\\(true\\);';
+    const matches = stripped.match(pattern);
+    expect(matches).not.toBeNull();
+    expect((matches || []).length).toBeGreaterThan(0);
   });
 
-  it('passes the correct callback to ensureExerciseImageResolver', () => {
+  it('call is NOT inside the if(savedState) block', () => {
     const text = source();
-    // Check that the function is called with the correct callback structure
-    expect(text).toContain('ensureExerciseImageResolver(() =>');
-    expect(text).toContain('startExerciseImageResolver(createExerciseImageResolverDeps(database))');
+    // Extract the if (savedState) { ... } block
+    const ifStart = text.indexOf('if (savedState)');
+    if (ifStart === -1) throw new Error('if (savedState) marker not found');
+
+    // Find the opening brace
+    let braceCount = 0;
+    let inBlock = false;
+    let blockStart = -1;
+    let blockEnd = -1;
+    for (let i = ifStart; i < text.length; i++) {
+      if (text[i] === '{') {
+        if (!inBlock) blockStart = i;
+        braceCount++;
+        inBlock = true;
+      } else if (text[i] === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          blockEnd = i + 1;
+          break;
+        }
+      }
+    }
+    if (blockStart === -1 || blockEnd === -1) throw new Error('Could not extract if(savedState) block');
+
+    const ifBlock = text.substring(blockStart, blockEnd);
+    expect(ifBlock).not.toContain('ensureExerciseImageResolver');
   });
 
-  it('is placed immediately before setRulesLoaded(true)', () => {
+  it('ordering: after loadSettings and rehydrateActiveSession, before setRulesLoaded(true)', () => {
     const text = source();
-    // Must be OUTSIDE the if (savedState) block. Check that the resolver
-    // call comes after the if (savedState) block and before setRulesLoaded(true).
-    expect(text).toContain('});');
-    expect(text).toContain('ensureExerciseImageResolver(');
-    expect(text).toContain('setRulesLoaded(true);');
-    // Check ordering: rehydrateActiveSession should come before the resolver
-    const rehydrateIndex = text.indexOf('rehydrateActiveSession(');
-    const resolverIndex = text.indexOf('ensureExerciseImageResolver(');
-    const rulesLoadedIndex = text.indexOf('setRulesLoaded(true)');
-    expect(rehydrateIndex).toBeLessThan(resolverIndex);
-    expect(resolverIndex).toBeLessThan(rulesLoadedIndex);
+    const loadSettingsAt = text.indexOf('loadSettings(');
+    const rehydrateAt = text.indexOf('rehydrateActiveSession(');
+    const resolverAt = text.indexOf('ensureExerciseImageResolver(');
+    const rulesLoadedAt = text.indexOf('setRulesLoaded(true)');
+
+    expect(loadSettingsAt).toBeGreaterThanOrEqual(0);
+    expect(rehydrateAt).toBeGreaterThanOrEqual(0);
+    expect(resolverAt).toBeGreaterThanOrEqual(0);
+    expect(rulesLoadedAt).toBeGreaterThanOrEqual(0);
+
+    expect(loadSettingsAt).toBeLessThan(resolverAt);
+    expect(rehydrateAt).toBeLessThan(resolverAt);
+    expect(resolverAt).toBeLessThan(rulesLoadedAt);
   });
 
   it('is NOT awaited', () => {
     const text = source();
     expect(text).not.toMatch(/await\s+ensureExerciseImageResolver/);
-  });
-
-  it('appears after loadSettings', () => {
-    const text = source();
-    const loadSettingsAt = text.indexOf('loadSettings(');
-    const resolverAt = text.indexOf('ensureExerciseImageResolver(');
-    expect(resolverAt).toBeGreaterThan(loadSettingsAt);
-  });
-
-  it('appears after rehydrateActiveSession', () => {
-    const text = source();
-    const rehydrateAt = text.indexOf('rehydrateActiveSession(');
-    const resolverAt = text.indexOf('ensureExerciseImageResolver(');
-    expect(resolverAt).toBeGreaterThan(rehydrateAt);
   });
 
   it('no test file imports exerciseImageFiles', () => {
