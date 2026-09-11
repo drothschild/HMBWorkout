@@ -13,19 +13,61 @@
  * unreachable through the UI; it is documented rather than special-cased.
  */
 import type { Database } from '@nozbe/watermelondb';
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import { createAiClient } from '@/ai/provider/factory';
 import { EXERCISE_CATALOG } from './exerciseCatalog';
 import { EXERCISE_IMAGE_DIR } from './exerciseImageState';
 import type { ExerciseImageResolverDeps } from './exerciseImageResolver';
+import { IMAGE_SIGNATURE_BYTES, looksLikeImageBytes, NotAnImageError } from './imageSignature';
 import { getSettings } from './settings';
 import { hasAiKey } from './hasAiKey';
 
+/**
+ * Downloads `url` to `relativePath` and rejects unless the result is an image.
+ *
+ * `downloadFileAsync` rejects on non-2xx but never looks at the content type
+ * (iOS FileSystemDownload.swift checks the status only), so a pasted page URL
+ * succeeds with HTML. The magic-number check turns that into a rejection —
+ * the override's `download-failed`, the resolver's untouched-and-retried row —
+ * with the downloaded file deleted, so nothing ever points at it. Guarded
+ * structurally by exerciseImageDownloadGuard.static.test.ts.
+ */
 export async function downloadExerciseImage(url: string, relativePath: string): Promise<void> {
   // downloadFileAsync does not create parent directories (verified in the
-  // iOS implementation), and rejects on non-2xx.
+  // iOS implementation).
   new Directory(Paths.document, EXERCISE_IMAGE_DIR).create({ intermediates: true, idempotent: true });
-  await File.downloadFileAsync(url, new File(Paths.document, relativePath));
+  const destination = new File(Paths.document, relativePath);
+  await File.downloadFileAsync(url, destination);
+  let header: Uint8Array;
+  try {
+    header = readImageHeader(destination);
+  } catch (error) {
+    discardDownloadedFile(destination);
+    throw error;
+  }
+  if (!looksLikeImageBytes(header)) {
+    discardDownloadedFile(destination);
+    throw new NotAnImageError(url);
+  }
+}
+
+/** The first IMAGE_SIGNATURE_BYTES bytes, or fewer if the file is shorter (iOS `read(upToCount:)`). */
+function readImageHeader(file: File): Uint8Array {
+  const handle = file.open(FileMode.ReadOnly);
+  try {
+    return handle.readBytes(IMAGE_SIGNATURE_BYTES);
+  } finally {
+    handle.close();
+  }
+}
+
+/** Best effort: the row never pointed at this file, and the caller's error is the one that matters. */
+function discardDownloadedFile(destination: File): void {
+  try {
+    destination.delete();
+  } catch {
+    // An orphan in exercise-images/ is harmless; masking the rejection is not.
+  }
 }
 
 export async function deleteExerciseImage(relativePath: string): Promise<void> {

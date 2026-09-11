@@ -1122,6 +1122,21 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   override so the screen's catch-all reports it, in the resolver's `resolveOne` so
   the per-row catch logs it and the row stays eligible. The previous file is never
   touched on that path. A failed download changes nothing at all.
+- **A 2xx is not proof of an image, so downloads are validated by magic number.**
+  `File.downloadFileAsync` checks only the HTTP status (the iOS
+  `FileSystemDownload.swift` accepts any 2xx) and never the content type. Before
+  this check, a pasted *page* URL — an image-search result or a product page, the
+  most common wrong paste — saved HTML as `<id>-<suffix>.jpg`, wrote the row,
+  deleted the previous, working image and reported "Image updated.".
+  `downloadExerciseImage` now reads the downloaded file's first
+  `IMAGE_SIGNATURE_BYTES` bytes and, unless `looksLikeImageBytes`
+  (`src/state/imageSignature.ts`) recognises JPEG, PNG, GIF, WebP or a HEIF/AVIF
+  `ftyp` brand, deletes the file and rejects with `NotAnImageError`. That lands on
+  the override's existing `download-failed` path (row and previous file untouched)
+  and, for a catalog URL, on the resolver's untouched-and-retried row. SVG is
+  deliberately not accepted, because it is text with no signature to tell it from
+  an HTML page. `exerciseImageFiles.ts` cannot be imported by a test, so
+  `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
