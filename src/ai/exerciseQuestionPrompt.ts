@@ -17,6 +17,7 @@
  */
 
 import type { ExerciseKind } from '@/engine/types';
+import { neutralizeForPrompt } from './neutralizeForPrompt';
 
 /**
  * The longest answer the inline expand block will render. A "detailed
@@ -50,24 +51,6 @@ export interface ExerciseQuestionPromptInput {
 export interface ExerciseQuestionPrompt {
   system: string;
   message: string;
-}
-
-/**
- * User free text (personality, directives, exercise titles, exercise descriptions) is
- * dropped into a markdown-shaped prompt, so a line starting with '#' would
- * read as a section heading and could masquerade as prompt structure. Same
- * treatment `contextBuilder` gives routine notes and `restCommentaryPrompt`
- * gives personality/directives/titles.
- *
- * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`
- * and `src/ai/restCommentaryPrompt.ts:neutralizeForPrompt`. Hoisting all three
- * into a shared helper is tracked as accepted debt in AGENTS.md.
- */
-function neutralizeForPrompt(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.replace(/^\s*#+\s*/, ''))
-    .join('\n');
 }
 
 /**

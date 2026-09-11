@@ -15,6 +15,7 @@
 import type { ExerciseKind, RoutineSet } from '@/engine/types';
 import { ALTERNATE_TITLE_MAX_LENGTH, EXERCISE_ALTERNATES_MAX } from './alternatesSchema';
 import { planSetsFromRoutineSets, summarizePlanSets } from './setPlanFormat';
+import { neutralizeForPrompt } from './neutralizeForPrompt';
 
 /**
  * How many alternates to ask for. Three is enough to be a choice and few
@@ -57,19 +58,6 @@ export interface AlternatesPromptInput {
 export interface AlternatesPrompt {
   system: string;
   message: string;
-}
-
-/**
- * User- and model-authored free text lands in a markdown-shaped prompt, so a
- * line starting with '#' would read as a section heading and could masquerade
- * as prompt structure. Same treatment `contextBuilder` gives routine notes and
- * `restCommentaryPrompt` gives titles.
- */
-function neutralizeForPrompt(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.replace(/^\s*#+\s*/, ''))
-    .join('\n');
 }
 
 function targetSummary(exercise: AlternatesPromptExercise): string {

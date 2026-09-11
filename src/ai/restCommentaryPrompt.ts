@@ -39,6 +39,7 @@
 import type { ExerciseKind, RoutineSet } from '@/engine/types';
 import { formatWeightLbs } from '@/state/weightUnits';
 import { planSetsFromRoutineSets, summarizePlanSets } from './setPlanFormat';
+import { neutralizeForPrompt } from './neutralizeForPrompt';
 
 /**
  * How many recent working sets ride along. Small on purpose — the model needs
@@ -168,23 +169,6 @@ export type RestCommentaryPromptInput =
 export interface RestCommentaryPrompt {
   system: string;
   message: string;
-}
-
-/**
- * User free text (personality, directives, exercise titles) is dropped into a
- * markdown-shaped prompt, so a line starting with '#' would read as a section
- * heading and could masquerade as prompt structure. Same treatment `contextBuilder`
- * gives routine notes.
- *
- * NOTE: This is duplicated from `src/ai/contextBuilder.ts:neutralizeNotesForPrompt`
- * and `src/ai/exerciseQuestionPrompt.ts:neutralizeForPrompt`. Hoisting all three
- * into a shared helper is tracked as accepted debt in AGENTS.md.
- */
-function neutralizeForPrompt(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.replace(/^\s*#+\s*/, ''))
-    .join('\n');
 }
 
 function targetSummary(exercise: RestCommentaryExercise): string {
