@@ -98,9 +98,15 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     const testStartMs = 1000;
     const testEndMs = 10000;
 
-    // Create injected HealthKit that THROWS
+    // Resolve the write asynchronously beyond a fixed pair of flush() calls.
+    const healthKitError = new Error('HealthKit write failed');
+    let healthKitSettled = false;
     const saveWorkoutSampleSpy = jest.fn(async () => {
-      throw new Error('HealthKit write failed');
+      await flush();
+      await flush();
+      await flush();
+      healthKitSettled = true;
+      throw healthKitError;
     });
 
     const healthKitDeps: HealthKitDeps = {
@@ -175,6 +181,11 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
 
       // Flush microtasks and timers again to catch any late-arriving promise rejections
       await flush();
+
+      expect(healthKitSettled).toBe(true);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'HealthKit workout write failed:', healthKitError
+      );
 
       // Verify no unhandledRejection fired
       expect(unhandledRejections).toHaveLength(0);
