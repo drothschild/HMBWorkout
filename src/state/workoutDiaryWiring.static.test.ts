@@ -12,3 +12,14 @@ it('gates debrief startup on diary completion and renders persisted diary in his
  expect(history).toContain('<WorkoutDiarySummary');
  expect(history).toContain('debriefSessionId: id');
 });
+
+it('refreshes the saved diary when returning to the workout and keeps picker cancellation skippable',()=>{
+ const summary=read('components/WorkoutDiarySummary.tsx');
+ expect(summary.includes('useFocusEffect(useCallback(')).toBe(true);
+ expect(summary.includes('readWorkoutDiary(database, sessionId)')).toBe(true);
+ const gate=read('components/WorkoutDiaryGate.tsx');
+ expect(gate.includes('requestCameraPermissionsAsync()')).toBe(true);
+ expect(gate.includes('!result.canceled && result.assets[0]?.uri')).toBe(true);
+ expect(gate.includes('complete(null)')).toBe(true);
+ expect(gate.includes("cameraType: ImagePicker.CameraType.front")).toBe(true);
+});

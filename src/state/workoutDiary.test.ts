@@ -87,3 +87,20 @@ it('rejects active workouts and unsafe persisted selfie paths', async () => {
   expect((await readWorkoutDiary(db,'finished')).ready).toBe(false);
  } finally { await closeTestDatabase(db); }
 });
+
+it('lets only the first of two mounted gates finish and cleans the losing selfie', async () => {
+ const db=createTestDatabase();
+ try {
+  await seed(db); await saveWorkoutDiary(db,'finished','Original diary');
+  const filesA={copy:jest.fn().mockResolvedValue('workout-selfies/winner.jpg'),remove:jest.fn()};
+  const filesB={copy:jest.fn().mockResolvedValue('workout-selfies/loser.jpg'),remove:jest.fn()};
+  const a=createWorkoutDiaryStore(db,'finished',filesA),b=createWorkoutDiaryStore(db,'finished',filesB);
+  await a.getState().load();await b.getState().load();
+  expect(await Promise.all([a.getState().complete('file:///a.jpg'),b.getState().complete('file:///b.jpg')])).toEqual([true,false]);
+  expect(filesA.remove).not.toHaveBeenCalled();
+  expect(filesB.remove).toHaveBeenCalledWith('workout-selfies/loser.jpg');
+  expect(await readWorkoutDiary(db,'finished')).toEqual({diary:'Original diary',selfiePath:'workout-selfies/winner.jpg',ready:true});
+  await expect(saveWorkoutDiary(db,'finished','Late edit')).rejects.toThrow('completed');
+  await b.getState().load();expect(b.getState().stage).toBe('ready');
+ } finally {await closeTestDatabase(db);}
+});

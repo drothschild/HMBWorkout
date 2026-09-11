@@ -23,8 +23,8 @@ jest.mock('./adapterMigrations', () => ({
 }));
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 9 for the exercise image columns', () => {
-    expect(databaseSchema.version).toBe(9);
+  it('has bumped the schema version to 10 for workout diary columns', () => {
+    expect(databaseSchema.version).toBe(10);
   });
 
   it('declares the routine_sets table with a per-set prescription on every column', () => {
@@ -142,12 +142,12 @@ describe('Database schema migrations', () => {
     // withholding the migrations again at v7 would destroy whatever the user
     // rebuilt afterwards. Coverage and schema must agree from here on, and the
     // equality — not merely `>=` — is what `migrationsForAdapter` gates on.
-    expect(migrations.maxVersion).toBe(9);
+    expect(migrations.maxVersion).toBe(10);
     expect(migrations.maxVersion).toBe(databaseSchema.version);
     expect(migrations.minVersion).toBe(1);
   });
 
-  it('returns real steps for every upgrade path into v9, from every version an install can hold', () => {
+  it('returns real steps for every upgrade path into v10, from every version an install can hold', () => {
     // The mirror of the loop this replaces, over the same domain: null was the
     // signal both adapters branch on to RESET, so a null anywhere in this range
     // is a silent wipe of a real user's database. v6, v7 and v8 are the ones
