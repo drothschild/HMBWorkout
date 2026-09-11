@@ -272,7 +272,9 @@ export function SetLogger({
 
       {presenter.exerciseDescriptionLine && (
         <View style={styles.hintContainer}>
-          <ThemedText style={styles.hintText}>{presenter.exerciseDescriptionLine}</ThemedText>
+          <ThemedText style={styles.hintText} numberOfLines={2} ellipsizeMode="tail">
+            {presenter.exerciseDescriptionLine}
+          </ThemedText>
         </View>
       )}
 
