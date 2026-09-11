@@ -11,6 +11,7 @@
  */
 import Fuse from 'fuse.js';
 import type { CatalogEntry } from './exerciseCatalog';
+import type { CatalogPick } from '@/ai/catalogPickPrompt';
 
 export const SHORTLIST_SIZE = 8;
 /** fuse score: 0 = perfect, 1 = total mismatch. A hit "clears" when score <= this. */
@@ -88,4 +89,20 @@ export function decideByScore(
   if (top === undefined) return { kind: 'none' };
   if (top.score <= NO_KEY_ACCEPT_SCORE) return { kind: 'catalog', entry: top.entry };
   return options.aiConsulted ? { kind: 'none' } : { kind: 'none:nokey' };
+}
+
+/**
+ * AC1.1/AC1.2 when the model is trusted; AC1.3's fallback when it is not.
+ * `pick` must have been parsed against these same hits' ids.
+ */
+export function decideFromAiPick(
+  hits: readonly ShortlistHit[],
+  pick: CatalogPick
+): ImageDecision {
+  if (pick.kind === 'none') return { kind: 'none' };
+  if (pick.kind === 'id') {
+    const hit = hits.find((candidate) => candidate.entry.id === pick.id);
+    if (hit !== undefined) return { kind: 'catalog', entry: hit.entry };
+  }
+  return decideByScore(hits, { aiConsulted: true });
 }

@@ -4,6 +4,7 @@ import {
   normalizeExerciseTitle,
   createCatalogMatcher,
   decideByScore,
+  decideFromAiPick,
   type CatalogMatcher,
 } from './exerciseImageMatch';
 import { EXERCISE_CATALOG } from './exerciseCatalog';
@@ -231,6 +232,69 @@ describe('exercise image matching — #335', () => {
 
       // Log the actual top-1 for reference
       console.log(`BB Row top-1: ${hits[0].entry.id} (score: ${hits[0].score})`);
+    });
+  });
+
+  describe('decideFromAiPick', () => {
+    it('AC1.1/AC1.2: trusted id pick on Romanian Deadlift → catalog Romanian_Deadlift', () => {
+      const hits = matcher.shortlist('Romanian Deadlift');
+      const pick = { kind: 'id' as const, id: 'Romanian_Deadlift' };
+      const decision = decideFromAiPick(hits, pick);
+      expect(decision.kind).toBe('catalog');
+      if (decision.kind === 'catalog') {
+        expect(decision.entry.id).toBe('Romanian_Deadlift');
+      }
+    });
+
+    it('AC1.2: trusted id pick wins even when score would miss threshold', () => {
+      const hits = matcher.shortlist('Cable Face Pull');
+      const pick = { kind: 'id' as const, id: 'Face_Pull' };
+      const decision = decideFromAiPick(hits, pick);
+      expect(decision.kind).toBe('catalog');
+      if (decision.kind === 'catalog') {
+        expect(decision.entry.id).toBe('Face_Pull');
+      }
+      // Verify that the score would actually miss the threshold
+      const faceHit = hits.find((h) => h.entry.id === 'Face_Pull');
+      if (faceHit) {
+        expect(faceHit.score).toBeGreaterThan(NO_KEY_ACCEPT_SCORE);
+      }
+    });
+
+    it('none pick → none regardless of shortlist quality', () => {
+      const hits = matcher.shortlist('Romanian Deadlift');
+      const pick = { kind: 'none' as const };
+      const decision = decideFromAiPick(hits, pick);
+      expect(decision.kind).toBe('none');
+    });
+
+    it('AC1.3 untrusted on Romanian Deadlift → catalog (threshold hit)', () => {
+      const hits = matcher.shortlist('Romanian Deadlift');
+      const pick = { kind: 'untrusted' as const };
+      const decision = decideFromAiPick(hits, pick);
+      expect(decision.kind).toBe('catalog');
+      if (decision.kind === 'catalog') {
+        expect(decision.entry.id).toBe('Romanian_Deadlift');
+      }
+    });
+
+    it('AC1.3 untrusted on Couch Stretch → terminal none, not none:nokey', () => {
+      const hits = matcher.shortlist('Couch Stretch');
+      expect(hits.length).toBeGreaterThan(0);
+      const pick = { kind: 'untrusted' as const };
+      const decision = decideFromAiPick(hits, pick);
+      expect(decision.kind).toBe('none');
+      expect(decision).not.toEqual({ kind: 'none:nokey' });
+    });
+
+    it('untrusted id (absent from shortlist) falls back to score', () => {
+      const hits = matcher.shortlist('Cable Face Pull');
+      // Use an id that is valid in the catalog but not in this shortlist
+      const pick = { kind: 'id' as const, id: 'Romanian_Deadlift' };
+      const decision = decideFromAiPick(hits, pick);
+      // Should fall back to score rule with aiConsulted: true
+      // Cable Face Pull's top hit has score > 0.15, so should be 'none'
+      expect(decision.kind).toBe('none');
     });
   });
 });
