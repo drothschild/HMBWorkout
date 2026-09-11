@@ -12,6 +12,7 @@ import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
+import { ExerciseImage } from './ExerciseImage';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
@@ -150,6 +151,7 @@ export function SetLogger({
   return (
     <ThemedView style={styles.container} onStartShouldSetResponder={dismissKeyboardOnTouch}>
       <View style={styles.exerciseTitleRow}>
+        <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="row" />
         <ThemedText style={styles.exerciseTitle}>
           {presenter.currentExerciseTitle || 'Exercise'}
         </ThemedText>
@@ -427,10 +429,13 @@ const styles = StyleSheet.create({
   exerciseTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
+  // flex: 1, not flexShrink: 1 — the title takes exactly the space between the
+  // fixed 48pt image and the fixed 26pt "?" button and wraps inside it, so a
+  // long exercise name can never push the button off screen (#335 AC3.10).
   exerciseTitle: {
-    flexShrink: 1,
+    flex: 1,
+    marginLeft: Spacing.two,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '600',

@@ -35,10 +35,13 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import {
+  getExerciseImagePaths,
   getExerciseTitles,
   getExerciseWorkingSetHistory,
   getRoutineDisplay,
 } from '@/db/repository';
+import type { RoutineEntry } from '@/engine/types';
+import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 import { getPrescribedSetsForEntry } from '@/state/routineSetPlans';
 import { computeProgressionHint } from '@/state/progressionHintHelper';
 
@@ -126,6 +129,7 @@ export default function SessionScreen() {
   const [rpePopupOpen, setRpePopupOpen] = useState(false);
   const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
+  const [exerciseImagePaths, setExerciseImagePaths] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
     { name: string; notes: string | null } | undefined
   >();
@@ -331,9 +335,13 @@ export default function SessionScreen() {
   // rewrites one entry's exerciseId mid-session — so the reload is keyed on the
   // ids themselves, not just the session, or the swapped exercise would render
   // as its raw slug until the next launch.
-  const entryExerciseIdsKey = (sessionState?.entries ?? [])
-    .map((entry: any) => entry.exerciseId)
-    .join('|');
+  //
+  // JSON rather than a delimiter join so the key is lossless: the image effect
+  // below parses its ids back out of it, which keeps `sessionState` itself out
+  // of that effect's body (and so out of its dependency array).
+  const entryExerciseIdsKey = JSON.stringify(
+    (sessionState?.entries ?? []).map((entry: RoutineEntry) => entry.exerciseId)
+  );
 
   useEffect(() => {
     const loadTitles = async () => {
@@ -353,6 +361,44 @@ export default function SessionScreen() {
     };
 
     loadTitles();
+  }, [sessionState?.sessionId, entryExerciseIdsKey]);
+
+  // Exercise images (#335): re-read on EVERY `exercises` change, not just when
+  // the entry list changes, so an image the background resolver finishes
+  // mid-workout appears in place (AC3.7). withChangesForTables emits once on
+  // subscribe, so this is also the initial load. On that first load, if any
+  // entry's exercise has no image, ask for a pass (first-view retry, AC2.9).
+  // With no session the map is left as is rather than reset: the screen
+  // renders "No active session" and never reads it, and paths are keyed on
+  // exerciseId, so a leftover entry is never wrong for a later session.
+  useEffect(() => {
+    if (!sessionState?.sessionId) return;
+    const ids: string[] = JSON.parse(entryExerciseIdsKey);
+    const db = getDatabase();
+    let cancelled = false;
+    let latestRead = 0;
+    // Per effect run, so resolver writes that re-fire the subscription never
+    // re-request a pass — no loop.
+    let requestedPass = false;
+    const subscription = db.withChangesForTables(['exercises']).subscribe(() => {
+      const read = ++latestRead;
+      getExerciseImagePaths(db, ids)
+        .then((paths) => {
+          // Reads can resolve out of order; only the newest may land, or a
+          // stale map could stick with no later emission to correct it.
+          if (cancelled || read !== latestRead) return;
+          setExerciseImagePaths(paths);
+          if (!requestedPass && ids.some((id) => !paths[id])) {
+            requestedPass = true;
+            requestExerciseImagePass();
+          }
+        })
+        .catch((error: unknown) => console.error('Failed to load exercise images:', error));
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [sessionState?.sessionId, entryExerciseIdsKey]);
 
   // Engine state carries only routineId, so the routine's name and description
@@ -487,7 +533,8 @@ export default function SessionScreen() {
     dispatch,
     progressionHint,
     exerciseTitles,
-    routineDisplay
+    routineDisplay,
+    exerciseImagePaths
   );
 
   // Destructive and unrecoverable: an abandoned session emits DiscardSession,

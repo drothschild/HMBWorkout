@@ -1,0 +1,203 @@
+/**
+ * Static gates on the exercise-image screen wiring (#335 Phase 5).
+ *
+ * `src/app` and `src/components` are invisible to every jest suite — the node
+ * project cannot load a `.tsx` full of RN and expo-router imports — so the
+ * screen half of AC2.9, AC3.6 and AC3.7 has no behavioural cover. These are
+ * structural reads of the source, the precedent set by
+ * `sessionPrefillWiring.static.test.ts`.
+ *
+ * Every source is read with COMMENTS STRIPPED first, so a commented-out
+ * `<ExerciseImage …/>` or a `// requestExerciseImagePass()` cannot satisfy an
+ * assertion. Every anchor throws "re-anchor this gate" when it is missing, so
+ * a refactor that moves the code fails loudly instead of passing vacuously.
+ */
+
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const APP = join(__dirname, '..', 'app');
+const COMPONENTS = join(__dirname, '..', 'components');
+
+const FILES = {
+  session: join(APP, 'session.tsx'),
+  exerciseDetail: join(APP, 'exercise', '[id].tsx'),
+  routineDetail: join(APP, 'routine', '[id].tsx'),
+  routinesTab: join(APP, '(tabs)', 'routines.tsx'),
+  setLogger: join(COMPONENTS, 'SetLogger.tsx'),
+};
+
+/**
+ * Removes block comments (JSX `{/* … *\/}` included) and line comments. The
+ * line-comment pattern refuses a `//` preceded by `:` so a `file://` or
+ * `https://` inside a string literal is not mistaken for a comment.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/** Comments stripped, every whitespace run collapsed to one space. */
+function normalized(path: string): string {
+  return stripComments(readFileSync(path, 'utf8')).replace(/\s+/g, ' ');
+}
+
+/** Comments stripped, all whitespace removed. */
+function compact(path: string): string {
+  return stripComments(readFileSync(path, 'utf8')).replace(/\s+/g, '');
+}
+
+function indexOfOrThrow(source: string, marker: string, file: string): number {
+  const at = source.indexOf(marker);
+  if (at === -1) {
+    throw new Error(`${file} no longer contains ${marker}; re-anchor this gate`);
+  }
+  return at;
+}
+
+function occurrences(source: string, marker: string): number {
+  return source.split(marker).length - 1;
+}
+
+/**
+ * The `useEffect` containing `marker`: its body from the marker to the first
+ * `}, [ … ]);` after it, plus that dependency array's entries with whitespace
+ * removed.
+ */
+function effectAround(source: string, marker: string, file: string): { body: string; deps: string[] } {
+  const markerAt = indexOfOrThrow(source, marker, file);
+  const closing = /\}\s*,\s*\[([^\]]*)\]\s*\)\s*;/g;
+  closing.lastIndex = markerAt;
+  const match = closing.exec(source);
+  if (!match) {
+    throw new Error(`no useEffect dependency array found after ${marker} in ${file}; re-anchor this gate`);
+  }
+  return {
+    body: source.slice(markerAt, match.index),
+    deps: match[1]
+      .split(',')
+      .map((entry) => entry.replace(/\s+/g, ''))
+      .filter((entry) => entry.length > 0),
+  };
+}
+
+/** Top-level (depth-0) arguments of the first call whose text starts at `callee(`. */
+function callArguments(source: string, callee: string, file: string): string[] {
+  const open = indexOfOrThrow(source, `${callee}(`, file) + callee.length;
+  const args: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '(' || ch === '[' || ch === '{') {
+      depth++;
+      if (depth === 1) continue;
+    } else if (ch === ')' || ch === ']' || ch === '}') {
+      depth--;
+      if (depth === 0) {
+        if (current.trim().length > 0) args.push(current.replace(/\s+/g, ''));
+        return args;
+      }
+    } else if (ch === ',' && depth === 1) {
+      args.push(current.replace(/\s+/g, ''));
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  throw new Error(`unterminated ${callee}( call in ${file}; re-anchor this gate`);
+}
+
+/** Every `<ExerciseImage … />` opening tag in the source. */
+function exerciseImageTags(source: string): string[] {
+  return source.match(/<ExerciseImage\b[^>]*>/g) ?? [];
+}
+
+describe('session.tsx exercise-image effect (#335 AC3.7)', () => {
+  const MARKER = "withChangesForTables(['exercises'])";
+
+  it('re-reads image paths on every exercises change and cleans up its subscription', () => {
+    const { body } = effectAround(normalized(FILES.session), MARKER, 'session.tsx');
+
+    expect(body).toContain('getExerciseImagePaths(');
+    expect(body).toContain('setExerciseImagePaths(');
+    expect(body).toContain('.unsubscribe()');
+  });
+
+  it('depends on exactly the session and the entry exercise ids, compared as a set', () => {
+    // A set, not toContain: dropping entryExerciseIdsKey would strand a
+    // Replace-swapped exercise on the outgoing exercise's image (the ids the
+    // subscription reads are captured per effect run).
+    const { deps } = effectAround(normalized(FILES.session), MARKER, 'session.tsx');
+
+    expect(new Set(deps)).toEqual(new Set(['sessionState?.sessionId', 'entryExerciseIdsKey']));
+  });
+});
+
+describe('session.tsx passes the image map to the presenter (#335 AC3.6)', () => {
+  it('passes exerciseImagePaths as the 6th positional argument of createSessionPresenter', () => {
+    const args = callArguments(normalized(FILES.session), 'createSessionPresenter', 'session.tsx');
+
+    expect(args).toHaveLength(6);
+    expect(args[5]).toBe('exerciseImagePaths');
+  });
+});
+
+describe('first-view retry (#335 AC2.9)', () => {
+  it('session.tsx requests a pass from inside the image effect', () => {
+    const { body } = effectAround(
+      normalized(FILES.session),
+      "withChangesForTables(['exercises'])",
+      'session.tsx'
+    );
+
+    expect(body).toContain('requestExerciseImagePass()');
+  });
+
+  it('exercise/[id].tsx requests a pass only when the loaded exercise has no image', () => {
+    expect(compact(FILES.exerciseDetail)).toContain('if(!found.imagePath)requestExerciseImagePass();');
+  });
+});
+
+describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
+  // A hook after an early return crashes the screen with "Rendered more hooks
+  // than during the previous render", and no test can render the screen. Anchor
+  // on the new hooks' OWN text: `useState<string|null>(null)` already exists
+  // for saveError, so anchoring on it would pass wherever the new hook went.
+  const HOOKS = ['const[imagePath,setImagePath]=useState', 'exercise.observe()'];
+
+  it.each(HOOKS)('%s occurs exactly once, above the first early return', (hook) => {
+    const source = compact(FILES.exerciseDetail);
+    const earlyReturn = indexOfOrThrow(source, 'if(!id||loading)', 'exercise/[id].tsx');
+
+    expect(occurrences(source, hook)).toBe(1);
+    expect(indexOfOrThrow(source, hook, 'exercise/[id].tsx')).toBeLessThan(earlyReturn);
+  });
+});
+
+describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
+  it('SetLogger renders the current exercise image in the title row', () => {
+    const tags = exerciseImageTags(normalized(FILES.setLogger));
+
+    expect(tags.some((tag) => tag.includes('imagePath={presenter.currentExerciseImagePath}'))).toBe(true);
+  });
+
+  it('routine detail rows render each exercise image', () => {
+    const tags = exerciseImageTags(normalized(FILES.routineDetail));
+
+    expect(tags.some((tag) => tag.includes('imagePath={exercise.imagePath}'))).toBe(true);
+  });
+
+  it('routine cards render a thumbnail strip from thumbnailPaths', () => {
+    const source = normalized(FILES.routinesTab);
+    const tags = exerciseImageTags(source);
+
+    expect(source).toContain('item.thumbnailPaths.map(');
+    expect(tags.some((tag) => tag.includes('imagePath={path}') && tag.includes('size="strip"'))).toBe(true);
+  });
+
+  it('exercise detail renders the live imagePath as the hero', () => {
+    const tags = exerciseImageTags(normalized(FILES.exerciseDetail));
+
+    expect(tags.some((tag) => tag.includes('imagePath={imagePath}') && tag.includes('size="hero"'))).toBe(true);
+  });
+});

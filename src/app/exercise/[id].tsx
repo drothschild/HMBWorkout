@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
+import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 
 const AUTOSAVE_DELAY_MS = 500;
 
@@ -22,6 +24,11 @@ export default function ExerciseDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [description, setDescription] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Every hook in this screen sits ABOVE the `if (!id || loading)` early
+  // return: a hook after it crashes the screen ("Rendered more hooks than
+  // during the previous render"), and no test can render this screen.
+  // exerciseImageWiring.static.test.ts gates the placement.
+  const [imagePath, setImagePath] = useState<string | null>(null);
 
   useEffect(() => {
     const loadExercise = async () => {
@@ -29,6 +36,10 @@ export default function ExerciseDetailScreen() {
       try {
         const found = (await database.get('exercises').find(id)) as Exercise;
         setExercise(found);
+        setImagePath(found.imagePath ?? null);
+        // First-view retry (#335 AC2.9): opening an exercise with no image
+        // asks the background resolver for a pass. No-op until it has started.
+        if (!found.imagePath) requestExerciseImagePass();
         setDescription(found.description ?? '');
       } catch (error) {
         console.error('Failed to load exercise:', error);
@@ -39,6 +50,14 @@ export default function ExerciseDetailScreen() {
 
     loadExercise();
   }, [id]);
+
+  // Keeps the hero live while the screen is open: the resolver may finish (or
+  // the image may be replaced) after mount.
+  useEffect(() => {
+    if (!exercise) return;
+    const subscription = exercise.observe().subscribe((record) => setImagePath(record.imagePath ?? null));
+    return () => subscription.unsubscribe();
+  }, [exercise]);
 
   const pendingValueRef = useRef('');
   const hasPendingRef = useRef(false);
@@ -133,6 +152,7 @@ export default function ExerciseDetailScreen() {
           <ThemedText type="title" style={styles.title}>
             {exercise.title}
           </ThemedText>
+          <ExerciseImage imagePath={imagePath} size="hero" />
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>

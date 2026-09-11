@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
@@ -120,6 +121,16 @@ export default function RoutinesScreen() {
                       <ThemedText type="default" style={styles.exerciseCount}>
                         {item.exerciseCount} exercises
                       </ThemedText>
+                      {/* No images → no strip, rather than four placeholders.
+                          Paths are distinct by construction (#335 AC3.5), so
+                          the path is a stable unique key. */}
+                      {item.thumbnailPaths.length > 0 && (
+                        <View style={styles.thumbnailStrip}>
+                          {item.thumbnailPaths.map((path) => (
+                            <ExerciseImage key={path} imagePath={path} size="strip" />
+                          ))}
+                        </View>
+                      )}
                     </View>
                     <Pressable
                       accessibilityRole="button"
@@ -214,6 +225,11 @@ const styles = StyleSheet.create({
   exerciseCount: {
     opacity: 0.6,
     fontSize: 12,
+    marginTop: Spacing.one,
+  },
+  thumbnailStrip: {
+    flexDirection: 'row',
+    gap: Spacing.one,
     marginTop: Spacing.one,
   },
   deleteButton: {
