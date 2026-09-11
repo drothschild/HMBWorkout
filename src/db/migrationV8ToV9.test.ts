@@ -17,6 +17,12 @@
  * negative control (migrations withheld) asserts the reset path so a green
  * result cannot mean "the harness cannot see a wipe".
  *
+ * Note: this file proves the upgrade does not wipe data and that the columns
+ * are writable, NOT that the column is created — LokiJS ignores column
+ * declarations so it cannot see a steps: [] migration; the step's presence is
+ * pinned by 'adds exercises.image_path and image_source with a real addColumns
+ * step from v8 to v9' in migrations.test.ts.
+ *
  * SQLite is not exercised — the node project has no JSI (AGENTS.md's testing
  * boundary); the native file upgrade stays a simulator check.
  */
@@ -207,6 +213,10 @@ describe('opening a v8 database under the v9 schema', () => {
     const withImage = await v9.get('exercises').find('pull-up');
     expect((withImage as any)._raw.image_path).toBe('pull-up.jpg');
     expect((withImage as any)._raw.image_source).toBe('catalog:PullUp');
+
+    // Also assert that the model fields read correctly (not just _raw).
+    expect((withImage as Exercise).imagePath).toBe('pull-up.jpg');
+    expect((withImage as Exercise).imageSource).toBe('catalog:PullUp');
 
     await persistAndClose(v9);
   });

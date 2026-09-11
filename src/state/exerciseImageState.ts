@@ -1,10 +1,9 @@
+// pattern: Functional Core
 /**
  * The vocabulary of `exercises.image_source` and the one rule that decides
  * whether a resolver pass (re)resolves a row (#335). This predicate alone
  * drives the first-launch backfill, the first-view retry, and the
  * key-added retry — there is no separate mechanism for any of them.
- *
- * pattern: Functional Core
  */
 
 export type ImageSource = `catalog:${string}` | `url:${string}` | 'none' | 'none:nokey';
