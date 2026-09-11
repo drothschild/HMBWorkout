@@ -6,6 +6,30 @@ Local-first iOS workout logger: Expo SDK 57, React Native 0.86, React 19,
 expo-router, WatermelonDB 0.28, Zustand 5 and a pure rill-lang 1.1.1 session engine.
 The [dependency notes](docs/project-context/overview.md) explain exact pins and platform boundaries.
 
+## Mandatory review and release gates
+
+Apply these gates on every review round, including follow-up reviews after fixes.
+
+- Use independent subagents and the applicable review skills. Mutation-test each
+  round: deliberately break the implementation and run the relevant individual
+  tests. Record killed, surviving and invalid mutants separately; restore the
+  source and verify green afterward. For documentation, corrupt the content or
+  links in a copy and prove the preservation/link checks reject it.
+- Execute at least one load-bearing claim from each agent report independently.
+  Prefer a measured number and record the command, commit and result. A prior
+  report or static inspection does not verify an execution claim.
+- For claims shaped like “X only reads A, B and C,” execute X with a distinct
+  marker in every field and inspect the reads and output. Do not infer exclusivity
+  from reading the source or testing only the named fields.
+- Any change touching layout, sound or native-module behavior stays a **draft PR**
+  with its card in **Needs Human QA**. Include concrete actions and expected
+  results on the card, such as “four beeps on rest complete; music keeps playing.”
+  Tests with injected native operations do not replace on-device verification.
+  **No agent may move a card out of Needs Human QA; only the human may do so.**
+- After an authorized merge, fetch the actual merged `main` commit and run the
+  relevant individual checks there. Record that commit and results before calling
+  the work complete. A green branch does not establish that merged main is green.
+
 ## Working here
 
 - Before Expo/RN changes, read the exact SDK docs at
