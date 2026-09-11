@@ -309,8 +309,11 @@ export default function SessionScreen() {
   );
 
   useEffect(() => {
-    const loadTitles = async () => {
+    let cancelled = false;
+
+    const loadExerciseDisplay = async () => {
       if (!sessionState) {
+        if (cancelled) return;
         setExerciseTitles({});
         setExerciseDescriptions({});
         return;
@@ -318,21 +321,29 @@ export default function SessionScreen() {
 
       try {
         const db = getDatabase();
-        const ids = (sessionState.entries ?? []).map((entry: any) => entry.exerciseId);
+        const ids: string[] = JSON.parse(entryExerciseIdsKey);
         const [titles, descriptions] = await Promise.all([
           getExerciseTitles(db, ids),
           getExerciseDescriptions(db, ids),
         ]);
+        // A Replace changes entryExerciseIdsKey and cleans up this effect. Its
+        // older DB reads may still finish later, but must not overwrite the
+        // substitute exercise's title/description maps.
+        if (cancelled) return;
         setExerciseTitles(titles);
         setExerciseDescriptions(descriptions);
       } catch (error) {
+        if (cancelled) return;
         console.error('Failed to load exercise display fields:', error);
         setExerciseTitles({});
         setExerciseDescriptions({});
       }
     };
 
-    loadTitles();
+    loadExerciseDisplay();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionState?.sessionId, entryExerciseIdsKey]);
 
   // Exercise images (#335): re-read on EVERY `exercises` change, not just when
