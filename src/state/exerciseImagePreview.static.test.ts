@@ -76,11 +76,15 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(row).toContain('accessibilityLabel={`Edit ${exercise.title}`}');
 
     const routines = readFileSync(ROUTINES_TAB, 'utf8').replace(/\s+/g, ' ');
+    const routinesCompact = routines.replace(/\s+/g, '');
     const stripAt = routines.indexOf('styles.thumbnailStrip');
     const navigationOpen = routines.lastIndexOf('<Pressable', stripAt);
     const navigationClose = routines.lastIndexOf('</Pressable>', stripAt);
 
     expect(stripAt).toBeGreaterThanOrEqual(0);
+    expect(routinesCompact).toContain(
+      'renderItem={({item})=>(<Viewstyle={[styles.routineItem,{borderBottomColor:theme.backgroundSelected},]}>'
+    );
     expect(navigationClose).toBeGreaterThan(navigationOpen);
     expect(routines).toContain('accessibilityLabel={`Open ${item.name}`}');
   });
@@ -95,6 +99,10 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(contractEnd).toBeGreaterThan(contractStart);
     expect(contract).toContain('Tiny `row` and `strip` images open a contain-fit preview (#361)');
     expect(contract).toContain('Placeholders and the `hero` / `fit` variants stay non-interactive');
+    expect(contract).toContain(
+      'Image preview, row navigation, and delete actions are sibling accessibility elements'
+    );
+    expect(contract).toContain('44-point press target');
     expect(contract).toContain('`src/components/ExerciseImage.tsx`');
   });
 });

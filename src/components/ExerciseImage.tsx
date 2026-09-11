@@ -26,6 +26,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   // Keyed on the path that failed, not a boolean: a later, different path
   // (the resolver replacing a bad file) gets its own attempt.
   const [failedPath, setFailedPath] = useState<string | null>(null);
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const frame = [styles.base, styles[size], { backgroundColor: theme.backgroundElement }];
 
@@ -33,7 +34,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
     return <View style={frame} accessibilityLabel="No exercise image" />;
   }
 
-  const previewable = size === 'row' || size === 'strip';
+  const previewable = loadedPath === imagePath && (size === 'row' || size === 'strip');
   const imageUri = new File(Paths.document, imagePath).uri;
   const renderedImage = (
     <Image
@@ -41,7 +42,11 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
       source={{ uri: imageUri }}
       contentFit="cover"
       recyclingKey={imagePath}
-      onError={() => setFailedPath(imagePath)}
+      onLoad={() => setLoadedPath(imagePath)}
+      onError={() => {
+        setLoadedPath(null);
+        setFailedPath(imagePath);
+      }}
       accessibilityIgnoresInvertColors
     />
   );
@@ -53,6 +58,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   return (
     <>
       <Pressable
+        style={size === 'strip' ? styles.stripPreviewTrigger : undefined}
         onPress={(event) => {
           event.stopPropagation();
           setPreviewVisible(true);
@@ -80,7 +86,10 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
             source={{ uri: imageUri }}
             contentFit="contain"
             recyclingKey={`preview-${imagePath}`}
-            onError={() => setFailedPath(imagePath)}
+            onError={() => {
+              setLoadedPath(null);
+              setFailedPath(imagePath);
+            }}
             accessibilityLabel="Full-size exercise image"
             accessibilityIgnoresInvertColors
           />
@@ -113,6 +122,7 @@ const styles = StyleSheet.create({
   fit: { height: '100%', maxWidth: '100%', aspectRatio: EXERCISE_IMAGE_ASPECT_RATIO },
   row: { width: 48, height: 48 },
   strip: { width: 32, height: 32 },
+  stripPreviewTrigger: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   previewBackdrop: {
     flex: 1,
     alignItems: 'center',

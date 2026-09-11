@@ -26,48 +26,50 @@ import { routineStartMode } from '@/state/routineStartMode';
  */
 function ExerciseRow({ exercise, onPress }: { exercise: ExerciseDetail; onPress: () => void }) {
   return (
-    <Pressable
-      style={({ pressed }) => [styles.exerciseItem, pressed && styles.exerciseItemPressed]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Edit ${exercise.title}`}
-    >
+    <View style={styles.exerciseItem}>
       <ExerciseImage imagePath={exercise.imagePath} size="row" />
-      <View style={styles.exerciseInfo}>
-        <ThemedText type="default" style={styles.exerciseName}>
-          {exercise.title}
-        </ThemedText>
-        <ThemedText type="default" style={styles.exerciseDetails}>
-          {formatPlannedSetsSummary(exercise.sets)}
-          {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
-        </ThemedText>
-        {/*
-          One row per prescribed set (#276). This is where a warmup ramp
-          becomes visible: three rows at three loads, which the summary line
-          above can only report as "3 warmup". Rendered for a genuinely
-          per-set plan only — a flat 3x8 says nothing three identical rows
-          would not.
-        */}
-        {hasVaryingSets(exercise.sets) &&
-          exercise.sets.map((set, index) => (
-            <ThemedText
-              key={`${exercise.routineExerciseId}-set-${index}`}
-              type="small"
-              style={styles.plannedSetLine}
-            >
-              {formatPlannedSetLine(set, index, exercise.sets)}
-            </ThemedText>
-          ))}
-        {exercise.description && (
-          <ThemedText type="small" style={styles.exerciseDescription}>
-            {exercise.description}
+      <Pressable
+        style={({ pressed }) => [styles.exerciseNavigation, pressed && styles.exerciseItemPressed]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${exercise.title}`}
+      >
+        <View style={styles.exerciseInfo}>
+          <ThemedText type="default" style={styles.exerciseName}>
+            {exercise.title}
           </ThemedText>
-        )}
-      </View>
-      <ThemedText type="default" style={styles.exerciseChevron}>
-        ›
-      </ThemedText>
-    </Pressable>
+          <ThemedText type="default" style={styles.exerciseDetails}>
+            {formatPlannedSetsSummary(exercise.sets)}
+            {exercise.restSeconds != null && exercise.restSeconds > 0 && ` | Rest: ${exercise.restSeconds}s`}
+          </ThemedText>
+          {/*
+            One row per prescribed set (#276). This is where a warmup ramp
+            becomes visible: three rows at three loads, which the summary line
+            above can only report as "3 warmup". Rendered for a genuinely
+            per-set plan only — a flat 3x8 says nothing three identical rows
+            would not.
+          */}
+          {hasVaryingSets(exercise.sets) &&
+            exercise.sets.map((set, index) => (
+              <ThemedText
+                key={`${exercise.routineExerciseId}-set-${index}`}
+                type="small"
+                style={styles.plannedSetLine}
+              >
+                {formatPlannedSetLine(set, index, exercise.sets)}
+              </ThemedText>
+            ))}
+          {exercise.description && (
+            <ThemedText type="small" style={styles.exerciseDescription}>
+              {exercise.description}
+            </ThemedText>
+          )}
+        </View>
+        <ThemedText type="default" style={styles.exerciseChevron}>
+          ›
+        </ThemedText>
+      </Pressable>
+    </View>
   );
 }
 
@@ -326,6 +328,11 @@ const styles = StyleSheet.create({
   },
   exerciseItemPressed: {
     opacity: 0.6,
+  },
+  exerciseNavigation: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   exerciseInfo: {
     flex: 1,

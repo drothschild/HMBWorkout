@@ -108,19 +108,24 @@ export default function RoutinesScreen() {
                 data={routines}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
-                  <Pressable
-                    style={({ pressed }) => [
+                  <View
+                    style={[
                       styles.routineItem,
                       { borderBottomColor: theme.backgroundSelected },
-                      pressed && styles.routineItemPressed,
                     ]}
-                    onPress={() => handleRoutinePress(item.id)}
                   >
                     <View style={styles.routineInfo}>
-                      <ThemedText type="subtitle">{item.name}</ThemedText>
-                      <ThemedText type="default" style={styles.exerciseCount}>
-                        {item.exerciseCount} exercises
-                      </ThemedText>
+                      <Pressable
+                        style={({ pressed }) => pressed && styles.routineItemPressed}
+                        onPress={() => handleRoutinePress(item.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${item.name}`}
+                      >
+                        <ThemedText type="subtitle">{item.name}</ThemedText>
+                        <ThemedText type="default" style={styles.exerciseCount}>
+                          {item.exerciseCount} exercises
+                        </ThemedText>
+                      </Pressable>
                       {/* No images → no strip, rather than four placeholders.
                           Keyed by position, not path: AC3.5 guarantees
                           distinct exercises, not distinct paths, and the
@@ -144,7 +149,7 @@ export default function RoutinesScreen() {
                     >
                       <ThemedText type="default">🗑️</ThemedText>
                     </Pressable>
-                  </Pressable>
+                  </View>
                 )}
                 scrollEnabled={true}
                 style={styles.list}
