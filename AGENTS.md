@@ -1197,11 +1197,31 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   row; it changed on the user's request during Phase 5. The title row holds only
   the title and the `?` button, and the title's `flex: 1` (not `flexShrink: 1`) is
   what keeps a long exercise name from pushing `?` off screen.
-  `exerciseImageWiring.static.test.ts` pins the hero's size and placement
-  structurally, since `src/components` is jest-invisible. **Open item:** the
-  session screen's layout with the keyboard up and the hero present was not
-  verifiable on the Xcode-beta simulator, and has not been verified anywhere — do
-  not read it as checked.
+- **The session hero hides while the keyboard is open; the exercise detail
+  screen scrolls instead.** On an iPhone 15 Pro Release build the hero pushed the
+  Reps/Weight/Duration inputs so far down that the keyboard covered the focused
+  one. The session screen is deliberately a fixed column with no outer
+  ScrollView, its buttons held above the keyboard by the `KeyboardAvoidingView`
+  in `session.tsx`, so by the user's decision on #335 `SetLogger` renders the
+  `styles.exerciseHero` wrapper only under `!keyboardVisible`. It renders
+  nothing, not a thumbnail, so with the keyboard up the layout is exactly the
+  pre-#335 one, which fit. `keyboardVisible` comes from `useKeyboardVisible`
+  (`src/hooks/use-keyboard-visible.ts`), which listens on `keyboardWillShow`/
+  `keyboardWillHide` on iOS, so the hero collapses as the keyboard animates in
+  rather than after it covers the field, and on `keyboardDidShow`/
+  `keyboardDidHide` on Android, where the Will events never fire. The exercise
+  detail screen already scrolls, so it takes the other route: its single
+  `ScrollView` sets `automaticallyAdjustKeyboardInsets` (commit 9024f72,
+  following `settings/ai.tsx` and `settings/ai-provider.tsx`).
+  `exerciseImageWiring.static.test.ts` pins all of this structurally: the hero's
+  size and placement, the keyboard condition, the hook call above any early
+  return in `SetLogger`, the hook's per-platform events and subscription
+  cleanup, and the detail `ScrollView`'s prop. Structural pins are the only
+  option because the node jest project cannot load either `.tsx` file and
+  `src/hooks` is outside its `testMatch`. **Both keyboard fixes are pending the
+  user's device re-check.** Neither has been exercised with a real keyboard:
+  the Xcode-beta simulator used here cannot raise one. Do not treat them as
+  verified.
 - **Accepted cost: a failing row is retried on every `exercises` write.** A row
   whose resolution keeps failing writes nothing, stays eligible, and is retried by
   the next pass — and a pass follows *any* write to the table: the exercise detail

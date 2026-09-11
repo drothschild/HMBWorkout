@@ -15,6 +15,7 @@ import { ExerciseStopwatch } from './ExerciseStopwatch';
 import { ExerciseImage } from './ExerciseImage';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
@@ -101,6 +102,12 @@ export function SetLogger({
   belowButtonsSlot,
 }: SetLoggerProps) {
   const theme = useTheme();
+  // The hero hides while the keyboard is open (user decision on #335): this
+  // screen is a fixed column with no outer ScrollView, and a full-width 3:2
+  // image pushes the set inputs under the keyboard. Without it the layout is
+  // the pre-#335 one, which fits with the keyboard up. Hooks stay above any
+  // early return.
+  const keyboardVisible = useKeyboardVisible();
   // TextInput is not a Themed* component, so its text and border colors must
   // resolve against the scheme here — a static color renders black-on-black
   // in dark mode.
@@ -166,9 +173,11 @@ export function SetLogger({
           </Pressable>
         )}
       </View>
-      <View style={styles.exerciseHero}>
-        <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />
-      </View>
+      {!keyboardVisible && (
+        <View style={styles.exerciseHero}>
+          <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />
+        </View>
+      )}
 
       {/* A real Modal, not an inline expand/collapse: RN blocks touches to
           the screen behind a visible Modal by default, so Close (or the
