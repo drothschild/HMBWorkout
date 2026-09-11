@@ -38,6 +38,16 @@ by the human before merging; review approval does not release that gate.
   results on the card, such as “four beeps on rest complete; music keeps playing.”
   Tests with injected native operations do not replace on-device verification.
   **No agent may move a card out of Require Human Inteteraction; only the human may do so.**
+- Automatically prepare a runnable test build for every branch requiring human
+  interaction/QA. Build the latest reviewed commit and put the artifact location,
+  branch/commit, build date, install/run instructions and concrete checks on its
+  card. Refresh the build after branch changes; identify failures explicitly.
+  For iPhone QA, default to signed standalone Release builds with embedded JS
+  (no Metro) and distinct PR-labelled test app identities so they can coexist
+  with the production app and keep its data separate. Regenerate native projects
+  when config or native dependencies change; verify the bundle and native links.
+  Preparing a build does not release the human gate. Preserve production data
+  before any explicitly requested replacement install.
 - After each merge, fetch the actual merged `main` commit and run the
   relevant individual checks there. Record that commit and results before calling
   the work complete. A green branch does not establish that merged main is green.
