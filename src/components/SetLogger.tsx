@@ -12,11 +12,12 @@ import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
-import { ExerciseImage } from './ExerciseImage';
+import { ExerciseImage, EXERCISE_IMAGE_BORDER_RADIUS } from './ExerciseImage';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { TypeRamp } from '@/theme/typography';
 import { SessionPresenterOutput, formatLoggedSetLine } from '@/state/sessionPresenter';
 import { buildLogSetValues } from '@/state/setInputs';
 import { isDurationBasedEntry, makeStopwatchKey } from '@/state/exerciseStopwatch';
@@ -45,6 +46,20 @@ const dismissKeyboardOnTouch = () => {
   Keyboard.dismiss();
   return false;
 };
+
+/**
+ * One logged-set row, derived from the row's own style rather than measured:
+ * the row's default-type ThemedText line (`TypeRamp.default`), `setRow`'s
+ * vertical padding, and its bottom border.
+ */
+const SET_ROW_BORDER_WIDTH = 1;
+const LOGGED_SET_ROW_HEIGHT = TypeRamp.default.lineHeight + 2 * Spacing.one + SET_ROW_BORDER_WIDTH;
+/**
+ * The logged-sets list's floor while the hero is shown: two rows (66pt), room
+ * for the "Logged sets (n)" heading and the newest set. It is what makes the
+ * hero, not the list, give way on a crowded screen (see `exerciseHero`).
+ */
+const LOGGED_SETS_MIN_HEIGHT = 2 * LOGGED_SET_ROW_HEIGHT;
 
 // The numeric inputs carry raw text; numbers exist only past
 // buildLogSetValues at the Log Set boundary. Parsing keystrokes into numeric
@@ -370,12 +385,20 @@ export function SetLogger({
       </Modal>
 
       {/* The one scroller on the session screen: only the current exercise's
-          sets, newest first, bounded by the fixed chrome around it. */}
+          sets, newest first, bounded by the fixed chrome around it. While the
+          hero is shown it keeps a floor (loggedSetsFloor), so a crowded screen
+          shrinks the hero instead of this list. With the keyboard up the hero
+          is gone and nothing else can yield, so the floor is off and the list
+          shrinks to nothing, as it did before #335; a floor there could only
+          push the buttons down. */}
       {/* Dragging the logged-set list also dismisses the keyboard — the
           gesture iOS users reach for without looking. This screen has no
           whole-screen scroller (it is a fixed column), so this list is where
           it belongs. */}
-      <ScrollView style={styles.loggedSets} keyboardDismissMode="on-drag">
+      <ScrollView
+        style={[styles.loggedSets, !keyboardVisible && styles.loggedSetsFloor]}
+        keyboardDismissMode="on-drag"
+      >
         <ThemedText type="smallBold">
           {`Logged sets (${presenter.currentExerciseLoggedSets.length})`}
         </ThemedText>
@@ -451,9 +474,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // The workout view shows the same full-width 3:2 hero as the exercise
-  // detail screen (user request on #335), directly under the title row.
+  // detail screen (user request on #335), directly under the title row. This
+  // screen is a fixed column that does not scroll, so on a crowded screen (long
+  // routine notes, the stopwatch card, the Replace button) the hero gives up
+  // height first; before this, the column overflowed and the footer buttons
+  // drew on top of Log Set / Skip Set. The image keeps its own
+  // `width: '100%', aspectRatio: 3 / 2` box and is never resized. This wrapper
+  // yields instead:
+  // - No height, flex or flexGrow, so its flex basis is `auto`, which is the
+  //   image's natural 3:2 height. With grow 0 it can never be taller than that.
+  // - flexShrink 1 with minHeight 0: when the column overflows, Yoga takes the
+  //   deficit out of this wrapper, down to zero. Nothing else competes for it.
+  //   Yoga scales each child's shrink by its flex basis, and the other rows do
+  //   not shrink (RN's default flexShrink is 0). The logged-sets ScrollView does
+  //   shrink (ScrollView's base style), but its basis is 0 from `flex: 1` and
+  //   loggedSetsFloor holds it at its minimum.
+  // - overflow hidden plus justifyContent center: the full-size image
+  //   overflows the shrunk wrapper equally top and bottom and is clipped to a
+  //   centered crop. Yoga keeps `center` on overflow (its fallbackAlignment
+  //   remaps only the space-* values), so the offset goes negative instead of
+  //   pinning to the top.
+  // - The image's own corner radius, or the clip would square off the rounded
+  //   corners of a cropped image.
+  // Chosen over measuring the width with onLayout: no pixel math and no extra
+  // render pass. A column that still overflows with the hero at zero (extreme
+  // routine notes on a small screen) is out of scope here.
   exerciseHero: {
     marginTop: Spacing.two,
+    flexShrink: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    borderRadius: EXERCISE_IMAGE_BORDER_RADIUS,
   },
   questionButton: {
     // borderColor is theme-resolved inline
@@ -554,10 +606,14 @@ const styles = StyleSheet.create({
     flex: 1,
     marginVertical: Spacing.two,
   },
+  // Applied only while the hero is shown; see LOGGED_SETS_MIN_HEIGHT.
+  loggedSetsFloor: {
+    minHeight: LOGGED_SETS_MIN_HEIGHT,
+  },
   setRow: {
     // borderBottomColor is theme-resolved inline (setRowStyle)
     paddingVertical: Spacing.one,
-    borderBottomWidth: 1,
+    borderBottomWidth: SET_ROW_BORDER_WIDTH,
   },
   buttonRow: {
     flexDirection: 'row',

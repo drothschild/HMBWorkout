@@ -43,8 +43,11 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   );
 }
 
+/** Exported so a wrapper that clips this image (SetLogger's hero) keeps its corners. */
+export const EXERCISE_IMAGE_BORDER_RADIUS = 6;
+
 const styles = StyleSheet.create({
-  base: { borderRadius: 6, overflow: 'hidden' },
+  base: { borderRadius: EXERCISE_IMAGE_BORDER_RADIUS, overflow: 'hidden' },
   hero: { width: '100%', aspectRatio: 3 / 2 },
   row: { width: 48, height: 48 },
   strip: { width: 32, height: 32 },

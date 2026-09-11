@@ -1197,6 +1197,34 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   row; it changed on the user's request during Phase 5. The title row holds only
   the title and the `?` button, and the title's `flex: 1` (not `flexShrink: 1`) is
   what keeps a long exercise name from pushing `?` off screen.
+- **The session hero is full width up to 3:2, and it is the first thing to give
+  up height.** On an iPhone 15 Pro Release build with real routines, the fixed
+  3:2 hero overflowed the session screen's fixed column. With a 6-line routine
+  description and a timed exercise's stopwatch card, "Finish Session / Abandon"
+  was drawn on top of "Log Set / Skip Set". With the Replace button present, the
+  logged-sets list was squeezed to nothing. The column does not scroll (the user
+  declined that), so by the user's decision the image is big when there is room
+  and shrinks when there isn't. The image is never resized: it keeps its own
+  `width: '100%', aspectRatio: 3 / 2` box, and the `styles.exerciseHero` wrapper
+  does the yielding. The wrapper has no height, `flex` or `flexGrow`, so its basis
+  is `auto`, which is the image's natural 3:2 height, and with no grow it can
+  never be taller. `flexShrink: 1` with `minHeight: 0` makes Yoga take the
+  column's overflow out of the wrapper, down to zero. `overflow: 'hidden'` plus
+  `justifyContent: 'center'` clip the full-size image to a centered crop, since
+  Yoga keeps `center` on overflow (its `fallbackAlignment` remaps only the
+  `space-*` values). The wrapper shares the image's corner radius
+  (`EXERCISE_IMAGE_BORDER_RADIUS`, exported from `ExerciseImage.tsx`) so the clip
+  keeps the corners rounded. The logged-sets list keeps a floor,
+  `LOGGED_SETS_MIN_HEIGHT` in `SetLogger` (two rows, derived from `setRow`'s
+  padding and border and `TypeRamp.default`'s line height), so the hero gives
+  way before the list does. The floor applies only while the hero is shown
+  (`styles.loggedSetsFloor` under `!keyboardVisible`): with the keyboard up
+  nothing is left to yield, and a floor could only push the buttons down.
+  `ExerciseImage`'s own `hero` style is unchanged, so the exercise detail screen,
+  which scrolls, keeps the fixed 3:2 hero. A column that still overflows with the
+  hero at zero (extreme routine notes on a small screen) is out of scope.
+  **Pending the user's device re-check**: the change was checked only by
+  structural gates and by reading Yoga's source, never on a device.
 - **The session hero hides while the keyboard is open; the exercise detail
   screen scrolls instead.** On an iPhone 15 Pro Release build the hero pushed the
   Reps/Weight/Duration inputs so far down that the keyboard covered the focused
