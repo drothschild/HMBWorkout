@@ -1,3 +1,4 @@
+import { WorkoutDiaryChatEntry, shouldKeepDiaryEntryVisible } from '@/components/WorkoutDiaryChatEntry';
 import { WorkoutDiaryGate } from '@/components/WorkoutDiaryGate';
 import {
   StyleSheet,
@@ -250,8 +251,12 @@ export default function AiCoachScreen() {
       flatListRef.current.scrollToEnd({ animated: true });
       return;
     }
+    if (mode.kind === 'debrief' && shouldKeepDiaryEntryVisible(messages)) {
+      flatListRef.current.scrollToOffset({ offset: 0, animated: false });
+      return;
+    }
     flatListRef.current.scrollToIndex({ index: target.index, viewPosition: 0, animated: true });
-  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError, error]);
+  }, [messages, status, pendingDraft, pendingSettingsProposal, acceptError, error, mode.kind]);
 
   const handleSend = async () => {
     setAcceptError(null);
@@ -472,6 +477,8 @@ export default function AiCoachScreen() {
             data={messages}
             keyExtractor={(_, index) => String(index)}
             renderItem={({ item }) => <MessageBubble message={item} />}
+            ListHeaderComponent={mode.kind === 'debrief' ?
+              <WorkoutDiaryChatEntry key={mode.sessionId} sessionId={mode.sessionId} /> : null}
             ListFooterComponent={footer}
             contentContainerStyle={styles.messageListContent}
             scrollEnabled={true}

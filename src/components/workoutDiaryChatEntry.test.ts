@@ -113,3 +113,35 @@ test('the initial debrief keeps its journal visible, while a user follow-up rest
   expect(h.keepOpeningVisible([{ role: 'user', hidden: true }, { role: 'assistant' }])).toBe(true);
   expect(h.keepOpeningVisible([{ role: 'user', hidden: true }, { role: 'assistant' }, { role: 'user' }, { role: 'assistant' }])).toBe(false);
 });
+
+test('executes the screen scroll effect: opening debrief anchors the journal, later replies anchor the reply', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../app/ai-coach.tsx'), 'utf8');
+  const file = ts.createSourceFile('screen.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let body = '';
+  function visit(node: ts.Node) {
+    if (ts.isCallExpression(node) && node.expression.getText(file) === 'useEffect') {
+      const callback = node.arguments[0];
+      if (ts.isArrowFunction(callback) && callback.body.getText(file).includes('computeChatScrollTarget(')) body = callback.body.getText(file);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  expect(body).not.toBe('');
+  for (const [kind, followUp, expected] of [['debrief', false, 'offset'], ['debrief', true, 'index'], ['edit', false, 'index']] as const) {
+    const offset = jest.fn(); const index = jest.fn();
+    const h = harness();
+    const bindings = {
+      flatListRef: { current: { scrollToOffset: offset, scrollToIndex: index } },
+      previousStatusRef: { current: 'idle' }, status: 'idle', error: null, acceptError: null,
+      pendingDeferredScrollRef: { current: false }, lastScrollTargetRef: { current: null },
+      scrollRetryCountRef: { current: 0 }, mode: { kind },
+      messages: [{ role: 'user', hidden: true }, { role: 'assistant' }, ...(followUp ? [{ role: 'user' }, { role: 'assistant' }] : [])],
+      shouldKeepDiaryEntryVisible: h.keepOpeningVisible,
+      computeChatScrollTarget: () => ({ kind: 'top', index: followUp ? 3 : 1 }),
+    };
+    new Function(...Object.keys(bindings), body)(...Object.values(bindings));
+    expect(offset).toHaveBeenCalledTimes(expected === 'offset' ? 1 : 0);
+    expect(index).toHaveBeenCalledTimes(expected === 'index' ? 1 : 0);
+    if (expected === 'offset') expect(offset).toHaveBeenCalledWith({ offset: 0, animated: false });
+  }
+});
