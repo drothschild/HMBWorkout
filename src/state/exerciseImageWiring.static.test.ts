@@ -204,10 +204,22 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
 });
 
 describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
-  it('SetLogger renders the current exercise image in the title row', () => {
-    const tags = exerciseImageTags(normalized(FILES.setLogger));
+  it('SetLogger renders the current exercise image as a full-width hero under the title', () => {
+    const source = normalized(FILES.setLogger);
+    const heroTag = exerciseImageTags(source).find((tag) =>
+      tag.includes('imagePath={presenter.currentExerciseImagePath}')
+    );
+    if (heroTag === undefined) {
+      throw new Error('SetLogger no longer renders <ExerciseImage> for the current exercise; re-anchor this gate');
+    }
 
-    expect(tags.some((tag) => tag.includes('imagePath={presenter.currentExerciseImagePath}'))).toBe(true);
+    // The same size as the exercise detail hero (user request on #335), not
+    // the 48pt "row" thumbnail it started as.
+    expect(heroTag).toContain('size="hero"');
+    // Under the title row, not inside it: a full-width image cannot share a
+    // row with the title, so it must come after the title in the source.
+    const titleAt = indexOfOrThrow(source, 'presenter.currentExerciseTitle', 'SetLogger.tsx');
+    expect(source.indexOf(heroTag)).toBeGreaterThan(titleAt);
   });
 
   it('routine detail rows render each exercise image', () => {

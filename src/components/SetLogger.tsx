@@ -151,7 +151,6 @@ export function SetLogger({
   return (
     <ThemedView style={styles.container} onStartShouldSetResponder={dismissKeyboardOnTouch}>
       <View style={styles.exerciseTitleRow}>
-        <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="row" />
         <ThemedText style={styles.exerciseTitle}>
           {presenter.currentExerciseTitle || 'Exercise'}
         </ThemedText>
@@ -166,6 +165,9 @@ export function SetLogger({
             <ThemedText style={styles.questionButtonText}>?</ThemedText>
           </Pressable>
         )}
+      </View>
+      <View style={styles.exerciseHero}>
+        <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />
       </View>
 
       {/* A real Modal, not an inline expand/collapse: RN blocks touches to
@@ -430,15 +432,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  // flex: 1, not flexShrink: 1 — the title takes exactly the space between the
-  // fixed 48pt image and the fixed 26pt "?" button and wraps inside it, so a
-  // long exercise name can never push the button off screen (#335 AC3.10).
+  // flex: 1, not flexShrink: 1 — the title takes all the space left of the
+  // fixed 26pt "?" button and wraps inside it, so a long exercise name can
+  // never push the button off screen (#335 AC3.10).
   exerciseTitle: {
     flex: 1,
-    marginLeft: Spacing.two,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '600',
+  },
+  // The workout view shows the same full-width 3:2 hero as the exercise
+  // detail screen (user request on #335), directly under the title row.
+  exerciseHero: {
+    marginTop: Spacing.two,
   },
   questionButton: {
     // borderColor is theme-resolved inline
