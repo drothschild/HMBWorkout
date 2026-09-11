@@ -18,6 +18,7 @@ import { setExerciseImageIfSourceUnchanged } from '@/db/repository';
 import type Exercise from '@/db/models/Exercise';
 import { catalogImageUrl, type CatalogEntry } from './exerciseCatalog';
 import {
+  createCatalogMatcher,
   decideByScore,
   decideFromAiPick,
   type CatalogMatcher,
@@ -98,7 +99,7 @@ export async function runImageResolutionPass(
   matcher: CatalogMatcher
 ): Promise<void> {
   const hasAiKey = deps.getAiKeyConfigured();
-  const rows = (await deps.database.get('exercises').query().fetch()) as Array<Exercise>;
+  const rows = (await deps.database.get('exercises').query().fetch()) as Exercise[];
   for (const row of rows) {
     const imageSource = row.imageSource ?? null;
     if (!isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
@@ -108,4 +109,67 @@ export async function runImageResolutionPass(
       deps.log(`exercise image: resolving ${row.id} failed; will retry on a later pass`, error);
     }
   }
+}
+
+/**
+ * Starts the resolver. Subscribes to `exercises` changes — which covers every
+ * creation path (acceptDraft, applyRoutineImport, ensureAlternateExercise)
+ * without any of them calling in — and runs passes one at a time.
+ *
+ * `withChangesForTables` emits once IMMEDIATELY on subscribe (startWith(null)
+ * in WatermelonDB 0.28), so subscribing is itself the launch pass/backfill. It
+ * also fires after the resolver's OWN writes; that terminates because every
+ * write makes its row ineligible, so the follow-up pass finds nothing to do.
+ */
+export function startExerciseImageResolver(deps: ExerciseImageResolverDeps): ExerciseImageResolver {
+  const matcher = createCatalogMatcher(deps.catalog);
+  let running = false;
+  let pending = false;
+  let stopped = false;
+
+  const safeLog = (message: string, error?: unknown) => {
+    try {
+      deps.log(message, error);
+    } catch {
+      // A throwing logger must not escape the scheduler either (AC2.8).
+    }
+  };
+
+  const runLoop = async (): Promise<void> => {
+    running = true;
+    try {
+      do {
+        pending = false;
+        try {
+          await runImageResolutionPass({ ...deps, log: safeLog }, matcher);
+        } catch (error) {
+          safeLog('exercise image: pass failed; will retry on a later pass', error);
+        }
+      } while (pending && !stopped);
+    } finally {
+      running = false;
+    }
+  };
+
+  const request = (): void => {
+    if (stopped) return;
+    if (running) {
+      pending = true; // any number of requests collapse into ONE follow-up (AC2.6)
+      return;
+    }
+    void runLoop();
+  };
+
+  const subscription = deps.database.withChangesForTables(['exercises']).subscribe({
+    next: () => request(),
+    error: (error: unknown) => safeLog('exercise image: exercises observer failed', error),
+  });
+
+  return {
+    request,
+    stop: () => {
+      stopped = true;
+      subscription.unsubscribe();
+    },
+  };
 }
