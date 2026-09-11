@@ -129,7 +129,7 @@ describe('Database schema migrations', () => {
     });
   });
 
-  it('covers the schema exactly, so no install is reset on the way to v9', () => {
+  it('covers the schema exactly, so no install is reset on the way to v10', () => {
     // AC1.7, INVERTED at Phase 6 and rewritten rather than deleted.
     //
     // Through v6 the omission WAS the mechanism: the schema outran the

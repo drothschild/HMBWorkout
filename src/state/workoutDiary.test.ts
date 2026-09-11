@@ -41,7 +41,7 @@ it('copies a selfie to owned storage before persisting completion and refuses do
   await seed(db); await saveWorkoutDiary(db,'finished','Diary');
   let release!: (value: string) => void;
   const copy=jest.fn(() => new Promise<string>(resolve => { release=resolve; }));
-  const store=createWorkoutDiaryStore(db,'finished',{ copy, remove:jest.fn() });
+  const store=createWorkoutDiaryStore(db,'finished',{ copy, remove:jest.fn().mockResolvedValue(undefined) });
   await store.getState().load();
   const saving=store.getState().complete('file:///cache/selfie.jpg');
   expect(await store.getState().complete(null)).toBe(false);
@@ -92,8 +92,8 @@ it('lets only the first of two mounted gates finish and cleans the losing selfie
  const db=createTestDatabase();
  try {
   await seed(db); await saveWorkoutDiary(db,'finished','Original diary');
-  const filesA={copy:jest.fn().mockResolvedValue('workout-selfies/winner.jpg'),remove:jest.fn()};
-  const filesB={copy:jest.fn().mockResolvedValue('workout-selfies/loser.jpg'),remove:jest.fn()};
+  const filesA={copy:jest.fn().mockResolvedValue('workout-selfies/winner.jpg'),remove:jest.fn().mockResolvedValue(undefined)};
+  const filesB={copy:jest.fn().mockResolvedValue('workout-selfies/loser.jpg'),remove:jest.fn().mockResolvedValue(undefined)};
   const a=createWorkoutDiaryStore(db,'finished',filesA),b=createWorkoutDiaryStore(db,'finished',filesB);
   await a.getState().load();await b.getState().load();
   expect(await Promise.all([a.getState().complete('file:///a.jpg'),b.getState().complete('file:///b.jpg')])).toEqual([true,false]);
