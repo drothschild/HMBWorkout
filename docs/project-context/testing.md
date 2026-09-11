@@ -121,3 +121,17 @@
   after fire-and-forget writes, and reach for a bounded retry over a fixed
   number of `flush()` calls whenever the queue depth isn't obviously 1 or 2.
 
+
+### Asynchronous rejection assertions (#337/#338)
+
+An `unhandledRejection` listener registered inside a Jest test observes Jest's
+sandboxed `process`, not Node's real process. A probe kept its spy count at 0
+while jest-circus failed the test on the escaped rejection. Use jest-circus as
+the oracle: wait for asynchronous work to settle inside the test body, then
+yield an event-loop turn so a rejection is attributed before teardown.
+
+The revised AC6.2 in [PR #347](https://github.com/drothschild/HMBWorkout/pull/347),
+`src/state/activeSession.integration.test.ts`, uses a bounded 50-attempt poll
+plus `flush()`. Replacing the awaited `saveWorkoutSample` call with `void`
+fails with `HealthKit write failed`; the sandboxed process spy alone missed it.
+This was verified by an executed mutation on 2026-09-10.
