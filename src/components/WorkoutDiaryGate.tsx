@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Host, Column, Button, TextInput } from '@expo/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { database } from '@/db';
@@ -8,12 +8,17 @@ import { workoutSelfieFiles } from '@/state/workoutSelfieFiles';
 import { ThemedText } from './themed-text';
 import { Spacing } from '@/constants/theme';
 import { ActionButtonColor } from '@/theme/actionButtonColors';
+import { useTheme } from '@/hooks/use-theme';
+import { WorkoutPhotoActions } from './WorkoutPhotoActions';
 
 /** A local, resumable prelude to the coaching conversation. */
 export function WorkoutDiaryGate({ sessionId, onComplete }: { sessionId: string; onComplete(): void }) {
   const store = useMemo(() => createWorkoutDiaryStore(database, sessionId, workoutSelfieFiles), [sessionId]);
   const { stage, diary, busy, error } = store();
   const [text, setText] = useState('');
+  const theme = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
+  const contentWidth = Math.min(screenWidth, 600) - Spacing.four * 2;
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const pickingRef = useRef(false);
@@ -52,35 +57,46 @@ export function WorkoutDiaryGate({ sessionId, onComplete }: { sessionId: string;
   };
 
   return (
-    <ScrollView contentContainerStyle={{ padding: Spacing.three, gap: Spacing.three }}
+    <ScrollView contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ padding: Spacing.four, gap: Spacing.four, width: '100%', maxWidth: 600, alignSelf: 'center' }}
       automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled">
-      <ThemedText type="subtitle">Workout diary</ThemedText>
-      {stage === 'loading' ? <ActivityIndicator accessibilityLabel="Loading diary" /> : (
-        <ThemedText>{stage === 'diary'
-          ? 'What would you like to remember about this workout? How did it feel?'
-          : 'Your diary is saved. Would you like to add an optional selfie?'}</ThemedText>
-      )}
-      {stage === 'selfie' && <ThemedText selectable>{diary}</ThemedText>}
+      <View style={{ gap: Spacing.two }}>
+        <ThemedText style={{ fontSize: 28, lineHeight: 36, fontWeight: '600' }}>
+          {stage === 'selfie' ? 'Add a workout photo' : 'How did it go?'}
+        </ThemedText>
+        <ThemedText themeColor="textSecondary">{stage === 'selfie'
+          ? 'An optional moment from your workout.'
+          : 'Capture what felt good, what was hard, and what you want to remember.'}</ThemedText>
+      </View>
+      {stage === 'loading' && <ActivityIndicator accessibilityLabel="Loading diary" />}
+      {stage === 'selfie' && <View style={{ backgroundColor: theme.backgroundElement,
+        padding: Spacing.three, borderRadius: 16, gap: Spacing.two }}>
+        <ThemedText type="smallBold" themeColor="textSecondary">Your journal</ThemedText>
+        <ThemedText selectable>{diary}</ThemedText>
+      </View>}
       {(error || pickerError) && <ThemedText accessibilityRole="alert">{pickerError ?? error}</ThemedText>}
-      <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
+      {stage === 'diary' && <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
         <Column spacing={Spacing.three}>
-          {stage === 'diary' && <>
-            <TextInput placeholder="My workout diary…" multiline numberOfLines={6}
-              onChangeText={setText} editable={!busy} />
-            <Button label={busy ? 'Saving…' : 'Save diary'} disabled={busy || !text.trim()}
-              onPress={() => { void store.getState().saveDiary(text); }} />
-          </>}
-          {stage === 'selfie' && <>
-            <Button label="Take a selfie" disabled={busy || picking} onPress={() => { void chooseSelfie(true); }} />
-            <Button label="Choose a photo" variant="outlined" disabled={busy || picking} onPress={() => { void chooseSelfie(false); }} />
-            <Button label="Skip selfie and continue" variant="text" disabled={busy || picking}
-              onPress={() => { setPickerError(null); void store.getState().complete(null); }} />
-          </>}
-          {stage === 'loading' && error && <Button label="Try again" disabled={busy} onPress={() => { void store.getState().load(); }} />}
+          <TextInput placeholder="My workout journal…" multiline numberOfLines={6}
+            style={{ width: contentWidth, padding: 16, backgroundColor: theme.backgroundElement, borderRadius: 16 }}
+            textStyle={{ fontSize: 17, color: theme.text }}
+            onChangeText={setText} editable={!busy} />
+          <Button label={busy ? 'Saving…' : 'Save journal'} disabled={busy || !text.trim()}
+            style={{ width: contentWidth, paddingVertical: 12 }}
+            onPress={() => { void store.getState().saveDiary(text); }} />
         </Column>
-      </Host>
-      {stage === 'selfie' && <ThemedText>Your selfie stays with this workout on your device and is never sent to the coach. Your diary will help guide the conversation.</ThemedText>}
-      {busy || picking ? <ActivityIndicator accessibilityLabel="Saving workout diary" /> : <View />}
+      </Host>}
+      {stage === 'selfie' && <WorkoutPhotoActions width={contentWidth} disabled={busy || picking}
+        onCamera={() => { void chooseSelfie(true); }}
+        onLibrary={() => { void chooseSelfie(false); }}
+        onSkip={() => { setPickerError(null); void store.getState().complete(null); }} />}
+      {stage === 'loading' && error && <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
+        <Button label="Try again" disabled={busy} onPress={() => { void store.getState().load(); }} />
+      </Host>}
+      {stage === 'selfie' && <ThemedText type="small" themeColor="textSecondary">
+        Only your journal is shared with your coach. Photos stay on this device.
+      </ThemedText>}
+      {(busy || picking) && <ActivityIndicator accessibilityLabel="Saving workout diary" />}
     </ScrollView>
   );
 }
