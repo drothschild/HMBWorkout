@@ -26,7 +26,9 @@ describe('tiny exercise image full-size preview (#361)', () => {
       'if(imagePath===null||failedPath===imagePath){return<Viewstyle={frame}accessibilityLabel="Noexerciseimage"/>;}'
     );
     expect(source).toContain('if(!previewable){returnrenderedImage;}');
-    expect(source).toContain('onPress={()=>setPreviewVisible(true)}');
+    expect(source).toContain(
+      'onPress={(event)=>{event.stopPropagation();setPreviewVisible(true);}}'
+    );
     expect(source).toContain('accessibilityRole="button"');
     expect(source).toContain('accessibilityLabel="Openfull-sizeexerciseimage"');
   });
