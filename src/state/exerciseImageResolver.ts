@@ -25,6 +25,7 @@ import {
   type CatalogMatcher,
   type ImageDecision,
 } from './exerciseImageMatch';
+import { exactImageDecision, imageDecisionTitle, siblingImageDecisions } from './exerciseImageDecisionIdentity';
 import {
   buildImageRelativePath,
   catalogImageSource,
@@ -69,14 +70,10 @@ async function decide(
 
 async function resolveOne(
   deps: ExerciseImageResolverDeps,
-  matcher: CatalogMatcher,
   exercise: { readonly id: string; readonly title: string; readonly imageSource: string | null; readonly imagePath: string | null },
-  hasAiKey: boolean,
+  decision: ImageDecision,
   correction?: CatalogEntry
 ): Promise<void> {
-  const decision: ImageDecision = correction
-    ? { kind: 'catalog', entry: correction }
-    : await decide(deps, matcher, exercise.title, hasAiKey);
   let imagePath: string | null = null;
   if (decision.kind === 'catalog') {
     imagePath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
@@ -124,12 +121,31 @@ export async function runImageResolutionPass(
 ): Promise<void> {
   const hasAiKey = deps.getAiKeyConfigured();
   const rows = (await deps.database.get('exercises').query().fetch()) as Exercise[];
+  const siblings = siblingImageDecisions(rows.map(row => {
+    const correction = catalogImageCorrection(row.title, row.imageSource ?? null, deps.catalog);
+    return { title: row.title, imageSource: correction ? catalogImageSource(correction.id) : row.imageSource ?? null };
+  }), deps.catalog);
+  const decisions = new Map<string, Promise<ImageDecision>>();
   for (const row of rows) {
     const imageSource = row.imageSource ?? null;
     const correction = catalogImageCorrection(row.title, imageSource, deps.catalog);
-    if (!correction && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
+    const title = imageDecisionTitle(row.title);
+    const known: ImageDecision | undefined = correction
+      ? { kind: 'catalog', entry: correction }
+      : exactImageDecision(title, deps.catalog) ?? siblings.get(title);
+    // Narrow repair: terminal misses can inherit a known match. Never reopen
+    // arbitrary NONEs, URL overrides or unknown sources. #341 separately admits
+    // its three exact title/old-catalog-source corrections.
+    const repair = known && (imageSource === 'none' || imageSource === 'none:nokey');
+    if (!correction && !repair && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
     try {
-      await resolveOne(deps, matcher, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, hasAiKey, correction);
+      let pending = decisions.get(title);
+      if (!pending || correction) {
+        pending = known ? Promise.resolve(known) : decide(deps, matcher, title, hasAiKey);
+        decisions.set(title, pending);
+      }
+      const decision = await pending;
+      await resolveOne(deps, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, decision, correction);
     } catch (error) {
       deps.log(`exercise image: resolving ${row.id} failed; will retry on a later pass`, error);
     }
