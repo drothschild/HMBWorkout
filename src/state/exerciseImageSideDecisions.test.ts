@@ -127,3 +127,22 @@ it('shares a rejected ask within a pass but retries on the next pass', async () 
   expect((await row('left')).imageSource).toBe('catalog:Standing_Gastrocnemius_Calf_Stretch');
   expect((await row('right')).imageSource).toBe('catalog:Standing_Gastrocnemius_Calf_Stretch');
 });
+
+it('seeds missing sided rows with the corrected alias, regardless of row order', async () => {
+  await add('left', 'Dumbbell Row Left', 'none');
+  await add('base', 'Dumbbell Row', 'catalog:Dumbbell_Incline_Row');
+  const d = deps(); await runImageResolutionPass(d, matcher);
+  expect((await row('left')).imageSource).toBe('catalog:One-Arm_Dumbbell_Row');
+  expect((await row('base')).imageSource).toBe('catalog:One-Arm_Dumbbell_Row');
+  expect(d.ask).not.toHaveBeenCalled();
+  expect(d.download).toHaveBeenCalledTimes(2);
+});
+
+it('does not reopen terminal misses for a duplicate group without side labels', async () => {
+  await add('miss', 'Calf Stretch', 'none');
+  await add('catalog', 'Calf Stretch', 'catalog:Standing_Gastrocnemius_Calf_Stretch');
+  const d = deps(); await runImageResolutionPass(d, matcher);
+  expect((await row('miss')).imageSource).toBe('none');
+  expect(d.ask).not.toHaveBeenCalled();
+  expect(d.download).not.toHaveBeenCalled();
+});
