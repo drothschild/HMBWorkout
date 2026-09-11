@@ -5,7 +5,9 @@
  * Order is load-bearing: download to a NEW file → write the row → delete the
  * previous file. A failed download changes nothing (AC4.4); the old file is
  * deleted only once the row no longer points at it (AC4.2), so a render that
- * reads the row mid-override never sees a path to a deleted file.
+ * reads the row mid-override never sees a path to a deleted file. A failed row
+ * write deletes the NEW file (nothing points at it) and rethrows; the previous
+ * file is never touched on that path.
  *
  * This write is unconditional — it is the user's explicit choice. The
  * resolver's compare-and-set is what stops a background pass that finishes
@@ -58,10 +60,24 @@ export async function overrideExerciseImage(
 
   // A rejection here (e.g. the exercise was deleted) propagates: unlike a
   // background pass, the user is waiting on this result and the screen reports it.
-  const previous = await setExerciseImage(deps.database, exerciseId, {
-    imagePath,
-    imageSource: urlImageSource(parsed.url),
-  });
+  // The row never pointed at the file just downloaded, so it is deleted
+  // best-effort first; a cleanup failure is logged and never replaces the
+  // original error.
+  let previous: string | null;
+  try {
+    previous = await setExerciseImage(deps.database, exerciseId, {
+      imagePath,
+      imageSource: urlImageSource(parsed.url),
+    });
+  } catch (error) {
+    await deps.deleteFile(imagePath).catch((deleteError: unknown) =>
+      deps.log(
+        `exercise image override: row write failed for ${exerciseId}; deleting downloaded ${imagePath} failed`,
+        deleteError
+      )
+    );
+    throw error;
+  }
   if (previous !== null && previous !== imagePath) {
     await deps.deleteFile(previous).catch((error: unknown) =>
       deps.log(`exercise image override: deleting previous ${previous} failed`, error)
