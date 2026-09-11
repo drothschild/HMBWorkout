@@ -23,9 +23,13 @@ describe('web fallback after a catalog miss', () => {
   });
   afterEach(async () => closeTestDatabase(db));
   const row = () => db.get<Exercise>('exercises').find('missing');
-  async function seed(source: string | null = null) {
-    await upsertExercise(db, 'missing', 'Uncatalogued Movement Zzz', 'strength');
-    if (source) await setExerciseImage(db, 'missing', {imagePath: null, imageSource: source});
+  async function seed(
+    source: string | null = null,
+    imagePath: string | null = null,
+    title = 'Uncatalogued Movement Zzz'
+  ) {
+    await upsertExercise(db, 'missing', title, 'strength');
+    if (source) await setExerciseImage(db, 'missing', { imagePath, imageSource: source });
   }
   it.each([null, 'none', 'none:nokey'])('backfills %s with a downloaded web image and becomes terminal', async source => {
     await seed(source);
@@ -90,6 +94,48 @@ describe('web fallback after a catalog miss', () => {
     await runImageResolutionPass(deps, matcher);
     expect(deps.searchWebImages).not.toHaveBeenCalled();
     expect((await row()).imageSource).toBe(source);
+  });
+  it('repairs only the observed irrelevant automatic selection and deletes its file after replacement', async () => {
+    const badUrl = 'https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg';
+    await seed(`web:${badUrl}`, 'exercise-images/wrong.jpg', 'dumbbell-glute-bridge');
+    await runImageResolutionPass(deps, matcher);
+    expect((await row()).imageSource).toBe(`web:${url}`);
+    expect((await row()).imagePath).toBe('exercise-images/missing-s1.jpg');
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/wrong.jpg');
+  });
+  it('turns an observed irrelevant selection with no relevant result into a terminal miss', async () => {
+    const badUrl = 'https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg';
+    await seed(`web:${badUrl}`, 'exercise-images/wrong.jpg', 'dumbbell-glute-bridge');
+    deps.searchWebImages = jest.fn().mockResolvedValue([]);
+    await runImageResolutionPass(deps, matcher);
+    expect((await row()).imageSource).toBe('web:none:nokey');
+    expect((await row()).imagePath).toBeNull();
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/wrong.jpg');
+  });
+  it('preserves the observed selection and file when its repair search fails transiently', async () => {
+    const badUrl = 'https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg';
+    await seed(`web:${badUrl}`, 'exercise-images/wrong.jpg', 'dumbbell-glute-bridge');
+    deps.searchWebImages = jest.fn().mockRejectedValue(new Error('offline'));
+    await runImageResolutionPass(deps, matcher);
+    expect(deps.searchWebImages).toHaveBeenCalledTimes(1);
+    expect((await row()).imageSource).toBe(`web:${badUrl}`);
+    expect((await row()).imagePath).toBe('exercise-images/wrong.jpg');
+    expect(deps.deleteFile).not.toHaveBeenCalledWith('exercise-images/wrong.jpg');
+  });
+  it('preserves an explicit URL override that races the observed selection repair', async () => {
+    const badUrl = 'https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg';
+    await seed(`web:${badUrl}`, 'exercise-images/wrong.jpg', 'dumbbell-glute-bridge');
+    deps.download = jest.fn(async (_url, relativePath) => {
+      await setExerciseImage(db, 'missing', {
+        imagePath: null,
+        imageSource: 'url:https://coach.example/manual.jpg',
+      });
+    });
+    await runImageResolutionPass(deps, matcher);
+    expect((await row()).imageSource).toBe('url:https://coach.example/manual.jpg');
+    expect((await row()).imagePath).toBeNull();
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/missing-s1.jpg');
+    expect(deps.deleteFile).not.toHaveBeenCalledWith('exercise-images/wrong.jpg');
   });
   it('keeps a catalog match first', async () => {
     await upsertExercise(db, 'missing', 'Dumbbell Chest Press', 'strength');
