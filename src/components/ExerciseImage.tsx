@@ -10,7 +10,7 @@
 import { Image } from 'expo-image';
 import { File, Paths } from 'expo-file-system';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
@@ -26,20 +26,75 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   // Keyed on the path that failed, not a boolean: a later, different path
   // (the resolver replacing a bad file) gets its own attempt.
   const [failedPath, setFailedPath] = useState<string | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const frame = [styles.base, styles[size], { backgroundColor: theme.backgroundElement }];
 
   if (imagePath === null || failedPath === imagePath) {
     return <View style={frame} accessibilityLabel="No exercise image" />;
   }
-  return (
+
+  const previewable = size === 'row' || size === 'strip';
+  const imageUri = new File(Paths.document, imagePath).uri;
+  const renderedImage = (
     <Image
       style={frame}
-      source={{ uri: new File(Paths.document, imagePath).uri }}
+      source={{ uri: imageUri }}
       contentFit="cover"
       recyclingKey={imagePath}
       onError={() => setFailedPath(imagePath)}
       accessibilityIgnoresInvertColors
     />
+  );
+
+  if (!previewable) {
+    return renderedImage;
+  }
+
+  return (
+    <>
+      <Pressable
+        onPress={(event) => {
+          event.stopPropagation();
+          setPreviewVisible(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Open full-size exercise image"
+      >
+        {renderedImage}
+      </Pressable>
+      <Modal
+        visible={previewVisible}
+        transparent
+        animationType="fade"
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setPreviewVisible(false)}
+      >
+        <View style={styles.previewBackdrop} accessibilityViewIsModal>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setPreviewVisible(false)}
+            accessible={false}
+          />
+          <Image
+            style={styles.previewImage}
+            source={{ uri: imageUri }}
+            contentFit="contain"
+            recyclingKey={`preview-${imagePath}`}
+            onError={() => setFailedPath(imagePath)}
+            accessibilityLabel="Full-size exercise image"
+            accessibilityIgnoresInvertColors
+          />
+          <Pressable
+            style={styles.previewCloseButton}
+            onPress={() => setPreviewVisible(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close exercise image preview"
+          >
+            <Text style={styles.previewCloseText}>Close</Text>
+          </Pressable>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -58,4 +113,28 @@ const styles = StyleSheet.create({
   fit: { height: '100%', maxWidth: '100%', aspectRatio: EXERCISE_IMAGE_ASPECT_RATIO },
   row: { width: 48, height: 48 },
   strip: { width: 32, height: 32 },
+  previewBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+  },
+  previewImage: {
+    width: '100%',
+    height: '80%',
+  },
+  previewCloseButton: {
+    position: 'absolute',
+    top: 48,
+    right: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  previewCloseText: {
+    color: 'white',
+    fontWeight: '600',
+  },
 });

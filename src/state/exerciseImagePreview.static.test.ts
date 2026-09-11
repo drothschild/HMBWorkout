@@ -28,10 +28,9 @@ describe('tiny exercise image full-size preview (#361)', () => {
     );
     expect(source).toContain('if(!previewable){returnrenderedImage;}');
     expect(source).toContain(
-      'onPress={(event)=>{event.stopPropagation();setPreviewVisible(true);}}'
+      '<PressableonPress={(event)=>{event.stopPropagation();setPreviewVisible(true);}}' +
+      'accessibilityRole="button"accessibilityLabel="Openfull-sizeexerciseimage">'
     );
-    expect(source).toContain('accessibilityRole="button"');
-    expect(source).toContain('accessibilityLabel="Openfull-sizeexerciseimage"');
   });
 
   it('shows the same local file in an accessible contain-fit modal that can be dismissed', () => {
@@ -44,15 +43,22 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(source).toContain('accessibilityViewIsModal');
     expect(source).toContain('source={{uri:imageUri}}contentFit="contain"');
     expect(source).toContain('accessibilityLabel="Full-sizeexerciseimage"');
-    expect(source).toContain('accessibilityLabel="Closeexerciseimagepreview"');
-    expect(source).toContain('onPress={()=>setPreviewVisible(false)}');
+    expect(source).toContain(
+      '<Pressablestyle={styles.previewCloseButton}onPress={()=>setPreviewVisible(false)}' +
+      'accessibilityRole="button"accessibilityLabel="Closeexerciseimagepreview">'
+    );
   });
 
   it('documents the preview boundary in the owning image contract', () => {
     const guide = readFileSync(IMAGE_GUIDE, 'utf8');
+    const contractStart = guide.indexOf('- **Tiny `row` and `strip` images');
+    const contractEnd = guide.indexOf('\n- **', contractStart + 1);
+    const contract = guide.slice(contractStart, contractEnd).replace(/\s+/g, ' ');
 
-    expect(guide).toContain('Tiny `row` and `strip` images open a contain-fit preview (#361)');
-    expect(guide).toContain('Placeholders and the `hero` / `fit` variants stay non-interactive');
-    expect(guide).toContain('`src/components/ExerciseImage.tsx`');
+    expect(contractStart).toBeGreaterThanOrEqual(0);
+    expect(contractEnd).toBeGreaterThan(contractStart);
+    expect(contract).toContain('Tiny `row` and `strip` images open a contain-fit preview (#361)');
+    expect(contract).toContain('Placeholders and the `hero` / `fit` variants stay non-interactive');
+    expect(contract).toContain('`src/components/ExerciseImage.tsx`');
   });
 });

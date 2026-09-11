@@ -65,6 +65,16 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the suffix makes every download a NEW file, so an override never overwrites a
   file a render may be reading. `ExerciseImage` (`src/components/ExerciseImage.tsx`)
   is the only place a path becomes a URI (`new File(Paths.document, imagePath).uri`).
+- **Tiny `row` and `strip` images open a contain-fit preview (#361).**
+  `src/components/ExerciseImage.tsx` owns the interaction so both routine-detail
+  rows and routine-card thumbnail strips reuse the same relative-path conversion.
+  Only a successfully rendered real image is a button. Placeholders and the
+  `hero` / `fit` variants stay non-interactive, preserving the exercise-detail and
+  active-session heroes. The thumbnail press stops propagation so it does not also
+  activate its containing routine row. Its full-screen modal reuses the same local
+  file URI with `contentFit="contain"`, provides labelled open and close controls,
+  closes from the backdrop or platform request, and remains human-QA gated because
+  React Native layout and accessibility behavior cannot run in the node Jest project.
 - **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
   `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
   shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question
