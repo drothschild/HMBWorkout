@@ -281,8 +281,10 @@ describe('SetLogger hides the hero while the keyboard is open (#335 Phase 7)', (
   // ScrollView (its buttons stay pinned above the keyboard by a
   // KeyboardAvoidingView — see session.tsx), so the user chose to drop the
   // hero entirely while the keyboard is up: without it the layout is the
-  // pre-#335 one, which fit. Nothing can render SetLogger or the hook, so all
-  // three halves are pinned structurally.
+  // pre-#335 one. (This read "which fit" until a device test showed that
+  // column overflowing on timed exercises with long routine notes or a
+  // Replace button; see the session.tsx keyboard gates below.) Nothing can
+  // render SetLogger or the hook, so all three halves are pinned structurally.
   const HERO_WRAPPER =
     '<Viewstyle={[styles.exerciseHero,{height:heroColumnWidth/EXERCISE_IMAGE_ASPECT_RATIO}]}' +
     'onLayout={(event)=>setHeroColumnWidth(event.nativeEvent.layout.width)}>' +
@@ -336,6 +338,82 @@ describe('SetLogger hides the hero while the keyboard is open (#335 Phase 7)', (
     expect(effect).toContain('return()=>{show.remove();hide.remove();};');
     // Subscribed once per mount, not re-subscribed on every render.
     expect(deps).toEqual([]);
+  });
+});
+
+describe('session.tsx sheds non-essentials while the keyboard is open (#335 Phase 7)', () => {
+  // Device test, iPhone 15 Pro Release build, decimal pad up (~290pt), hero
+  // already hidden: on "Stationary Bike" (six-line routine notes, timer card)
+  // Finish Session / Abandon drew over the Duration input and Log Set / Skip
+  // Set went behind the keyboard; on "Forearm Plank" (no notes, AI key) the
+  // footer overlapped the Replace button. With the hero gone the column is the
+  // pre-#335 one, so the overflow likely predates #335. The user chose: while
+  // typing, hide the footer and the Replace button and clamp the routine notes
+  // to two lines; the timer card, the focused input and Log Set / Skip Set
+  // stay, and the column still does not scroll. Nothing can render
+  // session.tsx, so every half is pinned as an exact string.
+  const HOOK_CALL = 'constkeyboardVisible=useKeyboardVisible();';
+  const FOOTER_OPEN = '<Viewstyle={[styles.footer,{borderTopColor:theme.backgroundSelected}]}>';
+
+  it('reads keyboardVisible from the shared hook, called once, above the early return', () => {
+    // A hook below the `if (!sessionState) return` crashes the screen with
+    // "Rendered more hooks than during the previous render" the moment a
+    // session starts or ends under it.
+    const source = compact(FILES.session);
+    const body = source.slice(indexOfOrThrow(source, 'exportdefaultfunctionSessionScreen(', 'session.tsx'));
+    const EARLY_RETURN = 'if(!sessionState){return(';
+
+    expect(source).toContain("import{useKeyboardVisible}from'@/hooks/use-keyboard-visible';");
+    expect(occurrences(source, 'useKeyboardVisible()')).toBe(1);
+    expect(occurrences(source, HOOK_CALL)).toBe(1);
+    expect(occurrences(body, EARLY_RETURN)).toBe(1);
+    expect(indexOfOrThrow(body, HOOK_CALL, 'session.tsx')).toBeLessThan(
+      indexOfOrThrow(body, EARLY_RETURN, 'session.tsx')
+    );
+  });
+
+  it('renders the whole footer block, Close variant included, only when the keyboard is NOT visible', () => {
+    const source = compact(FILES.session);
+    expect(occurrences(source, FOOTER_OPEN)).toBe(1);
+    const gateAt = indexOfOrThrow(source, `{!keyboardVisible&&(${FOOTER_OPEN}`, 'session.tsx');
+    // The conditional wraps the footer and nothing else: its `)}` follows the
+    // footer's own close and precedes the KeyboardAvoidingView's.
+    const closeAt = indexOfOrThrow(source, '</View>)}</KeyboardAvoidingView>', 'session.tsx');
+    expect(closeAt).toBeGreaterThan(gateAt);
+    const block = source.slice(gateAt, closeAt);
+
+    // With the keyboard closed nothing changes: Close at phase 'done',
+    // otherwise Finish Session and Abandon.
+    expect(block).toContain("{presenter.phase==='done'?(");
+    expect(block).toContain('>Close</ThemedText>');
+    expect(block).toContain('onPress={confirmFinish}');
+    expect(block).toContain('>FinishSession</ThemedText>');
+    expect(block).toContain('onPress={confirmAbandon}');
+    expect(block).toContain('>Abandon</ThemedText>');
+  });
+
+  it('gates the Replace slot where session.tsx decides it, and renders Replace nowhere else', () => {
+    const source = compact(FILES.session);
+
+    expect(occurrences(source, '<ReplaceExercise')).toBe(1);
+    expect(source).toContain(
+      'belowButtonsSlot={!keyboardVisible&&(<ReplaceExercisesessionState={sessionState}exerciseTitles={exerciseTitles}/>)}'
+    );
+  });
+
+  it('clamps the routine notes to two lines only while the keyboard is visible', () => {
+    const source = compact(FILES.session);
+
+    expect(occurrences(source, 'style={styles.routineNotes}')).toBe(1);
+    expect(source).toContain(
+      '<ThemedTexttype="small"style={styles.routineNotes}numberOfLines={keyboardVisible?2:undefined}>'
+    );
+  });
+
+  it('keyboardVisible gates exactly those three sites, so SetLogger, Log Set / Skip Set stay', () => {
+    // The declaration plus the notes, the Replace slot and the footer. A fifth
+    // use (wrapping SetLogger, say) would hide the very inputs being typed in.
+    expect(occurrences(compact(FILES.session), 'keyboardVisible')).toBe(4);
   });
 });
 
