@@ -181,7 +181,8 @@ export default function ExerciseDetailScreen() {
         {/* automaticallyAdjustKeyboardInsets insets the content by the keyboard
             and scrolls the focused field into view. The #335 hero and Image URL
             field push both inputs to the bottom, where the keyboard covered
-            them (device-verified). Same fix as Settings → AI / AI Provider;
+            them on a device; this fix was verified on an iPhone 15 Pro
+            (2026-09-10). Same fix as Settings → AI / AI Provider;
             gated by exerciseImageWiring.static.test.ts. */}
         <ScrollView
           style={styles.scroll}

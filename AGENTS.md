@@ -1247,8 +1247,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `ExerciseImage`'s own `hero` style is unchanged, so the exercise detail screen,
   which scrolls, keeps the fixed 3:2 hero. A column that still overflows with the
   hero at zero (extreme routine notes on a small screen) is out of scope.
-  **Pending the user's device re-check**: the proportional version was checked
-  only by structural gates and by reading Yoga's source, never on a device.
+  **Device-verified 2026-09-10** on an iPhone 15 Pro Release build with the
+  user's real routines (commit c168604): no overlap, and the image keeps 3:2
+  whether it is full width or shrunk.
 - **The session hero hides while the keyboard is open; the exercise detail
   screen scrolls instead.** On an iPhone 15 Pro Release build the hero pushed the
   Reps/Weight/Duration inputs so far down that the keyboard covered the focused
@@ -1294,10 +1295,12 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   very inputs being typed in. Structural pins are the only
   option because the node jest project cannot load either `.tsx` file and
   `src/hooks` is outside its `testMatch`. **Every keyboard fix here (the hero,
-  the detail screen's inset, and the session footer, Replace and notes) is
-  PENDING the user's device re-check.** None has been exercised with a real
-  keyboard, because the Xcode-beta simulator used here cannot raise one. Do not
-  treat them as verified.
+  the detail screen's inset, and the session footer, Replace and notes) was
+  device-verified on 2026-09-10** by the user, on an iPhone 15 Pro Release build
+  (commit c168604), using the two failing screens above (Stationary Bike, Forearm
+  Plank) and the exercise detail screen's Image URL and Description fields. The
+  device is the only place these can be checked: the Xcode-beta simulator used
+  here cannot raise a keyboard, so a simulator pass says nothing about them.
 - **Accepted cost: a failing row is retried on every `exercises` write.** A row
   whose resolution keeps failing writes nothing, stays eligible, and is retried by
   the next pass — and a pass follows *any* write to the table: the exercise detail
