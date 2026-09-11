@@ -43,8 +43,10 @@ by the human before merging; review approval does not release that gate.
   branch/commit, build date, install/run instructions and concrete checks on its
   card. Refresh the build after branch changes; identify failures explicitly.
   For iPhone QA, default to signed standalone Release builds with embedded JS
-  (no Metro) and distinct PR-labelled test app identities so they can coexist
-  with the production app and keep its data separate. Regenerate native projects
+  (no Metro). Keep PR-labelled artifacts separate. Use a supported signing
+  identity: provisioned separate test app IDs may coexist with production;
+  otherwise use the existing app ID for one-at-a-time testing. Creating builds
+  does not authorize replacing the installed app. Regenerate native projects
   when config or native dependencies change; verify the bundle and native links.
   Preparing a build does not release the human gate. Preserve production data
   before any explicitly requested replacement install.
