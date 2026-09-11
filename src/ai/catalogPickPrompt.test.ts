@@ -10,6 +10,7 @@ describe('buildCatalogPickPrompt / parseCatalogPick — #335', () => {
     category: 'strength',
     equipment: 'cable',
     primaryMuscles: ['shoulders'],
+    instructions: [],
     image: 'Face_Pull/0.jpg',
   };
 
@@ -19,6 +20,7 @@ describe('buildCatalogPickPrompt / parseCatalogPick — #335', () => {
     category: 'strength',
     equipment: 'barbell',
     primaryMuscles: ['legs'],
+    instructions: [],
     image: 'Barbell_Squat/0.jpg',
   };
 
@@ -28,6 +30,7 @@ describe('buildCatalogPickPrompt / parseCatalogPick — #335', () => {
     category: 'strength',
     equipment: null,
     primaryMuscles: ['back'],
+    instructions: [],
     image: 'Pullups/0.jpg',
   };
 

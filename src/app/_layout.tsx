@@ -34,6 +34,8 @@ import { BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColo
 import { startExerciseImageResolver } from '@/state/exerciseImageResolver';
 import { createExerciseImageResolverDeps } from '@/state/exerciseImageFiles';
 import { ensureExerciseImageResolver } from '@/state/exerciseImageResolverRegistry';
+import { EXERCISE_CATALOG } from '@/state/exerciseCatalog';
+import { seedExerciseCatalog } from '@/state/exerciseCatalogSeed';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -178,6 +180,10 @@ export default function RootLayout() {
             clearEngineState: (sessionId) => clearEngineState(database, sessionId),
           });
         }
+
+        // Populate the on-device exercise library before the image resolver takes
+        // its initial snapshot. Existing rows are user data and remain untouched.
+        await seedExerciseCatalog(database, EXERCISE_CATALOG);
 
         // Exercise images (#335): background only — never awaited, never blocks boot.
         // Subscribing runs the first pass (the backfill); later passes follow table

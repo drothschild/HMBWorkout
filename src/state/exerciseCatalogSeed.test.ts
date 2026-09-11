@@ -1,6 +1,6 @@
 import type { Database } from '@nozbe/watermelondb';
 import { closeTestDatabase, createTestDatabase } from '@/db/test-helpers';
-import type { CatalogEntry } from './exerciseCatalog';
+import { EXERCISE_CATALOG, type CatalogEntry } from './exerciseCatalog';
 import { seedExerciseCatalog } from './exerciseCatalogSeed';
 
 describe('seedExerciseCatalog', () => {
@@ -126,5 +126,10 @@ describe('seedExerciseCatalog', () => {
       created_at: 7,
     });
     expect(await db.get('exercises').query().fetchCount()).toBe(2);
+  });
+
+  it('loads all 873 entries from the pinned production catalog', async () => {
+    expect(await seedExerciseCatalog(db, EXERCISE_CATALOG, 42)).toBe(873);
+    expect(await db.get('exercises').query().fetchCount()).toBe(873);
   });
 });

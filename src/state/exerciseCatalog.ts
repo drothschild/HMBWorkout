@@ -15,6 +15,8 @@ export type CatalogEntry = {
   readonly category: string;
   readonly equipment: string | null;
   readonly primaryMuscles: readonly string[];
+  /** Ordered upstream coaching instructions. The first item is the summary cue. */
+  readonly instructions: readonly string[];
   /** First image path relative to the upstream `exercises/` dir, e.g. 'Barbell_Squat/0.jpg'. */
   readonly image: string;
 };

@@ -34,6 +34,7 @@ function trimEntry(entry) {
     category: entry.category,
     equipment: entry.equipment ?? null,
     primaryMuscles: Array.isArray(entry.primaryMuscles) ? entry.primaryMuscles : [],
+    instructions: Array.isArray(entry.instructions) ? entry.instructions : [],
     image: entry.images[0],
   };
 }
