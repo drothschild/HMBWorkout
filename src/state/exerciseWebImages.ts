@@ -27,8 +27,8 @@ export function parseWebImageResults(html: string): string[] {
     try {
       const data: unknown = JSON.parse(decodeAttribute(metadata));
       if (!data || typeof data !== 'object' || !('murl' in data) || typeof data.murl !== 'string') continue;
-      recognized = true;
       const url = new URL(data.murl);
+      recognized = true;
       if (url.protocol !== 'https:' || url.username || url.password || urls.includes(url.href)) continue;
       urls.push(url.href);
       if (urls.length === MAX_CANDIDATES) break;
