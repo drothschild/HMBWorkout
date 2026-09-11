@@ -135,3 +135,5 @@ The revised AC6.2 in [PR #347](https://github.com/drothschild/HMBWorkout/pull/34
 plus `flush()`. Replacing the awaited `saveWorkoutSample` call with `void`
 fails with `HealthKit write failed`; the sandboxed process spy alone missed it.
 This was verified by an executed mutation on 2026-09-10.
+
+[Back to reference index](README.md)

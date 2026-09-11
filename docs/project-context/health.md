@@ -8,3 +8,4 @@ Write-only. All HealthKit errors are logged and swallowed — a Health failure m
 never affect DB state. Dependencies are injected (`HealthKitSaveDeps`) so the
 save path is testable in the node jest project.
 
+[Back to reference index](README.md)

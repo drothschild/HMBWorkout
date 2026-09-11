@@ -283,3 +283,4 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   and `buildCatalogPickPrompt` (`src/ai/catalogPickPrompt.ts`, #335);
   the directive text itself lives in `src/ai/coachDirectives.ts`.
 
+[Back to reference index](README.md)

@@ -63,3 +63,4 @@ is a non-destructive `addColumns` bump like v8, proved by `migrationV8ToV9.test.
 on the same two-open harness; LokiJS ignores column declarations, so the step's
 *presence* is pinned separately in `migrations.test.ts`.
 
+[Back to reference index](README.md)

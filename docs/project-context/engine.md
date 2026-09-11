@@ -374,3 +374,4 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
     as honest `undefined` — it is NOT in `SENTINEL_TO_OPTION_MAP` (convention 8),
     because a zero rest override must stay a real 0.
 
+[Back to reference index](README.md)

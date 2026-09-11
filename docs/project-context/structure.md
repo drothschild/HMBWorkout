@@ -122,3 +122,4 @@
   covered only by structural reads such as `exerciseImageWiring.static.test.ts`
 - `src/app/` — expo-router screens
 
+[Back to reference index](README.md)

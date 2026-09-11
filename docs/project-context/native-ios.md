@@ -142,3 +142,4 @@ interrupted build — no binary, no `Info.plist`. Sorting by mtime and taking th
 top hit reports "no build exists" while a working one sits one entry down. Check
 for the binary itself.
 
+[Back to reference index](README.md)

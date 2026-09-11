@@ -45,3 +45,4 @@ on memory of older Expo/Router/Reanimated APIs.
 - `npm run ios` / `npm start` — run the app (requires dev client; WatermelonDB is native)
 - `npm run lint` — expo lint
 
+[Back to reference index](README.md)

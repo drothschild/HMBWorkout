@@ -281,3 +281,4 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   invariant (AI Coach, "One key per install") makes that state unreachable through
   the UI; it is documented in `exerciseImageFiles.ts` rather than special-cased.
 
+[Back to reference index](README.md)

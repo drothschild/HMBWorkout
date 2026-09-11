@@ -222,3 +222,5 @@
 - The AI accept path may create exercises but must never mutate existing ones
 - An AI-proposed settings change must be approved by the user before it is written
 - Do not touch generated Rill dist or the `../rill-lang` tarball dependency by hand
+
+[Back to reference index](README.md)

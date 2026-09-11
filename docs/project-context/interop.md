@@ -428,3 +428,4 @@ frontmatter key would lose everything after the first newline without saying so.
 Per-*exercise* notes are unaffected — they ride the `@hint` flag on the line, and
 that path is quote-aware (#277).
 
+[Back to reference index](README.md)
