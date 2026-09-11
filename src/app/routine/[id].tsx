@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
     paddingHorizontal: Spacing.two,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   exerciseItemPressed: {
     opacity: 0.6,
