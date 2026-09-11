@@ -192,7 +192,14 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
   // than during the previous render", and no test can render the screen. Anchor
   // on the new hooks' OWN text: `useState<string|null>(null)` already exists
   // for saveError, so anchoring on it would pass wherever the new hook went.
-  const HOOKS = ['const[imagePath,setImagePath]=useState', 'exercise.observe()'];
+  const HOOKS = [
+    'const[imagePath,setImagePath]=useState',
+    'exercise.observe()',
+    // #335 Phase 6 — the paste-URL override's three hooks.
+    'const[imageUrl,setImageUrl]=useState',
+    'const[imageMessage,setImageMessage]=useState',
+    'const[savingImage,setSavingImage]=useState',
+  ];
 
   it.each(HOOKS)('%s occurs exactly once, above the first early return', (hook) => {
     const source = compact(FILES.exerciseDetail);
@@ -200,6 +207,22 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
 
     expect(occurrences(source, hook)).toBe(1);
     expect(indexOfOrThrow(source, hook, 'exercise/[id].tsx')).toBeLessThan(earlyReturn);
+  });
+});
+
+describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () => {
+  // The screen is the only caller of overrideExerciseImage, and nothing can
+  // render it. These pins stop it silently dropping the delete-after-write
+  // path or showing a hand-written message instead of the pinned copy.
+  it('calls overrideExerciseImage with the real delete dep', () => {
+    const source = normalized(FILES.exerciseDetail);
+
+    expect(source).toContain('overrideExerciseImage(');
+    expect(source).toContain('deleteFile: deleteExerciseImage');
+  });
+
+  it('words the outcome with exerciseImageOverrideMessage', () => {
+    expect(normalized(FILES.exerciseDetail)).toContain('text: exerciseImageOverrideMessage(outcome)');
   });
 });
 

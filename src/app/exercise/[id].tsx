@@ -13,6 +13,8 @@ import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
 import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
+import { exerciseImageOverrideMessage, overrideExerciseImage } from '@/state/exerciseImageOverride';
+import { deleteExerciseImage, downloadExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 
 const AUTOSAVE_DELAY_MS = 500;
 
@@ -29,6 +31,10 @@ export default function ExerciseDetailScreen() {
   // during the previous render"), and no test can render this screen.
   // exerciseImageWiring.static.test.ts gates the placement.
   const [imagePath, setImagePath] = useState<string | null>(null);
+  // The paste-URL override (#335 Phase 6).
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [savingImage, setSavingImage] = useState(false);
 
   useEffect(() => {
     const loadExercise = async () => {
@@ -101,6 +107,35 @@ export default function ExerciseDetailScreen() {
     timerRef.current = setTimeout(flush, AUTOSAVE_DELAY_MS);
   };
 
+  // Plain function, not a hook. The hero updates by itself: the
+  // exercise.observe() effect above picks up the row write. Message copy comes
+  // only from exerciseImageOverrideMessage, except a thrown row write (e.g. the
+  // exercise was deleted), which overrideExerciseImage deliberately propagates.
+  const applyImageUrl = async () => {
+    if (!id || savingImage) return;
+    setSavingImage(true);
+    try {
+      const outcome = await overrideExerciseImage(
+        {
+          database,
+          download: downloadExerciseImage,
+          deleteFile: deleteExerciseImage,
+          makeImageSuffix: makeExerciseImageSuffix,
+          log: (message, error) => console.warn(message, error),
+        },
+        id,
+        imageUrl
+      );
+      setImageMessage({ text: exerciseImageOverrideMessage(outcome), isError: outcome.kind !== 'saved' });
+      if (outcome.kind === 'saved') setImageUrl('');
+    } catch (error) {
+      console.error('Failed to save exercise image:', error);
+      setImageMessage({ text: "Couldn't save that image. Try again.", isError: true });
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
   // is called on an unmounted component, it's a no-op (React ignores it), so hasPendingRef
   // may remain true. This is a tiny race window and acceptable: the next session load
@@ -164,6 +199,42 @@ export default function ExerciseDetailScreen() {
               {saveError}
             </ThemedText>
           )}
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              Image URL
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="https://… (paste an image link to replace the picture)"
+              placeholderTextColor={placeholderColor}
+              value={imageUrl}
+              onChangeText={setImageUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="done"
+              onSubmitEditing={applyImageUrl}
+            />
+            <Pressable
+              disabled={savingImage || imageUrl.trim() === ''}
+              onPress={applyImageUrl}
+              style={({ pressed }) => [
+                styles.button,
+                pressed && styles.buttonPressed,
+                (savingImage || imageUrl.trim() === '') && styles.buttonDisabled,
+              ]}
+            >
+              <ThemedText type="default" style={styles.buttonText}>
+                {savingImage ? 'Saving…' : 'Use this image'}
+              </ThemedText>
+            </Pressable>
+            {imageMessage && (
+              <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
+                {imageMessage.text}
+              </ThemedText>
+            )}
+          </ThemedView>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -259,5 +330,24 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 120,
     textAlignVertical: 'top',
+  },
+  // Same shape as the Settings → Data screen's primary buttons.
+  button: {
+    backgroundColor: ActionButtonColor.primary,
+    borderRadius: 10,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    alignItems: 'center',
+    marginTop: Spacing.one,
+  },
+  buttonPressed: {
+    opacity: 0.7,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });
