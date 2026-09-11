@@ -20,6 +20,23 @@ screen (`src/app/exercise/[id].tsx`), which reads the row it loads and then
 observes it (see the observers bullet below). The markdown export is byte-identical
 with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
 
+- **Web fallback after a catalog miss (#354).** Production supplies
+  `searchWebImages` to the resolver. After the catalog decision misses, Bing Images
+  is searched for the normalized title plus "exercise"; up to five distinct HTTPS
+  original-image URLs are attempted in result order. The first validated download
+  is stored as `web:<url>`, using the existing fresh relative path and source
+  compare-and-set. Failed candidates are cleaned up; an override racing a download
+  wins. Search decisions are shared across sided names, but files belong to rows.
+  Existing catalog images and explicit URL overrides are never replaced by web
+  search. Old `none`/`none:nokey` rows are retried once through this fallback;
+  an empty result writes `web:none` with a key or `web:none:nokey` without one.
+  Only the latter retries on key addition. Search/HTTP/markup errors and exhaustion
+  of unavailable downloads preserve the row for later retry. Bing HTML is not a
+  supported API: format changes or challenges reject rather than falsely writing
+  a terminal miss. Search requests time out after 15 seconds. The optional dep
+  preserves the catalog-only resolver contract for callers without web search.
+  `exerciseWebImages.test.ts` and `exerciseImageWebFallback.test.ts` cover this path.
+
 - **The catalog is generated code pinned to one upstream commit.**
   `src/state/exerciseCatalogData.ts` is written by `scripts/build-exercise-catalog.mjs`
   from yuhonas/free-exercise-db at the script's `COMMIT`, which must equal
@@ -27,10 +44,11 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   scripts/build-exercise-catalog.mjs --check` exits 1 if the committed file differs
   from a fresh build. The pin is what keeps an already-resolved row's source URL
   from moving under it. Never hand-edit the data file.
-- **Two nullable columns (schema v9) and four `ImageSource` states.**
+- **Two nullable columns (schema v9) and `ImageSource` states.**
   `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
   `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
-  acceptable match — terminal) and `none:nokey` (the no-key name match missed;
+  acceptable match — terminal) and `web:<url>` (downloaded web result), `web:none`/`web:none:nokey` (web misses),
+  and `none:nokey` (the no-key name match missed;
   re-resolved once a key exists). `null` means never decided, or every attempt so
   far failed without writing. **`isImageResolutionEligible` governs ordinary
   resolution**: first-launch backfill, first-view retry and key-added retry share
@@ -155,9 +173,10 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `none` and `none:nokey` may inherit the unambiguous catalog sibling above;
   the exact normalized `Dumbbell Chest Press` alias selects
   `Dumbbell_Bench_Press` directly. These repairs bypass the model even when a key
-  exists. Other terminal NONEs stay terminal: two misses without a known match,
+  exists. Without web search, other terminal NONEs stay terminal: two misses without a known match,
   unsided duplicate groups, and conflicting persisted catalog choices are not
-  broadly retried. URL overrides remain protected, and failed downloads preserve
+  broadly retried by catalog repair. Production web fallback separately revisits
+  these older misses as described above. URL overrides remain protected, and failed downloads preserve
   the old row for a later attempt. Side consistency does not establish picture
   accuracy: equipment-mismatched goblet squats and kettlebell Romanian deadlifts,
   side-plank and chest-stretch variants still require human image decisions.

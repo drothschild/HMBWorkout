@@ -9,7 +9,7 @@
 /** Directory under Paths.document that holds every downloaded exercise image. */
 export const EXERCISE_IMAGE_DIR = 'exercise-images';
 
-export type ImageSource = `catalog:${string}` | `url:${string}` | 'none' | 'none:nokey';
+export type ImageSource = `catalog:${string}` | `url:${string}` | `web:${string}` | 'none' | 'none:nokey';
 
 /** No acceptable match. Final: never re-resolved by a pass. */
 export const IMAGE_SOURCE_NONE = 'none';
