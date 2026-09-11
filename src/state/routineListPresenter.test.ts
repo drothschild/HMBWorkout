@@ -1,4 +1,6 @@
-import { createTestDatabase } from '@/db/test-helpers';
+import type { Database } from '@nozbe/watermelondb';
+import { createTestDatabase, flush } from '@/db/test-helpers';
+import { setExerciseImage, upsertExercise } from '@/db/repository';
 import { routineListPresenter } from './routineListPresenter';
 
 describe('routineListPresenter', () => {
@@ -77,6 +79,7 @@ describe('routineListPresenter', () => {
       name: 'Push Day',
       exerciseCount: 2,
       hasActiveExercise: true,
+      thumbnailPaths: [],
     });
   });
 
@@ -118,6 +121,7 @@ describe('routineListPresenter', () => {
       name: 'Recovery Day',
       exerciseCount: 1,
       hasActiveExercise: false,
+      thumbnailPaths: [],
     });
   });
 
@@ -201,6 +205,7 @@ describe('routineListPresenter', () => {
       name: 'Push',
       exerciseCount: 1,
       hasActiveExercise: true,
+      thumbnailPaths: [],
     });
   });
 
@@ -245,5 +250,122 @@ describe('routineListPresenter', () => {
     const byId = new Map((await routineListPresenter(db)).map((r) => [r.id, r]));
     expect(byId.get('routine-has')?.hasActiveExercise).toBe(true);
     expect(byId.get('routine-hasnt')?.hasActiveExercise).toBe(false);
+  });
+
+  // ---- #335: exercise image thumbnails -------------------------------------
+
+  describe('thumbnailPaths (#335, AC3.5)', () => {
+    /** Seeds through the real write paths; a null path leaves the exercise unresolved. */
+    async function seedExercises(
+      db: Database,
+      imagePaths: Record<string, string | null>
+    ): Promise<void> {
+      for (const [id, imagePath] of Object.entries(imagePaths)) {
+        await upsertExercise(db, id, id.toUpperCase(), 'strength');
+        if (imagePath !== null) {
+          await setExerciseImage(db, id, { imagePath, imageSource: `catalog:${id}` });
+        }
+      }
+      await flush();
+    }
+
+    /**
+     * One routine whose rows are CREATED in the sequence given, each carrying
+     * its own `order` — so creation order and routine order can disagree.
+     */
+    async function seedRoutine(
+      db: Database,
+      routineId: string,
+      rows: readonly (readonly [exerciseId: string, order: number])[]
+    ): Promise<void> {
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = routineId;
+          r.name = routineId;
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        for (const [exerciseId, order] of rows) {
+          await db.get('routine_exercises').create((re: any) => {
+            re._raw.routine_id = routineId;
+            re._raw.exercise_id = exerciseId;
+            re._raw.order = order;
+          });
+        }
+      });
+      await flush();
+    }
+
+    it('takes at most 4 paths, distinct by exercise, in routine order, skipping exercises without an image', async () => {
+      const db = await createTestDatabase();
+      await seedExercises(db, { a: 'pa', b: null, c: 'pc', d: 'pd', e: 'pe', f: 'pf' });
+      // Creation sequence e, a, f, c, b, a, d; routine order a, b, a, c, e, f, d.
+      // Unsorted, the rows would read back e-first and yield [pe, pa, pf, pc].
+      await seedRoutine(db, 'routine-thumbs', [
+        ['e', 4],
+        ['a', 0],
+        ['f', 5],
+        ['c', 3],
+        ['b', 1],
+        ['a', 2],
+        ['d', 6],
+      ]);
+
+      const routines = await routineListPresenter(db);
+
+      expect(routines).toHaveLength(1);
+      // b skipped (no image), the second a not repeated, d beyond the limit.
+      expect(routines[0].thumbnailPaths).toEqual(['pa', 'pc', 'pe', 'pf']);
+    });
+
+    it('is empty for a routine none of whose exercises has an image', async () => {
+      const db = await createTestDatabase();
+      await seedExercises(db, { a: null, b: null });
+      await seedRoutine(db, 'routine-bare', [
+        ['a', 0],
+        ['b', 1],
+      ]);
+
+      const routines = await routineListPresenter(db);
+
+      expect(routines).toHaveLength(1);
+      expect(routines[0].thumbnailPaths).toEqual([]);
+    });
+
+    it('skips a row whose exercise no longer exists instead of failing the whole list', async () => {
+      const db = await createTestDatabase();
+      await seedExercises(db, { a: 'pa' });
+      await seedRoutine(db, 'routine-ghost', [
+        ['deleted-exercise', 0],
+        ['a', 1],
+      ]);
+
+      const routines = await routineListPresenter(db);
+
+      expect(routines).toHaveLength(1);
+      expect(routines[0].thumbnailPaths).toEqual(['pa']);
+    });
+
+    it('dedupes by exercise, not by path: two distinct exercises carrying the same path both count', async () => {
+      // The resolver names files `exercise-images/<exerciseId>-<suffix>.jpg`,
+      // so production paths cannot collide. This pins AC3.5's "distinct by
+      // exercise" against an implementation that dedupes on the path instead
+      // — the one fixture where those two rules give different answers.
+      const db = await createTestDatabase();
+      await seedExercises(db, { g: 'exercise-images/shared.jpg', h: 'exercise-images/shared.jpg' });
+      await seedRoutine(db, 'routine-shared', [
+        ['g', 0],
+        ['h', 1],
+        ['g', 2],
+      ]);
+
+      const routines = await routineListPresenter(db);
+
+      expect(routines).toHaveLength(1);
+      expect(routines[0].thumbnailPaths).toEqual([
+        'exercise-images/shared.jpg',
+        'exercise-images/shared.jpg',
+      ]);
+    });
   });
 });

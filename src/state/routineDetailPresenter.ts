@@ -27,6 +27,12 @@ export interface ExerciseDetail {
   restSeconds?: number;
   kind: string;
   description: string | null;
+  /**
+   * Relative image path (#335), null while unresolved or when no image was
+   * found. Read through the row's exercise_id, so a row re-pointed by Replace
+   * shows the new exercise's image.
+   */
+  imagePath: string | null;
 }
 
 export interface SupersetGroupDetail {
@@ -98,7 +104,10 @@ export async function routineDetailPresenter(
     routineExercises.sort((a, b) => a._raw.order - b._raw.order);
 
     // Get exercise details
-    const exerciseMap = new Map<string, { title: string; kind: string; description: string | null }>();
+    const exerciseMap = new Map<
+      string,
+      { title: string; kind: string; description: string | null; imagePath: string | null }
+    >();
     const exerciseIds = [...new Set(routineExercises.map((re) => re._raw.exercise_id))];
 
     for (const exId of exerciseIds) {
@@ -107,6 +116,7 @@ export async function routineDetailPresenter(
         title: (exercise as any).title,
         kind: (exercise as any)._raw.kind,
         description: (exercise as any)._raw.description ?? null,
+        imagePath: (exercise as any)._raw.image_path ?? null,
       });
     }
 
@@ -131,6 +141,7 @@ export async function routineDetailPresenter(
         restSeconds: re._raw.rest_seconds,
         kind: exerciseInfo?.kind || 'strength',
         description: exerciseInfo?.description ?? null,
+        imagePath: exerciseInfo?.imagePath ?? null,
       };
     };
 

@@ -1,6 +1,10 @@
 import { Database, Q } from '@nozbe/watermelondb';
+import type Exercise from '@/db/models/Exercise';
 import { getRoutineSets } from '@/db/repository';
 import { rowHasPrescribedSets } from './routineSetPlans';
+
+/** Most exercise thumbnails a Routines tab card shows (#335). */
+export const ROUTINE_THUMBNAIL_LIMIT = 4;
 
 export interface RoutineListItem {
   id: string;
@@ -20,6 +24,11 @@ export interface RoutineListItem {
    * guard cannot disagree about which routines are startable.
    */
   hasActiveExercise: boolean;
+  /**
+   * Up to ROUTINE_THUMBNAIL_LIMIT relative image paths (#335): distinct by
+   * exercise, in routine order, exercises without an image skipped.
+   */
+  thumbnailPaths: string[];
 }
 
 /**
@@ -39,6 +48,10 @@ export async function routineListPresenter(db: Database): Promise<RoutineListIte
       .query(Q.where('routine_id', routineId))
       .fetch()) as any[];
 
+    // The query returns rows unsorted; "routine order" for the thumbnails needs
+    // the `order` column, as routineDetailPresenter does.
+    routineExercises.sort((a, b) => a._raw.order - b._raw.order);
+
     let hasActiveExercise = false;
     for (const re of routineExercises) {
       if (rowHasPrescribedSets(await getRoutineSets(db, re.id))) {
@@ -52,8 +65,40 @@ export async function routineListPresenter(db: Database): Promise<RoutineListIte
       name: routine.name,
       exerciseCount: routineExercises.length,
       hasActiveExercise,
+      thumbnailPaths: await readThumbnailPaths(
+        db,
+        routineExercises.map((re) => re._raw.exercise_id as string)
+      ),
     });
   }
 
   return result;
+}
+
+/**
+ * The card's thumbnail strip (#335), from exercise ids already in routine
+ * order. An id is marked seen whether or not it has an image — distinct by
+ * EXERCISE, not by path — and a row whose exercise no longer exists is skipped.
+ */
+async function readThumbnailPaths(
+  db: Database,
+  orderedExerciseIds: readonly string[]
+): Promise<string[]> {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const exerciseId of orderedExerciseIds) {
+    if (paths.length >= ROUTINE_THUMBNAIL_LIMIT) break;
+    if (seen.has(exerciseId)) continue;
+    seen.add(exerciseId);
+
+    try {
+      const exercise = (await db.get('exercises').find(exerciseId)) as Exercise;
+      if (exercise.imagePath) paths.push(exercise.imagePath);
+    } catch {
+      // Exercise no longer exists; no thumbnail for it.
+    }
+  }
+
+  return paths;
 }

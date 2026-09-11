@@ -1,5 +1,7 @@
-import { createTestDatabase } from '@/db/test-helpers';
-import { routineDetailPresenter } from './routineDetailPresenter';
+import type { Database } from '@nozbe/watermelondb';
+import { createTestDatabase, flush } from '@/db/test-helpers';
+import { setExerciseImage, updateRoutineExerciseExerciseId, upsertExercise } from '@/db/repository';
+import { routineDetailPresenter, type RoutineDetail } from './routineDetailPresenter';
 
 /**
  * #276 Phase 6: `routine_exercises` no longer carries warmup_sets/target_sets/
@@ -813,5 +815,106 @@ describe('routineDetailPresenter', () => {
       expect(detail!.hasActiveExercise).toBe(false);
     });
 
+  });
+
+  // ---- #335: exercise images ----------------------------------------------
+
+  describe('imagePath (#335)', () => {
+    /** Seeds through the real write paths; a null path leaves the exercise unresolved. */
+    async function seedExercise(db: Database, id: string, imagePath: string | null): Promise<void> {
+      await upsertExercise(db, id, id, 'strength');
+      if (imagePath !== null) {
+        await setExerciseImage(db, id, { imagePath, imageSource: `catalog:${id}` });
+      }
+    }
+
+    /** Each item flattened to its members' [exerciseId, imagePath], item type kept. */
+    const imagesByItem = (detail: RoutineDetail | null) =>
+      detail?.items.map((item) =>
+        item.type === 'superset'
+          ? { type: item.type, members: item.exercises.map((e) => [e.exerciseId, e.imagePath]) }
+          : { type: item.type, members: [[item.exercise.exerciseId, item.exercise.imagePath]] }
+      );
+
+    it('AC3.4: exposes each exercise’s path, null when unresolved, on standalone and superset members alike', async () => {
+      const db = await createTestDatabase();
+      await seedExercise(db, 'squat', 'exercise-images/squat-s1.jpg');
+      await seedExercise(db, 'bench', 'exercise-images/bench-b1.jpg');
+      await seedExercise(db, 'row', null);
+      await seedExercise(db, 'lunge', null);
+
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = 'routine-img';
+          r.name = 'Images';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        for (const [exerciseId, order, group] of [
+          ['squat', 0, null],
+          ['bench', 1, 'ss1'],
+          ['row', 2, 'ss1'],
+          ['lunge', 3, null],
+        ] as const) {
+          await db.get('routine_exercises').create((re: any) => {
+            re._raw.routine_id = 'routine-img';
+            re._raw.exercise_id = exerciseId;
+            re._raw.order = order;
+            re._raw.superset_group = group;
+          });
+        }
+      });
+      await flush();
+
+      const detail = await routineDetailPresenter(db, 'routine-img');
+
+      expect(imagesByItem(detail)).toEqual([
+        { type: 'exercise', members: [['squat', 'exercise-images/squat-s1.jpg']] },
+        {
+          type: 'superset',
+          members: [
+            ['bench', 'exercise-images/bench-b1.jpg'],
+            ['row', null],
+          ],
+        },
+        { type: 'exercise', members: [['lunge', null]] },
+      ]);
+    });
+
+    it('AC4.1: a row re-pointed by the Replace path reads the NEW exercise’s image', async () => {
+      const db = await createTestDatabase();
+      await seedExercise(db, 'barbell-bench-press', 'exercise-images/barbell-bench-press-a1.jpg');
+      await seedExercise(db, 'dumbbell-floor-press', 'exercise-images/dumbbell-floor-press-b2.jpg');
+
+      let rowId = '';
+      await db.write(async () => {
+        await db.get('routines').create((r: any) => {
+          r._raw.id = 'routine-swap';
+          r.name = 'Push Day';
+          r._raw.created_at = Date.now();
+          r._raw.updated_at = Date.now();
+        });
+        const row = await db.get('routine_exercises').create((re: any) => {
+          re._raw.routine_id = 'routine-swap';
+          re._raw.exercise_id = 'barbell-bench-press';
+          re._raw.order = 0;
+        });
+        rowId = row.id;
+      });
+      await flush();
+
+      const before = await routineDetailPresenter(db, 'routine-swap');
+      expect(before?.standaloneExercises.map((e) => [e.routineExerciseId, e.imagePath])).toEqual([
+        [rowId, 'exercise-images/barbell-bench-press-a1.jpg'],
+      ]);
+
+      await updateRoutineExerciseExerciseId(db, rowId, 'dumbbell-floor-press');
+      await flush();
+
+      const after = await routineDetailPresenter(db, 'routine-swap');
+      expect(after?.standaloneExercises.map((e) => [e.routineExerciseId, e.imagePath])).toEqual([
+        [rowId, 'exercise-images/dumbbell-floor-press-b2.jpg'],
+      ]);
+    });
   });
 });
