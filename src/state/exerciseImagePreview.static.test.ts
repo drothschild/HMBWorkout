@@ -9,6 +9,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const COMPONENT = join(__dirname, '..', 'components', 'ExerciseImage.tsx');
+const IMAGE_GUIDE = join(__dirname, '..', '..', 'docs', 'project-context', 'exercise-images.md');
 
 function compactSource(): string {
   return readFileSync(COMPONENT, 'utf8')
@@ -45,5 +46,13 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(source).toContain('accessibilityLabel="Full-sizeexerciseimage"');
     expect(source).toContain('accessibilityLabel="Closeexerciseimagepreview"');
     expect(source).toContain('onPress={()=>setPreviewVisible(false)}');
+  });
+
+  it('documents the preview boundary in the owning image contract', () => {
+    const guide = readFileSync(IMAGE_GUIDE, 'utf8');
+
+    expect(guide).toContain('Tiny `row` and `strip` images open a contain-fit preview (#361)');
+    expect(guide).toContain('Placeholders and the `hero` / `fit` variants stay non-interactive');
+    expect(guide).toContain('`src/components/ExerciseImage.tsx`');
   });
 });
