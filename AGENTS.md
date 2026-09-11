@@ -1241,8 +1241,26 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   ScrollView, its buttons held above the keyboard by the `KeyboardAvoidingView`
   in `session.tsx`, so by the user's decision on #335 `SetLogger` renders the
   `styles.exerciseHero` wrapper only under `!keyboardVisible`. It renders
-  nothing, not a thumbnail, so with the keyboard up the layout is exactly the
-  pre-#335 one, which fit. `keyboardVisible` comes from `useKeyboardVisible`
+  nothing, not a thumbnail, so with the keyboard up the layout is the pre-#335
+  one. **This sentence used to end "which fit", and a device test disproved
+  it.** On the same build, hero already hidden, a timed exercise under a
+  six-line routine description (Push Day → Stationary Bike) drew Finish Session
+  / Abandon over the Duration input and pushed Log Set / Skip Set behind the
+  decimal pad, and a timed exercise with no notes but an AI key (Forearm Plank)
+  put the footer over the Replace button. Since the column was the pre-#335
+  one, the overflow probably predates #335, and "which fit" was asserted rather
+  than measured. The user's second decision: while typing, `session.tsx` itself
+  drops more, reading its own `useKeyboardVisible()` (called once, above the
+  `if (!sessionState)` early return). The whole footer block renders only under
+  `!keyboardVisible`: Finish Session / Abandon, plus the phase-`done` Close,
+  which no keyboard reaches in practice because `SetLogger` and its inputs are
+  already gone by then. The Replace button is gated where the slot is decided,
+  `belowButtonsSlot={!keyboardVisible && (<ReplaceExercise …/>)}`, which also
+  unmounts its picker `Modal`. That is harmless, because the picker covers the
+  inputs, so no keyboard can open under it. The routine notes take
+  `numberOfLines={keyboardVisible ? 2 : undefined}`. The timer card, the
+  focused input and Log Set / Skip Set stay. The column still does not scroll,
+  and the `KeyboardAvoidingView` is unchanged. `keyboardVisible` comes from `useKeyboardVisible`
   (`src/hooks/use-keyboard-visible.ts`), which listens on `keyboardWillShow`/
   `keyboardWillHide` on iOS, so the hero collapses as the keyboard animates in
   rather than after it covers the field, and on `keyboardDidShow`/
@@ -1253,12 +1271,18 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `exerciseImageWiring.static.test.ts` pins all of this structurally: the hero's
   `fit` size, measured height and placement, the keyboard condition, the hook call above any early
   return in `SetLogger`, the hook's per-platform events and subscription
-  cleanup, and the detail `ScrollView`'s prop. Structural pins are the only
+  cleanup, and the detail `ScrollView`'s prop. It also pins the three
+  `session.tsx` gates as exact strings (the footer, the Replace slot, and the
+  notes clamp), `session.tsx`'s single hook call above its early return, and
+  exactly four `keyboardVisible` occurrences in that file: the declaration and
+  those three gates. A fifth, wrapping `SetLogger` for instance, would hide the
+  very inputs being typed in. Structural pins are the only
   option because the node jest project cannot load either `.tsx` file and
-  `src/hooks` is outside its `testMatch`. **Both keyboard fixes are pending the
-  user's device re-check.** Neither has been exercised with a real keyboard:
-  the Xcode-beta simulator used here cannot raise one. Do not treat them as
-  verified.
+  `src/hooks` is outside its `testMatch`. **Every keyboard fix here (the hero,
+  the detail screen's inset, and the session footer, Replace and notes) is
+  PENDING the user's device re-check.** None has been exercised with a real
+  keyboard, because the Xcode-beta simulator used here cannot raise one. Do not
+  treat them as verified.
 - **Accepted cost: a failing row is retried on every `exercises` write.** A row
   whose resolution keeps failing writes nothing, stays eligible, and is retried by
   the next pass — and a pass follows *any* write to the table: the exercise detail
@@ -1788,8 +1812,8 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   `SetLogger`'s `exerciseHero` wrapper divides the measured column width by to
   get its full height (see Exercise images)
 - `src/hooks/` — shared React hooks (theme, color scheme, and since #335
-  `use-keyboard-visible.ts`, whose `useKeyboardVisible` hides the session hero
-  while the keyboard is open). **Outside jest's `testMatch`**, so a hook here is
+  `use-keyboard-visible.ts`, whose `useKeyboardVisible` hides the session hero,
+  and in `session.tsx` the footer and Replace button, while the keyboard is open). **Outside jest's `testMatch`**, so a hook here is
   covered only by structural reads such as `exerciseImageWiring.static.test.ts`
 - `src/app/` — expo-router screens
 

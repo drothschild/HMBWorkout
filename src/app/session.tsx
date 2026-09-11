@@ -8,6 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { SetLogger } from '@/components/SetLogger';
 import { RestCountdown } from '@/components/RestCountdown';
 import { ReplaceExercise } from '@/components/ReplaceExercise';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { WorkoutStopwatch } from '@/components/WorkoutStopwatch';
 import { activeSessionStore, DISCARD_FAILURE_PREFIX } from '@/state/activeSession';
 import {
@@ -151,6 +152,14 @@ export default function SessionScreen() {
   // the effect's own re-run (via currentEntryExerciseId) races it. See
   // exerciseReplaceStore.routineRevision.
   const routineRevision = exerciseReplaceStore((state) => state.routineRevision);
+
+  // While a Reps/Weight/Duration field has the keyboard up, the fixed column
+  // below keeps only what the set being typed needs: the Finish/Abandon
+  // footer and the Replace button hide and the routine notes clamp to two
+  // lines. With the decimal pad up the column did not fit on timed exercises
+  // (user decision on #335 after a device test). Above the early return, like
+  // every hook here.
+  const keyboardVisible = useKeyboardVisible();
 
   // The exercise being performed, as a primitive effect key. Every per-exercise
   // effect below depends on this rather than on exerciseIndex alone:
@@ -638,6 +647,9 @@ export default function SessionScreen() {
   // Fixed column, no whole-screen scrolling: the only scroller is the
   // logged-set list inside SetLogger. Without the outer ScrollView the
   // KeyboardAvoidingView is mandatory or the keyboard covers the inputs.
+  // Even so the column can be taller than what the keyboard leaves, so while
+  // it is up the notes, the Replace slot and the footer give way
+  // (keyboardVisible above).
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -686,7 +698,11 @@ export default function SessionScreen() {
               </View>
             </View>
             {presenter.routineNotes && (
-              <ThemedText type="small" style={styles.routineNotes}>
+              <ThemedText
+                type="small"
+                style={styles.routineNotes}
+                numberOfLines={keyboardVisible ? 2 : undefined}
+              >
                 {presenter.routineNotes}
               </ThemedText>
             )}
@@ -752,37 +768,47 @@ export default function SessionScreen() {
                      is closed — note the conjunction: a non-idle store renders even
                      without a target, so "no target" alone is not why it stays out of
                      the way here. The unmount cleanup below keeps the store idle across
-                     mounts, which is what actually makes that safe. */
-                  <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+                     mounts, which is what actually makes that safe.
+                     Hidden while the keyboard is open (keyboardVisible). That
+                     also unmounts the picker Modal, which is harmless: the
+                     picker covers the inputs, so no keyboard opens under it. */
+                  !keyboardVisible && (
+                    <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
+                  )
                 }
               />
             )}
           </View>
 
-          <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
-            {presenter.phase === 'done' ? (
-              <Pressable
-                style={[styles.button, styles.finishButton]}
-                onPress={() => {
-                  router.back();
-                }}
-              >
-                <ThemedText style={styles.buttonText}>Close</ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.footerRow}>
+          {/* Hidden while the keyboard is open (keyboardVisible). The Close
+              variant shows only at phase 'done', where SetLogger and so every
+              input is gone, so in practice the keyboard never hides it. */}
+          {!keyboardVisible && (
+            <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
+              {presenter.phase === 'done' ? (
                 <Pressable
-                  style={[styles.button, styles.finishButton, styles.footerButton]}
-                  onPress={confirmFinish}
+                  style={[styles.button, styles.finishButton]}
+                  onPress={() => {
+                    router.back();
+                  }}
                 >
-                  <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                  <ThemedText style={styles.buttonText}>Close</ThemedText>
                 </Pressable>
-                <Pressable style={[styles.button, styles.footerButton]} onPress={confirmAbandon}>
-                  <ThemedText style={styles.abandonText}>Abandon</ThemedText>
-                </Pressable>
-              </View>
-            )}
-          </View>
+              ) : (
+                <View style={styles.footerRow}>
+                  <Pressable
+                    style={[styles.button, styles.finishButton, styles.footerButton]}
+                    onPress={confirmFinish}
+                  >
+                    <ThemedText style={styles.buttonText}>Finish Session</ThemedText>
+                  </Pressable>
+                  <Pressable style={[styles.button, styles.footerButton]} onPress={confirmAbandon}>
+                    <ThemedText style={styles.abandonText}>Abandon</ThemedText>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>

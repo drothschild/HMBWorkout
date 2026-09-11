@@ -120,8 +120,11 @@ export function SetLogger({
   // The hero hides while the keyboard is open (user decision on #335): this
   // screen is a fixed column with no outer ScrollView, and a full-width 3:2
   // image pushes the set inputs under the keyboard. Without it the layout is
-  // the pre-#335 one, which fits with the keyboard up. Hooks stay above any
-  // early return.
+  // the pre-#335 one, which did NOT always fit with the keyboard up: on device
+  // a timed exercise with long routine notes or a Replace button overflowed,
+  // so session.tsx also hides its footer and the Replace slot and clamps the
+  // notes to two lines while typing (its own keyboardVisible). Hooks stay
+  // above any early return.
   const keyboardVisible = useKeyboardVisible();
   // The column width the hero measures, so its full size can be an explicit
   // 3:2 height (see exerciseHero). 0 until the first layout, so the hero is 0
