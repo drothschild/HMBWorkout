@@ -1190,11 +1190,13 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   (`ExerciseImageResolverDeps`, `ExerciseImageOverrideDeps`).
   `exerciseImageResolverWiring.static.test.ts` enforces it by scanning every test
   file for an import or `require` of the module.
-- **The session screen shows the image as a full-width hero, not a thumbnail.**
-  `SetLogger` (`src/components/SetLogger.tsx`) renders `<ExerciseImage size="hero">`
-  inside `styles.exerciseHero`, directly under the title row — the same 3:2 hero
-  as the exercise detail screen. The plan called for a 48pt thumbnail in the title
-  row; it changed on the user's request during Phase 5. The title row holds only
+- **The session screen shows the image as a large 3:2 picture, not a thumbnail.**
+  `SetLogger` (`src/components/SetLogger.tsx`) renders `<ExerciseImage size="fit">`
+  inside the measured-height `styles.exerciseHero` wrapper, directly under the
+  title row. When there is room it is full width at 3:2, the same size as the
+  exercise detail screen's hero; when there isn't, it becomes a smaller 3:2 (see
+  the next bullet). The plan called for a 48pt thumbnail in the title row; it
+  changed on the user's request during Phase 5. The title row holds only
   the title and the `?` button, and the title's `flex: 1` (not `flexShrink: 1`) is
   what keeps a long exercise name from pushing `?` off screen.
 - **The session hero is full width up to 3:2, and it is the first thing to give
@@ -1204,17 +1206,24 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   was drawn on top of "Log Set / Skip Set". With the Replace button present, the
   logged-sets list was squeezed to nothing. The column does not scroll (the user
   declined that), so by the user's decision the image is big when there is room
-  and shrinks when there isn't. The image is never resized: it keeps its own
-  `width: '100%', aspectRatio: 3 / 2` box, and the `styles.exerciseHero` wrapper
-  does the yielding. The wrapper has no height, `flex` or `flexGrow`, so its basis
-  is `auto`, which is the image's natural 3:2 height, and with no grow it can
-  never be taller. `flexShrink: 1` with `minHeight: 0` makes Yoga take the
-  column's overflow out of the wrapper, down to zero. `overflow: 'hidden'` plus
-  `justifyContent: 'center'` clip the full-size image to a centered crop, since
-  Yoga keeps `center` on overflow (its `fallbackAlignment` remaps only the
-  `space-*` values). The wrapper shares the image's corner radius
-  (`EXERCISE_IMAGE_BORDER_RADIUS`, exported from `ExerciseImage.tsx`) so the clip
-  keeps the corners rounded. The logged-sets list keeps a floor,
+  and shrinks when there isn't, **keeping its 3:2 proportions** (a second user
+  decision: the first version kept the image full width and clipped it to a
+  centered banner, via a basis-`auto` wrapper with `overflow: 'hidden'`; the user
+  rejected the crop, so that mechanism and its `EXERCISE_IMAGE_BORDER_RADIUS`
+  export are gone). `onLayout` records the column width in a `useState(0)` hook,
+  and the wrapper's full size is an explicit `height` of that width divided by
+  `EXERCISE_IMAGE_ASPECT_RATIO` (exported from `ExerciseImage.tsx`).
+  `flexShrink: 1` with `minHeight: 0` makes Yoga take the column's overflow out
+  of the wrapper, down to zero. It is a `height` and not a `flexBasis` because
+  Yoga uses a style height as the flex basis unconditionally, but honors an
+  explicit `flexBasis` only when the parent's main size is definite. The image
+  uses the `fit` size (`height: '100%'`, `maxWidth: '100%'`, `aspectRatio: 3 / 2`),
+  so it takes its width from the wrapper's already-shrunk height, and the
+  wrapper's `alignItems: 'center'` centers it. Nothing is clipped. There is no
+  layout loop, because the wrapper's width comes from the column's stretch, never
+  from the image. For the single frame before `onLayout` the width is 0, so the
+  image is 0 tall. The width lives in `SetLogger`, so the image does not flash
+  again when it reappears after the keyboard closes. The logged-sets list keeps a floor,
   `LOGGED_SETS_MIN_HEIGHT` in `SetLogger` (two rows, derived from `setRow`'s
   padding and border and `TypeRamp.default`'s line height), so the hero gives
   way before the list does. The floor applies only while the hero is shown
@@ -1223,8 +1232,8 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `ExerciseImage`'s own `hero` style is unchanged, so the exercise detail screen,
   which scrolls, keeps the fixed 3:2 hero. A column that still overflows with the
   hero at zero (extreme routine notes on a small screen) is out of scope.
-  **Pending the user's device re-check**: the change was checked only by
-  structural gates and by reading Yoga's source, never on a device.
+  **Pending the user's device re-check**: the proportional version was checked
+  only by structural gates and by reading Yoga's source, never on a device.
 - **The session hero hides while the keyboard is open; the exercise detail
   screen scrolls instead.** On an iPhone 15 Pro Release build the hero pushed the
   Reps/Weight/Duration inputs so far down that the keyboard covered the focused
@@ -1242,7 +1251,7 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `ScrollView` sets `automaticallyAdjustKeyboardInsets` (commit 9024f72,
   following `settings/ai.tsx` and `settings/ai-provider.tsx`).
   `exerciseImageWiring.static.test.ts` pins all of this structurally: the hero's
-  size and placement, the keyboard condition, the hook call above any early
+  `fit` size, measured height and placement, the keyboard condition, the hook call above any early
   return in `SetLogger`, the hook's per-platform events and subscription
   cleanup, and the detail `ScrollView`'s prop. Structural pins are the only
   option because the node jest project cannot load either `.tsx` file and
@@ -1774,10 +1783,10 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
 - `src/components/` — shared RN components; jest-invisible for rendering (see
   Testing gotchas), so wiring is gated by structural tests. `ExerciseImage.tsx`
   (#335) is the one component that turns a stored relative `image_path` into a
-  URI, in three sizes (`hero`, `row`, `strip`), with a same-size placeholder when
-  there is no image. It also exports `EXERCISE_IMAGE_BORDER_RADIUS`, which
-  `SetLogger`'s clipping `exerciseHero` wrapper reuses so a cropped hero keeps
-  its rounded corners (see Exercise images)
+  URI, in four sizes (`hero`, `fit`, `row`, `strip`), with a same-size placeholder
+  when there is no image. It also exports `EXERCISE_IMAGE_ASPECT_RATIO`, which
+  `SetLogger`'s `exerciseHero` wrapper divides the measured column width by to
+  get its full height (see Exercise images)
 - `src/hooks/` — shared React hooks (theme, color scheme, and since #335
   `use-keyboard-visible.ts`, whose `useKeyboardVisible` hides the session hero
   while the keyboard is open). **Outside jest's `testMatch`**, so a hook here is
