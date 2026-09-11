@@ -270,9 +270,9 @@ export function SetLogger({
         </View>
       )}
 
-      {!isDurationBased && presenter.progressionHint && (
+      {presenter.exerciseDescriptionLine && (
         <View style={styles.hintContainer}>
-          <ThemedText style={styles.hintText}>{presenter.progressionHint}</ThemedText>
+          <ThemedText style={styles.hintText}>{presenter.exerciseDescriptionLine}</ThemedText>
         </View>
       )}
 

@@ -337,6 +337,28 @@ export async function getExerciseTitles(
 }
 
 /**
+ * Resolve stored descriptions for exercise ids. Missing rows and empty
+ * descriptions are omitted so callers can treat absence as "no cue".
+ */
+export async function getExerciseDescriptions(
+  database: Database,
+  exerciseIds: readonly string[]
+): Promise<Record<string, string>> {
+  const descriptions: Record<string, string> = {};
+
+  for (const exerciseId of exerciseIds) {
+    try {
+      const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+      if (exercise.description) descriptions[exerciseId] = exercise.description;
+    } catch {
+      // Exercise no longer exists; leave it out so the caller hides the cue.
+    }
+  }
+
+  return descriptions;
+}
+
+/**
  * exerciseId → image_path (RELATIVE to the documents directory) for the given
  * ids (#335). Ids with no image, and ids whose exercise no longer exists, are
  * left out — the caller reads absence as "placeholder". The display-data twin
