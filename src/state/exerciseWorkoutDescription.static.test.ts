@@ -64,8 +64,14 @@ describe('issue #357 active-workout exercise description cue', () => {
 
   test('bounds a long cue before it can displace the workout controls', () => {
     const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const unboundedCueMutant = setLoggerSource.replace(
+      ' numberOfLines={2} ellipsizeMode="tail"',
+      ''
+    );
 
     expect(hasBoundedDescriptionCue(setLoggerSource)).toBe(true);
+    expect(unboundedCueMutant).not.toBe(setLoggerSource);
+    expect(hasBoundedDescriptionCue(unboundedCueMutant)).toBe(false);
   });
 
   test('discards a stale title/description read after Replace changes the exercise ids', () => {
