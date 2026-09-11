@@ -2,10 +2,13 @@ import type { Database } from '@nozbe/watermelondb';
 import { closeTestDatabase, createTestDatabase } from '@/db/test-helpers';
 import {
   EXERCISE_LIBRARY_CATALOG,
+  EXERCISE_CATALOG,
   type CatalogEntry,
   type ExerciseLibraryEntry,
 } from './exerciseCatalog';
 import { seedExerciseCatalog } from './exerciseCatalogSeed';
+import { createCatalogMatcher } from './exerciseImageMatch';
+import { runImageResolutionPass } from './exerciseImageResolver';
 
 describe('seedExerciseCatalog', () => {
   let db: Database;
@@ -95,7 +98,7 @@ describe('seedExerciseCatalog', () => {
       equipment: 'kettlebell marker',
       description: 'Imageless description marker',
       image_path: null,
-      image_source: 'none',
+      image_source: 'catalog:imageless-id-marker',
     });
   });
 
@@ -155,7 +158,30 @@ describe('seedExerciseCatalog', () => {
     expect(await seedExerciseCatalog(db, EXERCISE_LIBRARY_CATALOG, 42)).toBe(876);
     const rows = (await db.get('exercises').query().fetch()) as any[];
     expect(rows).toHaveLength(876);
-    expect(rows.filter((row) => row.imageSource?.startsWith('catalog:'))).toHaveLength(873);
-    expect(rows.filter((row) => row.imageSource === 'none')).toHaveLength(3);
+    expect(rows.filter((row) => row.imageSource?.startsWith('catalog:'))).toHaveLength(876);
+    expect(rows.filter((row) => row.imageSource === null)).toHaveLength(0);
+  });
+
+  it('does not turn a production seed into model calls or image downloads', async () => {
+    await seedExerciseCatalog(db, EXERCISE_LIBRARY_CATALOG, 42);
+    const ask = jest.fn(async () => 'NONE');
+    const download = jest.fn(async () => undefined);
+
+    await runImageResolutionPass(
+      {
+        database: db,
+        catalog: EXERCISE_CATALOG,
+        getAiKeyConfigured: () => true,
+        ask,
+        download,
+        deleteFile: async () => undefined,
+        makeImageSuffix: () => 'seed',
+        log: jest.fn(),
+      },
+      createCatalogMatcher(EXERCISE_CATALOG)
+    );
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
   });
 });

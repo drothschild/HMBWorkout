@@ -35,7 +35,9 @@ became a full-width 3:2 picture under the title row, and it shrinks (keeping
    unset. Run it with your own keys, in your own terminal, to prove the catalog
    pick against the real providers.
 2. `node scripts/build-exercise-catalog.mjs --check` prints
-   `OK: committed catalog matches a fresh build (873 entries)`.
+   `OK: committed catalog matches a fresh build (876 entries)`. The exported
+   on-device library contains all 876 entries; the image matcher filters that
+   data to the 873 entries with an image.
 3. #335 adds no native module; its only new dependency, fuse.js, is pure JS. But
    if your `ios/` predates native modules that landed on main earlier
    (expo-sharing and expo-document-picker), regenerate it:

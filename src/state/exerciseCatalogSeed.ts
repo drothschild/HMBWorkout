@@ -2,7 +2,8 @@
 import type { Database } from '@nozbe/watermelondb';
 import type Exercise from '@/db/models/Exercise';
 import type { ExerciseKind } from '@/db/models/Exercise';
-import type { CatalogEntry } from './exerciseCatalog';
+import type { ExerciseLibraryEntry } from './exerciseCatalog';
+import { catalogImageSource } from './exerciseImageState';
 
 function exerciseKind(category: string): ExerciseKind {
   if (category === 'cardio') return 'cardio';
@@ -16,7 +17,7 @@ function exerciseKind(category: string): ExerciseKind {
  */
 export async function seedExerciseCatalog(
   database: Database,
-  catalog: readonly CatalogEntry[],
+  catalog: readonly ExerciseLibraryEntry[],
   createdAt = Date.now()
 ): Promise<number> {
   return database.write(async () => {
@@ -37,7 +38,11 @@ export async function seedExerciseCatalog(
           exercise._raw.equipment = entry.equipment;
           exercise._raw.description = entry.instructions.length > 0 ? entry.instructions.join('\n') : null;
           exercise._raw.image_path = null;
-          exercise._raw.image_source = null;
+          // Preselect the source without downloading it. A terminal catalog
+          // source keeps boot from turning 876 seed rows into model calls or
+          // network requests; image files remain the resolver's concern for
+          // ordinary user-created exercises.
+          exercise._raw.image_source = catalogImageSource(entry.id);
           exercise._raw.created_at = createdAt;
         })
       )
