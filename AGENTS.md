@@ -25,8 +25,12 @@ on memory of older Expo/Router/Reanimated APIs.
 - fuse.js **7.5.0, exact pin** — exercise-title → catalog matching (#335). Not a
   caret range on purpose: `useTokenSearch` is new in 7.x, and the acceptance
   threshold was measured against 7.5.0's scores (see Exercise images below)
-- expo-image (display) and expo-file-system's `File`/`Paths` API (storage) —
-  exercise images (#335)
+- expo-image (display) and expo-file-system's `File`/`Paths` API (storage) for
+  exercise images (#335). Both were **already dependencies, and already in use,
+  before #335** — `expo-image` by `animated-icon.tsx`, `expo-file-system` by the
+  Settings → Data export — so #335 reuses them. **#335 added no native module**:
+  its only new dependency is fuse.js, which is pure JS, so this feature does not
+  by itself require an `expo prebuild`
 - Anthropic Messages API — called over plain `fetch`, **no SDK dependency** (see AI
   Coach below)
 - Jest + ts-jest (node env) — tests
@@ -1048,10 +1052,16 @@ Every exercise can carry one photo, resolved in the background from a bundled
 catalog (or pasted by the user) and stored on-device so it renders offline. Like
 the AI slice, this is **data, never session flow**: the Rill `RoutineEntry` and
 engine state carry no image field, and `src/engine/exerciseImageEngineBoundary.test.ts`
-pins that no `.lv` rule mentions one. Display sites resolve image paths shell-side
-by `exerciseId` (`getExerciseImagePaths` in `src/db/repository.ts`, the same shape
-as `exerciseTitles` in engine convention 6), which is why a Replace swap shows the
-new exercise's image with no extra wiring. The markdown export is byte-identical
+pins that no `.lv` rule mentions one. Every display site reads the path
+shell-side, off the `exercises` row, and there are four readers, not one: the
+session screen through `getExerciseImagePaths` (`src/db/repository.ts`), whose
+`exerciseId`-keyed map reaches `createSessionPresenter` as `exerciseImagePaths` —
+the same shape as `exerciseTitles` in engine convention 6, which is why a Replace
+swap shows the new exercise's image with no extra wiring; `routineDetailPresenter`,
+which reads each exercise's raw `image_path`; `routineListPresenter`'s
+`readThumbnailPaths`, which reads `Exercise.imagePath`; and the exercise detail
+screen (`src/app/exercise/[id].tsx`), which reads the row it loads and then
+observes it (see the observers bullet below). The markdown export is byte-identical
 with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
 
 - **The catalog is generated code pinned to one upstream commit.**
@@ -1086,7 +1096,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   outside the shortlist — is `untrusted` and falls back to the score rule. A model
   that habitually wraps its answer therefore degrades the feature to no-key quality
   *silently*; `src/ai/catalogPickPrompt.live.test.ts` (env-gated, skipped without
-  `HMB_LIVE_ANTHROPIC_KEY`/`HMB_LIVE_OPENAI_KEY`) is the only detector. Do not
+  `HMB_LIVE_ANTHROPIC_KEY`/`HMB_LIVE_OPENAI_KEY`) is the only detector. It probes
+  each provider's default `oneShot` model unless `HMB_LIVE_MODEL` names another
+  (see AI Coach for when that is required). Do not
   loosen the parser to make a reply pass — tighten the prompt, or add a deliberate,
   tested normalization.
 - **With a key, a fallback miss is `none`, never `none:nokey`.** `decideByScore`
@@ -1126,19 +1138,49 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   remedies are the AI pick and the paste-URL override; an alias map would be the
   no-key fix. **Do not loosen the margin fixture to chase these** — the threshold
   is what keeps the other 78 from becoming wrong images.
-- **New pattern: this is the app's first database observer.**
-  `startExerciseImageResolver` subscribes to `database.withChangesForTables(['exercises'])`,
-  which covers every exercise-creating path (`acceptDraft`, `applyRoutineImport`,
-  `ensureAlternateExercise`) without any of them calling in. In WatermelonDB 0.28 it
-  emits **once immediately on subscribe** (so subscribing *is* the launch backfill)
-  and after **every** batch on the table, **including the subscriber's own writes**.
-  Termination is therefore a property of the eligibility rule, not of the observer:
-  every resolver write makes its row ineligible, so the follow-up pass finds
-  nothing. Passes run one at a time and requests during a pass coalesce into one
-  follow-up. **Anyone adding a second observer must re-derive termination for it** —
-  and must go through a registry like `ensureExerciseImageResolver`
-  (`src/state/exerciseImageResolverRegistry.ts`), which is what stops a re-run boot
-  effect (Fast Refresh) from starting a second subscription. The resolver is started
+- **New pattern: database observers. #335 added the app's first THREE, not one.**
+  Before #335 nothing in `src` subscribed to a WatermelonDB observable. This bullet
+  used to call the resolver "the app's first database observer". That was false
+  when written, because the same feature also added two observers in `src/app`. It
+  was copied word for word from the plan (`phase_07.md`), so a false claim
+  arrived looking already approved — the faithfully-transcribed-AC hazard engine
+  convention 8 describes. In WatermelonDB 0.28, `withChangesForTables` emits **once
+  immediately on subscribe** and after **every** batch on the table, **including
+  the subscriber's own writes and any writes it causes**. So each observer needs
+  its own termination argument:
+  - **The resolver.** `startExerciseImageResolver` subscribes to
+    `database.withChangesForTables(['exercises'])`, which covers every
+    exercise-creating path (`acceptDraft`, `applyRoutineImport`,
+    `ensureAlternateExercise`) without any of them calling in; subscribing *is* the
+    launch backfill. It terminates because of the eligibility rule, not the
+    observer: every resolver write makes its row ineligible, so the follow-up pass
+    finds nothing. Passes run one at a time and requests during a pass coalesce
+    into one follow-up.
+  - **The session screen** (`src/app/session.tsx`, the exercise-image effect)
+    subscribes to the same table and calls `requestExerciseImagePass()` from
+    inside the subscription. It therefore feeds the resolver whose writes re-fire
+    it. It terminates because of `requestedPass`, a latch local to each effect run:
+    at most one request per run, however many resolver writes follow. A re-run
+    (a new session, or a Replace changing `entryExerciseIdsKey`) resets it, so
+    requests are bounded by user actions. `latestRead` is the other half: reads can
+    resolve out of order, and only the newest may write the map, or a stale read
+    could land last with no later emission to correct it.
+    `exerciseImageWiring.static.test.ts` pins both, since the screen is
+    jest-invisible.
+  - **The exercise detail screen** (`src/app/exercise/[id].tsx`) observes its one
+    row with `exercise.observe()`, and that observer only sets state
+    (`setImagePath`): it neither writes nor requests. Its first-view request fires
+    once, from the load effect keyed on `id` (`if (!found.imagePath)
+    requestExerciseImagePass()`), never from the observer.
+    `exerciseImageWiring.static.test.ts` pins that request and the observer hook's
+    placement, but **not** that the observer body stays write-free. That part
+    rests on review.
+
+  **Anyone adding another observer must re-derive termination for it.** A
+  long-lived one must also go through a registry like `ensureExerciseImageResolver`
+  (`src/state/exerciseImageResolverRegistry.ts`), which stops a re-run boot effect
+  (Fast Refresh) from starting a second subscription. The two screen subscriptions
+  are per-mount and unsubscribe in their effect cleanups. The resolver is started
   from `_layout.tsx`'s boot effect, not awaited, and every failure in it is logged
   and swallowed: nothing about a workout waits on an image.
 - **`src/state/exerciseImageFiles.ts` must never be imported by a test.** It holds
@@ -1208,9 +1250,13 @@ opposite, and stayed wrong for the whole of #246's life; the wiring landed in PR
 The asymmetry is deliberate and is why the picker count does not match the surface count:
 `AiModelConfig` has exactly two fields, `chat` and `oneShot`, so `applyModelSelection`'s
 field union is `'chat' | 'oneShot'`. `chat` drives the conversation and routine drafting;
-`oneShot` drives all three one-shot features (alternates, exercise question, rest
-commentary) from a single choice. Adding a third picker means widening `AiModelConfig`
-and `resolveModels`, not just adding UI.
+`oneShot` drives all **four** one-shot uses from a single choice: alternates (`suggest`),
+exercise question (`ask`), rest commentary (`comment`) and, since #335, the exercise-image
+catalog pick. The catalog pick calls the same `ask` through `createExerciseImageResolverDeps`
+(`src/state/exerciseImageFiles.ts`, `createAiClient(getSettings()).ask`), so it uses the
+exercise-question client, model and budget. **The Quick Replies Model picker therefore
+also picks the image-matching model.** Adding a third picker means widening
+`AiModelConfig` and `resolveModels`, not just adding UI.
 
 **One key per install.** Switching provider clears the outgoing provider's key, to `''`
 rather than `undefined` because `setSettings` persists through `JSON.stringify`, which drops
@@ -1247,9 +1293,17 @@ Every client sends a fixed request contract — `reasoning: { effort: 'none' }` 
 rest commentary — against fixed budgets (chat 4096, alternates 1024, exerciseQuestion 512,
 restCommentary 256). A model that rejects those, or whose minimum reasoning effort exceeds
 `none`, either 400s or returns `status: 'incomplete'` with no text and a bill — and every AI
-failure here is swallowed, so the symptom is four silently dead features. **Adding an id
-therefore requires one live call per surface returning rendered text; it is not a config
-edit.** The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
+failure here is swallowed, so the symptom is every surface silently dead, and the catalog
+pick with them. **Adding an id therefore requires one live call per surface returning
+rendered text; it is not a config edit.** **It also requires
+`src/ai/catalogPickPrompt.live.test.ts` to pass against that id** (`HMB_LIVE_MODEL=<id>`
+plus that provider's key). Every listed id can be chosen as `oneShot`, and for the catalog
+pick rendered text is not enough. `parseCatalogPick` trusts only a bare shortlist id or
+`NONE`, so a model that wraps its answer in quotes, backticks or prose passes the
+per-surface probe and still turns every pick into `untrusted`. That falls back to no-key
+quality silently, with no error. Put the id on the list before running it:
+`resolveModels` ignores an off-list id, and the live test fails rather than probe the
+default in its place. The `AI_MODEL_CHOICES` value-pinning test in `models.test.ts` is the only guard on
 membership in the repo — its `toStrictEqual` is load-bearing, since a loose matcher
 (`arrayContaining`) silently readmits unprobed ids. `resolveModels` ignores an id not on the selected provider's list and falls
 back per field, without rewriting the setting.
@@ -1586,8 +1640,11 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   what makes a drop set (0 / 0 / full) expressible; null inherits the entry rest.
   `exercises` carries nullable `image_path`/`image_source` since schema v9 (#335),
   written only by `setExerciseImageIfSourceUnchanged` (resolver) and
-  `setExerciseImage` (user override), read by `getExerciseImagePaths`; see
-  Exercise images
+  `setExerciseImage` (user override). `image_path` is read by
+  `getExerciseImagePaths` (session screen), `routineDetailPresenter`,
+  `routineListPresenter`'s `readThumbnailPaths` and the exercise detail screen;
+  `image_source` is read by the resolver's `runImageResolutionPass` for
+  `isImageResolutionEligible`. See Exercise images
 - `src/interop/` — vault markdown serializer/parser, plus `importRoutine.ts`
   (#267 Phase 2): the pure markdown → `RoutineExerciseEntry[]` reader that gives
   `parseRoutine` its production caller. It owns the two refusals the engine's

@@ -5,6 +5,21 @@
  *   HMB_LIVE_ANTHROPIC_KEY=<anthropic-key> HMB_LIVE_OPENAI_KEY=<openai-key> \
  *     npx jest src/ai/catalogPickPrompt.live.test.ts
  *
+ * That probes each provider's DEFAULT oneShot model. To probe a specific id —
+ * required before a new id joins `AI_MODEL_CHOICES` (see AGENTS.md, AI Coach) —
+ * add the optional `HMB_LIVE_MODEL`, with only the key of the provider that
+ * owns the id:
+ *
+ *   HMB_LIVE_OPENAI_KEY=<openai-key> HMB_LIVE_MODEL=<model-id> \
+ *     npx jest src/ai/catalogPickPrompt.live.test.ts
+ *
+ * `HMB_LIVE_MODEL` goes through the same `aiModel` setting the app uses, and
+ * `resolveModels` SILENTLY IGNORES an id that is not on that provider's
+ * `AI_MODEL_CHOICES` list, falling back to the default. An off-list id would
+ * therefore probe the default while looking like a probe of the new id, so the
+ * test fails instead: add the id to the list first, then run this. Every log
+ * line names the model actually used, as `<provider>/<model>`.
+ *
  * Why this exists at all: every AI failure in the resolver is swallowed, and
  * an untrusted reply quietly falls back to the score rule. A model that always
  * wraps its answer (quotes, backticks, "The answer is …") would degrade the
@@ -20,16 +35,27 @@ import { createCatalogMatcher } from '@/state/exerciseImageMatch';
 import { buildCatalogPickPrompt, parseCatalogPick, type CatalogPick } from './catalogPickPrompt';
 import { IMMUTABLE_DIRECTIVES } from './coachDirectives';
 import { createAiClient } from './provider/factory';
-import type { AiClient, ProviderConfig } from './provider/types';
+import { resolveModels } from './provider/models';
+import type { AiClient, AiProvider, ProviderConfig } from './provider/types';
 
 const anthropicKey = process.env.HMB_LIVE_ANTHROPIC_KEY;
 const openaiKey = process.env.HMB_LIVE_OPENAI_KEY;
+const liveModel = process.env.HMB_LIVE_MODEL;
 const liveAnthropic = anthropicKey ? it : it.skip;
 const liveOpenai = openaiKey ? it : it.skip;
 
 const LIVE_TIMEOUT_MS = 60_000;
 
 const matcher = createCatalogMatcher(EXERCISE_CATALOG);
+
+/**
+ * Without `HMB_LIVE_MODEL` the config is returned untouched, so the default run
+ * is exactly the provider-default probe. With it, the id is set on both fields
+ * of `AiModelConfig` (the type requires both); only `oneShot` reaches `ask`.
+ */
+function withLiveModel(config: ProviderConfig): ProviderConfig {
+  return liveModel ? { ...config, aiModel: { chat: liveModel, oneShot: liveModel } } : config;
+}
 
 async function pick(client: AiClient, label: string, title: string): Promise<CatalogPick> {
   const candidates = matcher.shortlist(title).map((hit) => hit.entry);
@@ -46,7 +72,18 @@ async function pick(client: AiClient, label: string, title: string): Promise<Cat
   );
 }
 
-async function assertBothPicks(config: ProviderConfig, label: string): Promise<void> {
+async function assertBothPicks(baseConfig: ProviderConfig, provider: AiProvider): Promise<void> {
+  const config = withLiveModel(baseConfig);
+  // The same resolution createAiClient performs, so the label is the model the
+  // call really goes to.
+  const modelUsed = resolveModels(provider, config.aiModel).oneShot;
+  if (liveModel && modelUsed !== liveModel) {
+    throw new Error(
+      `HMB_LIVE_MODEL=${liveModel} is not on AI_MODEL_CHOICES.${provider}; resolveModels would silently ` +
+        `probe ${modelUsed} instead. Add the id to the list first, then run this test.`
+    );
+  }
+  const label = `${provider}/${modelUsed}`;
   const client = createAiClient(config);
 
   const romanian = await pick(client, label, 'Romanian Deadlift');

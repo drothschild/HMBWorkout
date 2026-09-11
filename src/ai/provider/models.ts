@@ -34,6 +34,12 @@ export const DEFAULT_MODELS: Record<AiProvider, AiModelConfig> = {
  * because that surface alone sends `output_config: { effort: 'low' }`. Every AI
  * failure in this app is swallowed, so adding it on reputation would have shipped
  * rest commentary silently dead. Three of four surfaces passing is not a pass.
+ *
+ * Since #335 a new id must ALSO pass `src/ai/catalogPickPrompt.live.test.ts`
+ * with `HMB_LIVE_MODEL=<id>`. Every id here can be chosen as `oneShot`, which
+ * drives the catalog pick through `ask`, and there rendered text is not enough:
+ * a reply that wraps the id parses as `untrusted` and silently degrades images
+ * to no-key quality.
  */
 export const AI_MODEL_CHOICES: Record<AiProvider, readonly string[]> = {
   anthropic: ['claude-sonnet-5', 'claude-opus-5'],

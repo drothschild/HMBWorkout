@@ -14,6 +14,9 @@
  */
 import { Database } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
+import type Exercise from '@/db/models/Exercise';
+import type RoutineExercise from '@/db/models/RoutineExercise';
+import type Session from '@/db/models/Session';
 import {
   upsertExercise,
   upsertRoutine,
@@ -51,8 +54,12 @@ async function seed(db: Database): Promise<void> {
     },
   ]);
 
-  const rows = (await db.get('routine_exercises').query().fetch()) as any[];
-  const rowFor = (exerciseId: string) => rows.find((r) => r._raw.exercise_id === exerciseId).id;
+  const rows = (await db.get('routine_exercises').query().fetch()) as RoutineExercise[];
+  const rowFor = (exerciseId: string): string => {
+    const row = rows.find((r) => r.exerciseId === exerciseId);
+    if (!row) throw new Error(`seed: no routine_exercises row for ${exerciseId}`);
+    return row.id;
+  };
 
   await createSession(db, { sessionId: SESSION_ID, routineId: ROUTINE_ID, startedAtMs: 1_000 });
   await appendSet(db, SESSION_ID, rowFor('ex-squat'), {
@@ -74,9 +81,11 @@ async function seed(db: Database): Promise<void> {
     exerciseId: 'ex-row',
   });
   await db.write(async () => {
-    const session = await db.get('sessions').find(SESSION_ID);
-    await session.update((s: any) => {
-      s._raw.ended_at = 5_000;
+    const session = (await db.get('sessions').find(SESSION_ID)) as Session;
+    await session.update((s) => {
+      // Raw write on purpose: `Session.endedAt` is `@readonly @date`, so the
+      // model setter refuses it, and no repository path closes a session here.
+      (s._raw as Record<string, unknown>).ended_at = 5_000;
     });
   });
   await flush();
@@ -117,13 +126,16 @@ describe('exercise images do not reach the markdown export (#335 AC5.1)', () => 
     // Precondition: the images really are on the rows. Without this, a
     // setExerciseImage that silently wrote nothing would make the byte-identity
     // below vacuous.
-    const exercises = (await db.get('exercises').query().fetch()) as any[];
-    const sourceOf = (id: string) => exercises.find((e) => e.id === id)._raw.image_source;
-    const pathOf = (id: string) => exercises.find((e) => e.id === id)._raw.image_path;
-    expect(sourceOf('ex-squat')).toBe('catalog:Barbell_Squat');
-    expect(sourceOf('ex-row')).toBe('url:https://example.com/row.jpg');
-    expect(pathOf('ex-squat')).toBe('exercise-images/ex-squat-a.jpg');
-    expect(pathOf('ex-row')).toBe('exercise-images/ex-row-b.jpg');
+    const exercises = (await db.get('exercises').query().fetch()) as Exercise[];
+    const exerciseById = (id: string): Exercise => {
+      const exercise = exercises.find((e) => e.id === id);
+      if (!exercise) throw new Error(`precondition: no exercise ${id}`);
+      return exercise;
+    };
+    expect(exerciseById('ex-squat').imageSource).toBe('catalog:Barbell_Squat');
+    expect(exerciseById('ex-row').imageSource).toBe('url:https://example.com/row.jpg');
+    expect(exerciseById('ex-squat').imagePath).toBe('exercise-images/ex-squat-a.jpg');
+    expect(exerciseById('ex-row').imagePath).toBe('exercise-images/ex-row-b.jpg');
 
     const after = await exportBoth(db);
 
