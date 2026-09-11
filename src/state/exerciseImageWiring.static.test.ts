@@ -25,6 +25,8 @@ const FILES = {
   routineDetail: join(APP, 'routine', '[id].tsx'),
   routinesTab: join(APP, '(tabs)', 'routines.tsx'),
   setLogger: join(COMPONENTS, 'SetLogger.tsx'),
+  // src/hooks is outside jest's testMatch, so the hook is gated structurally too.
+  keyboardVisibleHook: join(__dirname, '..', 'hooks', 'use-keyboard-visible.ts'),
 };
 
 /**
@@ -268,6 +270,69 @@ describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)',
       expect(at).toBeGreaterThan(open);
       expect(at).toBeLessThan(close);
     }
+  });
+});
+
+describe('SetLogger hides the hero while the keyboard is open (#335 Phase 7)', () => {
+  // On an iPhone 15 Pro Release build the full-width 3:2 hero pushed the
+  // Reps/Weight/Duration inputs so far down that the keyboard covered them.
+  // The session screen is deliberately a fixed column with no outer
+  // ScrollView (its buttons stay pinned above the keyboard by a
+  // KeyboardAvoidingView — see session.tsx), so the user chose to drop the
+  // hero entirely while the keyboard is up: without it the layout is the
+  // pre-#335 one, which fit. Nothing can render SetLogger or the hook, so all
+  // three halves are pinned structurally.
+  const HERO_WRAPPER =
+    '<Viewstyle={styles.exerciseHero}><ExerciseImageimagePath={presenter.currentExerciseImagePath}size="hero"/></View>';
+  const HOOK_CALL = 'constkeyboardVisible=useKeyboardVisible();';
+
+  it('renders the hero wrapper only when the keyboard is NOT visible', () => {
+    const source = compact(FILES.setLogger);
+    indexOfOrThrow(source, HERO_WRAPPER, 'SetLogger.tsx');
+
+    expect(occurrences(source, HERO_WRAPPER)).toBe(1);
+    expect(source).toContain(`{!keyboardVisible&&(${HERO_WRAPPER})}`);
+  });
+
+  it('reads keyboardVisible from the shared hook, called once, above the first return', () => {
+    // A hook below an early return crashes with "Rendered more hooks than
+    // during the previous render". SetLogger has no early return today; the
+    // first `return` inside the component is its JSX return, and any early
+    // return added later lands above that — so the hook must precede it.
+    const source = compact(FILES.setLogger);
+    const componentAt = indexOfOrThrow(source, 'exportfunctionSetLogger(', 'SetLogger.tsx');
+    const body = source.slice(componentAt);
+    const hookAt = indexOfOrThrow(body, HOOK_CALL, 'SetLogger.tsx');
+    const firstReturnAt = indexOfOrThrow(body, 'return', 'SetLogger.tsx');
+
+    expect(source).toContain("import{useKeyboardVisible}from'@/hooks/use-keyboard-visible';");
+    expect(occurrences(source, HOOK_CALL)).toBe(1);
+    expect(hookAt).toBeLessThan(firstReturnAt);
+  });
+
+  it('the hook listens on the platform-correct events and removes both subscriptions', () => {
+    // iOS: the Will events, so the hero collapses while the keyboard animates
+    // in rather than after it has already covered the focused field. Android
+    // never fires the Will events, so it must use the Did ones.
+    const source = compact(FILES.keyboardVisibleHook);
+
+    expect(source).toContain("constSHOW_EVENT=Platform.OS==='ios'?'keyboardWillShow':'keyboardDidShow';");
+    expect(source).toContain("constHIDE_EVENT=Platform.OS==='ios'?'keyboardWillHide':'keyboardDidHide';");
+    expect(occurrences(source, 'Keyboard.addListener(')).toBe(2);
+
+    // Anchored on `useEffect(` (the hook's only one), not on the listener: the
+    // body starts AT the marker, so the `const show =` binding must follow it.
+    const { body, deps } = effectAround(
+      normalized(FILES.keyboardVisibleHook),
+      'useEffect(',
+      'use-keyboard-visible.ts'
+    );
+    const effect = body.replace(/\s+/g, '');
+    expect(effect).toContain('constshow=Keyboard.addListener(SHOW_EVENT,()=>setVisible(true));');
+    expect(effect).toContain('consthide=Keyboard.addListener(HIDE_EVENT,()=>setVisible(false));');
+    expect(effect).toContain('return()=>{show.remove();hide.remove();};');
+    // Subscribed once per mount, not re-subscribed on every render.
+    expect(deps).toEqual([]);
   });
 });
 
