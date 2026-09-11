@@ -31,6 +31,9 @@ import { createRealNotificationApis, getDefaultNotificationHandler } from '@/eng
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { BackgroundColors, ThemedBackgroundText } from '@/theme/actionButtonColors';
+import { startExerciseImageResolver } from '@/state/exerciseImageResolver';
+import { createExerciseImageResolverDeps } from '@/state/exerciseImageFiles';
+import { ensureExerciseImageResolver } from '@/state/exerciseImageResolverRegistry';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -176,6 +179,12 @@ export default function RootLayout() {
           });
         }
 
+        // Exercise images (#335): background only — never awaited, never blocks boot.
+        // Subscribing runs the first pass (the backfill); later passes follow table
+        // changes. Must follow loadSettings(): the first pass reads the settings cache
+        // for the AI key. OUTSIDE the `if (savedState)` block: it must start on every
+        // launch, not only one that restores a session. See src/state/exerciseImageResolver.ts.
+        ensureExerciseImageResolver(() => startExerciseImageResolver(createExerciseImageResolverDeps(database)));
         setRulesLoaded(true);
         await SplashScreen.hideAsync();
       } catch (error) {
