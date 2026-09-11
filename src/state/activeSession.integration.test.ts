@@ -98,9 +98,15 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     const testStartMs = 1000;
     const testEndMs = 10000;
 
-    // Create injected HealthKit that THROWS
+    // Resolve the write asynchronously beyond a fixed pair of flush() calls.
+    const healthKitError = new Error('HealthKit write failed');
+    let healthKitSettled = false;
     const saveWorkoutSampleSpy = jest.fn(async () => {
-      throw new Error('HealthKit write failed');
+      await flush();
+      await flush();
+      await flush();
+      healthKitSettled = true;
+      throw healthKitError;
     });
 
     const healthKitDeps: HealthKitDeps = {
@@ -148,13 +154,6 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
     // Suppress console.error output for this test
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
-    // Set up unhandledRejection listener to ensure nothing slips through
-    const unhandledRejections: PromiseRejectionEvent[] = [];
-    const rejectionHandler = (event: PromiseRejectionEvent) => {
-      unhandledRejections.push(event);
-    };
-    process.on('unhandledRejection', rejectionHandler);
-
     try {
       // Should not throw despite HealthKit error
       const result = await store.getState().dispatch({ tag: 'FinishSession', nowMs: testEndMs });
@@ -162,8 +161,21 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       // State should still transition to done
       expect(result?.phase).toBe('done');
 
-      // Flush microtasks and timers to allow async HealthKit write to complete
+      // Wait for the delayed write to settle inside this body, not in teardown.
+      // A fixed number of flushes cannot cover arbitrary queued DB/HealthKit work.
+      for (let attempt = 0; attempt < 50 && !healthKitSettled; attempt++) {
+        await flush();
+      }
+      expect(healthKitSettled).toBe(true);
+
+      // jest-circus observes real-process unhandled rejections during the body.
+      // An in-test process.on('unhandledRejection') sees only Jest's sandbox copy.
+      // Give the rejection and its catch continuations an event-loop turn before
+      // asserting, so a dropped await fails this test rather than a later one.
       await flush();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'HealthKit workout write failed:', healthKitError
+      );
 
       // Verify HealthKit was attempted (threw, but isolated)
       expect(saveWorkoutSampleSpy).toHaveBeenCalled();
@@ -172,14 +184,7 @@ describe('activeSession store — HealthKit isolation and real DB integration', 
       const session = await database.get('sessions').find(sessionId) as any;
       expect(session._raw.ended_at).toBeDefined();
       expect(session._raw.ended_at).toBeGreaterThan(0);
-
-      // Flush microtasks and timers again to catch any late-arriving promise rejections
-      await flush();
-
-      // Verify no unhandledRejection fired
-      expect(unhandledRejections).toHaveLength(0);
     } finally {
-      process.removeListener('unhandledRejection', rejectionHandler);
       consoleSpy.mockRestore();
     }
   });
