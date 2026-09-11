@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 8,
+  version: 9,
   tables: [
     tableSchema({
       name: 'routines',
@@ -20,6 +20,11 @@ export const databaseSchema = appSchema({
         { name: 'muscle_group', type: 'string', isOptional: true },
         { name: 'equipment', type: 'string', isOptional: true },
         { name: 'description', type: 'string', isOptional: true }, // user-authored; AI accept path never sets this
+        // Exercise image (#335, schema v9). Both nullable and non-backfilled:
+        // image_path is RELATIVE to the documents directory (never file:// or /);
+        // image_source is 'catalog:<id>' | 'url:<url>' | 'none' | 'none:nokey'.
+        { name: 'image_path', type: 'string', isOptional: true },
+        { name: 'image_source', type: 'string', isOptional: true },
         { name: 'created_at', type: 'number' },
       ],
     }),

@@ -37,9 +37,12 @@ const LokiMemoryAdapter = require('lokijs').LokiMemoryAdapter;
 
 /**
  * The v7 schema, reconstructed from the shipping one: v7 IS v8 minus the
- * `routine_sets.rest_seconds` column. Derived rather than copied so it cannot
- * drift — writing it out as a literal would make this file a second declaration
- * of the schema that goes stale the first time an unrelated column lands.
+ * `routine_sets.rest_seconds` column and v9's exercise image columns. Derived
+ * rather than copied so it cannot drift — writing it out as a literal would
+ * make this file a second declaration of the schema that goes stale the first
+ * time an unrelated column lands.
+ *
+ * Schema v9 (#335) adds exercises.image_path and image_source.
  */
 function historicalV7Schema(): AppSchema {
   return appSchema({
@@ -50,6 +53,10 @@ function historicalV7Schema(): AppSchema {
         columns:
           table.name === 'routine_sets'
             ? table.columnArray.filter((column) => column.name !== 'rest_seconds')
+            : table.name === 'exercises'
+            ? table.columnArray.filter(
+                (column) => column.name !== 'image_path' && column.name !== 'image_source'
+              )
             : [...table.columnArray],
       })
     ),
