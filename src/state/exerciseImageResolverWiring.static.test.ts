@@ -19,26 +19,31 @@ const LAYOUT = join(__dirname, '..', 'app', '_layout.tsx');
 describe('_layout.tsx exercise image resolver wiring (#335 AC2.10)', () => {
   const source = () => readFileSync(LAYOUT, 'utf8');
 
-  it('calls ensureExerciseImageResolver with the exact callback, immediately before setRulesLoaded(true)', () => {
-    const text = source();
-    // Strip comments (// and /* */) and whitespace to detect exact placement
-    const stripped = text
-      .replace(/\/\/.*$/gm, '') // remove line comments
-      .replace(/\/\*[\s\S]*?\*\//g, '') // remove block comments
-      .replace(/\s+/g, ''); // remove all whitespace
+  /** The layout with comments and ALL whitespace removed, so formatting cannot move a match. */
+  const stripped = () =>
+    source()
+      .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+      .replace(/\/\/.*$/gm, '') // line comments
+      .replace(/\s+/g, '');
 
-    // The exact sequence: call (possibly wrapped in try/catch) immediately followed by setRulesLoaded
-    // Match: try{ensureExerciseImageResolver(()=>startExerciseImageResolver(createExerciseImageResolverDeps(database)));}catch...setRulesLoaded(true);
-    const pattern = 'try\\{ensureExerciseImageResolver\\(\\(\\)=>startExerciseImageResolver\\(createExerciseImageResolverDeps\\(database\\)\\)\\);\\}catch\\([^)]*\\)\\{[^}]*\\}setRulesLoaded\\(true\\);';
-    const matches = stripped.match(pattern);
-    expect(matches).not.toBeNull();
-    expect((matches || []).length).toBeGreaterThan(0);
+  const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+
+  it('wraps the call in try/catch, immediately before setRulesLoaded(true), exactly once', () => {
+    // A resolver that throws on start must not reach the boot effect's outer
+    // catch, which would put up RuleErrorScreen over a feature nothing waits on.
+    const expected =
+      'try{ensureExerciseImageResolver(()=>startExerciseImageResolver(createExerciseImageResolverDeps(database)));}' +
+      "catch(error){console.warn('exerciseimage:resolverfailedtostart',error);}" +
+      'setRulesLoaded(true);';
+    const text = stripped();
+    expect(count(text, expected)).toBe(1);
+    expect(count(text, 'ensureExerciseImageResolver(')).toBe(1);
   });
 
   it('call is NOT inside the if(savedState) block', () => {
-    const text = source();
-    // Extract the if (savedState) { ... } block
-    const ifStart = text.indexOf('if (savedState)');
+    const text = stripped();
+    // Extract the brace-matched if(savedState){ ... } block
+    const ifStart = text.indexOf('if(savedState)');
     if (ifStart === -1) throw new Error('if (savedState) marker not found');
 
     // Find the opening brace
@@ -66,7 +71,7 @@ describe('_layout.tsx exercise image resolver wiring (#335 AC2.10)', () => {
   });
 
   it('ordering: after loadSettings and rehydrateActiveSession, before setRulesLoaded(true)', () => {
-    const text = source();
+    const text = stripped();
     const loadSettingsAt = text.indexOf('loadSettings(');
     const rehydrateAt = text.indexOf('rehydrateActiveSession(');
     const resolverAt = text.indexOf('ensureExerciseImageResolver(');
@@ -83,8 +88,8 @@ describe('_layout.tsx exercise image resolver wiring (#335 AC2.10)', () => {
   });
 
   it('is NOT awaited', () => {
-    const text = source();
-    expect(text).not.toMatch(/await\s+ensureExerciseImageResolver/);
+    expect(source()).not.toMatch(/await\s+ensureExerciseImageResolver/);
+    expect(stripped()).not.toContain('awaitensureExerciseImageResolver');
   });
 
   it('no test file imports exerciseImageFiles', () => {

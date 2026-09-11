@@ -184,7 +184,11 @@ export default function RootLayout() {
         // changes. Must follow loadSettings(): the first pass reads the settings cache
         // for the AI key. OUTSIDE the `if (savedState)` block: it must start on every
         // launch, not only one that restores a session. See src/state/exerciseImageResolver.ts.
-        ensureExerciseImageResolver(() => startExerciseImageResolver(createExerciseImageResolverDeps(database)));
+        try {
+          ensureExerciseImageResolver(() => startExerciseImageResolver(createExerciseImageResolverDeps(database)));
+        } catch (error) {
+          console.warn('exercise image: resolver failed to start', error);
+        }
         setRulesLoaded(true);
         await SplashScreen.hideAsync();
       } catch (error) {

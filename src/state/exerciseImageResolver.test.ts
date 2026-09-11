@@ -144,6 +144,8 @@ describe('exerciseImageResolver (Task 2)', () => {
       expect(exercise.imageSource).toBe('none');
       // Explicitly assert it is not none:nokey
       expect(exercise.imageSource).not.toBe('none:nokey');
+      expect(exercise.imagePath).toBeNull();
+      expect((deps.download as jest.Mock).mock.calls).toHaveLength(0);
     });
 
     it('hit-side case: fallback when ask returns absent id (threshold fallback)', async () => {
@@ -162,9 +164,10 @@ describe('exerciseImageResolver (Task 2)', () => {
       await flush();
 
       const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
-      // When ask returns absent id, fallback to no-key behavior (threshold score)
-      expect(exercise.imageSource).toMatch(/^catalog:/);
-      expect(exercise.imagePath).toBeTruthy();
+      // When ask returns absent id, fallback to no-key behavior (threshold score):
+      // the TOP shortlist hit, not merely some catalog entry.
+      expect(exercise.imageSource).toBe('catalog:Romanian_Deadlift');
+      expect(exercise.imagePath).toBe('exercise-images/romanian-deadlift-s1.jpg');
       expect((deps.download as jest.Mock).mock.calls).toHaveLength(1);
     });
   });
@@ -478,24 +481,96 @@ describe('exerciseImageResolver (Task 2)', () => {
       expect(deleteSpy).toHaveBeenCalledWith('exercise-images/romanian-deadlift-s1.jpg');
     });
   });
+
+  describe('CAS write failure after a successful download', () => {
+    /** A database whose FIRST write rejects; everything else is the real test database. */
+    function databaseWithFailingFirstWrite(): { database: Database; write: jest.Mock } {
+      const write = jest.fn((work: Parameters<Database['write']>[0]) => db.write(work));
+      write.mockRejectedValueOnce(new Error('write failed'));
+      const database = { get: (table: string) => db.get(table), write } as unknown as Database;
+      return { database, write };
+    }
+
+    it('deletes the downloaded file and leaves the row eligible', async () => {
+      await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+      await flush();
+
+      const { database, write } = databaseWithFailingFirstWrite();
+      const deps = makeDeps({ database, ask: jest.fn().mockResolvedValue('Romanian_Deadlift') });
+
+      await runImageResolutionPass(deps, matcher);
+      await flush();
+
+      expect(deps.download).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(deps.deleteFile).toHaveBeenCalledTimes(1);
+      expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/romanian-deadlift-s1.jpg');
+
+      const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
+      expect(exercise.imageSource).toBeNull();
+      expect(exercise.imagePath).toBeNull();
+
+      const logged = (deps.log as jest.Mock).mock.calls.map(([message]) => message as string);
+      expect(logged).toContain('exercise image: resolving romanian-deadlift failed; will retry on a later pass');
+    });
+
+    it('a failing delete is logged and the write error still reaches the per-row catch', async () => {
+      await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+      await flush();
+
+      const { database } = databaseWithFailingFirstWrite();
+      const deleteError = new Error('delete failed');
+      const deps = makeDeps({
+        database,
+        ask: jest.fn().mockResolvedValue('Romanian_Deadlift'),
+        deleteFile: jest.fn().mockRejectedValue(deleteError),
+      });
+
+      await runImageResolutionPass(deps, matcher);
+      await flush();
+
+      const calls = (deps.log as jest.Mock).mock.calls as [string, unknown][];
+      const deleteLog = calls.find(([message]) => message.includes('exercise-images/romanian-deadlift-s1.jpg'));
+      expect(deleteLog?.[1]).toBe(deleteError);
+      const rowLog = calls.find(([message]) => message.includes('resolving romanian-deadlift failed'));
+      expect((rowLog?.[1] as Error | undefined)?.message).toBe('write failed');
+
+      const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
+      expect(exercise.imageSource).toBeNull();
+    });
+  });
 });
 
 describe('exerciseImageResolver scheduler (Task 3)', () => {
   let db: Database;
   let resolver: ReturnType<typeof startExerciseImageResolver> | null = null;
+  /** The deps the running resolver was started with; its getAiKeyConfigured call count is the pass count. */
+  let currentDeps: { readonly getAiKeyConfigured: jest.Mock } | null = null;
 
   beforeEach(() => {
     db = createTestDatabase();
     resolver = null;
+    currentDeps = null;
   });
 
+  // Teardown per phase_04.md: stop() does not wait for an in-flight pass, and
+  // closing the database under a writing pass is a flake source — so stop,
+  // wait until the pass count settles, THEN close.
   afterEach(async () => {
-    if (resolver !== null) {
+    if (resolver !== null && currentDeps !== null) {
       resolver.stop();
-      await waitUntilIdle(jest.fn(), 1);
+      await waitUntilIdle(currentDeps.getAiKeyConfigured);
     }
+    resolver = null;
+    currentDeps = null;
     await closeTestDatabase(db);
   });
+
+  function start(deps: ExerciseImageResolverDeps & { readonly getAiKeyConfigured: jest.Mock }) {
+    currentDeps = deps;
+    resolver = startExerciseImageResolver(deps);
+    return resolver;
+  }
 
   function makeDeps(overrides: Partial<ExerciseImageResolverDeps> = {}): ExerciseImageResolverDeps & {
     getAiKeyConfigured: jest.Mock;
@@ -572,7 +647,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         getAiKeyConfigured: jest.fn(() => false),
       });
 
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const ex1 = (await db.get('exercises').find('romanian-deadlift')) as any;
@@ -586,7 +661,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
   describe('AC2.2: observer triggers on exercise creation', () => {
     it('creation through acceptDraft triggers resolution', async () => {
       const deps = makeDeps();
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const { acceptDraft } = await import('@/ai/acceptDraft');
@@ -609,58 +684,54 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       // The new exercise should be resolved (has non-null image_source)
       const exercises = (await db.get('exercises').query().fetch()) as any[];
       const newExercise = exercises.find((ex) => ex.title === 'Plank');
-      expect(newExercise?.imageSource).not.toBeNull();
+      expect(newExercise).toBeDefined();
+      expect(newExercise.imageSource).not.toBeNull();
     });
 
     it('creation through applyRoutineImport triggers resolution', async () => {
       const deps = makeDeps();
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const { applyRoutineImport } = await import('@/state/applyRoutineImport');
-      const routine = {
-        name: 'Imported Routine',
-        exercises: [
-          { id: 'couch-stretch', title: 'Couch Stretch', kind: 'stretch' as const },
-        ],
-        entries: [],
-      };
+      const { importRoutine } = await import('@/interop/importRoutine');
+      // The document shape src/state/applyRoutineImport.test.ts imports.
+      const markdown = `---\ntype: workout-routine\nid: routine-1\nname: Good\nupdated: 2026-08-16\ntags: []\ncreated: 2026-08-16\n---\n\n\`\`\`workout\n- back-squat: 1x5\n\`\`\`\n`;
+      const parsed = importRoutine(markdown);
+      if (!parsed.ok) throw new Error(`import refused: ${parsed.error.code}`);
 
-      await applyRoutineImport(db, routine as any);
+      await applyRoutineImport(db, parsed.routine);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // New exercise should be resolved
       const allExercises = (await db.get('exercises').query().fetch()) as any[];
-      const couch = allExercises.find((ex) => ex.title === 'Couch Stretch');
-      expect(couch?.imageSource).not.toBeNull();
+      const imported = allExercises.find((ex) => ex.id === 'back-squat');
+      expect(imported).toBeDefined();
+      expect(imported.imageSource).not.toBeNull();
     });
 
     it('creation through ensureAlternateExercise triggers resolution', async () => {
       const deps = makeDeps();
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const { ensureAlternateExercise } = await import('@/ai/acceptAlternate');
 
-      // Create an alternate with a new exercise title
+      // The alternate shape src/ai/acceptAlternate.test.ts uses: title + description.
       const alternate = {
-        exerciseId: 'dumbbell-floor-press',
         title: 'Dumbbell Floor Press',
-        description: 'A core exercise',
-        kind: 'strength' as const,
-        shortlist: [],
+        description: 'Press from the floor with elbows tucked, pausing when the triceps touch.',
       };
 
-      await ensureAlternateExercise(db, alternate, 'strength');
+      const exerciseId = await ensureAlternateExercise(db, alternate, 'strength');
+      expect(exerciseId).toBe('dumbbell-floor-press');
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // The new exercise should be resolved
       const allExercises = (await db.get('exercises').query().fetch()) as any[];
-      const newExercise = allExercises.find(
-        (ex) => ex.id === 'dumbbell-floor-press'
-      );
+      const newExercise = allExercises.find((ex) => ex.id === exerciseId);
       expect(newExercise).toBeDefined();
-      expect(newExercise?.imageSource).not.toBeNull();
+      expect(newExercise.imageSource).not.toBeNull();
     });
   });
 
@@ -683,7 +754,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         ask: askMock,
       });
 
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // Verify first pass has started (ask called once)
@@ -724,7 +795,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         getAiKeyConfigured: jest.fn(() => false),
       });
 
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCount0 = deps.getAiKeyConfigured.mock.calls.length;
@@ -745,14 +816,18 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
     });
 
     it('bounded passes even with garbage ask reply', async () => {
-      // Make ask yield a macrotask so M5 mutation hangs correctly (test will timeout)
+      // ask replies after a macrotask, like a real network round trip, so every
+      // pass spans timer turns. If the terminal outcome were none:nokey (the M5
+      // mutant), the row would stay eligible and each write would trigger another
+      // pass: waitUntilIdle gives up at its iteration cap and the <= 3 bound below
+      // fails cleanly (~1.5 s) — the test does not hang.
       const askMock = jest.fn(() => new Promise<string>((r) => setTimeout(() => r('???'), 0)));
 
       const deps = makeDeps({
         ask: askMock,
       });
 
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCount0 = deps.getAiKeyConfigured.mock.calls.length;
@@ -762,18 +837,23 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCount1 = deps.getAiKeyConfigured.mock.calls.length;
-      expect(passCount1 - passCount0).toBeLessThanOrEqual(3);
 
-      // Verify it ended in 'none', not 'none:nokey'
-      const exercise = (await db.get('exercises').find('couch-stretch')) as any;
-      expect(exercise.imageSource).toBe('none');
-
-      // Check that pass count remains stable after 10 more flushes
+      // The pass count must stay put across 10 more flushes while still subscribed.
       for (let i = 0; i < 10; i++) {
         await flush();
       }
       const passCount2 = deps.getAiKeyConfigured.mock.calls.length;
+
+      // Quiesce before asserting on the database: no pass may still be writing.
+      resolver!.stop();
+      await waitUntilIdle(deps.getAiKeyConfigured);
+
+      expect(passCount1 - passCount0).toBeLessThanOrEqual(3);
       expect(passCount2).toBe(passCount1);
+
+      // Verify it ended in 'none', not 'none:nokey'
+      const exercise = (await db.get('exercises').find('couch-stretch')) as any;
+      expect(exercise.imageSource).toBe('none');
     });
   });
 
@@ -799,7 +879,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         } as any,
       });
 
-      resolver = startExerciseImageResolver(brokenDeps);
+      start(brokenDeps);
       await waitUntilIdle(brokenDeps.getAiKeyConfigured);
 
       // Should have logged the failure
@@ -814,6 +894,10 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
 
       const passCountAfter = brokenDeps.getAiKeyConfigured.mock.calls.length;
       expect(passCountAfter).toBeGreaterThan(passCountBefore);
+
+      // The recovered pass must actually WRITE through the wrapper, not merely run.
+      const recovered = (await db.get('exercises').find('test-exercise')) as any;
+      expect(recovered.imageSource).not.toBeNull();
     });
 
     it('throwing logger does not escape scheduler (AC2.8b)', async () => {
@@ -830,7 +914,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       // Make the first call reject, but subsequent calls resolve
       (deps.ask as jest.Mock).mockRejectedValueOnce(new Error('ask failed'));
 
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
 
       // Start should not throw even though log throws
       await waitUntilIdle(deps.getAiKeyConfigured);
@@ -847,9 +931,41 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       expect(plank.imageSource).toBe('none');
     });
 
+    it('a throwing logger in the per-row catch does not end the SAME pass early', async () => {
+      // Both rows exist before start, so pass 1 (the subscribe emission) visits both.
+      await upsertExercise(db, 'couch-stretch', 'Couch Stretch', 'stretch');
+      await upsertExercise(db, 'plank', 'Plank', 'strength');
+      await flush();
+
+      const getAiKeyConfigured = jest.fn(() => true);
+      // The pass number (= getAiKeyConfigured calls so far) at each ask. The
+      // FIRST ask rejects, whichever row the fetch returned first, so this
+      // holds regardless of query().fetch() ordering.
+      const askPasses: number[] = [];
+      const ask = jest.fn(async () => {
+        askPasses.push(getAiKeyConfigured.mock.calls.length);
+        if (askPasses.length === 1) throw new Error('ask failed');
+        return 'NONE';
+      });
+      const log = jest.fn<void, [string, unknown?]>(() => {
+        throw new Error('log exploded');
+      });
+      const deps = makeDeps({ getAiKeyConfigured, ask, log });
+
+      start(deps);
+      await waitUntilIdle(deps.getAiKeyConfigured);
+
+      // The first row's failure was routed through the (throwing) per-row logger ...
+      expect(log.mock.calls.some(([message]) => message.startsWith('exercise image: resolving '))).toBe(true);
+      // ... and the second row was STILL asked in pass 1. If the pass received the
+      // raw logger instead of safeLog, its throw would escape the per-row catch and
+      // end pass 1 there; with no write, no follow-up pass would ever come.
+      expect(askPasses.slice(0, 2)).toEqual([1, 1]);
+    });
+
     it('request() after stop() is a no-op', async () => {
       const deps = makeDeps();
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCountBefore = deps.getAiKeyConfigured.mock.calls.length;
@@ -867,7 +983,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
 
     it('stop() unsubscribes from table changes', async () => {
       const deps = makeDeps();
-      resolver = startExerciseImageResolver(deps);
+      start(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       resolver!.stop();

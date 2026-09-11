@@ -79,10 +79,24 @@ async function resolveOne(
     await deps.download(catalogImageUrl(decision.entry), imagePath); // rejection → row untouched
   }
   const imageSource = decision.kind === 'catalog' ? catalogImageSource(decision.entry.id) : decision.kind;
-  const applied = await setExerciseImageIfSourceUnchanged(deps.database, exercise.id, exercise.imageSource, {
-    imagePath,
-    imageSource,
-  });
+  let applied: boolean;
+  try {
+    applied = await setExerciseImageIfSourceUnchanged(deps.database, exercise.id, exercise.imageSource, {
+      imagePath,
+      imageSource,
+    });
+  } catch (error) {
+    // The write failed after the download succeeded: nothing points at the file,
+    // so remove it, then rethrow so the per-row catch logs and the row stays
+    // eligible for the next pass (which downloads under a fresh suffix).
+    if (imagePath !== null) {
+      const downloaded = imagePath;
+      await deps.deleteFile(downloaded).catch((deleteError: unknown) =>
+        deps.log(`exercise image: deleting ${downloaded} after a failed write failed`, deleteError)
+      );
+    }
+    throw error;
+  }
   if (!applied && imagePath !== null) {
     // Someone (a pasted URL) decided this row while we were downloading. Their
     // write wins; the file we fetched is now an orphan.

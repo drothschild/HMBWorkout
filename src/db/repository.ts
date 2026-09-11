@@ -1083,7 +1083,7 @@ export async function setExerciseImageIfSourceUnchanged(
   return database.write(async () => {
     const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
     if ((exercise.imageSource ?? null) !== expectedSource) return false;
-    await exercise.update((record: any) => {
+    await exercise.update((record: Exercise) => {
       record.imagePath = next.imagePath;
       record.imageSource = next.imageSource;
     });
@@ -1104,7 +1104,7 @@ export async function setExerciseImage(
   return database.write(async () => {
     const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
     const previous = exercise.imagePath ?? null;
-    await exercise.update((record: any) => {
+    await exercise.update((record: Exercise) => {
       record.imagePath = next.imagePath;
       record.imageSource = next.imageSource;
     });
