@@ -1,5 +1,7 @@
 import type { ExerciseImageResolver } from './exerciseImageResolver';
 
+/* eslint-disable @typescript-eslint/no-require-imports -- deliberate: each
+   test must isolate the registry module so state does not leak between tests. */
 describe('exerciseImageResolverRegistry', () => {
   describe('ensureExerciseImageResolver', () => {
     it('calls start once and returns the same resolver on subsequent calls', () => {

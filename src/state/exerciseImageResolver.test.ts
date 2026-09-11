@@ -19,11 +19,11 @@ describe('exerciseImageResolver (Task 2)', () => {
   });
 
   function makeDeps(overrides: Partial<ExerciseImageResolverDeps> = {}): ExerciseImageResolverDeps {
-    const downloadCalls: Array<{url: string; relativePath: string}> = [];
+    const downloadCalls: { url: string; relativePath: string }[] = [];
     const deleteFileCalls: string[] = [];
-    const ask = jest.fn<Promise<string>, [{system: string; message: string}]>();
+    const ask = jest.fn<Promise<string>, [{ system: string; message: string }]>();
     const makeImageSuffix = jest.fn(() => 's1');
-    const logCalls: Array<{message: string; error?: unknown}> = [];
+    const logCalls: { message: string; error?: unknown }[] = [];
 
     return {
       database: db,
@@ -59,7 +59,12 @@ describe('exerciseImageResolver (Task 2)', () => {
       const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
       expect(exercise.imageSource).toBe('catalog:Romanian_Deadlift');
       expect(exercise.imagePath).toBe('exercise-images/romanian-deadlift-s1.jpg');
-      expect((deps.download as jest.Mock).mock.calls).toHaveLength(1);
+
+      // Verify download URL is correct
+      const downloadMock = deps.download as jest.Mock;
+      expect(downloadMock.mock.calls).toHaveLength(1);
+      const [url] = downloadMock.mock.calls[0];
+      expect(url).toContain('exercises/Romanian_Deadlift/0.jpg');
     });
   });
 
@@ -121,6 +126,7 @@ describe('exerciseImageResolver (Task 2)', () => {
       const exercise = (await db.get('exercises').find('couch-stretch')) as any;
       expect(exercise.imageSource).toBe('none');
       expect(exercise.imagePath).toBeNull();
+      expect((deps.download as jest.Mock).mock.calls).toHaveLength(0);
     });
 
     it('treats empty reply as none', async () => {
@@ -139,6 +145,28 @@ describe('exerciseImageResolver (Task 2)', () => {
       // Explicitly assert it is not none:nokey
       expect(exercise.imageSource).not.toBe('none:nokey');
     });
+
+    it('hit-side case: fallback when ask returns absent id (threshold fallback)', async () => {
+      await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+      await flush();
+
+      const shortlistIds = matcher.shortlist('Romanian Deadlift').map(h => h.entry.id);
+      // Verify Barbell_Squat is not in the Romanian Deadlift shortlist
+      expect(shortlistIds).not.toContain('Barbell_Squat');
+
+      const deps = makeDeps({
+        ask: jest.fn().mockResolvedValue('Barbell_Squat'),
+      });
+
+      await runImageResolutionPass(deps, matcher);
+      await flush();
+
+      const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
+      // When ask returns absent id, fallback to no-key behavior (threshold score)
+      expect(exercise.imageSource).toMatch(/^catalog:/);
+      expect(exercise.imagePath).toBeTruthy();
+      expect((deps.download as jest.Mock).mock.calls).toHaveLength(1);
+    });
   });
 
   describe('AC1.6: no ask on empty shortlist', () => {
@@ -154,6 +182,8 @@ describe('exerciseImageResolver (Task 2)', () => {
       await flush();
 
       expect((deps.ask as jest.Mock).mock.calls).toHaveLength(0);
+      const exercise = (await db.get('exercises').find('test-exercise')) as any;
+      expect(exercise.imageSource).toBe('none');
     });
   });
 
@@ -387,10 +417,9 @@ describe('exerciseImageResolver (Task 2)', () => {
       await flush();
 
       const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
-      if (exercise.imagePath) {
-        expect(exercise.imagePath.startsWith('/')).toBe(false);
-        expect(exercise.imagePath.startsWith('file://')).toBe(false);
-      }
+      expect(exercise.imagePath).toBeTruthy();
+      expect(exercise.imagePath.startsWith('/')).toBe(false);
+      expect(exercise.imagePath.startsWith('file://')).toBe(false);
     });
   });
 
@@ -427,7 +456,6 @@ describe('exerciseImageResolver (Task 2)', () => {
 
       // Competing writer: override the image while download is in flight
       const deleteSpy = deps.deleteFile as jest.Mock;
-      const { imagePath: resolverPath } = (downloadFn as jest.Mock).mock.calls[0][1];
 
       const { setExerciseImage } = await import('@/db/repository');
       await setExerciseImage(db, 'romanian-deadlift', {
@@ -446,20 +474,27 @@ describe('exerciseImageResolver (Task 2)', () => {
       expect(exercise.imagePath).toBe('exercise-images/pasted.jpg');
       expect(exercise.imageSource).toBe('url:https://example.com/pasted.jpg');
 
-      // Verify deleteFile was called with the orphan path
-      expect(deleteSpy.mock.calls.length).toBeGreaterThan(0);
-      const deletedPath = deleteSpy.mock.calls[0][0];
-      expect(deletedPath).toContain('exercise-images/romanian-deadlift');
+      // Verify deleteFile was called with the exact orphan path
+      expect(deleteSpy).toHaveBeenCalledWith('exercise-images/romanian-deadlift-s1.jpg');
     });
   });
 });
 
 describe('exerciseImageResolver scheduler (Task 3)', () => {
   let db: Database;
-  const matcher = createCatalogMatcher(EXERCISE_CATALOG);
+  let resolver: ReturnType<typeof startExerciseImageResolver> | null = null;
 
   beforeEach(() => {
     db = createTestDatabase();
+    resolver = null;
+  });
+
+  afterEach(async () => {
+    if (resolver !== null) {
+      resolver.stop();
+      await waitUntilIdle(jest.fn(), 1);
+    }
+    await closeTestDatabase(db);
   });
 
   function makeDeps(overrides: Partial<ExerciseImageResolverDeps> = {}): ExerciseImageResolverDeps & {
@@ -537,7 +572,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         getAiKeyConfigured: jest.fn(() => false),
       });
 
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const ex1 = (await db.get('exercises').find('romanian-deadlift')) as any;
@@ -545,21 +580,18 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
 
       expect(ex1.imageSource).not.toBeNull();
       expect(ex2.imageSource).not.toBeNull();
-
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
     });
   });
 
   describe('AC2.2: observer triggers on exercise creation', () => {
     it('creation through acceptDraft triggers resolution', async () => {
       const deps = makeDeps();
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
-      // Create an exercise through acceptDraft
       const { acceptDraft } = await import('@/ai/acceptDraft');
+
+      // Create an exercise through acceptDraft
       const draftRoutine = {
         name: 'Test Routine',
         exercises: [
@@ -575,18 +607,14 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // The new exercise should be resolved (has non-null image_source)
-      const exercises = (await db.get('exercises').query().fetch()) as Array<any>;
+      const exercises = (await db.get('exercises').query().fetch()) as any[];
       const newExercise = exercises.find((ex) => ex.title === 'Plank');
       expect(newExercise?.imageSource).not.toBeNull();
-
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
     });
 
     it('creation through applyRoutineImport triggers resolution', async () => {
       const deps = makeDeps();
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const { applyRoutineImport } = await import('@/state/applyRoutineImport');
@@ -602,13 +630,37 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // New exercise should be resolved
-      const allExercises = (await db.get('exercises').query().fetch()) as Array<any>;
+      const allExercises = (await db.get('exercises').query().fetch()) as any[];
       const couch = allExercises.find((ex) => ex.title === 'Couch Stretch');
       expect(couch?.imageSource).not.toBeNull();
+    });
 
-      resolver.stop();
+    it('creation through ensureAlternateExercise triggers resolution', async () => {
+      const deps = makeDeps();
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
+
+      const { ensureAlternateExercise } = await import('@/ai/acceptAlternate');
+
+      // Create an alternate with a new exercise title
+      const alternate = {
+        exerciseId: 'dumbbell-floor-press',
+        title: 'Dumbbell Floor Press',
+        description: 'A core exercise',
+        kind: 'strength' as const,
+        shortlist: [],
+      };
+
+      await ensureAlternateExercise(db, alternate, 'strength');
+      await waitUntilIdle(deps.getAiKeyConfigured);
+
+      // The new exercise should be resolved
+      const allExercises = (await db.get('exercises').query().fetch()) as any[];
+      const newExercise = allExercises.find(
+        (ex) => ex.id === 'dumbbell-floor-press'
+      );
+      expect(newExercise).toBeDefined();
+      expect(newExercise?.imageSource).not.toBeNull();
     });
   });
 
@@ -631,7 +683,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         ask: askMock,
       });
 
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // Verify first pass has started (ask called once)
@@ -643,11 +695,11 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       expect(askMock.mock.calls.length).toBe(1);
 
       // Request 5 times while pass is running
-      resolver.request();
-      resolver.request();
-      resolver.request();
-      resolver.request();
-      resolver.request();
+      resolver!.request();
+      resolver!.request();
+      resolver!.request();
+      resolver!.request();
+      resolver!.request();
 
       // Pass count should not increase (still running)
       const passCount2 = deps.getAiKeyConfigured.mock.calls.length;
@@ -663,10 +715,6 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       const passCount3 = deps.getAiKeyConfigured.mock.calls.length;
       expect(passCount3).toBe(passCount1 + 1);
       expect(askMock.mock.calls.length).toBe(1);
-
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
     });
   });
 
@@ -676,7 +724,7 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         getAiKeyConfigured: jest.fn(() => false),
       });
 
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCount0 = deps.getAiKeyConfigured.mock.calls.length;
@@ -694,18 +742,17 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       }
       const passCount2 = deps.getAiKeyConfigured.mock.calls.length;
       expect(passCount2).toBe(passCount1);
-
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
     });
 
     it('bounded passes even with garbage ask reply', async () => {
+      // Make ask yield a macrotask so M5 mutation hangs correctly (test will timeout)
+      const askMock = jest.fn(() => new Promise<string>((r) => setTimeout(() => r('???'), 0)));
+
       const deps = makeDeps({
-        ask: jest.fn().mockResolvedValue('???'),
+        ask: askMock,
       });
 
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCount0 = deps.getAiKeyConfigured.mock.calls.length;
@@ -721,9 +768,12 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       const exercise = (await db.get('exercises').find('couch-stretch')) as any;
       expect(exercise.imageSource).toBe('none');
 
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
+      // Check that pass count remains stable after 10 more flushes
+      for (let i = 0; i < 10; i++) {
+        await flush();
+      }
+      const passCount2 = deps.getAiKeyConfigured.mock.calls.length;
+      expect(passCount2).toBe(passCount1);
     });
   });
 
@@ -744,11 +794,12 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
             }
             return realDb.get(tableName);
           },
+          write: (fn: (cb: any) => Promise<any>) => realDb.write(fn),
           withChangesForTables: (tables: string[]) => realDb.withChangesForTables(tables),
         } as any,
       });
 
-      const resolver = startExerciseImageResolver(brokenDeps);
+      resolver = startExerciseImageResolver(brokenDeps);
       await waitUntilIdle(brokenDeps.getAiKeyConfigured);
 
       // Should have logged the failure
@@ -758,15 +809,11 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       await upsertExercise(db, 'test-exercise', 'Test Exercise', 'strength');
       const passCountBefore = brokenDeps.getAiKeyConfigured.mock.calls.length;
 
-      resolver.request();
+      resolver!.request();
       await waitUntilIdle(brokenDeps.getAiKeyConfigured);
 
       const passCountAfter = brokenDeps.getAiKeyConfigured.mock.calls.length;
       expect(passCountAfter).toBeGreaterThan(passCountBefore);
-
-      resolver.stop();
-      await waitUntilIdle(brokenDeps.getAiKeyConfigured);
-      await closeTestDatabase(db);
     });
 
     it('throwing logger does not escape scheduler (AC2.8b)', async () => {
@@ -780,54 +827,50 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
       await upsertExercise(db, 'couch-stretch', 'Couch Stretch', 'stretch');
       await flush();
 
-      const ask = jest.fn<Promise<string>, [{ system: string; message: string }]>();
-      ask.mockRejectedValueOnce(new Error('ask failed'));
+      // Make the first call reject, but subsequent calls resolve
+      (deps.ask as jest.Mock).mockRejectedValueOnce(new Error('ask failed'));
 
-      deps.ask = ask;
-
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
 
       // Start should not throw even though log throws
       await waitUntilIdle(deps.getAiKeyConfigured);
 
-      // Now make ask work and create a new exercise
-      ask.mockResolvedValueOnce('NONE');
+      // Now make ask return NONE for subsequent calls
+      (deps.ask as jest.Mock).mockResolvedValue('NONE');
       await upsertExercise(db, 'plank', 'Plank', 'strength');
 
       // This should complete without throwing
       await waitUntilIdle(deps.getAiKeyConfigured);
 
-      resolver.stop();
-      await waitUntilIdle(deps.getAiKeyConfigured);
-      await closeTestDatabase(db);
+      // Verify the plank row resolved successfully
+      const plank = (await db.get('exercises').find('plank')) as any;
+      expect(plank.imageSource).toBe('none');
     });
 
     it('request() after stop() is a no-op', async () => {
       const deps = makeDeps();
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCountBefore = deps.getAiKeyConfigured.mock.calls.length;
 
-      resolver.stop();
+      resolver!.stop();
       await waitUntilIdle(deps.getAiKeyConfigured);
 
-      // Create exercise after stop
-      await upsertExercise(db, 'test-exercise', 'Test Exercise', 'strength');
+      // Call request() after stop
+      resolver!.request();
       await flush();
 
       const passCountAfter = deps.getAiKeyConfigured.mock.calls.length;
       expect(passCountAfter).toBe(passCountBefore);
-
-      await closeTestDatabase(db);
     });
 
     it('stop() unsubscribes from table changes', async () => {
       const deps = makeDeps();
-      const resolver = startExerciseImageResolver(deps);
+      resolver = startExerciseImageResolver(deps);
       await waitUntilIdle(deps.getAiKeyConfigured);
 
-      resolver.stop();
+      resolver!.stop();
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       const passCountBefore = deps.getAiKeyConfigured.mock.calls.length;
@@ -839,8 +882,6 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
 
       const passCountAfter = deps.getAiKeyConfigured.mock.calls.length;
       expect(passCountAfter).toBe(passCountBefore);
-
-      await closeTestDatabase(db);
     });
   });
 });

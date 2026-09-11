@@ -1,6 +1,5 @@
 import { closeTestDatabase, createTestDatabase, flush } from './test-helpers';
-import { upsertExercise } from './repository';
-import { setExerciseImageIfSourceUnchanged, setExerciseImage } from './repository';
+import { upsertExercise, setExerciseImageIfSourceUnchanged, setExerciseImage } from './repository';
 import type { Database } from '@nozbe/watermelondb';
 
 describe('exerciseImageWrites (AC4.5)', () => {
