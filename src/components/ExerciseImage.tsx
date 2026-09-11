@@ -14,7 +14,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
-export type ExerciseImageSize = 'hero' | 'row' | 'strip';
+export type ExerciseImageSize = 'hero' | 'fit' | 'row' | 'strip';
 
 interface ExerciseImageProps {
   imagePath: string | null;
@@ -43,12 +43,19 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   );
 }
 
-/** Exported so a wrapper that clips this image (SetLogger's hero) keeps its corners. */
-export const EXERCISE_IMAGE_BORDER_RADIUS = 6;
+/**
+ * Width over height of the 'fit' box. SetLogger derives its hero's full-size
+ * height from it, so the space it reserves and the image it draws agree.
+ */
+export const EXERCISE_IMAGE_ASPECT_RATIO = 3 / 2;
 
 const styles = StyleSheet.create({
-  base: { borderRadius: EXERCISE_IMAGE_BORDER_RADIUS, overflow: 'hidden' },
+  base: { borderRadius: 6, overflow: 'hidden' },
   hero: { width: '100%', aspectRatio: 3 / 2 },
+  // Sized from the parent's HEIGHT, width from the ratio, so a parent that
+  // shrinks gets a smaller whole image rather than a crop (SetLogger's hero).
+  // maxWidth keeps it inside the parent's width whatever height it is given.
+  fit: { height: '100%', maxWidth: '100%', aspectRatio: EXERCISE_IMAGE_ASPECT_RATIO },
   row: { width: 48, height: 48 },
   strip: { width: 32, height: 32 },
 });

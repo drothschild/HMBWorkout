@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,7 +12,7 @@ import Slider from '@react-native-community/slider';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { ExerciseStopwatch } from './ExerciseStopwatch';
-import { ExerciseImage, EXERCISE_IMAGE_BORDER_RADIUS } from './ExerciseImage';
+import { ExerciseImage, EXERCISE_IMAGE_ASPECT_RATIO } from './ExerciseImage';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
@@ -123,6 +123,11 @@ export function SetLogger({
   // the pre-#335 one, which fits with the keyboard up. Hooks stay above any
   // early return.
   const keyboardVisible = useKeyboardVisible();
+  // The column width the hero measures, so its full size can be an explicit
+  // 3:2 height (see exerciseHero). 0 until the first layout, so the hero is 0
+  // tall for that one frame rather than a guess. Held here rather than in the
+  // hero so it survives the hero unmounting while the keyboard is up.
+  const [heroColumnWidth, setHeroColumnWidth] = useState(0);
   // TextInput is not a Themed* component, so its text and border colors must
   // resolve against the scheme here — a static color renders black-on-black
   // in dark mode.
@@ -189,8 +194,11 @@ export function SetLogger({
         )}
       </View>
       {!keyboardVisible && (
-        <View style={styles.exerciseHero}>
-          <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />
+        <View
+          style={[styles.exerciseHero, { height: heroColumnWidth / EXERCISE_IMAGE_ASPECT_RATIO }]}
+          onLayout={(event) => setHeroColumnWidth(event.nativeEvent.layout.width)}
+        >
+          <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="fit" />
         </View>
       )}
 
@@ -473,39 +481,39 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '600',
   },
-  // The workout view shows the same full-width 3:2 hero as the exercise
-  // detail screen (user request on #335), directly under the title row. This
-  // screen is a fixed column that does not scroll, so on a crowded screen (long
-  // routine notes, the stopwatch card, the Replace button) the hero gives up
-  // height first; before this, the column overflowed and the footer buttons
-  // drew on top of Log Set / Skip Set. The image keeps its own
-  // `width: '100%', aspectRatio: 3 / 2` box and is never resized. This wrapper
-  // yields instead:
-  // - No height, flex or flexGrow, so its flex basis is `auto`, which is the
-  //   image's natural 3:2 height. With grow 0 it can never be taller than that.
+  // The workout view shows the exercise image full width at 3:2 when there is
+  // room (user request on #335), directly under the title row. This screen is a
+  // fixed column that does not scroll, so on a crowded screen (long routine
+  // notes, the stopwatch card, the Replace button) the image gives up height
+  // first; before that, the column overflowed and the footer buttons drew on
+  // top of Log Set / Skip Set. When it shrinks it scales down whole, keeping
+  // 3:2, centered in the column, never cropped into a banner (user decision on
+  // #335).
+  // - Full size is an explicit inline height, heroColumnWidth /
+  //   EXERCISE_IMAGE_ASPECT_RATIO, from the width onLayout measures. The wrapper
+  //   stretches across the column (the container's default alignItems), so that
+  //   width never depends on the image and recording it cannot loop; setting
+  //   the same width again is a no-op state update. A height rather than a
+  //   flexBasis: Yoga uses a definite style height as the flex basis
+  //   unconditionally, but honors an explicit flexBasis only when the parent's
+  //   main size is definite (computeFlexBasisForChild, CalculateLayout.cpp).
   // - flexShrink 1 with minHeight 0: when the column overflows, Yoga takes the
-  //   deficit out of this wrapper, down to zero. Nothing else competes for it.
-  //   Yoga scales each child's shrink by its flex basis, and the other rows do
-  //   not shrink (RN's default flexShrink is 0). The logged-sets ScrollView does
-  //   shrink (ScrollView's base style), but its basis is 0 from `flex: 1` and
-  //   loggedSetsFloor holds it at its minimum.
-  // - overflow hidden plus justifyContent center: the full-size image
-  //   overflows the shrunk wrapper equally top and bottom and is clipped to a
-  //   centered crop. Yoga keeps `center` on overflow (its fallbackAlignment
-  //   remaps only the space-* values), so the offset goes negative instead of
-  //   pinning to the top.
-  // - The image's own corner radius, or the clip would square off the rounded
-  //   corners of a cropped image.
-  // Chosen over measuring the width with onLayout: no pixel math and no extra
-  // render pass. A column that still overflows with the hero at zero (extreme
-  // routine notes on a small screen) is out of scope here.
+  //   deficit out of this wrapper, down to zero. Nothing else competes for it:
+  //   the other rows do not shrink (RN's default flexShrink is 0), and the
+  //   logged-sets ScrollView's basis is 0 from `flex: 1`, with loggedSetsFloor
+  //   holding it at its minimum. No grow, so never taller than 3:2 at full width.
+  // - The image is ExerciseImage's 'fit' variant: height 100% of this wrapper,
+  //   width from its aspectRatio. Yoga lays the wrapper's children out against
+  //   its flexed height, so a shrunk wrapper yields a smaller 3:2 image, which
+  //   alignItems center puts in the middle of the column. No overflow clip, so
+  //   nothing is cropped; the image rounds its own corners.
+  // A column that still overflows with the hero at zero (extreme routine notes
+  // on a small screen) is out of scope here.
   exerciseHero: {
     marginTop: Spacing.two,
     flexShrink: 1,
     minHeight: 0,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    borderRadius: EXERCISE_IMAGE_BORDER_RADIUS,
+    alignItems: 'center',
   },
   questionButton: {
     // borderColor is theme-resolved inline
