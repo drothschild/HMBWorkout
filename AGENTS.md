@@ -1775,7 +1775,13 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   Testing gotchas), so wiring is gated by structural tests. `ExerciseImage.tsx`
   (#335) is the one component that turns a stored relative `image_path` into a
   URI, in three sizes (`hero`, `row`, `strip`), with a same-size placeholder when
-  there is no image
+  there is no image. It also exports `EXERCISE_IMAGE_BORDER_RADIUS`, which
+  `SetLogger`'s clipping `exerciseHero` wrapper reuses so a cropped hero keeps
+  its rounded corners (see Exercise images)
+- `src/hooks/` — shared React hooks (theme, color scheme, and since #335
+  `use-keyboard-visible.ts`, whose `useKeyboardVisible` hides the session hero
+  while the keyboard is open). **Outside jest's `testMatch`**, so a hook here is
+  covered only by structural reads such as `exerciseImageWiring.static.test.ts`
 - `src/app/` — expo-router screens
 
 ## Boundaries
