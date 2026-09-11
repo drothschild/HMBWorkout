@@ -54,6 +54,16 @@ export type ExerciseImageResolver = {
   stop(): void;
 };
 
+const KNOWN_IRRELEVANT_WEB_SELECTION = {
+  title: 'dumbbell-glute-bridge',
+  source: 'web:https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg',
+} as const;
+
+function isKnownIrrelevantWebSelection(title: string, imageSource: string | null): boolean {
+  return imageDecisionTitle(title) === KNOWN_IRRELEVANT_WEB_SELECTION.title
+    && imageSource === KNOWN_IRRELEVANT_WEB_SELECTION.source;
+}
+
 async function decide(
   deps: ExerciseImageResolverDeps,
   matcher: CatalogMatcher,
@@ -75,7 +85,8 @@ async function resolveOne(
   decision: ImageDecision,
   correction?: CatalogEntry,
   webCandidates?: readonly string[],
-  hasAiKey = false
+  hasAiKey = false,
+  replaceExisting = false
 ): Promise<void> {
   let imagePath: string | null = null;
   if (decision.kind === 'catalog') {
@@ -119,7 +130,7 @@ async function resolveOne(
     }
     throw error;
   }
-  if (applied && correction && exercise.imagePath && exercise.imagePath !== imagePath) {
+  if (applied && replaceExisting && exercise.imagePath && exercise.imagePath !== imagePath) {
     const previous = exercise.imagePath;
     await deps.deleteFile(previous).catch((error: unknown) =>
       deps.log(`exercise image: deleting replaced ${previous} failed`, error)
@@ -151,6 +162,7 @@ export async function runImageResolutionPass(
   for (const row of rows) {
     const imageSource = row.imageSource ?? null;
     const correction = catalogImageCorrection(row.title, imageSource, deps.catalog);
+    const webCorrection = isKnownIrrelevantWebSelection(row.title, imageSource);
     const title = imageDecisionTitle(row.title);
     const known: ImageDecision | undefined = correction
       ? { kind: 'catalog', entry: correction }
@@ -163,7 +175,7 @@ export async function runImageResolutionPass(
       imageSource === 'none' || imageSource === 'none:nokey' ||
       (imageSource === 'web:none:nokey' && hasAiKey)
     );
-    if (!correction && !repair && !webRetry && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
+    if (!correction && !webCorrection && !repair && !webRetry && !isImageResolutionEligible({ imageSource }, hasAiKey)) continue;
     try {
       let pending = decisions.get(title);
       if (!pending || correction) {
@@ -180,7 +192,15 @@ export async function runImageResolutionPass(
         }
         webCandidates = await search;
       }
-      await resolveOne(deps, { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null }, decision, correction, webCandidates, hasAiKey);
+      await resolveOne(
+        deps,
+        { id: row.id, title: row.title, imageSource, imagePath: row.imagePath ?? null },
+        decision,
+        correction,
+        webCandidates,
+        hasAiKey,
+        correction !== undefined || webCorrection
+      );
     } catch (error) {
       deps.log(`exercise image: resolving ${row.id} failed; will retry on a later pass`, error);
     }
