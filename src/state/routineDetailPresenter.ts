@@ -1,4 +1,5 @@
 import { Database, Q } from '@nozbe/watermelondb';
+import type Exercise from '@/db/models/Exercise';
 import { getRoutineSets, normalizeNotes, type RoutineSetEntry } from '@/db/repository';
 import { groupBySupersetRuns } from '@/domain/supersetGrouping';
 import { rowHasPrescribedSets } from './routineSetPlans';
@@ -111,12 +112,12 @@ export async function routineDetailPresenter(
     const exerciseIds = [...new Set(routineExercises.map((re) => re._raw.exercise_id))];
 
     for (const exId of exerciseIds) {
-      const exercise = await db.get('exercises').find(exId);
+      const exercise = await db.get<Exercise>('exercises').find(exId);
       exerciseMap.set(exId, {
-        title: (exercise as any).title,
-        kind: (exercise as any)._raw.kind,
-        description: (exercise as any)._raw.description ?? null,
-        imagePath: (exercise as any)._raw.image_path ?? null,
+        title: exercise.title,
+        kind: exercise.kind,
+        description: exercise.description ?? null,
+        imagePath: exercise.imagePath ?? null,
       });
     }
 
