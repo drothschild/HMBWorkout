@@ -283,4 +283,10 @@ AGENTS.md so a future reader recognizes the rule when editing one of them.
   and `buildCatalogPickPrompt` (`src/ai/catalogPickPrompt.ts`, #335);
   the directive text itself lives in `src/ai/coachDirectives.ts`.
 
+#332 adds the saved diary to debrief context before immutable directives; no
+selfie path or bytes enter the prompt. `WorkoutDiarySummary` refreshes on focus,
+so returning from collection updates history immediately. Native UI, camera,
+permissions, SQLite upgrade and provider-response behavior remain human QA;
+see [the diary design and QA checklist](../plans/2026-09-10-workout-diary-design.md).
+
 [Back to reference index](README.md)

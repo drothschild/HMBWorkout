@@ -15,12 +15,14 @@ it('persists the diary before offering an optional selfie, survives reopening, a
  const db = createTestDatabase();
  try {
   await seed(db);
-  const files = { copy: jest.fn(), remove: jest.fn() };
+  const files = { copy: jest.fn().mockResolvedValue('workout-selfies/early.jpg'), remove: jest.fn().mockResolvedValue(undefined) };
   const store = createWorkoutDiaryStore(db, 'finished', files);
   await store.getState().load();
   expect(store.getState().stage).toBe('diary');
   expect(await store.getState().saveDiary('   ')).toBe(false);
   expect(await store.getState().complete(null)).toBe(false);
+  expect(await store.getState().complete('file:///cache/early.jpg')).toBe(false);
+  expect(files.copy).not.toHaveBeenCalled();
   expect(await store.getState().saveDiary(' Felt strong\nSlept well ')).toBe(true);
   expect(store.getState().stage).toBe('selfie');
   const reopened = createWorkoutDiaryStore(db, 'finished', files);

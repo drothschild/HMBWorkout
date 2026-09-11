@@ -58,9 +58,16 @@ real upgrade of the first database. It asserts both outcomes — data surviving 
 covered upgrade, and data destroyed when the migrations are withheld — because a
 harness that can only observe one of them proves nothing.
 
-The schema is at **v9**. v9 (#335, `exercises.image_path` + `exercises.image_source`)
+The schema is at **v10**. v9 (#335, `exercises.image_path` + `exercises.image_source`)
 is a non-destructive `addColumns` bump like v8, proved by `migrationV8ToV9.test.ts`
 on the same two-open harness; LokiJS ignores column declarations, so the step's
 *presence* is pinned separately in `migrations.test.ts`.
+
+v10 (#332) adds nullable `sessions.diary_entry`, `selfie_path`, and `debrief_ready`.
+`workoutDiaryMigration.test.ts` verifies the exact addColumns step and a populated
+v9-to-v10 Loki reopen with logged data preserved. Native SQLite upgrade remains
+human QA. `src/db/workoutDiary.ts` writes only completed sessions; completion is
+first-writer-wins inside one database writer. Selfie paths are relative to the
+app documents folder and never sent in coach prompts.
 
 [Back to reference index](README.md)
