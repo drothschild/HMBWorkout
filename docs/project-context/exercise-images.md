@@ -37,8 +37,10 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   this predicate. #341 adds one narrow exception: `catalogImageCorrection` in
   `exerciseImageMatch.ts` admits only an exact normalized title paired with its
   known old `catalog:<id>` source, and only if the replacement exists in the
-  bundled catalog. The three pairs are listed below. URL overrides, unrelated
-  catalog selections and unrecognised source values are left alone.
+  bundled catalog. The three pairs are listed below. #340 also repairs terminal
+  misses with a known exact alias or an unambiguous catalog sibling, as described
+  below. URL overrides, unrelated catalog selections and unrecognised source
+  values are left alone.
 - **`image_path` is relative to `Paths.document`, never `file://` and never
   absolute.** iOS moves the app container on reinstall and restore, so an absolute
   path goes stale. `buildImageRelativePath` builds `exercise-images/<id>-<suffix>.jpg`;
@@ -138,6 +140,28 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   terminality, explicit variants, URL overrides, download failure and the race.
   These contracts were checked against the implementation and tests in
   [PR #348](https://github.com/drothschild/HMBWorkout/pull/348) on 2026-09-10.
+- **Side labels share a decision, not a file (#340).**
+  `imageDecisionTitle` in `exerciseImageDecisionIdentity.ts` strips trailing
+  Left/Right and parenthesized side labels before normalization, shortlisting and
+  the model request. A pass caches one decision promise per normalized title,
+  including NONE and rejected requests. A rejected request retries on a later
+  pass; it does not trigger another request for the same title during that pass.
+  Each row still downloads its own file and keeps its source compare-and-set.
+  Persisted catalog choices seed sided groups when the group has exactly one
+  distinct catalog id that exists in the bundle. #341 corrections are projected
+  into those seeds before processing any row, so a missing side cannot inherit
+  the known wrong variant merely because it precedes its sibling in query order.
+- **Repair a terminal miss only when a known decision exists (#340).**
+  `none` and `none:nokey` may inherit the unambiguous catalog sibling above;
+  the exact normalized `Dumbbell Chest Press` alias selects
+  `Dumbbell_Bench_Press` directly. These repairs bypass the model even when a key
+  exists. Other terminal NONEs stay terminal: two misses without a known match,
+  unsided duplicate groups, and conflicting persisted catalog choices are not
+  broadly retried. URL overrides remain protected, and failed downloads preserve
+  the old row for a later attempt. Side consistency does not establish picture
+  accuracy: equipment-mismatched goblet squats and kettlebell Romanian deadlifts,
+  side-plank and chest-stretch variants still require human image decisions.
+  No catalog prompt wording or live model accuracy claim changed in #340.
 - **New pattern: database observers. #335 added the app's first THREE, not one.**
   Before #335 nothing in `src` subscribed to a WatermelonDB observable. This bullet
   used to call the resolver "the app's first database observer". That was false
@@ -153,9 +177,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
     exercise-creating path (`acceptDraft`, `applyRoutineImport`,
     `ensureAlternateExercise`) without any of them calling in; subscribing *is* the
     launch backfill. It terminates because of the eligibility predicates, not the
-    observer: every resolver write makes its row ineligible for ordinary
-    resolution and for the old-source correction exception, so the follow-up
-    pass finds nothing. Passes run one at a time and requests during a pass
+    observer: ordinary decisions are terminal except for the narrow known-match
+    repairs. A repair writes the final catalog source, which does not qualify
+    for another repair. No successful repair writes a retryable NONE marker. Passes run one at a time and requests during a pass
     coalesce into one follow-up.
   - **The session screen** (`src/app/session.tsx`, the exercise-image effect)
     subscribes to the same table and calls `requestExerciseImagePass()` from
