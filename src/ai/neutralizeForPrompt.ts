@@ -1,3 +1,4 @@
+// pattern: Functional Core
 /**
  * User free text (titles, notes, personality, directives) is dropped into
  * markdown-shaped prompts, so a line starting with '#' would read as a section

@@ -230,8 +230,8 @@ describe('exercise image matching — #335', () => {
       expect(ids).toContain('Bent_Over_Barbell_Row');
       expect(ids[0]).not.toBe('Bent_Over_Barbell_Row');
 
-      // Log the actual top-1 for reference
-      console.log(`BB Row top-1: ${hits[0].entry.id} (score: ${hits[0].score})`);
+      // Pin the top-1: Upright_Barbell_Row with score 0.0186
+      expect(ids[0]).toBe('Upright_Barbell_Row');
     });
   });
 
@@ -256,6 +256,7 @@ describe('exercise image matching — #335', () => {
       }
       // Verify that the score would actually miss the threshold
       const faceHit = hits.find((h) => h.entry.id === 'Face_Pull');
+      expect(faceHit).toBeDefined();
       if (faceHit) {
         expect(faceHit.score).toBeGreaterThan(NO_KEY_ACCEPT_SCORE);
       }
@@ -287,9 +288,9 @@ describe('exercise image matching — #335', () => {
       expect(decision).not.toEqual({ kind: 'none:nokey' });
     });
 
-    it('untrusted id (absent from shortlist) falls back to score', () => {
+    it('trusted-shape id absent from hits falls back to score', () => {
       const hits = matcher.shortlist('Cable Face Pull');
-      // Use an id that is valid in the catalog but not in this shortlist
+      // Use a valid catalog id not in this shortlist
       const pick = { kind: 'id' as const, id: 'Romanian_Deadlift' };
       const decision = decideFromAiPick(hits, pick);
       // Should fall back to score rule with aiConsulted: true

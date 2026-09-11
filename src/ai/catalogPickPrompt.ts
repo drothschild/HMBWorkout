@@ -1,3 +1,4 @@
+// pattern: Functional Core
 /**
  * Catalog-pick prompt (#335): the fifth builder under the directives-last
  * rule. The model chooses ONE id from a fixed shortlist, or NONE — it never

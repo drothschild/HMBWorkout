@@ -17,6 +17,11 @@ export const SHORTLIST_SIZE = 8;
 /** fuse score: 0 = perfect, 1 = total mismatch. A hit "clears" when score <= this. */
 export const NO_KEY_ACCEPT_SCORE = 0.15;
 
+/**
+ * Highest accepted score from corpus: 0.0186 (Upright_Barbell_Row for 'BB Row').
+ * Lowest rejected score from corpus: 0.2521 (Bent_Over_Barbell_Row for 'Back Squat').
+ */
+
 const ABBREVIATIONS: Readonly<Record<string, string>> = {
   db: 'dumbbell',
   dbs: 'dumbbell',
@@ -41,7 +46,7 @@ export type ImageDecision =
 export function normalizeExerciseTitle(title: string): string {
   return title
     .toLowerCase()
-    .replace(/['']/g, '')
+    .replace(/['’]/g, '')
     .replace(/[^a-z0-9-]+/g, ' ')
     .trim()
     .split(/\s+/)
