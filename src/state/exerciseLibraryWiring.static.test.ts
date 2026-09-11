@@ -12,6 +12,22 @@ function compact(path: string): string {
     .replace(/\s+/g, '');
 }
 
+function readCallArgument(source: string, callee: string): string {
+  const open = source.indexOf(`${callee}(`);
+  if (open < 0) return '';
+
+  let depth = 0;
+  for (let index = open + callee.length; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    if (source[index] === ')') {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + callee.length + 1, index);
+    }
+  }
+
+  return '';
+}
+
 describe('Exercises tab wiring (#358)', () => {
   it('registers an Exercises tab in the tab layout', () => {
     const source = compact(TAB_LAYOUT);
@@ -26,7 +42,9 @@ describe('Exercises tab wiring (#358)', () => {
     if (!existsSync(EXERCISES_SCREEN)) return;
 
     const source = compact(EXERCISES_SCREEN);
-    expect(source).toContain('useFocusEffect(');
+    const focusEffect = readCallArgument(source, 'useFocusEffect');
+    expect(focusEffect).toContain('useCallback(');
+    expect(focusEffect).toContain('loadExercises();');
     expect(source).toContain('exerciseLibraryPresenter(database)');
     expect(source).toContain('data={exercises}');
     expect(source).toContain('<ExerciseImageimagePath={item.imagePath}size="row"/>');
