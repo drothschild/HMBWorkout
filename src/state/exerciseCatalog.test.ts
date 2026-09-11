@@ -6,7 +6,6 @@ describe('exerciseCatalog', () => {
   describe('EXERCISE_CATALOG', () => {
     it('is non-empty and has exactly 873 entries', () => {
       expect(EXERCISE_CATALOG.length).toBe(873);
-      expect(EXERCISE_CATALOG.length).toBeGreaterThan(0);
     });
 
     it('every entry has a non-empty id, name, and image', () => {

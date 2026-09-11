@@ -11,6 +11,7 @@
  * number into prose. The commit below must match FREE_EXERCISE_DB_COMMIT in
  * src/state/exerciseCatalog.ts; exerciseCatalog.test.ts enforces that.
  */
+import { Buffer } from 'node:buffer';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,7 @@ function render(entries, sourceCount) {
     `// ${entries.length} of ${sourceCount} entries (entries with no image are dropped).`,
     "import type { CatalogEntry } from './exerciseCatalog';",
     '',
-    'export const EXERCISE_CATALOG_DATA: ReadonlyArray<CatalogEntry> = [',
+    'export const EXERCISE_CATALOG_DATA: readonly CatalogEntry[] = [',
     ...entries.map((entry) => `  ${JSON.stringify(entry)},`),
     '];',
     '',

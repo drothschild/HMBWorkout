@@ -4,7 +4,7 @@
 // 873 of 876 entries (entries with no image are dropped).
 import type { CatalogEntry } from './exerciseCatalog';
 
-export const EXERCISE_CATALOG_DATA: ReadonlyArray<CatalogEntry> = [
+export const EXERCISE_CATALOG_DATA: readonly CatalogEntry[] = [
   {"id":"3_4_Sit-Up","name":"3/4 Sit-Up","category":"strength","equipment":"body only","primaryMuscles":["abdominals"],"image":"3_4_Sit-Up/0.jpg"},
   {"id":"90_90_Hamstring","name":"90/90 Hamstring","category":"stretching","equipment":"body only","primaryMuscles":["hamstrings"],"image":"90_90_Hamstring/0.jpg"},
   {"id":"Ab_Crunch_Machine","name":"Ab Crunch Machine","category":"strength","equipment":"machine","primaryMuscles":["abdominals"],"image":"Ab_Crunch_Machine/0.jpg"},

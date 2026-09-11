@@ -14,7 +14,7 @@ export type CatalogEntry = {
   /** 'strength' | 'stretching' | 'cardio' | 'plyometrics' | ... (upstream vocabulary). */
   readonly category: string;
   readonly equipment: string | null;
-  readonly primaryMuscles: ReadonlyArray<string>;
+  readonly primaryMuscles: readonly string[];
   /** First image path relative to the upstream `exercises/` dir, e.g. 'Barbell_Squat/0.jpg'. */
   readonly image: string;
 };
@@ -22,7 +22,7 @@ export type CatalogEntry = {
 /** Must equal COMMIT in scripts/build-exercise-catalog.mjs. */
 export const FREE_EXERCISE_DB_COMMIT = 'a859101d633a01c4a1a920d6a8ce41dabba0705f';
 
-export const EXERCISE_CATALOG: ReadonlyArray<CatalogEntry> = EXERCISE_CATALOG_DATA;
+export const EXERCISE_CATALOG: readonly CatalogEntry[] = EXERCISE_CATALOG_DATA;
 
 /** The raw.githubusercontent.com URL of an entry's first image, at the pinned commit. */
 export function catalogImageUrl(entry: Pick<CatalogEntry, 'image'>): string {
