@@ -1,4 +1,5 @@
 import type { Database } from '@nozbe/watermelondb';
+import type Exercise from '@/db/models/Exercise';
 import { createTestDatabase, flush } from '@/db/test-helpers';
 import { setExerciseImage, updateRoutineExerciseExerciseId, upsertExercise } from '@/db/repository';
 import { routineDetailPresenter, type RoutineDetail } from './routineDetailPresenter';
@@ -38,6 +39,42 @@ async function seedSetRows(
 }
 
 describe('routineDetailPresenter', () => {
+  it('uses the exercise model properties when presenting exercise details', async () => {
+    const db = createTestDatabase();
+    await upsertExercise(db, 'typed-exercise', 'Stored title', 'strength');
+    await db.write(async () => {
+      await db.get('routines').create((routine: any) => {
+        routine._raw.id = 'typed-routine';
+        routine.name = 'Typed model routine';
+      });
+      await db.get('routine_exercises').create((entry: any) => {
+        entry._raw.routine_id = 'typed-routine';
+        entry._raw.exercise_id = 'typed-exercise';
+        entry._raw.order = 0;
+      });
+    });
+    const exercise = await db.get<Exercise>('exercises').find('typed-exercise');
+    // Distinct getter values make bypassing the model observable even while
+    // the current decorators happen to return their raw column values.
+    const getters = [
+      jest.spyOn(exercise, 'title', 'get').mockReturnValue('Model title'),
+      jest.spyOn(exercise, 'kind', 'get').mockReturnValue('stretch'),
+      jest.spyOn(exercise, 'description', 'get').mockReturnValue('Model description'),
+      jest.spyOn(exercise, 'imagePath', 'get').mockReturnValue('exercise-images/model.jpg'),
+    ];
+    try {
+      const detail = await routineDetailPresenter(db, 'typed-routine');
+      expect(detail?.standaloneExercises[0]).toMatchObject({
+        title: 'Model title',
+        kind: 'stretch',
+        description: 'Model description',
+        imagePath: 'exercise-images/model.jpg',
+      });
+    } finally {
+      getters.forEach((getter) => getter.mockRestore());
+    }
+  });
+
   it('returns null when routine does not exist', async () => {
     const db = await createTestDatabase();
 
