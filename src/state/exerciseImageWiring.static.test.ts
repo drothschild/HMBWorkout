@@ -284,7 +284,9 @@ describe('SetLogger hides the hero while the keyboard is open (#335 Phase 7)', (
   // pre-#335 one, which fit. Nothing can render SetLogger or the hook, so all
   // three halves are pinned structurally.
   const HERO_WRAPPER =
-    '<Viewstyle={styles.exerciseHero}><ExerciseImageimagePath={presenter.currentExerciseImagePath}size="hero"/></View>';
+    '<Viewstyle={[styles.exerciseHero,{height:heroColumnWidth/EXERCISE_IMAGE_ASPECT_RATIO}]}' +
+    'onLayout={(event)=>setHeroColumnWidth(event.nativeEvent.layout.width)}>' +
+    '<ExerciseImageimagePath={presenter.currentExerciseImagePath}size="fit"/></View>';
   const HOOK_CALL = 'constkeyboardVisible=useKeyboardVisible();';
 
   it('renders the hero wrapper only when the keyboard is NOT visible', () => {
@@ -382,47 +384,75 @@ describe('the workout hero shrinks to fit instead of overlapping the buttons (#3
   // user chose: the image is big when there is room and shrinks when there
   // isn't, the list keeps a small minimum, and the column still does not scroll.
   //
-  // A 3:2 `aspectRatio` flex child cannot shrink, so the WRAPPER yields: basis
-  // auto (= the image's natural 3:2 height), flexShrink 1, no grow, clipping
-  // the full-size image with a centered crop. Nothing can render SetLogger, so
-  // the styles are pinned structurally, as exact prop sets.
-  const LAYOUT_PROPS_THAT_LOCK_HEIGHT = ['height', 'aspectRatio', 'flex', 'flexGrow', 'flexBasis'];
+  //
+  // The user then ruled out the first version's centered crop: a shrunk image
+  // must keep its 3:2 proportions, scaled down and centered, never cropped into
+  // a banner. So the wrapper's full size is an explicit height derived from the
+  // column width it measures (width / 3:2), it yields height under flexShrink,
+  // and the image fills that HEIGHT with its width derived by aspectRatio. Nothing
+  // can render SetLogger, so the mechanism is pinned structurally, as exact
+  // strings and exact prop sets.
+  const LAYOUT_PROPS_THAT_FIX_SIZE = ['height', 'aspectRatio', 'flex', 'flexGrow', 'flexBasis'];
+  const CROP_PROPS = ['overflow', 'justifyContent', 'borderRadius'];
   const keysOf = (props: string[]) => props.map((prop) => prop.slice(0, prop.indexOf(':')));
 
-  it('the hero wrapper shrinks, clips, and can never grow past the 3:2 image', () => {
+  it('the hero wrapper shrinks and centers the image, and does not clip it', () => {
     const props = styleEntry(compact(FILES.setLogger), 'exerciseHero', 'SetLogger.tsx');
 
     expect(new Set(props)).toEqual(
-      new Set([
-        'marginTop:Spacing.two',
-        'flexShrink:1',
-        'minHeight:0',
-        "overflow:'hidden'",
-        "justifyContent:'center'",
-        'borderRadius:EXERCISE_IMAGE_BORDER_RADIUS',
-      ])
+      new Set(['marginTop:Spacing.two', 'flexShrink:1', 'minHeight:0', "alignItems:'center'"])
     );
-    // Not a fixed-height or aspect-locked flex child, and no grow: basis auto
-    // is what caps the wrapper at the image's own 3:2 height.
-    for (const locked of LAYOUT_PROPS_THAT_LOCK_HEIGHT) {
-      expect(keysOf(props)).not.toContain(locked);
+    // The full-size height is the measured one, inline; a static height, basis,
+    // grow or aspect lock here would override it, and a clip means a crop.
+    for (const key of [...LAYOUT_PROPS_THAT_FIX_SIZE, ...CROP_PROPS]) {
+      expect(keysOf(props)).not.toContain(key);
     }
   });
 
-  it('the clipped corners match the image, and the image itself is still the 3:2 hero', () => {
-    // The exercise detail screen scrolls and keeps the fixed 3:2 hero, so the
-    // shrink lives on the session wrapper only; ExerciseImage's hero is intact.
+  it("the wrapper's full height is the measured column width over the 3:2 ratio", () => {
+    // Exact string: the inline height is width / ratio (a 3:2 box at full
+    // width), and onLayout does nothing but record the width, which comes from
+    // the column's stretch, never from the image, so it cannot loop.
+    const source = compact(FILES.setLogger);
+    const measuredHeight = 'style={[styles.exerciseHero,{height:heroColumnWidth/EXERCISE_IMAGE_ASPECT_RATIO}]}';
+
+    expect(occurrences(source, measuredHeight)).toBe(1);
+    expect(occurrences(source, 'onLayout={(event)=>setHeroColumnWidth(event.nativeEvent.layout.width)}')).toBe(1);
+    expect(occurrences(source, 'setHeroColumnWidth(')).toBe(1);
+    expect(source).toContain("import{ExerciseImage,EXERCISE_IMAGE_ASPECT_RATIO}from'./ExerciseImage';");
+  });
+
+  it('the measured width is a hook above the first return, starting at zero', () => {
+    const source = compact(FILES.setLogger);
+    const body = source.slice(indexOfOrThrow(source, 'exportfunctionSetLogger(', 'SetLogger.tsx'));
+    const hook = 'const[heroColumnWidth,setHeroColumnWidth]=useState(0);';
+
+    expect(source).toContain("import{useEffect,useRef,useState}from'react';");
+    expect(occurrences(source, hook)).toBe(1);
+    expect(indexOfOrThrow(body, hook, 'SetLogger.tsx')).toBeLessThan(indexOfOrThrow(body, 'return', 'SetLogger.tsx'));
+  });
+
+  it('the image fills the wrapper height and takes its width from 3:2, capped at the column', () => {
     const image = compact(FILES.exerciseImage);
 
-    expect(image).toContain('exportconstEXERCISE_IMAGE_BORDER_RADIUS=6;');
-    expect(styleEntry(image, 'base', 'ExerciseImage.tsx')).toEqual([
-      'borderRadius:EXERCISE_IMAGE_BORDER_RADIUS',
-      "overflow:'hidden'",
+    expect(image).toContain('exportconstEXERCISE_IMAGE_ASPECT_RATIO=3/2;');
+    expect(image).toContain("exporttypeExerciseImageSize='hero'|'fit'|'row'|'strip';");
+    expect(styleEntry(image, 'fit', 'ExerciseImage.tsx')).toEqual([
+      "height:'100%'",
+      "maxWidth:'100%'",
+      'aspectRatio:EXERCISE_IMAGE_ASPECT_RATIO',
     ]);
-    expect(styleEntry(image, 'hero', 'ExerciseImage.tsx')).toEqual(["width:'100%'", 'aspectRatio:3/2']);
-    expect(compact(FILES.setLogger)).toContain(
-      "import{ExerciseImage,EXERCISE_IMAGE_BORDER_RADIUS}from'./ExerciseImage';"
-    );
+    // The image rounds and clips its own corners, so no wrapper has to.
+    expect(styleEntry(image, 'base', 'ExerciseImage.tsx')).toEqual(['borderRadius:6', "overflow:'hidden'"]);
+  });
+
+  it('the exercise detail hero is unchanged: full width, 3:2', () => {
+    // The exercise detail screen scrolls and keeps the fixed 3:2 hero; the
+    // shrink lives on the session screen's 'fit' variant only.
+    expect(styleEntry(compact(FILES.exerciseImage), 'hero', 'ExerciseImage.tsx')).toEqual([
+      "width:'100%'",
+      'aspectRatio:3/2',
+    ]);
   });
 
   it('the logged-sets list keeps a floor of two rows, derived from the row style', () => {
@@ -459,20 +489,18 @@ describe('every display site renders ExerciseImage (#335 AC3.8 wiring)', () => {
       throw new Error('SetLogger no longer renders <ExerciseImage> for the current exercise; re-anchor this gate');
     }
 
-    // The same size as the exercise detail hero (user request on #335), not
-    // the 48pt "row" thumbnail it started as.
-    expect(heroTag).toContain('size="hero"');
+    // Full column width at 3:2 when there is room, like the exercise detail
+    // hero (user request on #335), not the 48pt "row" thumbnail it started as;
+    // "fit" rather than "hero" so it can scale down whole (see the shrink gates).
+    expect(heroTag).toContain('size="fit"');
     // Under the title row, not inside it: exerciseTitleRow is a
     // flexDirection 'row' container, so a 100%-wide image anywhere inside it —
     // before the title or between the title and the `?` button — crushes the
     // title. Anchor on the hero's own wrapper, and require that wrapper to open
     // after the title row closes. The row holds no nested View (the `?` is a
     // Pressable), so its first `</View>` is its own close.
-    const heroWrapperAt = indexOfOrThrow(
-      source,
-      '<View style={styles.exerciseHero}> <ExerciseImage imagePath={presenter.currentExerciseImagePath} size="hero" />',
-      'SetLogger.tsx'
-    );
+    const heroWrapperAt = indexOfOrThrow(source, '<View style={[styles.exerciseHero,', 'SetLogger.tsx');
+    expect(heroWrapperAt).toBeLessThan(source.indexOf(heroTag));
     const titleRowAt = indexOfOrThrow(source, 'styles.exerciseTitleRow', 'SetLogger.tsx');
     const titleRowCloseAt = indexOfOrThrow(source.slice(titleRowAt), '</View>', 'SetLogger.tsx') + titleRowAt;
     expect(heroWrapperAt).toBeGreaterThan(titleRowCloseAt);
