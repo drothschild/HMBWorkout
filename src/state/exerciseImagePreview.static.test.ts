@@ -85,6 +85,9 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(routinesCompact).toContain(
       'renderItem={({item})=>(<Viewstyle={[styles.routineItem,{borderBottomColor:theme.backgroundSelected},]}>'
     );
+    expect(routinesCompact).toContain(
+      '<Viewstyle={styles.routineInfo}><Pressablestyle={({pressed})=>pressed&&styles.routineItemPressed}'
+    );
     expect(navigationClose).toBeGreaterThan(navigationOpen);
     expect(routines).toContain('accessibilityLabel={`Open ${item.name}`}');
   });
