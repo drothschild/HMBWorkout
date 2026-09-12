@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getExerciseTitles, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, getRoutineSets, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getSessionExerciseLog, type RoutineSetEntry } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getExerciseTitles, getExerciseSetHistory, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, getRoutineSets, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getSessionExerciseLog, type RoutineSetEntry } from './repository';
 import { ValidationError } from './validation';
 
 /**
@@ -1434,6 +1434,56 @@ describe('Repository: session and set helpers', () => {
         expect(await getExerciseWorkingSetHistory(database, RECORDED)).toHaveLength(1);
       });
     });
+  });
+
+  describe('getExerciseSetHistory', () => {
+    it('returns every logged set type while preserving stamped-first and legacy identity', async () => {
+      await upsertExercise(database, 'exercise-all-history', 'Row Exercise', 'strength');
+      await upsertExercise(database, 'exercise-other', 'Other Exercise', 'strength');
+      await upsertRoutine(database, 'routine-all-history', 'History Routine', [
+        { exerciseId: 'exercise-all-history', order: 0, sets: fixtureSets(1, 1, 8) },
+      ]);
+
+      const [row] = (await database
+        .get('routine_exercises')
+        .query(Q.where('routine_id', 'routine-all-history'))
+        .fetch()) as any[];
+
+      await createSession(database, {
+        sessionId: 'session-all-history',
+        routineId: 'routine-all-history',
+        startedAtMs: 1700000000000,
+      });
+
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'warmup', reps: 10, weightKg: 20, exerciseId: 'exercise-all-history',
+      });
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'working', reps: 8, weightKg: 30, exerciseId: 'exercise-all-history',
+      });
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'cardio', durationSeconds: 90, exerciseId: 'exercise-all-history',
+      });
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'stretch', durationSeconds: 45, exerciseId: 'exercise-all-history',
+      });
+      // A stamped identity wins over the row's current exercise.
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'working', reps: 3, exerciseId: 'exercise-other',
+      });
+      // An unstamped legacy row falls back through the routine-exercise row.
+      await appendSet(database, 'session-all-history', row.id, {
+        setType: 'working', reps: 6,
+      });
+
+      const history = await getExerciseSetHistory(database, 'exercise-all-history');
+
+      expect(history.map((set) => set.setType).sort()).toEqual([
+        'cardio', 'stretch', 'warmup', 'working', 'working',
+      ]);
+      expect(history.map((set) => set.reps)).not.toContain(3);
+      expect(history.map((set) => set.reps)).toContain(6);
+    }, 15000);
   });
 
   describe('upsertExercise and updateExerciseDescription', () => {
