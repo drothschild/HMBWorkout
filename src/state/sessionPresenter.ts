@@ -57,6 +57,8 @@ export interface SessionPresenterOutput {
   progressionHint: string | undefined;
   /** First physical line of the current exercise's stored description. */
   exerciseDescriptionLine: string | undefined;
+  /** Full trimmed stored description for the current exercise. */
+  exerciseDescription: string | undefined;
 
   // Routine display data resolved shell-side by the caller (engine state
   // carries only routineId). The description is "at the beginning" chrome:
@@ -634,9 +636,8 @@ export function createSessionPresenter(
   const currentExerciseId = currentEntry?.exerciseId || '';
   const currentExerciseTitle = exerciseTitles?.[currentExerciseId] || currentExerciseId;
   const currentExerciseImagePath = exerciseImagePaths?.[currentExerciseId] ?? null;
-  const exerciseDescriptionLine = firstExerciseDescriptionLine(
-    exerciseDescriptions?.[currentExerciseId]
-  );
+  const exerciseDescription = exerciseDescriptions?.[currentExerciseId]?.trim() || undefined;
+  const exerciseDescriptionLine = firstExerciseDescriptionLine(exerciseDescription);
 
   // Host sentinel boundary: 0 means "no value" for both rest fields
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
@@ -774,6 +775,7 @@ export function createSessionPresenter(
     loggedSetCount: (sessionState.loggedSets ?? []).length,
     progressionHint,
     exerciseDescriptionLine,
+    exerciseDescription,
     routineName: routineDisplay?.name,
     routineNotes,
     finishConfirmation,

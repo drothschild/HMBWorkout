@@ -253,6 +253,20 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   changed on the user's request during Phase 5. The title row holds only
   the title and the `?` button, and the title's `flex: 1` (not `flexShrink: 1`) is
   what keeps a long exercise name from pushing `?` off screen.
+- **The exercise-description cue opens its full text without changing session
+  state (#368).** `createSessionPresenter` exposes both the existing first-line
+  cue and the trimmed full stored description from the same shell-loaded map.
+  `SetLogger` owns only a local visibility boolean: tapping the blue cue opens a
+  compact centered card in a transparent `Modal`. One full-screen, non-accessible
+  `Pressable` owns the modal's touch surface, so a tap on either the dimmed
+  backdrop or card dismisses it without replacing the card's readable child text
+  with a dismiss-only accessibility label. A bounded inner `ScrollView` preserves
+  the full 3,214-character/24-line longest seeded description; a drag scrolls it
+  while a tap still dismisses through the surrounding press surface.
+  `onRequestClose` and `onAccessibilityEscape` reach the same close transition.
+  Blank descriptions still render no cue and cannot open the popup. This is
+  display state only; no engine event, database write, route or persisted workout
+  field is involved.
 - **The session hero is full width up to 3:2, and it is the first thing to give
   up height.** On an iPhone 15 Pro Release build with real routines, the fixed
   3:2 hero overflowed the session screen's fixed column. With a 6-line routine

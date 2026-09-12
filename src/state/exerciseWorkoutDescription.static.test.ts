@@ -11,7 +11,7 @@ function compact(source: string): string {
 
 function hasAllKindsDescriptionGate(source: string): boolean {
   return compact(source).includes(
-    '{presenter.exerciseDescriptionLine&&(<Viewstyle={styles.hintContainer}>'
+    '{presenter.exerciseDescriptionLine&&(<Pressablestyle={styles.hintContainer}'
   );
 }
 
@@ -31,6 +31,20 @@ function letsLoggedSetsYieldToDescriptionChrome(source: string): boolean {
   return compact(source).includes(
     'style={[styles.loggedSets,!keyboardVisible&&!presenter.exerciseDescriptionLine&&styles.loggedSetsFloor]}'
   );
+}
+
+function hasDismissibleFloatingDescriptionPopup(source: string): boolean {
+  const compactSource = compact(source);
+  return [
+    'const[descriptionPopupOpen,setDescriptionPopupOpen]=useState(false);',
+    'onPress={()=>setDescriptionPopupOpen(true)}',
+    'accessibilityLabel="Showfullexercisedescription"',
+    '<Modalvisible={descriptionPopupOpen}animationType="fade"transparentonRequestClose={()=>setDescriptionPopupOpen(false)}>',
+    '<Pressablestyle={styles.descriptionPopupBackdrop}onPress={()=>setDescriptionPopupOpen(false)}accessible={false}>',
+    '<Viewstyle={[styles.descriptionPopupCard,{backgroundColor:theme.background}]}accessibleaccessibilityViewIsModalonAccessibilityEscape={()=>setDescriptionPopupOpen(false)}>',
+    '<ScrollViewstyle={styles.descriptionPopupScroll}>',
+    '{presenter.exerciseDescription}',
+  ].every((fragment) => compactSource.includes(fragment));
 }
 
 describe('issue #357 active-workout exercise description cue', () => {
@@ -119,5 +133,32 @@ describe('issue #357 active-workout exercise description cue', () => {
     expect(hasRejectedReadCancellationGuard(sessionSource)).toBe(true);
     expect(rejectedReadMutant).not.toBe(sessionSource);
     expect(hasRejectedReadCancellationGuard(rejectedReadMutant)).toBe(false);
+  });
+
+  test('opens the full description in a floating popup that dismisses from any modal tap', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+
+    expect(hasDismissibleFloatingDescriptionPopup(setLoggerSource)).toBe(true);
+  });
+
+  test('uses the current native shadow and continuous-corner styling for the floating card', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const compactSource = compact(setLoggerSource);
+
+    expect(compactSource).toContain("borderCurve:'continuous'");
+    expect(compactSource).toContain('boxShadow:');
+    expect(setLoggerSource).not.toContain('shadowOpacity:');
+    expect(setLoggerSource).not.toContain('elevation:');
+  });
+
+  test('keeps the popup small and centered while long descriptions scroll', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const compactSource = compact(setLoggerSource);
+
+    expect(compactSource).toContain(
+      "descriptionPopupBackdrop:{flex:1,alignItems:'center',justifyContent:'center'"
+    );
+    expect(compactSource).toContain("descriptionPopupCard:{width:'84%',maxWidth:360,maxHeight:'70%'");
+    expect(compactSource).toContain('descriptionPopupScroll:{flexShrink:1,}');
   });
 });

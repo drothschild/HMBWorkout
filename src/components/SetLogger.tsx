@@ -131,6 +131,7 @@ export function SetLogger({
   // tall for that one frame rather than a guess. Held here rather than in the
   // hero so it survives the hero unmounting while the keyboard is up.
   const [heroColumnWidth, setHeroColumnWidth] = useState(0);
+  const [descriptionPopupOpen, setDescriptionPopupOpen] = useState(false);
   // TextInput is not a Themed* component, so its text and border colors must
   // resolve against the scheme here — a static color renders black-on-black
   // in dark mode.
@@ -271,12 +272,44 @@ export function SetLogger({
       )}
 
       {presenter.exerciseDescriptionLine && (
-        <View style={styles.hintContainer}>
+        <Pressable
+          style={styles.hintContainer}
+          onPress={() => setDescriptionPopupOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Show full exercise description"
+        >
           <ThemedText style={styles.hintText} numberOfLines={2} ellipsizeMode="tail">
             {presenter.exerciseDescriptionLine}
           </ThemedText>
-        </View>
+        </Pressable>
       )}
+
+      <Modal
+        visible={descriptionPopupOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setDescriptionPopupOpen(false)}
+      >
+        <Pressable
+          style={styles.descriptionPopupBackdrop}
+          onPress={() => setDescriptionPopupOpen(false)}
+          accessible={false}
+        >
+          <View
+            style={[styles.descriptionPopupCard, { backgroundColor: theme.background }]}
+            accessible
+            accessibilityViewIsModal
+            onAccessibilityEscape={() => setDescriptionPopupOpen(false)}
+          >
+            <ThemedText type="smallBold">{presenter.currentExerciseTitle}</ThemedText>
+            <ScrollView style={styles.descriptionPopupScroll}>
+              <ThemedText style={styles.descriptionPopupText}>
+                {presenter.exerciseDescription}
+              </ThemedText>
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       {isDurationBased ? (
         <View style={styles.inputGroup}>
@@ -597,6 +630,30 @@ const styles = StyleSheet.create({
   hintText: {
     color: '#1565C0',
     fontWeight: '500',
+  },
+  descriptionPopupBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.three,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  descriptionPopupCard: {
+    width: '84%',
+    maxWidth: 360,
+    maxHeight: '70%',
+    padding: Spacing.three,
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    gap: Spacing.two,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+  },
+  descriptionPopupScroll: {
+    flexShrink: 1,
+  },
+  descriptionPopupText: {
+    opacity: 0.85,
+    lineHeight: 20,
   },
   inputRow: {
     flexDirection: 'row',

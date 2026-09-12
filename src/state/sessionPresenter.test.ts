@@ -7,6 +7,7 @@ import {
   historyToSetInputValues,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
+import { EXERCISE_CATALOG_DATA } from './exerciseCatalogData';
 import type { LoggedSet, RoutineSet, SessionState } from '@/engine/types';
 
 /**
@@ -1360,6 +1361,83 @@ describe('createSessionPresenter', () => {
       });
 
       expect(presenter.currentExerciseTitle).toBe('ex-1');
+    });
+  });
+
+  describe('exercise description popup — #368', () => {
+    test('exposes the trimmed full description while preserving its internal lines', () => {
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': '  Brace hard, then squat.\nKeep the knees tracking over toes.  ' }
+      );
+
+      expect(presenter.exerciseDescription).toBe(
+        'Brace hard, then squat.\nKeep the knees tracking over toes.'
+      );
+      expect(presenter.exerciseDescriptionLine).toBe('Brace hard, then squat.');
+    });
+
+    test('treats a whitespace-only description as absent', () => {
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': '  \n  ' }
+      );
+
+      expect(presenter.exerciseDescription).toBeUndefined();
+      expect(presenter.exerciseDescriptionLine).toBeUndefined();
+    });
+
+    test('resolves the full description from the current exercise after replacement', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          'ex-1': 'Old exercise description.',
+          'ex-2': 'Replacement exercise description.',
+        }
+      );
+
+      expect(presenter.exerciseDescription).toBe('Replacement exercise description.');
+    });
+
+    test('preserves the complete longest seeded description for a scrollable popup', () => {
+      const powerClean = EXERCISE_CATALOG_DATA.find((entry) => entry.id === 'Power_Clean');
+      const description = powerClean?.instructions.join('\n');
+
+      expect(description).toHaveLength(3214);
+
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': description! }
+      );
+
+      expect(presenter.exerciseDescription).toBe(description);
     });
   });
 
