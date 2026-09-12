@@ -78,7 +78,8 @@ export async function applyAlternateToRoutine(
   database: Database,
   routineId: string,
   order: number,
-  exerciseId: string
+  exerciseId: string,
+  replacementKind?: ExerciseKind
 ): Promise<void> {
   const rowId = await findRoutineExerciseIdByOrder(database, routineId, order);
 
@@ -86,5 +87,5 @@ export async function applyAlternateToRoutine(
     throw new Error(`Routine exercise not found for routine=${routineId}, order ${order}`);
   }
 
-  await updateRoutineExerciseExerciseId(database, rowId, exerciseId);
+  await updateRoutineExerciseExerciseId(database, rowId, exerciseId, replacementKind);
 }

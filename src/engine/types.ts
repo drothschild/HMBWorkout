@@ -106,11 +106,12 @@ export type Event =
   | { tag: 'SetDone'; nowMs: number }
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipRest' }
-  // Swap which exercise the entry at `idx` names, leaving its targets,
-  // warmups, rest and superset group alone. `idx` is the 0-based entry
-  // position and must equal the current exerciseIndex — the rule rejects a
-  // pick made about an entry the workout has already moved past.
-  | { tag: 'ReplaceExercise'; idx: number; exerciseId: string }
+  // Swap which exercise the entry at `idx` names. Same-kind swaps retain the
+  // plan (apart from cleared load); cross-kind swaps retain only set structure
+  // and rest, so no rep/duration conversion is invented. `idx` is the 0-based
+  // entry position and must equal the current exerciseIndex — the rule rejects
+  // a pick made about an entry the workout has already moved past.
+  | { tag: 'ReplaceExercise'; idx: number; exerciseId: string; kind?: ExerciseKind }
   | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'AppForegrounded'; nowMs: number }

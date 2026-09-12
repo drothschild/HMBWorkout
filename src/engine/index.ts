@@ -405,10 +405,19 @@ export function createEngine(executors: Partial<EffectExecutors>) {
           rillEvent = { tag: 'SkipRest' };
           break;
         case 'ReplaceExercise':
-          // No sentinel translation: both fields are plain, always-present
-          // values. The rule rejects an empty exerciseId rather than reading
-          // it as "absent".
-          rillEvent = { tag: 'ReplaceExercise', value: { idx: e.idx, exerciseId: e.exerciseId } };
+          // The id is always present. `kind` became part of this event after
+          // persisted session states already existed, so an old in-process
+          // caller without it falls back to the current entry's stored kind;
+          // a current caller always supplies the selected kind. The rule
+          // rejects an empty id or an unknown resolved kind.
+          rillEvent = {
+            tag: 'ReplaceExercise',
+            value: {
+              idx: e.idx,
+              exerciseId: e.exerciseId,
+              kind: e.kind ?? localState?.entries[e.idx]?.kind ?? '',
+            },
+          };
           break;
         case 'PauseSession':
           rillEvent = { tag: 'PauseSession', value: { nowMs: e.nowMs } };

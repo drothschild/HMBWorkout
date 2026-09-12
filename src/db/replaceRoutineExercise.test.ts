@@ -213,7 +213,7 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     it('leaves the prescription alone — the swap changes identity only', async () => {
       await seedDefaultPrescription();
 
-      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE, 'strength');
 
       const row = (await database.get('routine_exercises').find(rowId)) as any;
       expect(row._raw.order).toBe(0);

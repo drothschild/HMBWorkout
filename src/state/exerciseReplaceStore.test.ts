@@ -534,8 +534,9 @@ describe('createExerciseReplaceStore', () => {
         tag: 'ReplaceExercise',
         idx: 0,
         exerciseId: 'dumbbell-floor-press',
+        kind: 'strength',
       });
-      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press');
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press', 'strength');
       expect(store.getState().status).toBe('idle');
       expect(store.getState().alternates).toEqual([]);
     });

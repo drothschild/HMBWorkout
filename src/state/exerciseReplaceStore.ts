@@ -73,7 +73,12 @@ export interface ExerciseReplaceDeps {
   /** Create-only exercise resolution; returns the exercise id. */
   ensureExercise: (alternate: ExerciseAlternate, kind: ExerciseKind) => Promise<string>;
   /** In-place routine_exercises row swap, keyed by (routineId, order). */
-  applyToRoutine: (routineId: string, order: number, exerciseId: string) => Promise<void>;
+  applyToRoutine: (
+    routineId: string,
+    order: number,
+    exerciseId: string,
+    replacementKind?: ExerciseKind
+  ) => Promise<void>;
   logError?: (message: string, error: unknown) => void;
 }
 
@@ -276,6 +281,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           tag: 'ReplaceExercise',
           idx: current.idx,
           exerciseId,
+          kind: current.kind,
         });
 
         if (!newState) {
@@ -284,7 +290,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
 
         // Only now the routine row, so a rejected swap can never leave the
         // routine pointing somewhere the running session isn't.
-        await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+        await deps.applyToRoutine(current.routineId, current.idx, exerciseId, current.kind);
 
         // Strictly after the row is re-pointed and its prescription cleared.
         // Placement is the whole contract: bumped before the await, this would
@@ -334,8 +340,8 @@ export const exerciseReplaceStore = createExerciseReplaceStore({
     const { database } = require('@/db');
     return ensureAlternateExercise(database, alternate, kind);
   },
-  applyToRoutine: (routineId, order, exerciseId) => {
+  applyToRoutine: (routineId, order, exerciseId, replacementKind) => {
     const { database } = require('@/db');
-    return applyAlternateToRoutine(database, routineId, order, exerciseId);
+    return applyAlternateToRoutine(database, routineId, order, exerciseId, replacementKind);
   },
 });
