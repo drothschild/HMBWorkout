@@ -63,6 +63,17 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="exercises"
+        options={{
+          title: 'Exercises',
+          headerTitle: 'Exercises',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>📚</Text>
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
