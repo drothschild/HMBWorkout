@@ -31,8 +31,19 @@ describe('exercise creation wiring (#379)', () => {
 
     expect(source).toContain("outcome.kind==='invalid-title'");
     expect(source).toContain('Enteraletterornumberintheexercisename.');
+    expect(source).toContain("outcome.kind==='invalid-kind'");
+    expect(source).toContain('Chooseavalidexercisetype.');
     expect(source).toContain("outcome.kind==='duplicate'");
     expect(source).toContain('Anexercisewiththatnamealreadyexists.Nothingwaschanged.');
     expect(source).toContain('Createexercise');
+  });
+
+  it('uses an immediate ref lock as well as disabled UI to prevent a duplicate submit', () => {
+    const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
+
+    expect(source).toContain('constcreationInFlightRef=useRef(false);');
+    expect(source).toContain('if(creationInFlightRef.current)return;');
+    expect(source).toContain('submitExerciseCreation(');
+    expect(source).toContain('disabled={creating}');
   });
 });

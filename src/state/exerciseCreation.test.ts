@@ -27,6 +27,15 @@ describe('createExercise', () => {
     await expect(database.get('exercises').query().fetchCount()).resolves.toBe(0);
   });
 
+  it('rejects a runtime-invalid kind before writing any exercise', async () => {
+    const database = await createTestDatabase();
+
+    await expect(
+      createExercise(database, { title: 'Kettlebell Swing', kind: 'invalid' as any })
+    ).resolves.toStrictEqual({ kind: 'invalid-kind' });
+    await expect(database.get('exercises').query().fetchCount()).resolves.toBe(0);
+  });
+
   it('reports a duplicate slug without changing the existing exercise', async () => {
     const database = await createTestDatabase();
     await database.write(async () => {
