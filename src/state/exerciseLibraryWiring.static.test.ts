@@ -48,7 +48,9 @@ describe('Exercises tab wiring (#358)', () => {
     expect(source).toContain('exerciseLibraryPresenter(database)');
     expect(source).toContain('data={exercises}');
     expect(source).toContain('<ExerciseImageimagePath={item.imagePath}size="row"/>');
-    expect(source).toContain('{item.kind}');
+    expect(source).toContain(
+      '<ThemedTexttype="default"style={styles.exerciseKind}>{item.kind}</ThemedText>'
+    );
     expect(source).toContain('router.push(`/exercise/${item.id}`)');
     expect(source).toContain('accessibilityLabel={`View${item.title},${item.kind}`}');
   });
