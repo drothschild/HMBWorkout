@@ -237,7 +237,7 @@ describe('createExerciseReplaceStore', () => {
 
     mockFetch = jest.fn().mockResolvedValue(alternatesResponse(ALTERNATES));
     dispatch = jest.fn().mockResolvedValue(makeState());
-    ensureExercise = jest.fn().mockResolvedValue('dumbbell-floor-press');
+    ensureExercise = jest.fn().mockResolvedValue({ exerciseId: 'dumbbell-floor-press', kind: 'strength' });
     applyToRoutine = jest.fn().mockResolvedValue(undefined);
     logError = jest.fn();
   });
@@ -564,7 +564,7 @@ describe('createExerciseReplaceStore', () => {
       const order: string[] = [];
       ensureExercise.mockImplementation(async () => {
         order.push('ensureExercise');
-        return 'dumbbell-floor-press';
+        return { exerciseId: 'dumbbell-floor-press', kind: 'strength' };
       });
       dispatch.mockImplementation(async () => {
         order.push('dispatch');

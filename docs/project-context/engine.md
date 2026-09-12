@@ -206,6 +206,10 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    shell's write ordering around the dispatch is load-bearing: ensure the
    exercise record exists → dispatch → only on `Ok` re-point the routine row — a
    rejected swap must never leave the routine pointing where the session isn't.
+   The ensure step returns both the selected record's id and kind: a new record
+   has the outgoing entry's creation kind, while an existing record keeps its
+   persisted kind. That resolved kind is passed unchanged to both the event and
+   routine writer; the AI alternate payload is not authoritative for it.
    `kind` is a transient event field, not persisted session shape; old callers
    without it resolve the current entry kind at the host boundary, while a saved
    session already stores each entry's kind and rehydrates unchanged.
