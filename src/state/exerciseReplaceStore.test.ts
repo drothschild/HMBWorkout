@@ -541,6 +541,25 @@ describe('createExerciseReplaceStore', () => {
       expect(store.getState().alternates).toEqual([]);
     });
 
+    it('uses an existing selected record kind for both the engine event and routine write', async () => {
+      // The alternate payload has no kind. An existing exercise can legitimately
+      // be cardio even though the entry being replaced is strength, so only the
+      // resolver's selected-record result can make the two writers agree.
+      ensureExercise.mockResolvedValueOnce({ exerciseId: 'dumbbell-floor-press', kind: 'cardio' });
+      const store = await opened();
+
+      const ok = await store.getState().choose(ALTERNATES.alternates[0]);
+
+      expect(ok).toBe(true);
+      expect(dispatch).toHaveBeenCalledWith({
+        tag: 'ReplaceExercise',
+        idx: 0,
+        exerciseId: 'dumbbell-floor-press',
+        kind: 'cardio',
+      });
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press', 'cardio');
+    });
+
     it('writes the routine row only after the engine accepted the swap', async () => {
       const order: string[] = [];
       ensureExercise.mockImplementation(async () => {
