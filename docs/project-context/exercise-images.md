@@ -275,12 +275,16 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   layout loop, because the wrapper's width comes from the column's stretch, never
   from the image. For the single frame before `onLayout` the width is 0, so the
   image is 0 tall. The width lives in `SetLogger`, so the image does not flash
-  again when it reappears after the keyboard closes. The logged-sets list keeps a floor,
+  again when it reappears after the keyboard closes. The logged-sets list normally keeps a floor,
   `LOGGED_SETS_MIN_HEIGHT` in `SetLogger` (two rows, derived from `setRow`'s
   padding and border and `TypeRamp.default`'s line height), so the hero gives
-  way before the list does. The floor applies only while the hero is shown
-  (`styles.loggedSetsFloor` under `!keyboardVisible`): with the keyboard up
-  nothing is left to yield, and a floor could only push the buttons down.
+  way before the list does. The floor applies only while the hero is shown and
+  no exercise-description cue is present (`styles.loggedSetsFloor` under
+  `!keyboardVisible && !presenter.exerciseDescriptionLine`). With the keyboard
+  up, or with the fixed-height cue consuming that space, the scrollable history
+  may shrink to zero before Log/Skip, Replace, or the fixed session footer can
+  overlap. This priority was device-proven after a two-line cue plus Replace
+  overlapped Finish/Abandon on an iPhone 15 Pro at PR #363's prior head.
   `ExerciseImage`'s own `hero` style is unchanged, so the exercise detail screen,
   which scrolls, keeps the fixed 3:2 hero. A column that still overflows with the
   hero at zero (extreme routine notes on a small screen) is out of scope.

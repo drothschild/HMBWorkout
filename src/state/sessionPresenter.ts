@@ -3,6 +3,7 @@ import { SessionState, Event, RoutineEntry, RoutineSet, LoggedSet } from '@/engi
 import { formatWeightLbs, kgToLbs, lbsToKg } from './weightUnits';
 import { isDurationBasedEntry } from './exerciseStopwatch';
 import { formatRepRange } from './plannedSetsFormat';
+import { firstExerciseDescriptionLine } from './exerciseDescriptionSummary';
 
 /**
  * Session presenter - derives session-screen view data from engine state.
@@ -54,6 +55,8 @@ export interface SessionPresenterOutput {
   /** Total sets logged this session across all exercises. */
   loggedSetCount: number;
   progressionHint: string | undefined;
+  /** First physical line of the current exercise's stored description. */
+  exerciseDescriptionLine: string | undefined;
 
   // Routine display data resolved shell-side by the caller (engine state
   // carries only routineId). The description is "at the beginning" chrome:
@@ -614,6 +617,7 @@ export function computeSetPrefill(
  * @param exerciseImagePaths Optional exerciseId → relative image path map resolved by the
  *                          caller (getExerciseImagePaths). Engine state carries only ids,
  *                          so image paths must be looked up shell-side.
+ * @param exerciseDescriptions Optional exerciseId → full stored description map.
  */
 export function createSessionPresenter(
   sessionState: SessionState,
@@ -621,7 +625,8 @@ export function createSessionPresenter(
   progressionHint?: string,
   exerciseTitles?: Record<string, string>,
   routineDisplay?: { name: string; notes: string | null },
-  exerciseImagePaths?: Record<string, string>
+  exerciseImagePaths?: Record<string, string>,
+  exerciseDescriptions?: Record<string, string>
 ): SessionPresenterOutput {
   // I3: Get current exercise from entries by exerciseIndex, not from loggedSets
   // loggedSets[last] shows the PREVIOUS exercise after advancement
@@ -629,6 +634,9 @@ export function createSessionPresenter(
   const currentExerciseId = currentEntry?.exerciseId || '';
   const currentExerciseTitle = exerciseTitles?.[currentExerciseId] || currentExerciseId;
   const currentExerciseImagePath = exerciseImagePaths?.[currentExerciseId] ?? null;
+  const exerciseDescriptionLine = firstExerciseDescriptionLine(
+    exerciseDescriptions?.[currentExerciseId]
+  );
 
   // Host sentinel boundary: 0 means "no value" for both rest fields
   const restDeadlineMs = sessionState.restDeadlineMs || undefined;
@@ -765,6 +773,7 @@ export function createSessionPresenter(
       .reverse(),
     loggedSetCount: (sessionState.loggedSets ?? []).length,
     progressionHint,
+    exerciseDescriptionLine,
     routineName: routineDisplay?.name,
     routineNotes,
     finishConfirmation,

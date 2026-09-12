@@ -36,6 +36,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import {
+  getExerciseDescriptions,
   getExerciseImagePaths,
   getExerciseTitles,
   getExerciseWorkingSetHistory,
@@ -44,7 +45,6 @@ import {
 import type { RoutineEntry } from '@/engine/types';
 import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 import { getPrescribedSetsForEntry } from '@/state/routineSetPlans';
-import { computeProgressionHint } from '@/state/progressionHintHelper';
 
 /**
  * Icon size for pause/resume controls in header. Paired with
@@ -128,8 +128,8 @@ export default function SessionScreen() {
   const [currentRpe, setCurrentRpe] = useState<number | undefined>();
   const [durationText, setDurationText] = useState('');
   const [rpePopupOpen, setRpePopupOpen] = useState(false);
-  const [progressionHint, setProgressionHint] = useState<string | undefined>();
   const [exerciseTitles, setExerciseTitles] = useState<Record<string, string>>({});
+  const [exerciseDescriptions, setExerciseDescriptions] = useState<Record<string, string>>({});
   const [exerciseImagePaths, setExerciseImagePaths] = useState<Record<string, string>>({});
   const [routineDisplay, setRoutineDisplay] = useState<
     { name: string; notes: string | null } | undefined
@@ -166,51 +166,6 @@ export default function SessionScreen() {
   // ReplaceExercise rewrites entries[exerciseIndex].exerciseId in place, so the
   // index can stay put while the exercise underneath it changes.
   const currentEntryExerciseId = currentExerciseId(sessionState);
-
-  // Compute progression hint when the exercise changes
-  useEffect(() => {
-    const computeHint = async () => {
-      if (!sessionState) {
-        setProgressionHint(undefined);
-        return;
-      }
-
-      const currentEntry = sessionState.entries?.[sessionState.exerciseIndex];
-      if (!currentEntry || currentEntry.kind !== 'strength') {
-        setProgressionHint(undefined);
-        return;
-      }
-
-      try {
-        // Query DB for prior working sets for this exercise
-        const db = getDatabase();
-        const history = await getExerciseWorkingSetHistory(db, currentEntry.exerciseId);
-
-        // Convert SessionSet records to LoggedSet format for the rule
-        const loggedSets = history.map((set: any) => ({
-          exerciseId: currentEntry.exerciseId,
-          reps: set.reps ?? 0,
-          weightKg: set.weightKg ?? 0,
-          rpe: set.rpe ?? 0,
-          setType: set.setType,
-          durationSeconds: set.durationSeconds,
-        }));
-
-        // Compute the hint
-        const hint = computeProgressionHint(currentEntry.exerciseId, loggedSets, 'strength');
-        setProgressionHint(hint);
-      } catch (error) {
-        console.error('Failed to compute progression hint:', error);
-        setProgressionHint(undefined);
-      }
-    };
-
-    computeHint();
-    // Recompute only when the current exercise changes (primitive deps — the
-    // hint is per-exercise; depending on the entries array reference re-ran it
-    // on every dispatch). The exercise id is part of that: a swap changes the
-    // exercise without changing the index.
-  }, [sessionState?.exerciseIndex, currentEntryExerciseId]);
 
   // Prefill the set inputs on exercise change (and on mount, which restores
   // them after rehydration): the exercise's own last in-session set wins, then
@@ -339,7 +294,8 @@ export default function SessionScreen() {
     routineRevision,
   ]);
 
-  // Engine state carries only exercise ids, so titles are resolved shell-side.
+  // Engine state carries only exercise ids, so titles and descriptions are
+  // resolved shell-side.
   // Entries are otherwise fixed for a session's lifetime, but ReplaceExercise
   // rewrites one entry's exerciseId mid-session — so the reload is keyed on the
   // ids themselves, not just the session, or the swapped exercise would render
@@ -353,23 +309,41 @@ export default function SessionScreen() {
   );
 
   useEffect(() => {
-    const loadTitles = async () => {
+    let cancelled = false;
+
+    const loadExerciseDisplay = async () => {
       if (!sessionState) {
+        if (cancelled) return;
         setExerciseTitles({});
+        setExerciseDescriptions({});
         return;
       }
 
       try {
         const db = getDatabase();
-        const ids = (sessionState.entries ?? []).map((entry: any) => entry.exerciseId);
-        setExerciseTitles(await getExerciseTitles(db, ids));
+        const ids: string[] = JSON.parse(entryExerciseIdsKey);
+        const [titles, descriptions] = await Promise.all([
+          getExerciseTitles(db, ids),
+          getExerciseDescriptions(db, ids),
+        ]);
+        // A Replace changes entryExerciseIdsKey and cleans up this effect. Its
+        // older DB reads may still finish later, but must not overwrite the
+        // substitute exercise's title/description maps.
+        if (cancelled) return;
+        setExerciseTitles(titles);
+        setExerciseDescriptions(descriptions);
       } catch (error) {
-        console.error('Failed to load exercise titles:', error);
+        if (cancelled) return;
+        console.error('Failed to load exercise display fields:', error);
         setExerciseTitles({});
+        setExerciseDescriptions({});
       }
     };
 
-    loadTitles();
+    loadExerciseDisplay();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionState?.sessionId, entryExerciseIdsKey]);
 
   // Exercise images (#335): re-read on EVERY `exercises` change, not just when
@@ -540,10 +514,11 @@ export default function SessionScreen() {
   const presenter = createSessionPresenter(
     sessionState,
     dispatch,
-    progressionHint,
+    undefined,
     exerciseTitles,
     routineDisplay,
-    exerciseImagePaths
+    exerciseImagePaths,
+    exerciseDescriptions
   );
 
   // Destructive and unrecoverable: an abandoned session emits DiscardSession,
