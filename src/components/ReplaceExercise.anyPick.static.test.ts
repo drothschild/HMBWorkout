@@ -11,6 +11,8 @@ describe('ReplaceExercise local-library picker', () => {
     expect(source).toContain('accessibilityLabel="Search exercises to replace with"');
     expect(source).toContain('filterReplaceableExerciseLibraryItems');
     expect(source).toContain('chooseExisting(item.id, item.kind)');
+    expect(source).toContain('accessibilityLabel={`Replace with ${item.title} (${item.kind})`}');
+    expect(source).toContain('keyboardShouldPersistTaps="handled"');
     expect(source).toContain('!keyboardVisible');
   });
 });
