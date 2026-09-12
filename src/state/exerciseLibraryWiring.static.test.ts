@@ -46,12 +46,30 @@ describe('Exercises tab wiring (#358)', () => {
     expect(focusEffect).toContain('useCallback(');
     expect(focusEffect).toContain('loadExercises();');
     expect(source).toContain('exerciseLibraryPresenter(database)');
-    expect(source).toContain('data={exercises}');
+    expect(source).toContain('data={filteredExercises}');
     expect(source).toContain('<ExerciseImageimagePath={item.imagePath}size="row"/>');
     expect(source).toContain(
       '<ThemedTexttype="default"style={styles.exerciseKind}>{item.kind}</ThemedText>'
     );
     expect(source).toContain('router.push(`/exercise/${item.id}`)');
     expect(source).toContain('accessibilityLabel={`View${item.title},${item.kind}`}');
+  });
+
+  it('renders a controlled exercise search field above the filtered list', () => {
+    expect(existsSync(EXERCISES_SCREEN)).toBe(true);
+    if (!existsSync(EXERCISES_SCREEN)) return;
+
+    const source = compact(EXERCISES_SCREEN);
+    expect(source).toContain('filterExerciseLibraryItems(exercises,searchQuery)');
+    expect(source).toContain('value={searchQuery}');
+    expect(source).toContain('onChangeText={setSearchQuery}');
+    expect(source).toContain('accessibilityLabel="Searchexercises"');
+    expect(source).toContain('placeholder="Searchexercises"');
+    expect(source).toContain('clearButtonMode="while-editing"');
+    expect(source).toContain('filteredExercises.length===0?');
+    expect(source).toContain('Noexercisesmatchyoursearch.');
+    expect(source).toContain('keyboardShouldPersistTaps="handled"');
+    expect(source).toContain('keyboardDismissMode="on-drag"');
+    expect(source.indexOf('<TextInput')).toBeLessThan(source.indexOf('<FlatList'));
   });
 });

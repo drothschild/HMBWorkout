@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ThemedText } from '@/components/themed-text';
@@ -10,6 +10,7 @@ import { database } from '@/db';
 import {
   ExerciseLibraryItem,
   exerciseLibraryPresenter,
+  filterExerciseLibraryItems,
 } from '@/state/exerciseLibraryPresenter';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -17,8 +18,13 @@ export default function ExercisesScreen() {
   const router = useRouter();
   const theme = useTheme();
   const [exercises, setExercises] = useState<ExerciseLibraryItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
+  const filteredExercises = useMemo(
+    () => filterExerciseLibraryItems(exercises, searchQuery),
+    [exercises, searchQuery]
+  );
 
   const loadExercises = useCallback(async () => {
     const generation = ++generationRef.current;
@@ -46,6 +52,21 @@ export default function ExercisesScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
+        <TextInput
+          accessibilityLabel="Search exercises"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search exercises"
+          placeholderTextColor={theme.textSecondary}
+          clearButtonMode="while-editing"
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={[
+            styles.searchInput,
+            { color: theme.text, borderColor: theme.backgroundSelected },
+          ]}
+        />
         {loading ? (
           <ThemedText type="default">Loading exercises...</ThemedText>
         ) : exercises.length === 0 ? (
@@ -54,10 +75,18 @@ export default function ExercisesScreen() {
               No exercises loaded yet.
             </ThemedText>
           </ThemedView>
+        ) : filteredExercises.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <ThemedText type="default" style={styles.placeholder}>
+              No exercises match your search.
+            </ThemedText>
+          </ThemedView>
         ) : (
           <FlatList
-            data={exercises}
+            data={filteredExercises}
             keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             style={styles.list}
             renderItem={({ item }) => (
               <Pressable
@@ -112,6 +141,14 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
     width: '100%',
+  },
+  searchInput: {
+    minHeight: 44,
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.three,
+    marginBottom: Spacing.three,
   },
   exerciseItem: {
     flexDirection: 'row',
