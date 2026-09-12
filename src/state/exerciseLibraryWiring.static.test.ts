@@ -66,6 +66,7 @@ describe('Exercises tab wiring (#358)', () => {
     expect(source).toContain('accessibilityLabel="Searchexercises"');
     expect(source).toContain('placeholder="Searchexercises"');
     expect(source).toContain('clearButtonMode="while-editing"');
+    expect(source).toContain('filteredExercises.length===0?');
     expect(source).toContain('Noexercisesmatchyoursearch.');
     expect(source.indexOf('<TextInput')).toBeLessThan(source.indexOf('<FlatList'));
   });
