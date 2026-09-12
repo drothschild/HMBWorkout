@@ -293,17 +293,19 @@ export function SetLogger({
         <Pressable
           style={styles.descriptionPopupBackdrop}
           onPress={() => setDescriptionPopupOpen(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss full exercise description"
+          accessible={false}
         >
           <View
-            pointerEvents="none"
             style={[styles.descriptionPopupCard, { backgroundColor: theme.background }]}
+            accessibilityViewIsModal
+            onAccessibilityEscape={() => setDescriptionPopupOpen(false)}
           >
             <ThemedText type="smallBold">{presenter.currentExerciseTitle}</ThemedText>
-            <ThemedText style={styles.descriptionPopupText}>
-              {presenter.exerciseDescription}
-            </ThemedText>
+            <ScrollView style={styles.descriptionPopupScroll}>
+              <ThemedText style={styles.descriptionPopupText}>
+                {presenter.exerciseDescription}
+              </ThemedText>
+            </ScrollView>
           </View>
         </Pressable>
       </Modal>
@@ -644,6 +646,9 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     gap: Spacing.two,
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+  },
+  descriptionPopupScroll: {
+    flexShrink: 1,
   },
   descriptionPopupText: {
     opacity: 0.85,

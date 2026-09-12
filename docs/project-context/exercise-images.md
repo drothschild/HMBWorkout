@@ -255,12 +255,16 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   state (#368).** `createSessionPresenter` exposes both the existing first-line
   cue and the trimmed full stored description from the same shell-loaded map.
   `SetLogger` owns only a local visibility boolean: tapping the blue cue opens a
-  compact centered card in a transparent `Modal`. One full-screen `Pressable`
-  owns the modal's touch surface, while the card has `pointerEvents="none"`, so
-  tapping either the dimmed backdrop or the card dismisses it. `onRequestClose`
-  reaches the same close transition. Blank descriptions still render no cue and
-  cannot open the popup. This is display state only; no engine event, database
-  write, route or persisted workout field is involved.
+  compact centered card in a transparent `Modal`. One full-screen, non-accessible
+  `Pressable` owns the modal's touch surface, so a tap on either the dimmed
+  backdrop or card dismisses it without replacing the card's readable child text
+  with a dismiss-only accessibility label. A bounded inner `ScrollView` preserves
+  the full 3,214-character/24-line longest seeded description; a drag scrolls it
+  while a tap still dismisses through the surrounding press surface.
+  `onRequestClose` and `onAccessibilityEscape` reach the same close transition.
+  Blank descriptions still render no cue and cannot open the popup. This is
+  display state only; no engine event, database write, route or persisted workout
+  field is involved.
 - **The session hero is full width up to 3:2, and it is the first thing to give
   up height.** On an iPhone 15 Pro Release build with real routines, the fixed
   3:2 hero overflowed the session screen's fixed column. With a 6-line routine

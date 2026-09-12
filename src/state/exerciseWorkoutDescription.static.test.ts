@@ -159,6 +159,6 @@ describe('issue #357 active-workout exercise description cue', () => {
       "descriptionPopupBackdrop:{flex:1,alignItems:'center',justifyContent:'center'"
     );
     expect(compactSource).toContain("descriptionPopupCard:{width:'84%',maxWidth:360,maxHeight:'70%'");
-    expect(compactSource).toContain('descriptionPopupScroll:{flexShrink:1}');
+    expect(compactSource).toContain('descriptionPopupScroll:{flexShrink:1,}');
   });
 });

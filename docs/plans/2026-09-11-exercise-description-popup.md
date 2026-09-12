@@ -30,7 +30,7 @@
 1. Extend the structural test to require a pressable cue, a transparent fading modal, full-screen dismissal, `onRequestClose`, a compact themed card, and the full presenter description as content.
 2. Verify the targeted structural test fails for the missing interaction.
 3. Commit the completed failing interaction test if it was not included in Task 1.
-4. Add local popup visibility state to `SetLogger`, wrap the cue in an accessible `Pressable`, and render the floating modal. Use a full-screen `Pressable` as the sole touch target and disable card pointer events so every modal tap dismisses.
+4. Add local popup visibility state to `SetLogger`, wrap the cue in an accessible `Pressable`, and render the floating modal. Use a non-accessible full-screen `Pressable` as the dismiss surface, preserve the card's readable children, and bound long content in an inner `ScrollView` so taps dismiss while drag gestures scroll.
 5. Run `npm test -- --runTestsByPath src/state/exerciseWorkoutDescription.static.test.ts src/state/sessionPresenter.test.ts --runInBand` and verify both files pass.
 
 ### Task 3: Review and QA preparation
