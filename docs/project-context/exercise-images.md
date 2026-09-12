@@ -24,7 +24,12 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
 
 - **Web fallback after a catalog miss (#354).** Production supplies
   `searchWebImages` to the resolver. After the catalog decision misses, Bing Images
-  is searched for the normalized title plus "exercise"; up to five distinct HTTPS
+  is searched for the normalized title plus "exercise". A result is eligible only
+  when its decoded Bing `murl`, `purl`, `t` and `desc` metadata collectively contain
+  every meaningful normalized title token; query echoes in anchor attributes are
+  ignored. This deliberately conservative rule can reject a relevant result whose
+  metadata omits an equipment or variant word, preferring a terminal miss over a
+  confidently wrong automatic image. Up to five distinct relevant HTTPS
   original-image URLs are attempted in result order. The first validated download
   is stored as `web:<url>`, using the existing fresh relative path and source
   compare-and-set. Failed candidates are cleaned up; an override racing a download
@@ -37,6 +42,11 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   supported API: format changes or challenges reject rather than falsely writing
   a terminal miss. Search requests time out after 15 seconds. The optional dep
   preserves the catalog-only resolver contract for callers without web search.
+  One historical repair admits only the observed `dumbbell-glute-bridge` plus
+  `web:https://iv1.lisimg.com/image/14503880/740full-lauren-de-graaf.jpg` tuple.
+  It uses the same source compare-and-set: transient failures preserve the old row
+  and file, a racing explicit URL wins, and the old file is deleted only after a
+  successful replacement or terminal relevant-search miss.
   `exerciseWebImages.test.ts` and `exerciseImageWebFallback.test.ts` cover this path.
 
 - **The catalog is generated code pinned to one upstream commit.**
