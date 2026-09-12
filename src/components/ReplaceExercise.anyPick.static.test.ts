@@ -10,6 +10,6 @@ describe('ReplaceExercise local-library picker', () => {
     expect(source).toContain('Pick any exercise');
     expect(source).toContain('accessibilityLabel="Search exercises to replace with"');
     expect(source).toContain('filterExerciseLibraryItems');
-    expect(source).toContain('chooseExisting(item.id, item.kind)');
+    expect(source).toContain('chooseExisting(item.id)');
   });
 });

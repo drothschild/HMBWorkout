@@ -118,7 +118,7 @@ interface ExerciseReplaceState {
   /** Apply one. @returns true when the swap landed in both engine and routine. */
   choose(alternate: ExerciseAlternate): Promise<boolean>;
   /** Apply an exercise already in the local library, without an AI request or a create. */
-  chooseExisting(exerciseId: string, kind: ExerciseKind): Promise<boolean>;
+  chooseExisting(exerciseId: string): Promise<boolean>;
   /** Close the picker and invalidate any in-flight request. */
   cancel(): void;
 }
@@ -277,7 +277,6 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           tag: 'ReplaceExercise',
           idx: current.idx,
           exerciseId,
-          kind: current.kind,
         });
 
         if (!newState) {
@@ -311,7 +310,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       }
     },
 
-    async chooseExisting(exerciseId: string, kind: ExerciseKind) {
+    async chooseExisting(exerciseId: string) {
       const current = target;
       if (!current || swapping || !exerciseId.trim()) return false;
 
@@ -327,7 +326,6 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           tag: 'ReplaceExercise',
           idx: current.idx,
           exerciseId,
-          kind,
         });
 
         if (!newState) {
