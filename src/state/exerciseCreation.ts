@@ -4,6 +4,7 @@ import type { ExerciseKind } from '@/db/models/Exercise';
 export type CreateExerciseOutcome =
   | { readonly kind: 'created'; readonly exerciseId: string }
   | { readonly kind: 'invalid-title' }
+  | { readonly kind: 'invalid-kind' }
   | { readonly kind: 'duplicate'; readonly exerciseId: string };
 
 export type CreateExerciseInput = {
@@ -22,6 +23,12 @@ function slugifyTitle(title: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+const EXERCISE_KINDS = ['strength', 'cardio', 'stretch'] as const;
+
+function isExerciseKind(kind: unknown): kind is ExerciseKind {
+  return EXERCISE_KINDS.some((candidate) => candidate === kind);
+}
+
 /**
  * Creates one global exercise, never changing an existing record. Exercise ids
  * are title-derived slugs, so the duplicate check and insertion share one
@@ -31,6 +38,8 @@ export async function createExercise(
   database: Database,
   input: CreateExerciseInput
 ): Promise<CreateExerciseOutcome> {
+  if (!isExerciseKind(input.kind)) return { kind: 'invalid-kind' };
+
   const title = normalizeTitle(input.title);
   const exerciseId = slugifyTitle(title);
   if (!exerciseId) return { kind: 'invalid-title' };

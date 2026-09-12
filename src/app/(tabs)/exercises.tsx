@@ -10,6 +10,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import type { ExerciseKind } from '@/db/models/Exercise';
 import { createExercise } from '@/state/exerciseCreation';
+import { submitExerciseCreation } from '@/state/exerciseCreationSubmission';
 import { StatusColor } from '@/theme/actionButtonColors';
 import {
   ExerciseLibraryItem,
@@ -29,6 +30,7 @@ export default function ExercisesScreen() {
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
+  const creationInFlightRef = useRef(false);
   const filteredExercises = useMemo(
     () => filterExerciseLibraryItems(exercises, searchQuery),
     [exercises, searchQuery]
@@ -58,24 +60,36 @@ export default function ExercisesScreen() {
   );
 
   const submitNewExercise = async () => {
-    if (creating) return;
+    if (creationInFlightRef.current) return;
     setCreating(true);
     setCreateMessage(null);
     try {
-      const outcome = await createExercise(database, { title: newTitle, kind: newKind });
-      if (outcome.kind === 'invalid-title') {
-        setCreateMessage('Enter a letter or number in the exercise name.');
-        return;
-      }
-      if (outcome.kind === 'duplicate') {
-        setCreateMessage('An exercise with that name already exists. Nothing was changed.');
-        return;
-      }
-      setNewTitle('');
-      router.push(`/exercise/${outcome.exerciseId}`);
-    } catch (error) {
-      console.error('Failed to create exercise:', error);
-      setCreateMessage("Couldn't create that exercise. Try again.");
+      await submitExerciseCreation(
+        {
+          create: () => createExercise(database, { title: newTitle, kind: newKind }),
+          onOutcome: (outcome) => {
+            if (outcome.kind === 'invalid-title') {
+              setCreateMessage('Enter a letter or number in the exercise name.');
+              return;
+            }
+            if (outcome.kind === 'invalid-kind') {
+              setCreateMessage('Choose a valid exercise type.');
+              return;
+            }
+            if (outcome.kind === 'duplicate') {
+              setCreateMessage('An exercise with that name already exists. Nothing was changed.');
+              return;
+            }
+            setNewTitle('');
+            router.push(`/exercise/${outcome.exerciseId}`);
+          },
+          onFailure: (error) => {
+            console.error('Failed to create exercise:', error);
+            setCreateMessage("Couldn't create that exercise. Try again.");
+          },
+        },
+        creationInFlightRef
+      );
     } finally {
       setCreating(false);
     }
@@ -112,6 +126,7 @@ export default function ExercisesScreen() {
               </Picker>
               <Button
                 label={creating ? 'Creating…' : 'Create exercise'}
+                disabled={creating}
                 onPress={() => { void submitNewExercise(); }}
               />
             </Column>
