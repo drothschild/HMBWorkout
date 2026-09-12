@@ -85,6 +85,8 @@ export default function ExercisesScreen() {
           <FlatList
             data={filteredExercises}
             keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             style={styles.list}
             renderItem={({ item }) => (
               <Pressable
