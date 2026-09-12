@@ -9,15 +9,17 @@ catalog (or pasted by the user) and stored on-device so it renders offline. Like
 the AI slice, this is **data, never session flow**: the Rill `RoutineEntry` and
 engine state carry no image field, and `src/engine/exerciseImageEngineBoundary.test.ts`
 pins that no `.lv` rule mentions one. Every display site reads the path
-shell-side, off the `exercises` row, and there are four readers, not one: the
+shell-side, off the `exercises` row, and there are five readers, not one: the
 session screen through `getExerciseImagePaths` (`src/db/repository.ts`), whose
 `exerciseId`-keyed map reaches `createSessionPresenter` as `exerciseImagePaths` —
 the same shape as `exerciseTitles` in engine convention 6, which is why a Replace
 swap shows the new exercise's image with no extra wiring; `routineDetailPresenter`,
 which reads each exercise's raw `image_path`; `routineListPresenter`'s
-`readThumbnailPaths`, which reads `Exercise.imagePath`; and the exercise detail
+`readThumbnailPaths`, which reads `Exercise.imagePath`; the exercise detail
 screen (`src/app/exercise/[id].tsx`), which reads the row it loads and then
-observes it (see the observers bullet below). The markdown export is byte-identical
+observes it (see the observers bullet below); and the Exercises tab through
+`exerciseLibraryPresenter`, which reads each locally stored exercise's
+`Exercise.imagePath`. The markdown export is byte-identical
 with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
 
 - **Web fallback after a catalog miss (#354).** Production supplies
