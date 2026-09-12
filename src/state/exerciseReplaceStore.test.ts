@@ -639,7 +639,7 @@ describe('createExerciseReplaceStore', () => {
       const { store } = makeStore();
       await store.getState().open(makeTarget());
 
-      const ok = await (store.getState().chooseExisting as any)('rowing-erg', 'cardio');
+      const ok = await store.getState().chooseExisting('rowing-erg', 'cardio');
 
       expect(ok).toBe(true);
       expect(mockFetch).not.toHaveBeenCalled();
@@ -657,7 +657,7 @@ describe('createExerciseReplaceStore', () => {
     it('does not replace an exercise with itself, so the existing prescription is not cleared', async () => {
       const store = await opened();
 
-      await expect(store.getState().chooseExisting('barbell-bench-press')).resolves.toBe(false);
+      await expect(store.getState().chooseExisting('barbell-bench-press', 'strength')).resolves.toBe(false);
 
       expect(dispatch).not.toHaveBeenCalled();
       expect(applyToRoutine).not.toHaveBeenCalled();
@@ -666,7 +666,7 @@ describe('createExerciseReplaceStore', () => {
     it('does not dispatch an empty local exercise id', async () => {
       const store = await opened();
 
-      await expect(store.getState().chooseExisting('   ')).resolves.toBe(false);
+      await expect(store.getState().chooseExisting('   ', 'strength')).resolves.toBe(false);
 
       expect(dispatch).not.toHaveBeenCalled();
       expect(applyToRoutine).not.toHaveBeenCalled();
@@ -676,7 +676,7 @@ describe('createExerciseReplaceStore', () => {
       dispatch.mockResolvedValueOnce(null);
       const store = await opened();
 
-      await expect(store.getState().chooseExisting('kettlebell-swing')).resolves.toBe(false);
+      await expect(store.getState().chooseExisting('kettlebell-swing', 'strength')).resolves.toBe(false);
 
       expect(applyToRoutine).not.toHaveBeenCalled();
       expect(store.getState().status).toBe('error');
@@ -688,7 +688,7 @@ describe('createExerciseReplaceStore', () => {
       const store = await opened();
       const before = store.getState().routineRevision;
 
-      const choose = store.getState().chooseExisting('kettlebell-swing');
+      const choose = store.getState().chooseExisting('kettlebell-swing', 'strength');
       expect(store.getState().routineRevision).toBe(before);
 
       release();

@@ -32,9 +32,9 @@ describe('exerciseLibraryPresenter', () => {
       { id: 'bike', title: 'Stationary Bike', kind: 'cardio', imagePath: null },
     ];
 
-    expect(filterReplaceableExerciseLibraryItems(items, 'bench', '', 'strength')).toEqual([items[1], items[2], items[3]]);
-    expect(filterReplaceableExerciseLibraryItems(items, 'bench', ' PRESS ', 'strength')).toEqual([items[1]]);
-    expect(filterReplaceableExerciseLibraryItems(items, 'bench', 'barbell', 'strength')).toEqual([items[2]]);
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', '')).toEqual([items[1], items[2], items[3]]);
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', ' PRESS ')).toEqual([items[1]]);
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', 'barbell')).toEqual([items[2]]);
   });
 
   it('returns every local exercise in case-insensitive title order with its display fields', async () => {

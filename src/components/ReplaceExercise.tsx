@@ -57,10 +57,9 @@ export function ReplaceExercise({
     () => filterReplaceableExerciseLibraryItems(
       exercises,
       target?.exerciseId ?? '',
-      searchQuery,
-      target?.kind ?? 'strength'
+      searchQuery
     ),
-    [exercises, searchQuery, target?.exerciseId, target?.kind]
+    [exercises, searchQuery, target?.exerciseId]
   );
 
   useEffect(() => {
@@ -175,7 +174,7 @@ export function ReplaceExercise({
                         accessibilityRole="button"
                         accessibilityLabel={`Replace with ${item.title}`}
                         disabled={status === 'swapping'}
-                        onPress={() => exerciseReplaceStore.getState().chooseExisting(item.id)}
+                        onPress={() => exerciseReplaceStore.getState().chooseExisting(item.id, item.kind)}
                         style={[styles.option, { backgroundColor: theme.backgroundElement }]}
                       >
                         <ThemedText type="smallBold">{item.title}</ThemedText>

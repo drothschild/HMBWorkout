@@ -126,8 +126,8 @@ interface ExerciseReplaceState {
   open(target: ReplaceTarget): Promise<void>;
   /** Apply one. @returns true when the swap landed in both engine and routine. */
   choose(alternate: ExerciseAlternate): Promise<boolean>;
-  /** Apply an exercise already in the local library, without an AI request or a create. */
-  chooseExisting(exerciseId: string): Promise<boolean>;
+  /** Apply an exercise already in the local library, using its selected-record kind. */
+  chooseExisting(exerciseId: string, kind: ExerciseKind): Promise<boolean>;
   /** Close the picker and invalidate any in-flight request. */
   cancel(): void;
 }
@@ -321,7 +321,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       }
     },
 
-    async chooseExisting(exerciseId: string) {
+    async chooseExisting(exerciseId: string, kind: ExerciseKind) {
       const current = target;
       if (!current || swapping || !exerciseId.trim() || exerciseId === current.exerciseId) return false;
 
@@ -337,13 +337,14 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
           tag: 'ReplaceExercise',
           idx: current.idx,
           exerciseId,
+          kind,
         });
 
         if (!newState) {
           throw new Error('the engine rejected the replacement');
         }
 
-        await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+        await deps.applyToRoutine(current.routineId, current.idx, exerciseId, kind);
         set((state) => ({ routineRevision: state.routineRevision + 1 }));
 
         target = null;
