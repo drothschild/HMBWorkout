@@ -634,12 +634,12 @@ describe('createExerciseReplaceStore', () => {
       expect(applyToRoutine).toHaveBeenCalledTimes(1);
     });
 
-    it('swaps a chosen local exercise without asking the AI or creating a duplicate', async () => {
+    it('passes a chosen local exercise kind to both writers without asking the AI or creating a duplicate', async () => {
       setSettings({ anthropicKey: '' });
       const { store } = makeStore();
       await store.getState().open(makeTarget());
 
-      const ok = await store.getState().chooseExisting('kettlebell-swing');
+      const ok = await (store.getState().chooseExisting as any)('rowing-erg', 'cardio');
 
       expect(ok).toBe(true);
       expect(mockFetch).not.toHaveBeenCalled();
@@ -647,9 +647,10 @@ describe('createExerciseReplaceStore', () => {
       expect(dispatch).toHaveBeenCalledWith({
         tag: 'ReplaceExercise',
         idx: 0,
-        exerciseId: 'kettlebell-swing',
+        exerciseId: 'rowing-erg',
+        kind: 'cardio',
       });
-      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'kettlebell-swing');
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'rowing-erg', 'cardio');
       expect(store.getState().status).toBe('idle');
     });
 
