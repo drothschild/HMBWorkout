@@ -72,7 +72,7 @@ describe('seedExerciseCatalog', () => {
       muscle_group: 'quadriceps marker',
       equipment: 'barbell marker',
       description: 'Strength first line marker\nStrength second line marker',
-      image_path: null,
+      image_path: 'bundle:strength-id-marker',
       image_source: 'catalog:strength-id-marker',
       created_at: 123_456,
     });
@@ -89,6 +89,7 @@ describe('seedExerciseCatalog', () => {
       muscle_group: null,
       equipment: 'machine marker',
       description: null,
+      image_path: 'bundle:cardio-id-marker',
       image_source: 'catalog:cardio-id-marker',
     });
     expect(byId['imageless-id-marker']._raw).toMatchObject({
@@ -183,5 +184,59 @@ describe('seedExerciseCatalog', () => {
 
     expect(ask).not.toHaveBeenCalled();
     expect(download).not.toHaveBeenCalled();
+  });
+
+  it('backfills a prior canonical catalog row with its bundled path without touching an explicit override', async () => {
+    await db.write(async () => {
+      await db.get('exercises').create((row: any) => {
+        row._raw.id = 'backfill-id';
+        row.title = 'Backfill title';
+        row.kind = 'strength';
+        row.imagePath = null;
+        row.imageSource = 'catalog:backfill-id';
+        row._raw.created_at = 1;
+      });
+      await db.get('exercises').create((row: any) => {
+        row._raw.id = 'override-id';
+        row.title = 'Override title';
+        row.kind = 'strength';
+        row.imagePath = 'exercise-images/explicit.jpg';
+        row.imageSource = 'url:https://example.com/explicit.jpg';
+        row._raw.created_at = 2;
+      });
+    });
+    const catalog: readonly CatalogEntry[] = [
+      {
+        id: 'backfill-id',
+        name: 'Backfill title',
+        category: 'strength',
+        equipment: null,
+        primaryMuscles: [],
+        instructions: [],
+        image: 'backfill/0.jpg',
+      },
+      {
+        id: 'override-id',
+        name: 'Override title',
+        category: 'strength',
+        equipment: null,
+        primaryMuscles: [],
+        instructions: [],
+        image: 'override/0.jpg',
+      },
+    ];
+
+    expect(await seedExerciseCatalog(db, catalog, 3)).toBe(0);
+
+    const backfill = (await db.get('exercises').find('backfill-id')) as any;
+    const override = (await db.get('exercises').find('override-id')) as any;
+    expect(backfill._raw).toMatchObject({
+      image_path: 'bundle:backfill-id',
+      image_source: 'catalog:backfill-id',
+    });
+    expect(override._raw).toMatchObject({
+      image_path: 'exercise-images/explicit.jpg',
+      image_source: 'url:https://example.com/explicit.jpg',
+    });
   });
 });
