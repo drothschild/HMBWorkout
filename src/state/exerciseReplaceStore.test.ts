@@ -152,10 +152,10 @@ describe('replaceExerciseTarget', () => {
 });
 
 describe('canOfferReplace', () => {
-  it('is false without an API key (Anthropic or OpenAI) — the button is hidden, not disabled', () => {
-    expect(canOfferReplace(makeState(), { anthropicKey: '' })).toBe(false);
-    expect(canOfferReplace(makeState(), { anthropicKey: '   ' })).toBe(false);
-    expect(canOfferReplace(makeState(), { anthropicKey: '', openaiKey: '' })).toBe(false);
+  it('is true without an API key because the local exercise library remains available', () => {
+    expect(canOfferReplace(makeState(), { anthropicKey: '' })).toBe(true);
+    expect(canOfferReplace(makeState(), { anthropicKey: '   ' })).toBe(true);
+    expect(canOfferReplace(makeState(), { anthropicKey: '', openaiKey: '' })).toBe(true);
   });
 
   it('is true with an Anthropic key and an untouched current entry', () => {
@@ -308,14 +308,14 @@ describe('createExerciseReplaceStore', () => {
       expect(content).not.toContain('no target recorded');
     });
 
-    it('makes no call and offers nothing without a key', async () => {
+    it('makes no AI call but keeps the local-library picker open without a key', async () => {
       setSettings({ anthropicKey: '' });
       const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
       expect(mockFetch).not.toHaveBeenCalled();
-      expect(store.getState().status).toBe('idle');
+      expect(store.getState().status).toBe('choosing');
       expect(store.getState().alternates).toEqual([]);
     });
 
@@ -612,6 +612,25 @@ describe('createExerciseReplaceStore', () => {
       expect([first, second]).toEqual([true, false]);
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(applyToRoutine).toHaveBeenCalledTimes(1);
+    });
+
+    it('swaps a chosen local exercise without asking the AI or creating a duplicate', async () => {
+      setSettings({ anthropicKey: '' });
+      const { store } = makeStore();
+      await store.getState().open(makeTarget());
+
+      const ok = await store.getState().chooseExisting('kettlebell-swing');
+
+      expect(ok).toBe(true);
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(ensureExercise).not.toHaveBeenCalled();
+      expect(dispatch).toHaveBeenCalledWith({
+        tag: 'ReplaceExercise',
+        idx: 0,
+        exerciseId: 'kettlebell-swing',
+      });
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'kettlebell-swing');
+      expect(store.getState().status).toBe('idle');
     });
   });
 
