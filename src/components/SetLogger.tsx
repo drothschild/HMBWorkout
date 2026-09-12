@@ -399,17 +399,20 @@ export function SetLogger({
 
       {/* The one scroller on the session screen: only the current exercise's
           sets, newest first, bounded by the fixed chrome around it. While the
-          hero is shown it keeps a floor (loggedSetsFloor), so a crowded screen
-          shrinks the hero instead of this list. With the keyboard up the hero
-          is gone and nothing else can yield, so the floor is off and the list
-          shrinks to nothing, as it did before #335; a floor there could only
-          push the buttons down. */}
+          hero is shown it normally keeps a floor (loggedSetsFloor), so a
+          crowded screen shrinks the hero before this list. A description cue
+          adds fixed chrome of its own, so the floor gives way there just as it
+          does with the keyboard: the scrollable history may collapse before
+          Log/Skip, Replace, or the fixed session footer can overlap. */}
       {/* Dragging the logged-set list also dismisses the keyboard — the
           gesture iOS users reach for without looking. This screen has no
           whole-screen scroller (it is a fixed column), so this list is where
           it belongs. */}
       <ScrollView
-        style={[styles.loggedSets, !keyboardVisible && styles.loggedSetsFloor]}
+        style={[
+          styles.loggedSets,
+          !keyboardVisible && !presenter.exerciseDescriptionLine && styles.loggedSetsFloor
+        ]}
         keyboardDismissMode="on-drag"
       >
         <ThemedText type="smallBold">
