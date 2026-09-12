@@ -221,7 +221,7 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
 
     expect(source).toContain('ImagePicker.launchImageLibraryAsync(');
     expect(source).toContain('ImagePicker.launchCameraAsync(');
-    expect(source).toContain('ImagePicker.requestCameraPermissionsAsync()');
+    expect(source).toContain('ImagePicker.requestCameraPermissionsAsync');
     expect(source).toContain('replaceExerciseImageFromLocalUri(');
     expect(source).toContain('copy: copyExerciseImage');
     expect(source).toContain('deleteFile: deleteExerciseImage');

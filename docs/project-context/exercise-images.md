@@ -66,7 +66,8 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   user-created exercises; catalog seeding itself performs no network access.
 - **Two nullable columns (schema v9) and `ImageSource` states.**
   `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
-  `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
+  `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `user` (an
+  explicit camera or photo-library choice — terminal), `none` (no
   acceptable match — terminal) and `web:<url>` (downloaded web result), `web:none`/`web:none:nokey` (web misses),
   and `none:nokey` (the no-key name match missed;
   re-resolved once a key exists). `null` means never decided, or every attempt so

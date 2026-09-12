@@ -17,6 +17,7 @@ import { updateExerciseDescription } from '@/db/repository';
 import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
 import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
 import {
   exerciseHistoryPresenter,
   type ExerciseHistoryWorkout,
@@ -39,6 +40,7 @@ export default function ExerciseDetailScreen() {
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
+  const imagePickerInFlightRef = useRef(false);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -147,38 +149,47 @@ export default function ExerciseDetailScreen() {
   // Plain function, not a hook. The hero updates by itself: the
   // exercise.observe() effect above picks up the row write.
   const chooseExercisePhoto = async (camera: boolean) => {
-    if (!id || savingImage) return;
+    if (!id || imagePickerInFlightRef.current) return;
     setSavingImage(true);
     setImageMessage(null);
     try {
-      if (camera && !(await ImagePicker.requestCameraPermissionsAsync()).granted) {
-        setImageMessage({
-          text: 'Camera access is off. Choose a photo instead or enable camera access in Settings.',
-          isError: true,
-        });
-        return;
-      }
       const options: ImagePicker.ImagePickerOptions = {
         mediaTypes: ['images'],
         quality: 0.8,
         exif: false,
         base64: false,
       };
-      const result = camera
-        ? await ImagePicker.launchCameraAsync(options)
-        : await ImagePicker.launchImageLibraryAsync(options);
-      if (result.canceled || !result.assets[0]?.uri) return;
-      const outcome = await replaceExerciseImageFromLocalUri(
+      const pickerOutcome = await pickExercisePhoto(
         {
-          database,
-          copy: copyExerciseImage,
-          deleteFile: deleteExerciseImage,
-          makeImageSuffix: makeExerciseImageSuffix,
-          log: (message, error) => console.warn(message, error),
+          requestCameraPermission: ImagePicker.requestCameraPermissionsAsync,
+          launchCamera: () => ImagePicker.launchCameraAsync(options),
+          launchLibrary: () => ImagePicker.launchImageLibraryAsync(options),
+          save: (uri) =>
+            replaceExerciseImageFromLocalUri(
+              {
+                database,
+                copy: copyExerciseImage,
+                deleteFile: deleteExerciseImage,
+                makeImageSuffix: makeExerciseImageSuffix,
+                log: (message, error) => console.warn(message, error),
+              },
+              id,
+              uri
+            ),
         },
-        id,
-        result.assets[0].uri
+        camera,
+        imagePickerInFlightRef
       );
+      if (pickerOutcome.kind === 'camera-denied') {
+        setImageMessage({
+          text: 'Camera access is off. Choose a photo instead or enable camera access in Settings.',
+          isError: true,
+        });
+        return;
+      }
+      if (pickerOutcome.kind === 'cancelled' || pickerOutcome.kind === 'busy') return;
+
+      const outcome = pickerOutcome.outcome;
       setImageMessage({
         text: outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
         isError: outcome.kind !== 'saved',
