@@ -297,6 +297,7 @@ export function SetLogger({
         >
           <View
             style={[styles.descriptionPopupCard, { backgroundColor: theme.background }]}
+            accessible
             accessibilityViewIsModal
             onAccessibilityEscape={() => setDescriptionPopupOpen(false)}
           >
