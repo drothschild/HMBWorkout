@@ -9,6 +9,17 @@ export interface ExerciseLibraryItem {
   imagePath: string | null;
 }
 
+/** Narrows a presenter-shaped library without changing its established order. */
+export function filterExerciseLibraryItems(
+  items: ExerciseLibraryItem[],
+  query: string
+): ExerciseLibraryItem[] {
+  const foldedQuery = query.trim().toLocaleLowerCase();
+  if (!foldedQuery) return items;
+
+  return items.filter((item) => item.title.toLocaleLowerCase().includes(foldedQuery));
+}
+
 /** Every exercise stored locally, formatted and sorted for the Exercises tab. */
 export async function exerciseLibraryPresenter(db: Database): Promise<ExerciseLibraryItem[]> {
   const exercises = (await db.get('exercises').query().fetch()) as Exercise[];
