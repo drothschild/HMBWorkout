@@ -1363,6 +1363,64 @@ describe('createSessionPresenter', () => {
     });
   });
 
+  describe('exercise description popup — #368', () => {
+    test('exposes the trimmed full description while preserving its internal lines', () => {
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': '  Brace hard, then squat.\nKeep the knees tracking over toes.  ' }
+      );
+
+      expect(presenter.exerciseDescription).toBe(
+        'Brace hard, then squat.\nKeep the knees tracking over toes.'
+      );
+      expect(presenter.exerciseDescriptionLine).toBe('Brace hard, then squat.');
+    });
+
+    test('treats a whitespace-only description as absent', () => {
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': '  \n  ' }
+      );
+
+      expect(presenter.exerciseDescription).toBeUndefined();
+      expect(presenter.exerciseDescriptionLine).toBeUndefined();
+    });
+
+    test('resolves the full description from the current exercise after replacement', () => {
+      const state = createMockState();
+      state.entries = [
+        state.entries[0],
+        { ...state.entries[0], idx: 1, exerciseId: 'ex-2' },
+      ];
+      state.exerciseIndex = 1;
+
+      const presenter = createSessionPresenter(
+        state,
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          'ex-1': 'Old exercise description.',
+          'ex-2': 'Replacement exercise description.',
+        }
+      );
+
+      expect(presenter.exerciseDescription).toBe('Replacement exercise description.');
+    });
+  });
+
   describe('currentExerciseImagePath — #335', () => {
     const IMAGE_PATHS: Record<string, string> = {
       'bench-press': 'exercise-images/bench-press-a1.jpg',
