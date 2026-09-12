@@ -88,22 +88,6 @@ describe('ReplaceExercise: swapping the current exercise', () => {
     expect(state.entries[2].exerciseId).toBe('exercise-2');
   });
 
-  it('adopts the selected local exercise kind while preserving its plan', async () => {
-    const engine = createEngine(makeExecutors());
-    engine.setState(makeState());
-
-    const state = await engine.dispatch({
-      tag: 'ReplaceExercise',
-      idx: 0,
-      exerciseId: 'kettlebell-swing',
-      kind: 'cardio',
-    });
-
-    expect(state.entries[0].exerciseId).toBe('kettlebell-swing');
-    expect(state.entries[0].kind).toBe('cardio');
-    expect(state.entries[0].sets).toEqual(makeEntries()[0].sets);
-  });
-
   it('leaves the entry’s prescription untouched — alternates change identity only', async () => {
     const engine = createEngine(makeExecutors());
     const before = makeState({

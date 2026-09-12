@@ -619,7 +619,7 @@ describe('createExerciseReplaceStore', () => {
       const { store } = makeStore();
       await store.getState().open(makeTarget());
 
-      const ok = await store.getState().chooseExisting('kettlebell-swing', 'cardio');
+      const ok = await store.getState().chooseExisting('kettlebell-swing');
 
       expect(ok).toBe(true);
       expect(mockFetch).not.toHaveBeenCalled();
@@ -628,7 +628,6 @@ describe('createExerciseReplaceStore', () => {
         tag: 'ReplaceExercise',
         idx: 0,
         exerciseId: 'kettlebell-swing',
-        kind: 'cardio',
       });
       expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'kettlebell-swing');
       expect(store.getState().status).toBe('idle');
