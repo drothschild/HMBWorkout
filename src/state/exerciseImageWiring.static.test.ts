@@ -169,7 +169,7 @@ describe('session.tsx passes the image map to the presenter (#335 AC3.6)', () =>
   it('passes exerciseImagePaths as the 6th positional argument of createSessionPresenter', () => {
     const args = callArguments(normalized(FILES.session), 'createSessionPresenter', 'session.tsx');
 
-    expect(args).toHaveLength(6);
+    expect(args).toHaveLength(7);
     expect(args[5]).toBe('exerciseImagePaths');
   });
 });
@@ -551,12 +551,12 @@ describe('the workout hero shrinks to fit instead of overlapping the buttons (#3
     expect(styleEntry(source, 'loggedSetsFloor', 'SetLogger.tsx')).toEqual(['minHeight:LOGGED_SETS_MIN_HEIGHT']);
   });
 
-  it('the floor applies only while the hero is shown', () => {
+  it('the floor applies only while the hero is shown and no description chrome competes', () => {
     // With the keyboard up the hero is gone and nothing else in the column can
     // yield, so a floor there could only push the buttons down; the list goes
     // back to being the elastic element, as it was before #335.
     const source = compact(FILES.setLogger);
-    const tag = '<ScrollViewstyle={[styles.loggedSets,!keyboardVisible&&styles.loggedSetsFloor]}';
+    const tag = '<ScrollViewstyle={[styles.loggedSets,!keyboardVisible&&!presenter.exerciseDescriptionLine&&styles.loggedSetsFloor]}';
 
     expect(occurrences(source, tag)).toBe(1);
   });

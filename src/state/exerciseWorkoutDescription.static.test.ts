@@ -27,6 +27,12 @@ function hasBoundedDescriptionCue(source: string): boolean {
   );
 }
 
+function letsLoggedSetsYieldToDescriptionChrome(source: string): boolean {
+  return compact(source).includes(
+    'style={[styles.loggedSets,!keyboardVisible&&!presenter.exerciseDescriptionLine&&styles.loggedSetsFloor]}'
+  );
+}
+
 describe('issue #357 active-workout exercise description cue', () => {
   test('uses only the first trimmed physical line of the stored description', () => {
     expect(firstExerciseDescriptionLine('  Brace hard, then squat.\nKeep the knees tracking over toes.  '))
@@ -72,6 +78,12 @@ describe('issue #357 active-workout exercise description cue', () => {
     expect(hasBoundedDescriptionCue(setLoggerSource)).toBe(true);
     expect(unboundedCueMutant).not.toBe(setLoggerSource);
     expect(hasBoundedDescriptionCue(unboundedCueMutant)).toBe(false);
+  });
+
+  test('lets the logged-set scroller yield when description chrome is present', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+
+    expect(letsLoggedSetsYieldToDescriptionChrome(setLoggerSource)).toBe(true);
   });
 
   test('discards a stale title/description read after Replace changes the exercise ids', () => {
