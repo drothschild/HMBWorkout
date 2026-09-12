@@ -4,7 +4,7 @@ import SessionSet, { SetType } from './models/SessionSet';
 import Routine from './models/Routine';
 import RoutineExercise from './models/RoutineExercise';
 import RoutineSet, { type RoutineSetType } from './models/RoutineSet';
-import Exercise from './models/Exercise';
+import Exercise, { type ExerciseKind } from './models/Exercise';
 import { validateSet } from './validation';
 
 export type { RoutineSetType };
@@ -933,25 +933,19 @@ export async function findRoutineExerciseIdByOrder(
 /**
  * Point an existing routine entry at a different exercise, in place.
  *
- * The row keeps its id, and only `exercise_id` changes. That is the whole
+ * The row keeps its id, and `exercise_id` changes in place. That is the whole
  * point: `session_sets.routine_exercise_id` references this row, so deleting
  * and recreating the row would orphan every set ever logged against the entry.
- * The plan's structure (order, warmup/target-set/target-rep/rest columns,
- * superset group) belongs to the entry and is left untouched — a substitute
- * inherits it.
+ * The plan's structure (order, set type, rest and superset group) belongs to
+ * the entry and is left untouched — a substitute inherits it.
  *
- * **Prescribed LOADS are the one exception, and they are cleared here** — every
- * one of the entry's `routine_sets` rows' `target_weight_kg` (#276; the
- * entry-level column this used to clear alongside them was undeclared at v7).
- * Sets,
- * reps and rest survive a substitution because they are near-dimensionless
- * across movements; load is not — 185lb is a working squat and an impossible
- * leg extension. And because a prescription *overrides* the history-derived
- * prefill rather than deferring to it (computeSetPrefill, sessionPresenter.ts),
- * a stale one does not quietly lose to the substitute's own correct numbers: it
- * wins over them, and pre-types a dangerous load into the athlete's input. So
- * the swap drops it, and the substitute falls back to plain history-derived
- * prefill, which is right.
+ * **Prescribed loads are always cleared.** Same-kind swaps retain other
+ * measurements, but a cross-kind swap also clears reps/range, duration and
+ * distance: the app never guesses a reps-to-duration conversion. This keeps a
+ * selected kind from inheriting an incompatible target while preserving the
+ * workout's set count and rest pattern. Because a prescription can override
+ * history-derived prefill, a stale one would otherwise win and pre-type an
+ * unsafe or nonsensical value into the athlete's input.
  *
  * **Past sets keep the identity they were recorded under; the row is then free
  * to re-point.** The row is permanent and shared by every session that ever
@@ -967,11 +961,15 @@ export async function findRoutineExerciseIdByOrder(
  * @param database The database instance
  * @param routineExerciseId The routine_exercises row id (the entry's identity)
  * @param exerciseId The exercise the entry should name
+ * @param replacementKind The selected kind, when this caller knows it. A
+ * cross-kind value clears all measurement prescriptions; omitted preserves the
+ * legacy same-kind load-only behavior for callers predating this event field.
  */
 export async function updateRoutineExerciseExerciseId(
   database: Database,
   routineExerciseId: string,
-  exerciseId: string
+  exerciseId: string,
+  replacementKind?: ExerciseKind
 ): Promise<RoutineExercise> {
   const trimmed = exerciseId?.trim();
   if (!trimmed) {
@@ -1006,10 +1004,10 @@ export async function updateRoutineExerciseExerciseId(
       }
     }
 
-    // Only the LOADS go — set_type, reps and order are the plan's structure and
-    // are near-dimensionless across movements, so a substitute keeps them,
-    // exactly as it keeps the entry's rest column. A substitute inheriting a
-    // seven-step warmup ramp of somebody else's loads is the bug this prevents.
+    // Same-kind swaps clear only loads. Cross-kind swaps preserve structural
+    // fields (order, set_type, rest) but clear every measurement prescription:
+    // rep/load/duration/distance units cannot be converted safely. Callers that
+    // do not provide replacementKind keep the legacy same-kind behavior.
     //
     // Through Phase 5 this ran alongside a clear of the entry's own
     // `target_weight_kg`; that column is undeclared at v7, so the per-set clear
@@ -1027,15 +1025,30 @@ export async function updateRoutineExerciseExerciseId(
       .query(Q.where('routine_exercise_id', routineExerciseId))
       .fetch()) as RoutineSet[];
 
-    const loaded = prescribedSets.filter(
-      (set) => ((set as any)._raw.target_weight_kg ?? null) !== null
-    );
+    let crossKind = false;
+    if (replacementKind !== undefined && outgoingExerciseId) {
+      const outgoingExercise = (await database.get('exercises').find(outgoingExerciseId)) as Exercise;
+      crossKind = replacementKind !== outgoingExercise.kind;
+    }
+    const setsToClear = prescribedSets.filter((set) => {
+      const raw = (set as any)._raw;
+      return crossKind
+        ? raw.target_reps != null || raw.target_reps_max != null || raw.target_weight_kg != null ||
+            raw.target_duration_seconds != null || raw.target_distance_m != null
+        : raw.target_weight_kg != null;
+    });
 
-    if (loaded.length > 0) {
+    if (setsToClear.length > 0) {
       await database.batch(
-        ...loaded.map((set) =>
+        ...setsToClear.map((set) =>
           set.prepareUpdate((record: any) => {
             record.targetWeightKg = null;
+            if (crossKind) {
+              record.targetReps = null;
+              record.targetRepsMax = null;
+              record.targetDurationSeconds = null;
+              record.targetDistanceM = null;
+            }
           })
         )
       );

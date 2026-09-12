@@ -157,6 +157,45 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
   }
 
   describe('updateRoutineExerciseExerciseId', () => {
+    it('cross-kind replacement keeps set structure and rest but clears every measurement prescription', async () => {
+      await database.write(async () => {
+        await database.get('exercises').create((e: any) => {
+          e._raw.id = 'rowing-erg';
+          e.title = 'Rowing Erg';
+          e.kind = 'cardio';
+        });
+        await database.get('routine_sets').create((s: any) => {
+          s._raw.routine_exercise_id = rowId;
+          s._raw.order = 0;
+          s._raw.set_type = 'warmup';
+          s._raw.target_reps = 6;
+          s._raw.target_reps_max = 8;
+          s._raw.target_weight_kg = 20;
+          s._raw.target_duration_seconds = 60;
+          s._raw.target_distance_m = 100;
+          s._raw.rest_seconds = 30;
+        });
+        await database.get('routine_sets').create((s: any) => {
+          s._raw.routine_exercise_id = rowId;
+          s._raw.order = 1;
+          s._raw.set_type = 'normal';
+          s._raw.target_reps = 10;
+          s._raw.target_reps_max = 12;
+          s._raw.target_weight_kg = 80;
+          s._raw.target_duration_seconds = 300;
+          s._raw.target_distance_m = 1000;
+          s._raw.rest_seconds = 90;
+        });
+      });
+
+      await updateRoutineExerciseExerciseId(database, rowId, 'rowing-erg', 'cardio' as any);
+
+      expect(await getRoutineSets(database, rowId)).toEqual([
+        { setType: 'warmup', restSeconds: 30 },
+        { setType: 'normal', restSeconds: 90 },
+      ]);
+    });
+
     it('rewrites exercise_id and keeps the row id', async () => {
       const updated = await updateRoutineExerciseExerciseId(
         database,
@@ -174,7 +213,7 @@ describe('Repository: replacing a routine entry’s exercise in place', () => {
     it('leaves the prescription alone — the swap changes identity only', async () => {
       await seedDefaultPrescription();
 
-      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE);
+      await updateRoutineExerciseExerciseId(database, rowId, REPLACEMENT_EXERCISE, 'strength');
 
       const row = (await database.get('routine_exercises').find(rowId)) as any;
       expect(row._raw.order).toBe(0);

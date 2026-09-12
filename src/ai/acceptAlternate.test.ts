@@ -29,10 +29,10 @@ describe('ensureAlternateExercise', () => {
     await closeTestDatabase(database);
   });
 
-  it('creates the exercise, keyed by slugifyTitle(title), carrying the description', async () => {
-    const exerciseId = await ensureAlternateExercise(database, ALTERNATE, 'strength');
+  it('returns the created exercise record identity and its authoritative kind', async () => {
+    const resolved = await ensureAlternateExercise(database, ALTERNATE, 'strength');
 
-    expect(exerciseId).toBe('dumbbell-floor-press');
+    expect(resolved).toEqual({ exerciseId: 'dumbbell-floor-press', kind: 'strength' });
 
     const created = (await database.get('exercises').find('dumbbell-floor-press')) as any;
     expect(created.title).toBe('Dumbbell Floor Press');
@@ -57,9 +57,11 @@ describe('ensureAlternateExercise', () => {
       });
     });
 
-    const exerciseId = await ensureAlternateExercise(database, ALTERNATE, 'strength');
+    const resolved = await ensureAlternateExercise(database, ALTERNATE, 'strength');
 
-    expect(exerciseId).toBe('dumbbell-floor-press');
+    // The selected record, not the outgoing entry or AI payload, is the
+    // authority. Its kind must reach the engine and routine write unchanged.
+    expect(resolved).toEqual({ exerciseId: 'dumbbell-floor-press', kind: 'cardio' });
     const existing = (await database.get('exercises').find('dumbbell-floor-press')) as any;
     expect(existing.title).toBe('DB Floor Press (mine)');
     expect(existing.kind).toBe('cardio');

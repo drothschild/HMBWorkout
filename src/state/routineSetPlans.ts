@@ -21,14 +21,12 @@
  *
  * The freshness of the second reader is load-bearing and is why the prefill
  * does not simply read the set list off engine state.
- * `updateRoutineExerciseExerciseId` clears every `target_weight_kg` on an
- * exercise swap (AGENTS.md's swap rule), but the engine's `ReplaceExercise`
- * leaves the entry's `sets` untouched by design (#276 AC2.11) — so a prefill
- * sourced from engine state would hand the substitute the outgoing exercise's
- * whole ramp, which is the exact stale-prescription bug the clear exists to
- * prevent, multiplied across a list. Reading the DB after
- * `exerciseReplaceStore.routineRevision` bumps is what makes the clear visible
- * to the running session.
+ * `updateRoutineExerciseExerciseId` clears every `target_weight_kg` on every
+ * swap and clears every other measurement on a cross-kind swap. Same-kind
+ * `ReplaceExercise` retains its engine-state `sets`; cross-kind replacement
+ * strips measurements there as well, preserving only shape/rest. Reading the
+ * DB after `exerciseReplaceStore.routineRevision` bumps is still what makes
+ * the load clear visible to the running session.
  */
 
 import { Database, Q } from '@nozbe/watermelondb';
