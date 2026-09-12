@@ -40,8 +40,9 @@ function hasDismissibleFloatingDescriptionPopup(source: string): boolean {
     'onPress={()=>setDescriptionPopupOpen(true)}',
     'accessibilityLabel="Showfullexercisedescription"',
     '<Modalvisible={descriptionPopupOpen}animationType="fade"transparentonRequestClose={()=>setDescriptionPopupOpen(false)}>',
-    '<Pressablestyle={styles.descriptionPopupBackdrop}onPress={()=>setDescriptionPopupOpen(false)}accessibilityRole="button"accessibilityLabel="Dismissfullexercisedescription">',
-    '<ViewpointerEvents="none"style={[styles.descriptionPopupCard,{backgroundColor:theme.background}]}>',
+    '<Pressablestyle={styles.descriptionPopupBackdrop}onPress={()=>setDescriptionPopupOpen(false)}accessible={false}>',
+    '<Viewstyle={[styles.descriptionPopupCard,{backgroundColor:theme.background}]}accessibilityViewIsModalonAccessibilityEscape={()=>setDescriptionPopupOpen(false)}>',
+    '<ScrollViewstyle={styles.descriptionPopupScroll}>',
     '{presenter.exerciseDescription}',
   ].every((fragment) => compactSource.includes(fragment));
 }
@@ -148,5 +149,16 @@ describe('issue #357 active-workout exercise description cue', () => {
     expect(compactSource).toContain('boxShadow:');
     expect(setLoggerSource).not.toContain('shadowOpacity:');
     expect(setLoggerSource).not.toContain('elevation:');
+  });
+
+  test('keeps the popup small and centered while long descriptions scroll', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const compactSource = compact(setLoggerSource);
+
+    expect(compactSource).toContain(
+      "descriptionPopupBackdrop:{flex:1,alignItems:'center',justifyContent:'center'"
+    );
+    expect(compactSource).toContain("descriptionPopupCard:{width:'84%',maxWidth:360,maxHeight:'70%'");
+    expect(compactSource).toContain('descriptionPopupScroll:{flexShrink:1}');
   });
 });

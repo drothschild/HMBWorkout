@@ -7,6 +7,7 @@ import {
   historyToSetInputValues,
 } from './sessionPresenter';
 import { computeProgressionHint } from './progressionHintHelper';
+import { EXERCISE_CATALOG_DATA } from './exerciseCatalogData';
 import type { LoggedSet, RoutineSet, SessionState } from '@/engine/types';
 
 /**
@@ -1418,6 +1419,25 @@ describe('createSessionPresenter', () => {
       );
 
       expect(presenter.exerciseDescription).toBe('Replacement exercise description.');
+    });
+
+    test('preserves the complete longest seeded description for a scrollable popup', () => {
+      const powerClean = EXERCISE_CATALOG_DATA.find((entry) => entry.id === 'Power_Clean');
+      const description = powerClean?.instructions.join('\n');
+
+      expect(description).toHaveLength(3214);
+
+      const presenter = createSessionPresenter(
+        createMockState(),
+        jest.fn(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { 'ex-1': description! }
+      );
+
+      expect(presenter.exerciseDescription).toBe(description);
     });
   });
 
