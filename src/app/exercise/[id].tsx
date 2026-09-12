@@ -1,6 +1,6 @@
 import { StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
@@ -15,6 +15,10 @@ import { updateExerciseDescription } from '@/db/repository';
 import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
 import { exerciseImageOverrideMessage, overrideExerciseImage } from '@/state/exerciseImageOverride';
 import { deleteExerciseImage, downloadExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import {
+  exerciseHistoryPresenter,
+  type ExerciseHistoryWorkout,
+} from '@/state/exerciseHistoryPresenter';
 
 const AUTOSAVE_DELAY_MS = 500;
 
@@ -35,6 +39,39 @@ export default function ExerciseDetailScreen() {
   const [imageUrl, setImageUrl] = useState('');
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
+  const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) {
+        setHistoryLoading(false);
+        return;
+      }
+
+      let cancelled = false;
+      setHistoryLoading(true);
+      (async () => {
+        try {
+          const result = await exerciseHistoryPresenter(database, id);
+          if (!cancelled) {
+            setHistory(result);
+            setHistoryError(null);
+          }
+        } catch (error) {
+          console.error('Failed to load exercise history:', error);
+          if (!cancelled) setHistoryError("Couldn't load exercise history.");
+        } finally {
+          if (!cancelled) setHistoryLoading(false);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [id])
+  );
 
   useEffect(() => {
     const loadExercise = async () => {
@@ -260,6 +297,34 @@ export default function ExerciseDetailScreen() {
               numberOfLines={6}
             />
           </ThemedView>
+
+          <ThemedView style={styles.historySection}>
+            <ThemedText type="subtitle">History</ThemedText>
+            {historyLoading ? (
+              <ThemedText type="small" style={styles.caption}>Loading history…</ThemedText>
+            ) : historyError ? (
+              <ThemedText type="small" style={styles.errorMessage}>{historyError}</ThemedText>
+            ) : history.length === 0 ? (
+              <ThemedText type="small" style={styles.caption}>No completed workouts yet.</ThemedText>
+            ) : (
+              history.map((workout) => (
+                <ThemedView
+                  key={workout.sessionId}
+                  style={[styles.historyCard, { backgroundColor: theme.backgroundElement }]}
+                >
+                  <ThemedText type="default" style={styles.historyDate}>
+                    {workout.dateLabel}
+                  </ThemedText>
+                  {workout.sets.map((set) => (
+                    <View key={set.id} style={styles.historySetRow}>
+                      <ThemedText type="small" style={styles.historySetLabel}>{set.label}</ThemedText>
+                      <ThemedText type="small" style={styles.historySetValue}>{set.line}</ThemedText>
+                    </View>
+                  ))}
+                </ThemedView>
+              ))
+            )}
+          </ThemedView>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -321,6 +386,29 @@ const styles = StyleSheet.create({
   },
   formGroup: {
     gap: Spacing.one,
+  },
+  historySection: {
+    gap: Spacing.two,
+  },
+  historyCard: {
+    borderRadius: 10,
+    gap: Spacing.two,
+    padding: Spacing.three,
+  },
+  historyDate: {
+    fontWeight: '600',
+  },
+  historySetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+  },
+  historySetLabel: {
+    opacity: 0.6,
+  },
+  historySetValue: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
   label: {
     fontSize: 14,
