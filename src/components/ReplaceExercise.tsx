@@ -172,7 +172,7 @@ export function ReplaceExercise({
                     renderItem={({ item }) => (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Replace with ${item.title}`}
+                        accessibilityLabel={`Replace with ${item.title} (${item.kind})`}
                         disabled={status === 'swapping'}
                         onPress={() => exerciseReplaceStore.getState().chooseExisting(item.id, item.kind)}
                         style={[styles.option, { backgroundColor: theme.backgroundElement }]}
