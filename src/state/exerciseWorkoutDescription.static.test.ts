@@ -82,8 +82,14 @@ describe('issue #357 active-workout exercise description cue', () => {
 
   test('lets the logged-set scroller yield when description chrome is present', () => {
     const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const alwaysFlooredMutant = setLoggerSource.replace(
+      '!keyboardVisible && !presenter.exerciseDescriptionLine && styles.loggedSetsFloor',
+      '!keyboardVisible && styles.loggedSetsFloor'
+    );
 
     expect(letsLoggedSetsYieldToDescriptionChrome(setLoggerSource)).toBe(true);
+    expect(alwaysFlooredMutant).not.toBe(setLoggerSource);
+    expect(letsLoggedSetsYieldToDescriptionChrome(alwaysFlooredMutant)).toBe(false);
   });
 
   test('discards a stale title/description read after Replace changes the exercise ids', () => {
