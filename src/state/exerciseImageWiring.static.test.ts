@@ -230,7 +230,10 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
   });
 
   it('refuses a second picker/save operation while one is in flight', () => {
-    expect(compact(FILES.exerciseDetail)).toContain('if(!id||savingImage)return;');
+    const source = compact(FILES.exerciseDetail);
+    expect(source).toContain('constimagePickerInFlightRef=useRef(false);');
+    expect(source).toContain('if(!id||imagePickerInFlightRef.current)return;');
+    expect(source).toContain('pickExercisePhoto(');
   });
 });
 

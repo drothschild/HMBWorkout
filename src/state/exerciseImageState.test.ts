@@ -45,6 +45,8 @@ describe('exerciseImageState', () => {
       ['catalog:Barbell_Squat', true, false],
       ['url:https://example.com/x.jpg', false, false],
       ['url:https://example.com/x.jpg', true, false],
+      ['user', false, false], // an explicit local photo is terminal without an AI key
+      ['user', true, false], // and remains terminal after an AI key is configured
       ['garbage', false, false], // unrecognised value, left alone
       ['garbage', true, false],
     ])(
