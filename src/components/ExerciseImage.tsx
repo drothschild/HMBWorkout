@@ -87,6 +87,7 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
             source={{ uri: imageUri }}
             contentFit="contain"
             recyclingKey={`preview-${imagePath}`}
+            pointerEvents="none"
             onError={() => {
               setPreviewVisible(false);
               setLoadedPath(null);

@@ -75,9 +75,11 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   thumbnail press also stops propagation as a safeguard. A visible 32-point strip
   image is centered in its own non-overlapping 44-point press target. The full-screen
   modal reuses the same local file URI with `contentFit="contain"`, provides labelled
-  open and close controls, closes from the backdrop or platform request, and remains
-  human-QA gated because React Native layout and accessibility behavior cannot run in
-  the node Jest project.
+  open and close controls, and closes from the backdrop or platform request. The
+  preview image is touch-transparent so its contain-fit letterbox cannot block backdrop
+  taps; its native view occupies the whole 100%-by-80% frame even where no image pixel
+  is drawn. The interaction remains human-QA gated because React Native layout and
+  accessibility behavior cannot run in the node Jest project.
 - **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
   `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
   shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question
