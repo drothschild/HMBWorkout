@@ -402,7 +402,7 @@ describe('session.tsx sheds non-essentials while the keyboard is open (#335 Phas
 
     expect(occurrences(source, '<ReplaceExercise')).toBe(1);
     expect(source).toContain(
-      'belowButtonsSlot={!keyboardVisible&&(<ReplaceExercisesessionState={sessionState}exerciseTitles={exerciseTitles}/>)}'
+      'belowButtonsSlot={<ReplaceExercisesessionState={sessionState}exerciseTitles={exerciseTitles}keyboardVisible={keyboardVisible}/>}'
     );
   });
 

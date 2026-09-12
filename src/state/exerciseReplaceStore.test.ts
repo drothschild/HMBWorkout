@@ -632,6 +632,48 @@ describe('createExerciseReplaceStore', () => {
       expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'kettlebell-swing');
       expect(store.getState().status).toBe('idle');
     });
+
+    it('does not replace an exercise with itself, so the existing prescription is not cleared', async () => {
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('barbell-bench-press')).resolves.toBe(false);
+
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(applyToRoutine).not.toHaveBeenCalled();
+    });
+
+    it('does not dispatch an empty local exercise id', async () => {
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('   ')).resolves.toBe(false);
+
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(applyToRoutine).not.toHaveBeenCalled();
+    });
+
+    it('does not rewrite the routine when the engine rejects a local selection', async () => {
+      dispatch.mockResolvedValueOnce(null);
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('kettlebell-swing')).resolves.toBe(false);
+
+      expect(applyToRoutine).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe('error');
+    });
+
+    it('bumps routineRevision for a local selection only after its routine write commits', async () => {
+      let release: (value: void) => void = () => {};
+      applyToRoutine.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      const choose = store.getState().chooseExisting('kettlebell-swing');
+      expect(store.getState().routineRevision).toBe(before);
+
+      release();
+      await expect(choose).resolves.toBe(true);
+      expect(store.getState().routineRevision).toBe(before + 1);
+    });
   });
 
   describe('cancel', () => {
