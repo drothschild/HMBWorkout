@@ -139,4 +139,14 @@ describe('issue #357 active-workout exercise description cue', () => {
 
     expect(hasDismissibleFloatingDescriptionPopup(setLoggerSource)).toBe(true);
   });
+
+  test('uses the current native shadow and continuous-corner styling for the floating card', () => {
+    const setLoggerSource = fs.readFileSync(path.join(ROOT, 'components/SetLogger.tsx'), 'utf8');
+    const compactSource = compact(setLoggerSource);
+
+    expect(compactSource).toContain("borderCurve:'continuous'");
+    expect(compactSource).toContain('boxShadow:');
+    expect(setLoggerSource).not.toContain('shadowOpacity:');
+    expect(setLoggerSource).not.toContain('elevation:');
+  });
 });
