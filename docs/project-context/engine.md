@@ -181,28 +181,38 @@ These exist to work around Rill's type system and have no analog in ordinary TS:
    would need a parallel shell-side structure indexed the same way.
 
    That makes the load's freshness the shell's problem, and the answer is: the
-   prefill does **not** read load off engine state. `ReplaceExercise` leaves an
-   entry's `sets` intact by design (#276 AC2.11) while
-   `updateRoutineExerciseExerciseId` clears every attached `routine_sets` row's
-   `target_weight_kg`, so engine state can hold a swapped-away exercise's whole
-   ramp. `computeSetPrefill` therefore takes `prescribedSets` — read FRESH from the
-   database by the caller (`getPrescribedSetsForEntry` in `routineSetPlans.ts`) —
-   as a caller-resolved argument, the same way `exerciseTitles` and
-   `historyFallback` do. **Reps and duration come from engine state's own list**,
-   because a swap does not clear those, so a failed prescription read costs the
-   load and nothing else. Two source arrays, one index; do not "simplify" them into
-   one.
+   prefill does **not** read load off engine state. A same-kind `ReplaceExercise`
+   leaves an entry's `sets` intact while `updateRoutineExerciseExerciseId` clears
+   every attached `routine_sets` row's `target_weight_kg`, so engine state can
+   hold a swapped-away exercise's whole ramp. A cross-kind replace clears every
+   measurement in both places — no reps-to-duration conversion is inferred —
+   while retaining the set list's shape and rest. `computeSetPrefill` therefore
+   takes `prescribedSets` — read FRESH from the database by the caller
+   (`getPrescribedSetsForEntry` in `routineSetPlans.ts`) — as a caller-resolved
+   argument, the same way `exerciseTitles` and `historyFallback` do. **Reps and
+   duration come from engine state's own list only for same-kind swaps**, so a
+   failed prescription read costs the load and nothing else. Two source arrays,
+   one index; do not "simplify" them into one.
 
-7. **`ReplaceExercise` swaps a running entry's identity, under engine guards.** The
-   event carries `{ idx, exerciseId }`; the rule requires `idx == exerciseIndex`
+7. **`ReplaceExercise` swaps a running entry's identity and kind, under engine
+   guards.** The event carries `{ idx, exerciseId, kind }`; the rule requires `idx == exerciseIndex`
    (a pick made after the workout moved on is rejected, not misapplied),
    `setIndex == 0` (an entry with any logged or skipped set is committed), and
    phase `Warmup | Working`. The rule rebuilds `entries` with a position-counting
-   `fold` using functional record update (`{ entry | exerciseId: ... }`), so the
-   closed-record field-loss hazard in convention 6 cannot occur. The shell's write
-   ordering around the dispatch is load-bearing: ensure the exercise record exists →
-   dispatch → only on `Ok` re-point the routine row — a rejected swap must never
-   leave the routine pointing where the session isn't.
+   `fold` using functional record update, so the closed-record field-loss hazard
+   in convention 6 cannot occur. Same-kind replacements retain prescriptions
+   except for load; cross-kind replacements retain set order/type/rest and clear
+   reps, range, load, duration and distance instead of converting units. The
+   shell's write ordering around the dispatch is load-bearing: ensure the
+   exercise record exists → dispatch → only on `Ok` re-point the routine row — a
+   rejected swap must never leave the routine pointing where the session isn't.
+   The ensure step returns both the selected record's id and kind: a new record
+   has the outgoing entry's creation kind, while an existing record keeps its
+   persisted kind. That resolved kind is passed unchanged to both the event and
+   routine writer; the AI alternate payload is not authoritative for it.
+   `kind` is a transient event field, not persisted session shape; old callers
+   without it resolve the current entry kind at the host boundary, while a saved
+   session already stores each entry's kind and rehydrates unchanged.
 
 8. **The shell reads sentinels, not `Option`s.** `fromRillState` re-sentinelizes on the
    way out — `rpe: undefined → -1`, `restDeadlineMs`/`restRemainingMs` → `0`,

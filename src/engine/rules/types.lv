@@ -26,13 +26,14 @@ alias Routine = { entries: List(RoutineEntry), id: String }
 alias SessionSummary = { startMs: Int, endMs: Int, exercisesCompleted: Int, setsLogged: Int, loggedSets: List(LoggedSet) }
 
 -- Now define types that depend on the above aliases
--- ReplaceExercise swaps which movement an entry names, and nothing else: the
--- targets, warmups, rest and superset grouping of entry `idx` are the plan and
--- survive the swap. It carries `idx` rather than acting on exerciseIndex
--- implicitly because the substitute arrives from a network round-trip — the
--- workout may have advanced under the picker, and a stale choice must be
--- rejected rather than applied to whatever entry is current by then.
-type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float), nowMs: Int }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | ReplaceExercise({ idx: Int, exerciseId: String }) | PauseSession({ nowMs: Int }) | Resume({ nowMs: Int }) | AppForegrounded({ nowMs: Int }) | FinishSession({ nowMs: Int }) | AbandonSession
+-- ReplaceExercise carries the selected exercise's kind as well as its id.
+-- Same-kind swaps retain the existing plan; cross-kind swaps retain only set
+-- shape/rest because rep, load, duration and distance have no safe conversion.
+-- It carries `idx` rather than acting on exerciseIndex implicitly because the
+-- substitute arrives from a network round-trip — the workout may have advanced
+-- under the picker, and a stale choice must be rejected rather than applied to
+-- whatever entry is current by then.
+type Event = StartSession({ sessionId: String, nowMs: Int, routine: Routine }) | LogSet({ reps: Option(Int), weightKg: Option(Float), durationSeconds: Option(Int), rpe: Option(Float), nowMs: Int }) | SetDone({ nowMs: Int }) | RestElapsed({ nowMs: Int }) | SkipRest | ReplaceExercise({ idx: Int, exerciseId: String, kind: String }) | PauseSession({ nowMs: Int }) | Resume({ nowMs: Int }) | AppForegrounded({ nowMs: Int }) | FinishSession({ nowMs: Int }) | AbandonSession
 
 -- DiscardSession is the counterpart to CompleteSession, not a variant of it:
 -- CompleteSession is what drives the HealthKit export, so an abandoned workout

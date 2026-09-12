@@ -73,6 +73,67 @@ function makeExecutors() {
 }
 
 describe('ReplaceExercise: swapping the current exercise', () => {
+  it('cross-kind replacement changes the active kind and discards measurements without changing the set plan shape', async () => {
+    const engine = createEngine(makeExecutors());
+    engine.setState(
+      makeState({
+        entries: [
+          {
+            idx: 0,
+            exerciseId: 'barbell-bench-press',
+            kind: 'strength',
+            restSeconds: 150,
+            supersetGroup: 'A',
+            sets: [
+              {
+                setType: 'warmup',
+                reps: 6,
+                repsMax: 8,
+                weightKg: 20,
+                durationSeconds: 60,
+                distanceM: 100,
+                restSeconds: 30,
+              },
+              {
+                setType: 'normal',
+                reps: 10,
+                repsMax: 12,
+                weightKg: 80,
+                durationSeconds: 300,
+                distanceM: 1000,
+                restSeconds: 90,
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    const state = await engine.dispatch({
+      tag: 'ReplaceExercise',
+      idx: 0,
+      exerciseId: 'rowing-erg',
+      kind: 'cardio',
+    } as any);
+
+    expect(state.entries[0]).toEqual({
+      idx: 0,
+      exerciseId: 'rowing-erg',
+      kind: 'cardio',
+      restSeconds: 150,
+      supersetGroup: 'A',
+      sets: [
+        { setType: 'warmup', restSeconds: 30 },
+        { setType: 'normal', restSeconds: 90 },
+      ],
+    });
+
+    await engine.dispatch({ tag: 'LogSet', durationSeconds: 60, nowMs: 2000 });
+    expect(state.loggedSets).toEqual([]);
+    expect(engine.getState().loggedSets[0].setType).toBe('warmup');
+    expect(engine.getState().loggedSets[0].exerciseId).toBe('rowing-erg');
+  });
+
   it('swaps only the targeted entry’s exerciseId', async () => {
     const engine = createEngine(makeExecutors());
     engine.setState(makeState({ exerciseIndex: 1 }));
