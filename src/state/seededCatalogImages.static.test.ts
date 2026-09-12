@@ -35,7 +35,8 @@ describe('seeded catalog image packaging (#374)', () => {
 
   it('renders bundle paths through the static manifest and never treats them as Documents files', () => {
     const component = source(IMAGE_COMPONENT);
-    expect(component).toContain("import { bundledCatalogImageModule, isBundledCatalogImagePath } from '@/state/bundledCatalogImages';");
+    expect(component).toContain("import { bundledCatalogImageModule } from '@/state/bundledCatalogImages';");
+    expect(component).toContain("import { isBundledCatalogImagePath } from '@/state/exerciseImageState';");
     expect(component).toContain('const bundledImage = bundledCatalogImageModule(imagePath);');
     expect(component).toContain('if (bundledImage === null && isBundledCatalogImagePath(imagePath))');
     expect(component).toContain('source={bundledImage ?? { uri: new File(Paths.document, imagePath).uri }}');
