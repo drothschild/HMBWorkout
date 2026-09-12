@@ -62,7 +62,7 @@ export default function ExercisesScreen() {
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`View ${item.title}`}
+                accessibilityLabel={`View ${item.title}, ${item.kind}`}
                 onPress={() => router.push(`/exercise/${item.id}`)}
                 style={({ pressed }) => [
                   styles.exerciseItem,
