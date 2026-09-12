@@ -198,8 +198,7 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
   const HOOKS = [
     'const[imagePath,setImagePath]=useState',
     'exercise.observe()',
-    // #335 Phase 6 — the paste-URL override's three hooks.
-    'const[imageUrl,setImageUrl]=useState',
+    // #376 — the local photo controls' two hooks.
     'const[imageMessage,setImageMessage]=useState',
     'const[savingImage,setSavingImage]=useState',
   ];
@@ -213,31 +212,25 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
   });
 });
 
-describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () => {
-  // The screen is the only caller of overrideExerciseImage, and nothing can
-  // render it. These pins stop it silently dropping the delete-after-write
-  // path or showing a hand-written message instead of the pinned copy.
-  it('calls overrideExerciseImage with the real delete dep', () => {
+describe('exercise/[id].tsx local photo controls (#376)', () => {
+  // The screen is jest-invisible, so pins prove it offers both picker routes,
+  // stores the returned temporary URI in document-backed image storage, and
+  // does not leave the replaced URL text field behind.
+  it('offers both image library and camera actions without the URL field', () => {
     const source = normalized(FILES.exerciseDetail);
 
-    expect(source).toContain('overrideExerciseImage(');
+    expect(source).toContain('ImagePicker.launchImageLibraryAsync(');
+    expect(source).toContain('ImagePicker.launchCameraAsync(');
+    expect(source).toContain('ImagePicker.requestCameraPermissionsAsync()');
+    expect(source).toContain('replaceExerciseImageFromLocalUri(');
+    expect(source).toContain('copy: copyExerciseImage');
     expect(source).toContain('deleteFile: deleteExerciseImage');
+    expect(source).not.toContain('Image URL');
+    expect(source).not.toContain('onChangeText={setImageUrl}');
   });
 
-  it('words the outcome with exerciseImageOverrideMessage', () => {
-    expect(normalized(FILES.exerciseDetail)).toContain('text: exerciseImageOverrideMessage(outcome)');
-  });
-
-  it('refuses a second save while one is in flight, and a blank field', () => {
-    // The button's `disabled` covers taps, but onSubmitEditing reaches the
-    // handler directly, so the handler must carry both of the button's
-    // conditions itself. `savingImage` stops two overrides racing to download
-    // and delete each other's files; the blank check stops a return on an
-    // empty field from running the override and showing the red "Enter an
-    // image URL that starts with http:// or https://." error.
-    expect(compact(FILES.exerciseDetail)).toContain(
-      "if(!id||savingImage||imageUrl.trim()==='')return;",
-    );
+  it('refuses a second picker/save operation while one is in flight', () => {
+    expect(compact(FILES.exerciseDetail)).toContain('if(!id||savingImage)return;');
   });
 });
 
@@ -265,17 +258,14 @@ describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)',
     expect(tags[0]).toMatch(/\sautomaticallyAdjustKeyboardInsets(?:=\{true\})?[\s/>]/);
   });
 
-  it('both text inputs are inside that ScrollView', () => {
+  it('the description input is inside that ScrollView', () => {
     const source = normalized(FILES.exerciseDetail);
     const open = indexOfOrThrow(source, '<ScrollView', 'exercise/[id].tsx');
     const close = indexOfOrThrow(source, '</ScrollView>', 'exercise/[id].tsx');
-    const imageUrlInput = indexOfOrThrow(source, 'onChangeText={setImageUrl}', 'exercise/[id].tsx');
     const descriptionInput = indexOfOrThrow(source, 'queueSave(value);', 'exercise/[id].tsx');
 
-    for (const at of [imageUrlInput, descriptionInput]) {
-      expect(at).toBeGreaterThan(open);
-      expect(at).toBeLessThan(close);
-    }
+    expect(descriptionInput).toBeGreaterThan(open);
+    expect(descriptionInput).toBeLessThan(close);
   });
 });
 
