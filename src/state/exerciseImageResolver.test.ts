@@ -723,13 +723,16 @@ describe('exerciseImageResolver scheduler (Task 3)', () => {
         description: 'Press from the floor with elbows tucked, pausing when the triceps touch.',
       };
 
-      const exerciseId = await ensureAlternateExercise(db, alternate, 'strength');
-      expect(exerciseId).toBe('dumbbell-floor-press');
+      const alternateExercise = await ensureAlternateExercise(db, alternate, 'strength');
+      expect(alternateExercise).toEqual({
+        exerciseId: 'dumbbell-floor-press',
+        kind: 'strength',
+      });
       await waitUntilIdle(deps.getAiKeyConfigured);
 
       // The new exercise should be resolved
       const allExercises = (await db.get('exercises').query().fetch()) as any[];
-      const newExercise = allExercises.find((ex) => ex.id === exerciseId);
+      const newExercise = allExercises.find((ex) => ex.id === alternateExercise.exerciseId);
       expect(newExercise).toBeDefined();
       expect(newExercise.imageSource).not.toBeNull();
     });
