@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { EXERCISE_CATALOG, EXERCISE_LIBRARY_CATALOG } from './exerciseCatalog';
 
@@ -31,6 +32,27 @@ describe('seeded catalog image packaging (#374)', () => {
     const check = spawnSync('node', [GENERATOR, '--check'], { cwd: ROOT, encoding: 'utf8' });
     expect(check.status).toBe(0);
     expect(check.stdout).toContain('OK: 873 bundled JPEGs for 876 catalog entries');
+  });
+
+  it('rejects a different valid JPEG substituted under a catalog asset filename', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'hmb-seeded-image-provenance-'));
+    const copiedAssets = join(sandbox, 'assets');
+    try {
+      cpSync(ASSET_DIR, copiedAssets, { recursive: true });
+      copyFileSync(
+        join(copiedAssets, '90_90_Hamstring.jpg'),
+        join(copiedAssets, '3_4_Sit-Up.jpg')
+      );
+      const check = spawnSync('node', [GENERATOR, '--check'], {
+        cwd: ROOT,
+        env: { ...process.env, HMB_SEEDED_CATALOG_ASSET_DIR: copiedAssets },
+        encoding: 'utf8',
+      });
+      expect(check.status).not.toBe(0);
+      expect(check.stderr).toContain('SHA-256 mismatch for 3_4_Sit-Up.jpg');
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 
   it('renders bundle paths through the static manifest and never treats them as Documents files', () => {
