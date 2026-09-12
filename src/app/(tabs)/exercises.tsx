@@ -1,12 +1,15 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Button, Column, Host, Picker } from '@expo/ui';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
+import type { ExerciseKind } from '@/db/models/Exercise';
+import { createExercise } from '@/state/exerciseCreation';
 import {
   ExerciseLibraryItem,
   exerciseLibraryPresenter,
@@ -19,6 +22,10 @@ export default function ExercisesScreen() {
   const theme = useTheme();
   const [exercises, setExercises] = useState<ExerciseLibraryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newKind, setNewKind] = useState<ExerciseKind>('strength');
+  const [createMessage, setCreateMessage] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
   const filteredExercises = useMemo(
@@ -49,9 +56,69 @@ export default function ExercisesScreen() {
     }, [loadExercises])
   );
 
+  const submitNewExercise = async () => {
+    if (creating) return;
+    setCreating(true);
+    setCreateMessage(null);
+    try {
+      const outcome = await createExercise(database, { title: newTitle, kind: newKind });
+      if (outcome.kind === 'invalid-title') {
+        setCreateMessage('Enter a letter or number in the exercise name.');
+        return;
+      }
+      if (outcome.kind === 'duplicate') {
+        setCreateMessage('An exercise with that name already exists. Nothing was changed.');
+        return;
+      }
+      setNewTitle('');
+      router.push(`/exercise/${outcome.exerciseId}`);
+    } catch (error) {
+      console.error('Failed to create exercise:', error);
+      setCreateMessage("Couldn't create that exercise. Try again.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
+        <ThemedView style={[styles.createForm, { borderColor: theme.backgroundSelected }]}>
+          <ThemedText type="subtitle">New exercise</ThemedText>
+          <TextInput
+            accessibilityLabel="New exercise title"
+            value={newTitle}
+            onChangeText={setNewTitle}
+            placeholder="Exercise name"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="words"
+            autoCorrect
+            returnKeyType="done"
+            onSubmitEditing={() => { void submitNewExercise(); }}
+            style={[
+              styles.searchInput,
+              styles.newTitleInput,
+              { color: theme.text, borderColor: theme.backgroundSelected },
+            ]}
+          />
+          <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
+          <Host matchContents={{ vertical: true }}>
+            <Column spacing={Spacing.two}>
+              <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
+                <Picker.Item label="Strength" value="strength" />
+                <Picker.Item label="Cardio" value="cardio" />
+                <Picker.Item label="Stretch" value="stretch" />
+              </Picker>
+              <Button
+                label={creating ? 'Creating…' : 'Create exercise'}
+                onPress={() => { void submitNewExercise(); }}
+              />
+            </Column>
+          </Host>
+          {createMessage && (
+            <ThemedText type="small" style={styles.createMessage}>{createMessage}</ThemedText>
+          )}
+        </ThemedView>
         <TextInput
           accessibilityLabel="Search exercises"
           value={searchQuery}
@@ -149,6 +216,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: Spacing.three,
     marginBottom: Spacing.three,
+  },
+  createForm: {
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginBottom: Spacing.three,
+  },
+  newTitleInput: {
+    marginBottom: 0,
+  },
+  kindLabel: {
+    opacity: 0.7,
+  },
+  createMessage: {
+    color: '#B3261E',
   },
   exerciseItem: {
     flexDirection: 'row',
