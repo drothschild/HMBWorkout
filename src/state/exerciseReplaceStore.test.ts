@@ -397,7 +397,7 @@ describe('createExerciseReplaceStore', () => {
       });
     });
 
-    it('does nothing from a no-key settings blob', async () => {
+    it('opens the local-library path from a no-key settings blob', async () => {
       setSettings({
         anthropicKey: '',
         openaiKey: '',
@@ -408,7 +408,7 @@ describe('createExerciseReplaceStore', () => {
       await store.getState().open(makeTarget());
 
       expect(mockFetch).not.toHaveBeenCalled();
-      expect(store.getState().status).toBe('idle');
+      expect(store.getState().status).toBe('choosing');
       expect(store.getState().alternates).toEqual([]);
       expect(capturedConfigs).toHaveLength(0);
     });

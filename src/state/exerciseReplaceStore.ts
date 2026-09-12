@@ -117,6 +117,8 @@ interface ExerciseReplaceState {
   open(target: ReplaceTarget): Promise<void>;
   /** Apply one. @returns true when the swap landed in both engine and routine. */
   choose(alternate: ExerciseAlternate): Promise<boolean>;
+  /** Apply an exercise already in the local library, without an AI request or a create. */
+  chooseExisting(exerciseId: string): Promise<boolean>;
   /** Close the picker and invalidate any in-flight request. */
   cancel(): void;
 }
@@ -161,14 +163,13 @@ export function replaceExerciseTarget(
 /**
  * Whether the screen should render the Replace button at all.
  *
- * Hidden rather than disabled without a key: a disabled button advertises a
- * feature the athlete cannot reach and cannot fix from here.
+ * The local library path has no AI dependency, so a configured key only adds
+ * coach suggestions; it never gates the Replace affordance itself.
  */
 export function canOfferReplace(
   sessionState: SessionState | null | undefined,
-  settings: { anthropicKey?: string; openaiKey?: string }
+  _settings: { anthropicKey?: string; openaiKey?: string }
 ): boolean {
-  if (!hasAiKey(settings)) return false;
   return replaceExerciseTarget(sessionState) !== null;
 }
 
@@ -197,8 +198,8 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       // rendered, but the guard is re-stated here so no caller can reach the
       // API without one.
       if (!hasAiKey(settings)) {
-        target = null;
-        set({ status: 'idle', alternates: [], error: null });
+        // The manual local-library picker remains useful without an AI key.
+        set({ status: 'choosing', alternates: [], error: null });
         return;
       }
 
@@ -290,6 +291,48 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
         // Placement is the whole contract: bumped before the await, this would
         // race the write it exists to sequence after; bumped in the catch, it
         // would announce a clear that never happened.
+        set((state) => ({ routineRevision: state.routineRevision + 1 }));
+
+        target = null;
+        swapping = false;
+        if (generation !== gen) return true;
+        set({ status: 'idle', alternates: [], error: null });
+        return true;
+      } catch (error) {
+        log('Exercise replacement failed:', error);
+        swapping = false;
+        if (generation !== gen) return false;
+        set({
+          status: 'error',
+          error: 'Couldn’t swap that exercise. Keep going with this one.',
+        });
+        return false;
+      }
+    },
+
+    async chooseExisting(exerciseId: string) {
+      const current = target;
+      if (!current || swapping || !exerciseId.trim()) return false;
+
+      // Advance the request generation before dispatching: this action is
+      // available while coach alternatives are still loading, and a late AI
+      // answer must not re-open the sheet after the local pick succeeds.
+      const gen = ++generation;
+      swapping = true;
+      set({ status: 'swapping', error: null });
+
+      try {
+        const newState = await deps.dispatch({
+          tag: 'ReplaceExercise',
+          idx: current.idx,
+          exerciseId,
+        });
+
+        if (!newState) {
+          throw new Error('the engine rejected the replacement');
+        }
+
+        await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
         set((state) => ({ routineRevision: state.routineRevision + 1 }));
 
         target = null;
