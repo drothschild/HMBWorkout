@@ -415,10 +415,11 @@ describe('session.tsx sheds non-essentials while the keyboard is open (#335 Phas
     );
   });
 
-  it('keyboardVisible gates exactly those three sites, so SetLogger, Log Set / Skip Set stay', () => {
-    // The declaration plus the notes, the Replace slot and the footer. A fifth
-    // use (wrapping SetLogger, say) would hide the very inputs being typed in.
-    expect(occurrences(compact(FILES.session), 'keyboardVisible')).toBe(4);
+  it('keeps SetLogger and its inputs visible while forwarding keyboard state to Replace', () => {
+    // The declaration plus the notes, Replace's trigger policy, and footer.
+    // The extra Replace prop keeps its open Modal mounted when that Modal's
+    // search field is responsible for the visible keyboard.
+    expect(occurrences(compact(FILES.session), 'keyboardVisible')).toBe(5);
   });
 });
 

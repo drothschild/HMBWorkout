@@ -8,9 +8,9 @@ import { exerciseReplaceStore, replaceExerciseTarget, canOfferReplace } from '@/
 import { getSettings } from '@/state/settings';
 import {
   exerciseLibraryPresenter,
-  filterExerciseLibraryItems,
   type ExerciseLibraryItem,
 } from '@/state/exerciseLibraryPresenter';
+import { filterReplaceableExerciseLibraryItems } from '@/state/replaceableExerciseLibrary';
 import { database } from '@/db';
 import type { SessionState } from '@/engine/types';
 
@@ -31,9 +31,12 @@ import type { SessionState } from '@/engine/types';
 export function ReplaceExercise({
   sessionState,
   exerciseTitles,
+  keyboardVisible,
 }: {
   sessionState: SessionState | null;
   exerciseTitles?: Record<string, string>;
+  /** Keep a visible Modal mounted when its own search field raises the keyboard. */
+  keyboardVisible: boolean;
 }) {
   const theme = useTheme();
   const status = exerciseReplaceStore((state) => state.status);
@@ -51,8 +54,13 @@ export function ReplaceExercise({
   const busy = status === 'loading' || status === 'swapping';
   const open = status !== 'idle';
   const filteredExercises = useMemo(
-    () => filterExerciseLibraryItems(exercises, searchQuery),
-    [exercises, searchQuery]
+    () => filterReplaceableExerciseLibraryItems(
+      exercises,
+      target?.exerciseId ?? '',
+      searchQuery,
+      target?.kind ?? 'strength'
+    ),
+    [exercises, searchQuery, target?.exerciseId, target?.kind]
   );
 
   useEffect(() => {
@@ -95,7 +103,7 @@ export function ReplaceExercise({
 
   return (
     <View>
-      {target && canReplace && (
+      {target && canReplace && !keyboardVisible && (
         <View style={styles.triggerWrapper}>
           <Pressable
             accessibilityRole="button"

@@ -743,13 +743,15 @@ export default function SessionScreen() {
                      is closed — note the conjunction: a non-idle store renders even
                      without a target, so "no target" alone is not why it stays out of
                      the way here. The unmount cleanup below keeps the store idle across
-                     mounts, which is what actually makes that safe.
-                     Hidden while the keyboard is open (keyboardVisible). That
-                     also unmounts the picker Modal, which is harmless: the
-                     picker covers the inputs, so no keyboard opens under it. */
-                  !keyboardVisible && (
-                    <ReplaceExercise sessionState={sessionState} exerciseTitles={exerciseTitles} />
-                  )
+                     mounts, which is what actually makes that safe. The
+                     component stays mounted when its search field raises the
+                     keyboard; only its trigger hides, preserving the picker
+                     and its query without overlapping the set inputs. */
+                  <ReplaceExercise
+                    sessionState={sessionState}
+                    exerciseTitles={exerciseTitles}
+                    keyboardVisible={keyboardVisible}
+                  />
                 }
               />
             )}

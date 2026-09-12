@@ -312,7 +312,7 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
 
     async chooseExisting(exerciseId: string) {
       const current = target;
-      if (!current || swapping || !exerciseId.trim()) return false;
+      if (!current || swapping || !exerciseId.trim() || exerciseId === current.exerciseId) return false;
 
       // Advance the request generation before dispatching: this action is
       // available while coach alternatives are still loading, and a late AI
