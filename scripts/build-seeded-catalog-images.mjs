@@ -4,7 +4,8 @@
  * free-exercise-db entry, then writes the Expo static-require manifest.
  *
  *   node scripts/build-seeded-catalog-images.mjs                     # initial generation (network)
- *   node scripts/build-seeded-catalog-images.mjs --refresh-manifest  # regenerate TS from verified assets
+ *   node scripts/build-seeded-catalog-images.mjs --refresh-manifest  # regenerate TS from provenance-verified assets
+ *   node scripts/build-seeded-catalog-images.mjs --record-provenance --verified-originals
  *   node scripts/build-seeded-catalog-images.mjs --check             # offline verifier
  *
  * Assets deliberately preserve the upstream bytes: no resizing or recompression
@@ -15,9 +16,11 @@ import { mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSy
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 
 const ROOT = join(import.meta.dirname, '..');
-const ASSET_DIR = join(ROOT, 'assets', 'seeded-exercise-images');
+const ASSET_DIR = process.env.HMB_SEEDED_CATALOG_ASSET_DIR ?? join(ROOT, 'assets', 'seeded-exercise-images');
+const PROVENANCE_PATH = join(ROOT, 'assets', 'seeded-exercise-images.sha256');
 const MANIFEST_PATH = join(ROOT, 'src', 'state', 'bundledCatalogImages.ts');
 const CATALOG_DATA_PATH = join(ROOT, 'src', 'state', 'exerciseCatalogData.ts');
 const CATALOG_PATH = join(ROOT, 'src', 'state', 'exerciseCatalog.ts');
@@ -95,6 +98,39 @@ function verifyFile(path) {
   return bytes.length;
 }
 
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function renderProvenance(entries) {
+  return entries.map(entry => `${sha256(join(ASSET_DIR, entry.asset))}  ${entry.asset}`).join('\n') + '\n';
+}
+
+function readProvenance(entries) {
+  if (!existsSync(PROVENANCE_PATH)) throw new Error(`missing SHA-256 provenance: ${PROVENANCE_PATH}`);
+  const expectedAssets = entries.map(entry => entry.asset);
+  const lines = readFileSync(PROVENANCE_PATH, 'utf8').trimEnd().split('\n');
+  if (lines.length !== expectedAssets.length) throw new Error(`SHA-256 provenance count differs: expected ${expectedAssets.length}, found ${lines.length}`);
+  const digests = new Map();
+  for (const line of lines) {
+    const match = line.match(/^([a-f0-9]{64})  ([A-Za-z0-9_-]+\.jpg)$/);
+    if (!match || digests.has(match[2])) throw new Error(`invalid or duplicate SHA-256 provenance entry: ${line}`);
+    digests.set(match[2], match[1]);
+  }
+  if (JSON.stringify([...digests.keys()]) !== JSON.stringify(expectedAssets)) {
+    throw new Error('SHA-256 provenance assets differ from deterministic catalog inventory');
+  }
+  return digests;
+}
+
+function verifyProvenance(entries) {
+  const digests = readProvenance(entries);
+  for (const entry of entries) {
+    const actual = sha256(join(ASSET_DIR, entry.asset));
+    if (actual !== digests.get(entry.asset)) throw new Error(`SHA-256 mismatch for ${entry.asset}`);
+  }
+}
+
 function check() {
   const commit = pinnedCommit();
   const entries = imageEntries();
@@ -105,6 +141,7 @@ function check() {
     throw new Error(`asset inventory differs: expected ${expectedAssets.length}, found ${actualAssets.length}`);
   }
   const totalBytes = entries.reduce((sum, entry) => sum + verifyFile(join(ASSET_DIR, entry.asset)), 0);
+  verifyProvenance(entries);
   const expectedManifest = renderManifest(entries);
   if (readFileSync(MANIFEST_PATH, 'utf8') !== expectedManifest) throw new Error('bundled catalog image manifest differs from generated output');
   const dataSource = readFileSync(CATALOG_DATA_PATH, 'utf8');
@@ -115,7 +152,7 @@ function check() {
 async function write() {
   const commit = pinnedCommit();
   const entries = imageEntries();
-  if (existsSync(ASSET_DIR) || existsSync(MANIFEST_PATH)) {
+  if (existsSync(ASSET_DIR) || existsSync(PROVENANCE_PATH) || existsSync(MANIFEST_PATH)) {
     throw new Error('generated assets or manifest already exist; use --check to verify rather than overwrite originals');
   }
   const stage = mkdtempSync(join(tmpdir(), 'hmb-seeded-catalog-images-'));
@@ -129,6 +166,7 @@ async function write() {
       verifyFile(target);
     }
     renameSync(stage, ASSET_DIR);
+    writeFileSync(PROVENANCE_PATH, renderProvenance(entries));
     writeFileSync(MANIFEST_PATH, renderManifest(entries));
     console.log(`wrote ${entries.length} original JPEGs at ${commit}`);
     check();
@@ -143,7 +181,22 @@ function refreshManifest() {
   const entries = imageEntries();
   if (!existsSync(ASSET_DIR)) throw new Error(`missing asset directory: ${ASSET_DIR}`);
   for (const entry of entries) verifyFile(join(ASSET_DIR, entry.asset));
+  verifyProvenance(entries);
   writeFileSync(MANIFEST_PATH, renderManifest(entries));
+  check();
+}
+
+function recordProvenance() {
+  if (!process.argv.includes('--verified-originals')) {
+    throw new Error('recording provenance requires explicit --verified-originals confirmation');
+  }
+  const entries = imageEntries();
+  const expectedAssets = entries.map(entry => entry.asset).sort();
+  if (!existsSync(ASSET_DIR) || JSON.stringify(readdirSync(ASSET_DIR).sort()) !== JSON.stringify(expectedAssets)) {
+    throw new Error('cannot record provenance without the exact deterministic asset inventory');
+  }
+  for (const entry of entries) verifyFile(join(ASSET_DIR, entry.asset));
+  writeFileSync(PROVENANCE_PATH, renderProvenance(entries));
   check();
 }
 
@@ -151,6 +204,8 @@ if (process.argv.includes('--check')) {
   check();
 } else if (process.argv.includes('--refresh-manifest')) {
   refreshManifest();
+} else if (process.argv.includes('--record-provenance')) {
+  recordProvenance();
 } else {
   await write();
 }

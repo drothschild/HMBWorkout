@@ -61,16 +61,22 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   image-bearing entry from that same pin, byte-for-byte: no resize or
   recompression. The current upstream catalog has 876 entries, three of which
   have no first image, so it produces 873 JPEGs under
-  `assets/seeded-exercise-images/` and
+  `assets/seeded-exercise-images/`, a deterministic per-asset SHA-256
+  provenance file at `assets/seeded-exercise-images.sha256`, and
   `src/state/bundledCatalogImages.ts`. The manifest has one literal `require()`
   per asset, which Expo/Metro packages into the native app; these are app
   resources, not JavaScript-bundle strings and not copies under Documents.
   `node scripts/build-seeded-catalog-images.mjs --check` is offline and rejects
   a pin mismatch, missing/extra/orphan asset, non-JPEG magic number, unexpected
   size (the 1 MiB ceiling leaves headroom above the observed 912,417-byte
-  original), non-deterministic filename, or stale manifest. Use the default
-  command only for initial network generation; `--refresh-manifest` rebuilds
-  the TypeScript manifest from already verified assets.
+  original), non-deterministic filename, missing/extra/stale provenance entry,
+  changed JPEG bytes (even if the substitute is a valid JPEG), or stale
+  manifest. Use the default command only for initial network generation; it
+  writes the provenance alongside the assets. `--refresh-manifest` verifies the
+  provenance before rebuilding the TypeScript manifest and therefore cannot
+  bless changed bytes. `--record-provenance --verified-originals` is an explicit
+  bootstrap/rekey operation after independently verifying the exact pinned
+  upstream originals; it is never a repair step for changed local assets.
 - **Every pinned catalog entry is present in the on-device exercise library (#360).**
   `seedExerciseCatalog` runs at boot before the image resolver starts. It creates
   all 876 `exercises` rows with the upstream name, mapped kind, first primary
