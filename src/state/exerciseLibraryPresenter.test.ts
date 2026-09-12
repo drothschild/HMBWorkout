@@ -5,6 +5,23 @@ import { createTestDatabase } from '@/db/test-helpers';
 const PRESENTER = join(__dirname, 'exerciseLibraryPresenter.ts');
 
 describe('exerciseLibraryPresenter', () => {
+  it('filters library items by a trimmed case-insensitive title substring', () => {
+    expect(existsSync(PRESENTER)).toBe(true);
+    if (!existsSync(PRESENTER)) return;
+    const { filterExerciseLibraryItems } = require(PRESENTER);
+    const items = [
+      { id: 'alpha', title: 'Alpha Press', kind: 'strength', imagePath: null },
+      { id: 'beta', title: 'beta Stretch', kind: 'stretch', imagePath: null },
+      { id: 'carry', title: "Farmer's Carry", kind: 'cardio', imagePath: null },
+    ];
+
+    expect(filterExerciseLibraryItems(items, '')).toBe(items);
+    expect(filterExerciseLibraryItems(items, '   ')).toBe(items);
+    expect(filterExerciseLibraryItems(items, '  PRESS ')).toEqual([items[0]]);
+    expect(filterExerciseLibraryItems(items, 'stretch')).toEqual([items[1]]);
+    expect(filterExerciseLibraryItems(items, 'press stretch')).toEqual([]);
+  });
+
   it('returns every local exercise in case-insensitive title order with its display fields', async () => {
     expect(existsSync(PRESENTER)).toBe(true);
     if (!existsSync(PRESENTER)) return;
