@@ -41,7 +41,7 @@ function hasDismissibleFloatingDescriptionPopup(source: string): boolean {
     'accessibilityLabel="Showfullexercisedescription"',
     '<Modalvisible={descriptionPopupOpen}animationType="fade"transparentonRequestClose={()=>setDescriptionPopupOpen(false)}>',
     '<Pressablestyle={styles.descriptionPopupBackdrop}onPress={()=>setDescriptionPopupOpen(false)}accessible={false}>',
-    '<Viewstyle={[styles.descriptionPopupCard,{backgroundColor:theme.background}]}accessibilityViewIsModalonAccessibilityEscape={()=>setDescriptionPopupOpen(false)}>',
+    '<Viewstyle={[styles.descriptionPopupCard,{backgroundColor:theme.background}]}accessibleaccessibilityViewIsModalonAccessibilityEscape={()=>setDescriptionPopupOpen(false)}>',
     '<ScrollViewstyle={styles.descriptionPopupScroll}>',
     '{presenter.exerciseDescription}',
   ].every((fragment) => compactSource.includes(fragment));
