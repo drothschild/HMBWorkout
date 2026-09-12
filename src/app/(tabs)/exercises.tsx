@@ -10,6 +10,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { database } from '@/db';
 import type { ExerciseKind } from '@/db/models/Exercise';
 import { createExercise } from '@/state/exerciseCreation';
+import { StatusColor } from '@/theme/actionButtonColors';
 import {
   ExerciseLibraryItem,
   exerciseLibraryPresenter,
@@ -231,7 +232,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   createMessage: {
-    color: '#B3261E',
+    color: StatusColor.danger,
   },
   exerciseItem: {
     flexDirection: 'row',
