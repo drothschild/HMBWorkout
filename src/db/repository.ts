@@ -448,9 +448,10 @@ export async function getRoutineDisplay(
  * @param exerciseId The exercise ID to query
  * @returns Array of working-type session sets for this exercise, from all prior sessions
  */
-export async function getExerciseWorkingSetHistory(
+async function getExerciseSetHistoryByType(
   database: Database,
-  exerciseId: string
+  exerciseId: string,
+  setType?: SetType
 ): Promise<SessionSet[]> {
   const sessionSetsTable = database.get('session_sets');
   const routineExercisesTable = database.get('routine_exercises');
@@ -459,7 +460,11 @@ export async function getExerciseWorkingSetHistory(
   // independent of whether the routine_exercises row still exists or still
   // names this exercise.
   const stampedSets = (await sessionSetsTable
-    .query(Q.and(Q.where('set_type', 'working'), Q.where('exercise_id', exerciseId)))
+    .query(
+      setType
+        ? Q.and(Q.where('set_type', setType), Q.where('exercise_id', exerciseId))
+        : Q.where('exercise_id', exerciseId)
+    )
     .fetch()) as SessionSet[];
 
   // Path 2: legacy rows, via the join. Query all routine_exercises with this
@@ -478,10 +483,12 @@ export async function getExerciseWorkingSetHistory(
       ? []
       : ((await sessionSetsTable
           .query(
-            Q.and(
-              Q.where('set_type', 'working'),
-              Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
-            )
+            setType
+              ? Q.and(
+                  Q.where('set_type', setType),
+                  Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
+                )
+              : Q.where('routine_exercise_id', Q.oneOf(routineExerciseIds))
           )
           .fetch()) as SessionSet[]).filter(
           (set) => ((set as any)._raw.exercise_id ?? null) === null
@@ -510,6 +517,26 @@ export async function getExerciseWorkingSetHistory(
   });
 
   return allSets;
+}
+
+export async function getExerciseWorkingSetHistory(
+  database: Database,
+  exerciseId: string
+): Promise<SessionSet[]> {
+  return getExerciseSetHistoryByType(database, exerciseId, 'working');
+}
+
+/**
+ * Get every logged set type for one exercise across sessions. This uses the
+ * same stamped-first identity resolution as progression history, but does not
+ * discard warmup, cardio, or stretch sets. Callers decide which sessions are
+ * eligible for display.
+ */
+export async function getExerciseSetHistory(
+  database: Database,
+  exerciseId: string
+): Promise<SessionSet[]> {
+  return getExerciseSetHistoryByType(database, exerciseId);
 }
 
 /**
