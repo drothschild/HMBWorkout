@@ -108,9 +108,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `none` in both modes, with no `ask`.
 - **Two writers, two write shapes.** The resolver writes through
   `setExerciseImageIfSourceUnchanged`, a compare-and-set against the
-  `image_source` read when the pass *began*, inside one `database.write` — so a URL
-  the user pastes while a pass is downloading wins, and the pass deletes its now
-  orphaned file. The user's override (`overrideExerciseImage`,
+  `image_source` read when the pass *began*, inside one `database.write` — so an explicit user choice
+  while a pass is downloading wins, and the pass deletes its now orphaned file. The user's override
+  (`replaceExerciseImageFromLocalUri`,
   `src/state/exerciseImageOverride.ts`) writes through `setExerciseImage`,
   **unconditionally**, because it is the user's explicit choice. Its order is
   load-bearing: download to a NEW file → write the row → delete the previous file
@@ -366,7 +366,7 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the detail screen's inset, and the session footer, Replace and notes) was
   device-verified on 2026-09-10** by the user, on an iPhone 15 Pro Release build
   (commit c168604), using the two failing screens above (Stationary Bike, Forearm
-  Plank) and the exercise detail screen's Image URL and Description fields. The
+  Plank) and the exercise detail screen's Description field. The
   device is the only place these can be checked: the Xcode-beta simulator used
   here cannot raise a keyboard, so a simulator pass says nothing about them.
 - **Accepted cost: a failing row is retried on every `exercises` write.** A row

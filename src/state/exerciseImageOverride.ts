@@ -15,7 +15,7 @@
  */
 import type { Database } from '@nozbe/watermelondb';
 import { setExerciseImage } from '@/db/repository';
-import { buildImageRelativePath, urlImageSource } from './exerciseImageState';
+import { buildImageRelativePath, IMAGE_SOURCE_USER, urlImageSource } from './exerciseImageState';
 
 // Anchored, no nested quantifiers. Scheme http/https, then at least one
 // non-space character. Everything else — file:, data:, javascript:, bare text,
@@ -37,10 +37,22 @@ export type ExerciseImageOverrideDeps = {
   readonly log: (message: string, error?: unknown) => void;
 };
 
+export type LocalExerciseImageOverrideDeps = {
+  readonly database: Database;
+  readonly copy: (uri: string, relativePath: string) => Promise<void>;
+  readonly deleteFile: (relativePath: string) => Promise<void>;
+  readonly makeImageSuffix: () => string;
+  readonly log: (message: string, error?: unknown) => void;
+};
+
 export type ExerciseImageOverrideOutcome =
   | { readonly kind: 'saved'; readonly imagePath: string }
   | { readonly kind: 'invalid-url' }
   | { readonly kind: 'download-failed' };
+
+export type LocalExerciseImageOverrideOutcome =
+  | { readonly kind: 'saved'; readonly imagePath: string }
+  | { readonly kind: 'copy-failed' };
 
 export async function overrideExerciseImage(
   deps: ExerciseImageOverrideDeps,
@@ -73,6 +85,47 @@ export async function overrideExerciseImage(
     await deps.deleteFile(imagePath).catch((deleteError: unknown) =>
       deps.log(
         `exercise image override: row write failed for ${exerciseId}; deleting downloaded ${imagePath} failed`,
+        deleteError
+      )
+    );
+    throw error;
+  }
+  if (previous !== null && previous !== imagePath) {
+    await deps.deleteFile(previous).catch((error: unknown) =>
+      deps.log(`exercise image override: deleting previous ${previous} failed`, error)
+    );
+  }
+  return { kind: 'saved', imagePath };
+}
+
+/**
+ * Stores a camera or photo-library selection in the app documents directory
+ * before pointing the exercise at it. Picker URIs are temporary, so they must
+ * never be written to the database directly.
+ */
+export async function replaceExerciseImageFromLocalUri(
+  deps: LocalExerciseImageOverrideDeps,
+  exerciseId: string,
+  uri: string
+): Promise<LocalExerciseImageOverrideOutcome> {
+  const imagePath = buildImageRelativePath(exerciseId, deps.makeImageSuffix());
+  try {
+    await deps.copy(uri, imagePath);
+  } catch (error) {
+    deps.log(`exercise image override: copy failed for ${exerciseId}`, error);
+    return { kind: 'copy-failed' };
+  }
+
+  let previous: string | null;
+  try {
+    previous = await setExerciseImage(deps.database, exerciseId, {
+      imagePath,
+      imageSource: IMAGE_SOURCE_USER,
+    });
+  } catch (error) {
+    await deps.deleteFile(imagePath).catch((deleteError: unknown) =>
+      deps.log(
+        `exercise image override: row write failed for ${exerciseId}; deleting copied ${imagePath} failed`,
         deleteError
       )
     );

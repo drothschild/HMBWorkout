@@ -2,6 +2,8 @@ import { StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Host, Column, Button } from '@expo/ui';
+import * as ImagePicker from 'expo-image-picker';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -13,8 +15,8 @@ import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
 import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
-import { exerciseImageOverrideMessage, overrideExerciseImage } from '@/state/exerciseImageOverride';
-import { deleteExerciseImage, downloadExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
+import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 import {
   exerciseHistoryPresenter,
   type ExerciseHistoryWorkout,
@@ -35,8 +37,6 @@ export default function ExerciseDetailScreen() {
   // during the previous render"), and no test can render this screen.
   // exerciseImageWiring.static.test.ts gates the placement.
   const [imagePath, setImagePath] = useState<string | null>(null);
-  // The paste-URL override (#335 Phase 6).
-  const [imageUrl, setImageUrl] = useState('');
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
@@ -145,29 +145,47 @@ export default function ExerciseDetailScreen() {
   };
 
   // Plain function, not a hook. The hero updates by itself: the
-  // exercise.observe() effect above picks up the row write. Message copy comes
-  // only from exerciseImageOverrideMessage, except a thrown row write (e.g. the
-  // exercise was deleted), which overrideExerciseImage deliberately propagates.
-  const applyImageUrl = async () => {
-    if (!id || savingImage || imageUrl.trim() === '') return;
+  // exercise.observe() effect above picks up the row write.
+  const chooseExercisePhoto = async (camera: boolean) => {
+    if (!id || savingImage) return;
     setSavingImage(true);
+    setImageMessage(null);
     try {
-      const outcome = await overrideExerciseImage(
+      if (camera && !(await ImagePicker.requestCameraPermissionsAsync()).granted) {
+        setImageMessage({
+          text: 'Camera access is off. Choose a photo instead or enable camera access in Settings.',
+          isError: true,
+        });
+        return;
+      }
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        quality: 0.8,
+        exif: false,
+        base64: false,
+      };
+      const result = camera
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (result.canceled || !result.assets[0]?.uri) return;
+      const outcome = await replaceExerciseImageFromLocalUri(
         {
           database,
-          download: downloadExerciseImage,
+          copy: copyExerciseImage,
           deleteFile: deleteExerciseImage,
           makeImageSuffix: makeExerciseImageSuffix,
           log: (message, error) => console.warn(message, error),
         },
         id,
-        imageUrl
+        result.assets[0].uri
       );
-      setImageMessage({ text: exerciseImageOverrideMessage(outcome), isError: outcome.kind !== 'saved' });
-      if (outcome.kind === 'saved') setImageUrl('');
+      setImageMessage({
+        text: outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
+        isError: outcome.kind !== 'saved',
+      });
     } catch (error) {
       console.error('Failed to save exercise image:', error);
-      setImageMessage({ text: "Couldn't save that image. Try again.", isError: true });
+      setImageMessage({ text: "Couldn't open or save that photo. Try again.", isError: true });
     } finally {
       setSavingImage(false);
     }
@@ -215,12 +233,8 @@ export default function ExerciseDetailScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        {/* automaticallyAdjustKeyboardInsets insets the content by the keyboard
-            and scrolls the focused field into view. The #335 hero and Image URL
-            field push both inputs to the bottom, where the keyboard covered
-            them on a device; this fix was verified on an iPhone 15 Pro
-            (2026-09-10). Same fix as Settings → AI / AI Provider;
-            gated by exerciseImageWiring.static.test.ts. */}
+        {/* automaticallyAdjustKeyboardInsets keeps the description input visible
+            above the keyboard; gated by exerciseImageWiring.static.test.ts. */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -246,33 +260,22 @@ export default function ExerciseDetailScreen() {
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
-              Image URL
+              Exercise photo
             </ThemedText>
-            <TextInput
-              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
-              placeholder="https://… (paste an image link to replace the picture)"
-              placeholderTextColor={placeholderColor}
-              value={imageUrl}
-              onChangeText={setImageUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              returnKeyType="done"
-              onSubmitEditing={applyImageUrl}
-            />
-            <Pressable
-              disabled={savingImage || imageUrl.trim() === ''}
-              onPress={applyImageUrl}
-              style={({ pressed }) => [
-                styles.button,
-                pressed && styles.buttonPressed,
-                (savingImage || imageUrl.trim() === '') && styles.buttonDisabled,
-              ]}
-            >
-              <ThemedText type="default" style={styles.buttonText}>
-                {savingImage ? 'Saving…' : 'Use this image'}
-              </ThemedText>
-            </Pressable>
+            <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
+              <Column spacing={Spacing.two}>
+                <Button
+                  label={savingImage ? 'Saving…' : 'Use camera'}
+                  disabled={savingImage}
+                  onPress={() => { void chooseExercisePhoto(true); }}
+                />
+                <Button
+                  label="Choose photo"
+                  disabled={savingImage}
+                  onPress={() => { void chooseExercisePhoto(false); }}
+                />
+              </Column>
+            </Host>
             {imageMessage && (
               <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
                 {imageMessage.text}
@@ -425,24 +428,5 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 120,
     textAlignVertical: 'top',
-  },
-  // Same shape as the Settings → Data screen's primary buttons.
-  button: {
-    backgroundColor: ActionButtonColor.primary,
-    borderRadius: 10,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    alignItems: 'center',
-    marginTop: Spacing.one,
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
 });

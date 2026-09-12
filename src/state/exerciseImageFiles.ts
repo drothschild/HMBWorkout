@@ -76,6 +76,19 @@ export async function deleteExerciseImage(relativePath: string): Promise<void> {
   if (file.exists) file.delete(); // delete() is synchronous and throws on a missing file
 }
 
+/** Copies a picker result from its temporary URI into app-owned exercise storage. */
+export async function copyExerciseImage(uri: string, relativePath: string): Promise<void> {
+  new Directory(Paths.document, EXERCISE_IMAGE_DIR).create({ intermediates: true, idempotent: true });
+  const source = new File(uri);
+  const destination = new File(Paths.document, relativePath);
+  try {
+    await source.copy(destination);
+  } catch (error) {
+    discardDownloadedFile(destination);
+    throw error;
+  }
+}
+
 export function makeExerciseImageSuffix(): string {
   return Math.random().toString(36).slice(2, 8);
 }

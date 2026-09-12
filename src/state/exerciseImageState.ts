@@ -9,7 +9,7 @@
 /** Directory under Paths.document that holds every downloaded exercise image. */
 export const EXERCISE_IMAGE_DIR = 'exercise-images';
 
-export type ImageSource = `catalog:${string}` | `url:${string}` | `web:${string}` | 'none' | 'none:nokey';
+export type ImageSource = `catalog:${string}` | `url:${string}` | `web:${string}` | 'user' | 'none' | 'none:nokey';
 
 /** No acceptable match. Final: never re-resolved by a pass. */
 export const IMAGE_SOURCE_NONE = 'none';
@@ -24,6 +24,9 @@ export function catalogImageSource(catalogId: string): ImageSource {
 export function urlImageSource(url: string): ImageSource {
   return `url:${url}`;
 }
+
+/** An explicit camera or photo-library choice, copied into app-owned storage. */
+export const IMAGE_SOURCE_USER = 'user';
 
 /**
  * `exercise-images/<exerciseId>-<suffix>.jpg` — RELATIVE to the documents
@@ -42,7 +45,7 @@ export function buildImageRelativePath(exerciseId: string, suffix: string): stri
  * True when a pass should (re)resolve this row: `image_source` is null (never
  * decided, or every earlier attempt failed transiently and wrote nothing), or
  * it is `none:nokey` and an AI key is configured NOW. `none`, `catalog:…` and
- * `url:…` are terminal. An unrecognised value is left alone rather than
+ * `url:…` and `user` are terminal. An unrecognised value is left alone rather than
  * overwritten — the resolver never destroys data it does not understand.
  *
  * Takes the raw column value (`string | null`), because that is what a row
