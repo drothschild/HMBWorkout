@@ -204,6 +204,14 @@ describe('seedExerciseCatalog', () => {
         row.imageSource = 'url:https://example.com/explicit.jpg';
         row._raw.created_at = 2;
       });
+      await db.get('exercises').create((row: any) => {
+        row._raw.id = 'pending-url-id';
+        row.title = 'Pending URL title';
+        row.kind = 'strength';
+        row.imagePath = null;
+        row.imageSource = 'url:https://example.com/pending.jpg';
+        row._raw.created_at = 3;
+      });
     });
     const catalog: readonly CatalogEntry[] = [
       {
@@ -224,12 +232,22 @@ describe('seedExerciseCatalog', () => {
         instructions: [],
         image: 'override/0.jpg',
       },
+      {
+        id: 'pending-url-id',
+        name: 'Pending URL title',
+        category: 'strength',
+        equipment: null,
+        primaryMuscles: [],
+        instructions: [],
+        image: 'pending/0.jpg',
+      },
     ];
 
     expect(await seedExerciseCatalog(db, catalog, 3)).toBe(0);
 
     const backfill = (await db.get('exercises').find('backfill-id')) as any;
     const override = (await db.get('exercises').find('override-id')) as any;
+    const pendingUrl = (await db.get('exercises').find('pending-url-id')) as any;
     expect(backfill._raw).toMatchObject({
       image_path: 'bundle:backfill-id',
       image_source: 'catalog:backfill-id',
@@ -237,6 +255,10 @@ describe('seedExerciseCatalog', () => {
     expect(override._raw).toMatchObject({
       image_path: 'exercise-images/explicit.jpg',
       image_source: 'url:https://example.com/explicit.jpg',
+    });
+    expect(pendingUrl._raw).toMatchObject({
+      image_path: null,
+      image_source: 'url:https://example.com/pending.jpg',
     });
   });
 });
