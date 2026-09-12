@@ -167,7 +167,7 @@ export function ReplaceExercise({
                         accessibilityRole="button"
                         accessibilityLabel={`Replace with ${item.title}`}
                         disabled={status === 'swapping'}
-                        onPress={() => exerciseReplaceStore.getState().chooseExisting(item.id)}
+                        onPress={() => exerciseReplaceStore.getState().chooseExisting(item.id, item.kind)}
                         style={[styles.option, { backgroundColor: theme.backgroundElement }]}
                       >
                         <ThemedText type="smallBold">{item.title}</ThemedText>

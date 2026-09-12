@@ -405,10 +405,18 @@ export function createEngine(executors: Partial<EffectExecutors>) {
           rillEvent = { tag: 'SkipRest' };
           break;
         case 'ReplaceExercise':
-          // No sentinel translation: both fields are plain, always-present
-          // values. The rule rejects an empty exerciseId rather than reading
-          // it as "absent".
-          rillEvent = { tag: 'ReplaceExercise', value: { idx: e.idx, exerciseId: e.exerciseId } };
+          // No sentinel translation: the fields are plain values. Older host
+          // callers omit kind because alternates historically preserved it;
+          // source that fallback from the current entry so Rill always sees a
+          // complete payload while the rule remains the transition authority.
+          rillEvent = {
+            tag: 'ReplaceExercise',
+            value: {
+              idx: e.idx,
+              exerciseId: e.exerciseId,
+              kind: e.kind ?? getState().entries[e.idx]?.kind ?? '',
+            },
+          };
           break;
         case 'PauseSession':
           rillEvent = { tag: 'PauseSession', value: { nowMs: e.nowMs } };

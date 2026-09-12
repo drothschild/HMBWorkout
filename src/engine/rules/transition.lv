@@ -281,6 +281,7 @@ match event {
       -- second entry would inherit the first's veto.
       let _ = require(state.setIndex == 0, "cannot replace an exercise once a set has already been recorded for it")?
       let _ = require(p.exerciseId != "", "ReplaceExercise requires a non-empty exerciseId")?
+      let _ = require(p.kind == "strength" || p.kind == "cardio" || p.kind == "stretch", "ReplaceExercise requires a supported kind")?
       -- Bounds check. Without it a stranded exerciseIndex would fall through
       -- the fold below matching nothing and silently rebuild the list unchanged.
       let _ = at(p.idx, state.entries)?
@@ -288,13 +289,13 @@ match event {
       -- Rill has no indexed assignment, so the list is rebuilt. fold carries a
       -- position counter alongside the list being built (the Rill RoutineEntry
       -- alias has no idx field — the host re-derives idx from array position on
-      -- the way out), swapping exerciseId on the one entry whose position
+      -- the way out), swapping exerciseId and kind on the one entry whose position
       -- matches and copying every other entry through untouched. Order is
       -- preserved because append puts each rebuilt entry on the end.
       let rebuilt = fold(
         { position: 0, entries: [] },
         fn(acc) -> fn(entry) -> (
-          let kept = if (acc.position == p.idx) then { entry | exerciseId: p.exerciseId } else entry
+          let kept = if (acc.position == p.idx) then { entry | exerciseId: p.exerciseId, kind: p.kind } else entry
           { position: acc.position + 1, entries: append(acc.entries, [kept]) }
         ),
         state.entries

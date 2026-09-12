@@ -107,10 +107,12 @@ export type Event =
   | { tag: 'RestElapsed'; nowMs: number }
   | { tag: 'SkipRest' }
   // Swap which exercise the entry at `idx` names, leaving its targets,
-  // warmups, rest and superset group alone. `idx` is the 0-based entry
+  // warmups, rest and superset group alone. A local-library pick may change
+  // the movement kind too; omitted kind preserves compatibility for older
+  // callers by retaining the current entry kind at the host boundary. `idx` is the 0-based entry
   // position and must equal the current exerciseIndex — the rule rejects a
   // pick made about an entry the workout has already moved past.
-  | { tag: 'ReplaceExercise'; idx: number; exerciseId: string }
+  | { tag: 'ReplaceExercise'; idx: number; exerciseId: string; kind?: ExerciseKind }
   | { tag: 'PauseSession'; nowMs: number }
   | { tag: 'Resume'; nowMs: number }
   | { tag: 'AppForegrounded'; nowMs: number }
