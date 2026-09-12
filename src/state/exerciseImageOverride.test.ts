@@ -6,8 +6,9 @@ import {
   exerciseImageOverrideMessage,
   overrideExerciseImage,
   parseImageUrl,
+  replaceExerciseImageFromLocalUri,
 } from './exerciseImageOverride';
-import type { ExerciseImageOverrideDeps } from './exerciseImageOverride';
+import type { ExerciseImageOverrideDeps, LocalExerciseImageOverrideDeps } from './exerciseImageOverride';
 import { NotAnImageError } from './imageSignature';
 
 const EXERCISE_ID = 'bench-press';
@@ -21,6 +22,12 @@ type Recorder = {
   readonly downloadCalls: { url: string; relativePath: string }[];
   readonly deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[];
   readonly logCalls: { message: string; error: unknown }[];
+};
+
+type LocalRecorder = {
+  readonly deps: LocalExerciseImageOverrideDeps;
+  readonly copyCalls: { uri: string; relativePath: string }[];
+  readonly deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[];
 };
 
 async function readRow(db: Database, id: string): Promise<{ imagePath: string | null; imageSource: string | null }> {
@@ -57,6 +64,27 @@ function makeRecorder(
     },
   };
   return { deps, downloadCalls, deleteCalls, logCalls };
+}
+
+function makeLocalRecorder(db: Database): LocalRecorder {
+  const copyCalls: { uri: string; relativePath: string }[] = [];
+  const deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[] = [];
+  return {
+    deps: {
+      database: db,
+      copy: async (uri, relativePath) => {
+        copyCalls.push({ uri, relativePath });
+      },
+      deleteFile: async (path) => {
+        const row = await readRow(db, EXERCISE_ID);
+        deleteCalls.push({ path, rowPathAtDeleteTime: row.imagePath });
+      },
+      makeImageSuffix: () => 'n1',
+      log: () => {},
+    },
+    copyCalls,
+    deleteCalls,
+  };
 }
 
 describe('exercise image override — #335', () => {
@@ -150,6 +178,18 @@ describe('exercise image override — #335', () => {
       imageSource: 'url:https://example.com/p.jpg',
     });
     expect(rec.deleteCalls).toStrictEqual([]);
+  });
+
+  it('copies a selected local photo to a new owned file, records the user choice, then deletes the previous image', async () => {
+    await seedPreviousImage();
+    const rec = makeLocalRecorder(db);
+
+    const outcome = await replaceExerciseImageFromLocalUri(rec.deps, EXERCISE_ID, 'file:///cache/chosen-photo.jpg');
+
+    expect(outcome).toStrictEqual({ kind: 'saved', imagePath: NEW_PATH });
+    expect(rec.copyCalls).toStrictEqual([{ uri: 'file:///cache/chosen-photo.jpg', relativePath: NEW_PATH }]);
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: NEW_PATH, imageSource: 'user' });
+    expect(rec.deleteCalls).toStrictEqual([{ path: OLD_PATH, rowPathAtDeleteTime: NEW_PATH }]);
   });
 
   it('AC4.2 edge: never deletes the file the row now points at when the suffix repeats the previous path', async () => {
