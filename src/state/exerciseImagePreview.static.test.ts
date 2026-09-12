@@ -53,6 +53,9 @@ describe('tiny exercise image full-size preview (#361)', () => {
     expect(source).toContain('onRequestClose={()=>setPreviewVisible(false)}');
     expect(source).toContain('accessibilityViewIsModal');
     expect(source).toContain('source={{uri:imageUri}}contentFit="contain"');
+    expect(source).toContain(
+      'contentFit="contain"recyclingKey={`preview-${imagePath}`}pointerEvents="none"onError='
+    );
     expect(source).toContain('accessibilityLabel="Full-sizeexerciseimage"');
     expect(
       source.match(
@@ -118,6 +121,9 @@ describe('tiny exercise image full-size preview (#361)', () => {
       'Image preview, row navigation, and delete actions are sibling accessibility elements'
     );
     expect(contract).toContain('44-point press target');
+    expect(contract).toContain(
+      'preview image is touch-transparent so its contain-fit letterbox cannot block backdrop taps'
+    );
     expect(contract).toContain('`src/components/ExerciseImage.tsx`');
   });
 });
