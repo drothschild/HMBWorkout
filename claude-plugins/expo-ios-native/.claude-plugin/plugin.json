@@ -1,0 +1,8 @@
+{
+  "name": "expo-ios-native",
+  "version": "0.1.0",
+  "description": "Expo/React Native iOS native workflow: when a prebuild is mandatory, Debug vs Release device builds, proving a native module actually linked, driving the simulator headlessly, and reading an on-device SQLite database without losing the WAL.",
+  "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+  "license": "MIT",
+  "homepage": "https://github.com/drothschild/HMBWorkout/tree/main/claude-plugins/expo-ios-native"
+}
