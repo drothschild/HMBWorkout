@@ -274,6 +274,31 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.');
   });
 
+  it('recovers a native camera preview mount failure without misleading permission guidance', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain('const[cameraError,setCameraError]=useState<string|null>(null);');
+    expect(source).toContain('const[cameraPreviewAttempt,setCameraPreviewAttempt]=useState(0);');
+    expect(source).toContain('key={cameraPreviewAttempt}');
+    expect(source).toContain('active={cameraOpen&&cameraError===null}');
+    expect(source).toContain('onMountError={(error)=>{setCameraReady(false);setCameraError(error.message);}}');
+    expect(source).toContain("Camerapreviewcouldn'tstart.Tryagain.");
+    expect(source).toContain('accessibilityLabel="Retrycamerapreview"');
+    expect(source).toContain('accessibilityHint="Restartsthecamerapreview."');
+    expect(source).toContain('constretryExerciseCameraPreview=()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraError(null);setCameraPreviewAttempt((attempt)=>attempt+1);};');
+    expect(source).not.toContain("Camerapreviewcouldn'tstart.EnablecameraaccessinSettings");
+  });
+
+  it('makes Close unavailable throughout capture and save, rather than promising a cancellation it cannot perform', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain("import{captureExerciseCameraPhoto,closeExerciseCameraIfIdle}from'@/state/exerciseCameraCapture';");
+    expect(source).toContain('closeExerciseCameraIfIdle(imagePickerInFlightRef,()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraOpen(false);});');
+    expect(source).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
+    expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
+    expect(source).toContain('disabled={savingImage}');
+  });
+
   it('configures Expo Camera for stills without microphone or audio recording permission', () => {
     const appConfig = JSON.parse(readFileSync(join(__dirname, '..', '..', 'app.json'), 'utf8')) as {
       expo: { plugins: unknown[] };
