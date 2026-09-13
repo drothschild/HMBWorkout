@@ -99,6 +99,7 @@ describe('exercise YouTube demonstrations (#390)', () => {
     expect(player).toContain("script?.dataset.youtubeIframeApiFailed === 'true'");
     expect(player).toContain('script.remove();');
     expect(player).toContain("script.dataset.youtubeIframeApiFailed = 'true';");
+    expect(player).toContain('if (!window.YT?.Player) script?.remove();');
   });
 
   it('uses a sandboxed, lazy, cookie-reduced inline iframe without application download code', () => {
