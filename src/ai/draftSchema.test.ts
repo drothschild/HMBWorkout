@@ -854,6 +854,39 @@ describe('draftSchema', () => {
       );
     });
 
+    test('accepts and canonicalizes a YouTube demonstration URL', () => {
+      const draft = {
+        name: 'Press Day',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
+            youtubeDemoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=share-token',
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].youtubeDemoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    });
+
+    test('rejects an unsafe YouTube demonstration URL', () => {
+      const draft = {
+        name: 'Press Day',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
+            youtubeDemoUrl: 'https://example.com/not-youtube',
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow('exercise youtubeDemoUrl must be a valid YouTube video URL');
+    });
+
     test('rejects a non-string exercise description', () => {
       const draft = {
         name: 'Cooldown',

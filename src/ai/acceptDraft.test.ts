@@ -233,6 +233,46 @@ describe('acceptDraft', () => {
       );
     });
 
+    test('writes a canonical draft YouTube URL only when it creates the exercise', async () => {
+      await acceptDraft(
+        database,
+        {
+          name: 'Press Day',
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength' as const,
+              sets: [{ type: 'normal' as const }],
+              youtubeDemoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=share-token',
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      const created = await database.get('exercises').find('bench-press');
+      expect((created as any).youtubeDemoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+      await acceptDraft(
+        database,
+        {
+          name: 'Press Day v2',
+          exercises: [
+            {
+              title: 'Bench Press',
+              kind: 'strength' as const,
+              sets: [{ type: 'normal' as const }],
+              youtubeDemoUrl: 'https://www.youtube.com/watch?v=9bZkp7q19f0',
+            },
+          ],
+        },
+        { kind: 'create' }
+      );
+
+      const existing = await database.get('exercises').find('bench-press');
+      expect((existing as any).youtubeDemoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    });
+
     test('never overwrites an existing exercise description, even a null one', async () => {
       // First accept creates the exercise without a description.
       await acceptDraft(
