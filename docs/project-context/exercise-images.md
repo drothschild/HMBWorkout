@@ -168,11 +168,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   deleted, the read's own error rethrown — and the delete is best-effort, so it
   never masks the rejection. `exerciseImageFiles.ts` cannot be imported by a test, so
   `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
-  One input-side guard sits in front of all this: the exercise detail screen's
-  `applyImageUrl` returns early on a blank field, because `onSubmitEditing`
-  reaches the handler directly and the Apply button's `disabled` does not cover
-  it. Without that, Return on an empty field ran the override and showed the red
-  `invalid-url` error. `exerciseImageWiring.static.test.ts` pins the guard.
+  Exercise details offer camera and photo-library controls; they do not expose a
+  paste-URL override. A selected local file is copied into document-backed storage
+  and written with the terminal `user` source.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
@@ -194,7 +192,8 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   Fuse. An alias candidate is inserted at score 0, deduplicated and kept within
   the eight-entry shortlist; `NO_KEY_ACCEPT_SCORE` stays 0.15. The remaining
   `BB Row` ambiguity still reaches Fuse; it is not one of these aliases. The
-  AI pick and paste-URL override remain available. **Do not loosen the margin
+  AI pick remains available for catalog matching; manual exercise-detail selection
+  is limited to the camera and photo library. **Do not loosen the margin
   fixture to chase further cases** — the threshold protects the other misses.
 - **Repair prior wrong catalog selections only for those three title/source
   pairs (#341).** `runImageResolutionPass` checks `catalogImageCorrection` before
