@@ -58,6 +58,21 @@ describe('exercise YouTube demonstrations (#390)', () => {
     expect(player).toContain("postStatus('failed')");
   });
 
+  it('waits for the YouTube Player API rather than treating an iframe load as playback readiness', () => {
+    const screen = compact(APP);
+    const player = source(PLAYER);
+
+    expect(screen).toContain('Dismiss');
+    expect(screen).toContain('onPress={dismissYouTubeDemo}');
+    expect(player).toContain('enablejsapi=1');
+    expect(player).toContain('window.onYouTubeIframeAPIReady');
+    expect(player).toContain('new window.YT.Player');
+    expect(player).toContain("onReady: () => postStatus('ready')");
+    expect(player).toContain("onError: () => postStatus('failed')");
+    expect(player).toContain('player?.destroy()');
+    expect(player).not.toContain("onLoad={() => postStatus('ready')}");
+  });
+
   it('uses a sandboxed, lazy, cookie-reduced inline iframe without application download code', () => {
     const player = source(PLAYER);
 
