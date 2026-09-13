@@ -271,7 +271,15 @@ export default function ExerciseDetailScreen() {
             <ThemedView style={styles.videoSection}>
               {showYouTubeDemo && youtubeDemo && (
                 <View style={styles.videoFrame}>
-                  <YouTubeDemo videoId={youtubeDemo.videoId} dom={{ scrollEnabled: false, style: styles.domPlayer }} />
+                  <YouTubeDemo
+                    videoId={youtubeDemo.videoId}
+                    dom={{
+                      cacheEnabled: false,
+                      incognito: true,
+                      scrollEnabled: false,
+                      style: styles.domPlayer,
+                    }}
+                  />
                 </View>
               )}
               {!showYouTubeDemo && (
