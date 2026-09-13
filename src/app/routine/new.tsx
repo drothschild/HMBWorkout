@@ -121,7 +121,7 @@ export default function NewRoutineScreen() {
   if (picking) {
     return (
       <ThemedView style={styles.container}>
-        <View style={styles.safeArea}>
+        <View style={[styles.safeArea, styles.pickerContent]}>
           <View style={styles.toolbar}>
             <BackButton label="Routine" onPress={() => setPicking(false)} />
             <ThemedText type="subtitle">Add exercise</ThemedText>
@@ -147,6 +147,7 @@ export default function NewRoutineScreen() {
           ) : (
             <FlatList
               data={filteredExercises}
+              style={styles.pickerList}
               keyExtractor={(exercise) => exercise.id}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
@@ -264,6 +265,8 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.four,
     gap: Spacing.two,
   },
+  pickerContent: { flex: 1 },
+  pickerList: { flex: 1 },
   toolbar: {
     minHeight: 44,
     flexDirection: 'row',
