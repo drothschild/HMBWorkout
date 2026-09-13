@@ -322,6 +322,20 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).not.toContain('label={savingImage?\'Saving…\':\'Use camera\'}');
     expect(source).not.toContain('label="Choose photo"');
   });
+
+  it('adds a lower-right refresh icon that asks the active resolver for a non-destructive replacement', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain("import{requestExerciseImagePass,refreshExerciseImage}from'@/state/exerciseImageResolverRegistry';");
+    expect(source).toContain("constlabel=kind==='camera'?'Takeexercisephoto':kind==='library'?'Chooseexercisephoto':'Refreshexerciseimage';");
+    expect(source).toContain("{ios:'arrow.clockwise',android:'refresh',web:'refresh'}");
+    expect(source).toContain('voidrefreshExerciseImage(id)');
+    expect(source).toContain('No new matching image found. Existing image kept.');
+    expect(source).toContain('Image refreshed.');
+    expect(source).toContain("photoAction('refresh')");
+    expect(source).toContain('minWidth:44');
+    expect(source).toContain('minHeight:44');
+  });
 });
 
 describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)', () => {
