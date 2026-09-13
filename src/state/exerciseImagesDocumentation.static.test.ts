@@ -17,6 +17,7 @@ describe('exercise-images project context (#376)', () => {
     const normalized = source.replace(/\s+/g, ' ');
 
     expect(normalized).toContain('Exercise details offer camera and photo-library controls; they do not expose a paste-URL override.');
+    expect(normalized).toContain('The controls are accessible 44pt icon buttons over the hero\'s lower-right corner, with a solid fallback when Liquid Glass is unavailable or Reduce Transparency is enabled.');
     expect(source).not.toContain('`applyImageUrl`');
     expect(source).not.toContain('AI pick and paste-URL override remain available.');
   });
