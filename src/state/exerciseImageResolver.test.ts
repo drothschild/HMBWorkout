@@ -568,6 +568,7 @@ describe('explicit exercise image refresh (#376)', () => {
   }
 
   function refreshEntryPoint(deps: ExerciseImageResolverDeps, exerciseId: string): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- red-first optional entry point.
     const implementation = (require('./exerciseImageResolver') as {
       refreshExerciseImage?: (refreshDeps: ExerciseImageResolverDeps, refreshMatcher: CatalogMatcher, id: string) => Promise<unknown>;
     }).refreshExerciseImage;
@@ -626,7 +627,7 @@ describe('explicit exercise image refresh (#376)', () => {
     const row = (await db.get('exercises').find('romanian-deadlift')) as any;
     expect(row.imageSource).toBe('user');
     expect(row.imagePath).toBe('exercise-images/manual-old.jpg');
-    expect(deps.deleteFile).not.toHaveBeenCalled();
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/romanian-deadlift-refresh.jpg');
   });
 
   it('preserves a competing user replacement with the same source and cleans the refresh orphan', async () => {
