@@ -532,19 +532,25 @@ export default function ExerciseDetailScreen() {
           ) : (
             <View style={styles.cameraPermissionPanel}>
               <ThemedText type="subtitle">Camera access is needed to take an exercise photo.</ThemedText>
-              <ThemedText type="small" style={styles.cameraPermissionText}>
-                Camera access is off. Enable camera access in Settings, then return here.
-              </ThemedText>
-              {cameraPermission?.canAskAgain !== false && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Grant camera access"
-                  accessibilityHint="Requests access to take an exercise photo."
-                  onPress={() => { void requestCameraPermission(); }}
-                  style={styles.cameraGrantButton}
-                >
-                  <ThemedText type="default" style={styles.cameraButtonText}>Grant access</ThemedText>
-                </Pressable>
+              {cameraPermission?.canAskAgain === false ? (
+                <ThemedText type="small" style={styles.cameraPermissionText}>
+                  Camera access is off. Enable camera access in Settings, then return here.
+                </ThemedText>
+              ) : (
+                <>
+                  <ThemedText type="small" style={styles.cameraPermissionText}>
+                    Camera access has not been granted. Grant access to take an exercise photo.
+                  </ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Grant camera access"
+                    accessibilityHint="Requests access to take an exercise photo."
+                    onPress={() => { void requestCameraPermission(); }}
+                    style={styles.cameraGrantButton}
+                  >
+                    <ThemedText type="default" style={styles.cameraButtonText}>Grant access</ThemedText>
+                  </Pressable>
+                </>
               )}
             </View>
           )}
