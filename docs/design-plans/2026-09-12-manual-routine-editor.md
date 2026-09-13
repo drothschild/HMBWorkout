@@ -60,3 +60,27 @@ run; adding/removing a member must never silently merge equal labels across a ga
   has poor VoiceOver affordance, and adds gesture complexity before #389.
 - Treating supersets as a map keyed only by label would violate the existing
   contiguous-run engine contract.
+
+## Human QA for the native editor
+
+This route changes native layout and interaction, so PR #391 remains a draft in
+**Require Human Inteteraction**. Do not merge, install, or replace an existing
+phone build for this checklist.
+
+1. In both light and dark appearance, open Routines and confirm **New routine**
+   is a 44 pt primary action beside the quieter AI Coach entry point.
+2. Open it, submit a whitespace-only name, and confirm the inline “Enter a
+   routine name.” error keeps the editor open. Enter a name and leave the list
+   empty; confirm the editor says it cannot be started yet, saving opens the
+   routine detail, and its Start control is unavailable.
+3. Create another routine. Select **Add exercise**, search for a catalog title,
+   add it, and confirm the keyboard dismisses and the editor returns with the
+   first ordered row. Add that same exercise again; both numbered rows must be
+   present and save as distinct routine entries.
+4. Save and confirm the routine detail opens with the selected exercise order.
+   Return to Routines and confirm the routine appears once with the matching
+   exercise count. Force-close/relaunch offline and confirm the saved routine
+   persists.
+5. With VoiceOver, verify labels for New routine, Routine name, Add exercise,
+   Search exercises, each picker row, and the back controls; verify the icon
+   actions never rely on the symbol alone.
