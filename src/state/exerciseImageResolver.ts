@@ -14,7 +14,7 @@
 import type { Database } from '@nozbe/watermelondb';
 import { buildCatalogPickPrompt, parseCatalogPick } from '@/ai/catalogPickPrompt';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
-import { setExerciseImageIfSourceUnchanged } from '@/db/repository';
+import { setExerciseImageIfSourceUnchanged, setExerciseImageIfUnchanged } from '@/db/repository';
 import type Exercise from '@/db/models/Exercise';
 import { catalogImageUrl, type CatalogEntry } from './exerciseCatalog';
 import {
@@ -29,6 +29,7 @@ import { exactImageDecision, imageDecisionTitle, siblingImageDecisions } from '.
 import {
   buildImageRelativePath,
   catalogImageSource,
+  isBundledCatalogImagePath,
   isImageResolutionEligible,
 } from './exerciseImageState';
 
@@ -50,9 +51,18 @@ export type ExerciseImageResolverDeps = {
 export type ExerciseImageResolver = {
   /** Queue a pass; coalesces while one is running. Never throws. */
   request(): void;
+  /** Resolve one exercise even when it has an explicit image override. */
+  refresh(exerciseId: string): Promise<ExerciseImageRefreshOutcome>;
   /** Unsubscribe the table observer; later requests are ignored. Does not wait for an in-flight pass. */
   stop(): void;
 };
+
+export type ExerciseImageRefreshOutcome =
+  | { readonly kind: 'updated' }
+  | { readonly kind: 'no-match' }
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'failed' }
+  | { readonly kind: 'busy' };
 
 const KNOWN_IRRELEVANT_WEB_SELECTION = {
   title: 'dumbbell-glute-bridge',
@@ -146,6 +156,123 @@ async function resolveOne(
   }
 }
 
+async function cleanupRefreshDownload(
+  deps: ExerciseImageResolverDeps,
+  exerciseId: string,
+  imagePath: string
+): Promise<void> {
+  await deps.deleteFile(imagePath).catch((error: unknown) =>
+    deps.log(`exercise image refresh: deleting ${imagePath} for ${exerciseId} failed`, error)
+  );
+}
+
+/**
+ * Runs the normal catalog/AI/web selection path for one explicitly requested
+ * exercise. Unlike a background pass, this deliberately permits `user` and
+ * other terminal sources, but never clears them first: the candidate is
+ * downloaded, then source-and-path CASed, then the old file is removed.
+ */
+export async function refreshExerciseImage(
+  deps: ExerciseImageResolverDeps,
+  matcher: CatalogMatcher,
+  exerciseId: string
+): Promise<ExerciseImageRefreshOutcome> {
+  let rows: Exercise[];
+  try {
+    rows = (await deps.database.get('exercises').query().fetch()) as Exercise[];
+  } catch (error) {
+    deps.log(`exercise image refresh: could not read ${exerciseId}`, error);
+    return { kind: 'failed' };
+  }
+  const exercise = rows.find(row => row.id === exerciseId);
+  if (!exercise) return { kind: 'failed' };
+
+  const imageSource = exercise.imageSource ?? null;
+  const imagePath = exercise.imagePath ?? null;
+  const hasAiKey = deps.getAiKeyConfigured();
+  const siblings = siblingImageDecisions(rows.map(row => {
+    const correction = catalogImageCorrection(row.title, row.imageSource ?? null, deps.catalog);
+    return { title: row.title, imageSource: correction ? catalogImageSource(correction.id) : row.imageSource ?? null };
+  }), deps.catalog);
+  const title = imageDecisionTitle(exercise.title);
+  const correction = catalogImageCorrection(exercise.title, imageSource, deps.catalog);
+  const known: ImageDecision | undefined = correction
+    ? { kind: 'catalog', entry: correction }
+    : exactImageDecision(title, deps.catalog) ?? siblings.get(title);
+
+  let decision: ImageDecision;
+  try {
+    decision = known ?? await decide(deps, matcher, title, hasAiKey);
+  } catch (error) {
+    deps.log(`exercise image refresh: deciding ${exerciseId} failed`, error);
+    return { kind: 'failed' };
+  }
+
+  let replacementPath: string | null = null;
+  let replacementSource: string;
+  if (decision.kind === 'catalog') {
+    replacementPath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
+    replacementSource = catalogImageSource(decision.entry.id);
+    try {
+      await deps.download(catalogImageUrl(decision.entry), replacementPath);
+    } catch (error) {
+      await cleanupRefreshDownload(deps, exerciseId, replacementPath);
+      deps.log(`exercise image refresh: downloading ${exerciseId} failed`, error);
+      return { kind: 'failed' };
+    }
+  } else {
+    if (!deps.searchWebImages) return { kind: 'no-match' };
+    let candidates: readonly string[];
+    try {
+      candidates = await deps.searchWebImages(title);
+    } catch (error) {
+      deps.log(`exercise image refresh: finding a web image for ${exerciseId} failed`, error);
+      return { kind: 'failed' };
+    }
+    if (candidates.length === 0) return { kind: 'no-match' };
+
+    replacementSource = hasAiKey ? 'web:none' : 'web:none:nokey';
+    for (const url of candidates.slice(0, 5)) {
+      const candidatePath = buildImageRelativePath(exercise.id, deps.makeImageSuffix());
+      try {
+        await deps.download(url, candidatePath);
+        replacementPath = candidatePath;
+        replacementSource = `web:${url}`;
+        break;
+      } catch (error) {
+        deps.log(`exercise image refresh: candidate download for ${exerciseId} failed`, error);
+        await cleanupRefreshDownload(deps, exerciseId, candidatePath);
+      }
+    }
+    if (replacementPath === null) return { kind: 'failed' };
+  }
+
+  let applied: boolean;
+  try {
+    applied = await setExerciseImageIfUnchanged(deps.database, exercise.id, {
+      imagePath,
+      imageSource,
+    }, {
+      imagePath: replacementPath,
+      imageSource: replacementSource,
+    });
+  } catch (error) {
+    await cleanupRefreshDownload(deps, exerciseId, replacementPath);
+    deps.log(`exercise image refresh: writing ${exerciseId} failed`, error);
+    return { kind: 'failed' };
+  }
+  if (!applied) {
+    await cleanupRefreshDownload(deps, exerciseId, replacementPath);
+    return { kind: 'unchanged' };
+  }
+  if (imagePath !== null && !isBundledCatalogImagePath(imagePath) && imagePath !== replacementPath) {
+    await deps.deleteFile(imagePath).catch((error: unknown) =>
+      deps.log(`exercise image refresh: deleting previous ${imagePath} failed`, error)
+    );
+  }
+  return { kind: 'updated' };
+}
+
 /** One pass over every currently eligible row, sequentially. Never throws per row. */
 export async function runImageResolutionPass(
   deps: ExerciseImageResolverDeps,
@@ -222,6 +349,7 @@ export function startExerciseImageResolver(deps: ExerciseImageResolverDeps): Exe
   let running = false;
   let pending = false;
   let stopped = false;
+  const refreshing = new Set<string>();
 
   const safeLog = (message: string, error?: unknown) => {
     try {
@@ -256,6 +384,20 @@ export function startExerciseImageResolver(deps: ExerciseImageResolverDeps): Exe
     void runLoop();
   };
 
+  const refresh = async (exerciseId: string): Promise<ExerciseImageRefreshOutcome> => {
+    if (stopped) return { kind: 'failed' };
+    if (refreshing.has(exerciseId)) return { kind: 'busy' };
+    refreshing.add(exerciseId);
+    try {
+      return await refreshExerciseImage({ ...deps, log: safeLog }, matcher, exerciseId);
+    } catch (error) {
+      safeLog(`exercise image refresh: ${exerciseId} failed`, error);
+      return { kind: 'failed' };
+    } finally {
+      refreshing.delete(exerciseId);
+    }
+  };
+
   const subscription = deps.database.withChangesForTables(['exercises']).subscribe({
     next: () => request(),
     error: (error: unknown) => safeLog('exercise image: exercises observer failed', error),
@@ -263,6 +405,7 @@ export function startExerciseImageResolver(deps: ExerciseImageResolverDeps): Exe
 
   return {
     request,
+    refresh,
     stop: () => {
       stopped = true;
       subscription.unsubscribe();

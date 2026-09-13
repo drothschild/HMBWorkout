@@ -311,8 +311,8 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('minWidth:44');
     expect(source).toContain('minHeight:44');
     expect(source).toContain('accessibilityRole="button"');
-    expect(source).toContain("constlabel=camera?'Takeexercisephoto':'Chooseexercisephoto';");
-    expect(source).toContain("consthint=camera?'Opensthecameratoreplacethisexerciseimage.':'Opensyourphotolibrarytoreplacethisexerciseimage.';");
+    expect(source).toContain("constlabel=kind==='camera'?'Takeexercisephoto':kind==='library'?'Chooseexercisephoto':'Refreshexerciseimage';");
+    expect(source).toContain("consthint=kind==='camera'?'Opensthecameratoreplacethisexerciseimage.':kind==='library'?'Opensyourphotolibrarytoreplacethisexerciseimage.':'Findsthebestmatchingexerciseimagewithoutremovingthecurrentimagefirst.';");
     expect(source).toContain('accessibilityLabel={label}');
     expect(source).toContain('accessibilityHint={hint}');
     expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
@@ -330,9 +330,9 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain("constlabel=kind==='camera'?'Takeexercisephoto':kind==='library'?'Chooseexercisephoto':'Refreshexerciseimage';");
     expect(source).toContain("{ios:'arrow.clockwise',android:'refresh',web:'refresh'}");
     expect(source).toContain('voidrefreshExerciseImage(id)');
-    expect(source).toContain('No new matching image found. Existing image kept.');
-    expect(source).toContain('Image refreshed.');
-    expect(source).toContain("Couldn't refresh the image. Existing image kept.");
+    expect(source).toContain('Nonewmatchingimagefound.Existingimagekept.');
+    expect(source).toContain('Imagerefreshed.');
+    expect(source).toContain("Couldn'trefreshtheimage.Existingimagekept.");
     expect(source).toContain("photoAction('refresh')");
     expect(source).toContain('minWidth:44');
     expect(source).toContain('minHeight:44');

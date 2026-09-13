@@ -115,6 +115,13 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `ExerciseImage` is the only place a Documents path becomes a URI
   (`new File(Paths.document, imagePath).uri`). An unknown `bundle:` id renders
   the normal neutral placeholder instead of attempting a bogus Documents file.
+- **An explicit refresh never clears first.** The exercise-detail refresh
+  control runs the existing catalog/AI/web decision path for that one row even
+  when its source is `user`, downloads a fresh candidate, then compares both
+  the observed source and path before writing. A competing photo selection
+  wins; failed/no-match refreshes retain the current row, and old Documents
+  files are removed only after a successful replacement (bundled `bundle:`
+  assets are never deleted).
 - **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
   `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
   shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question

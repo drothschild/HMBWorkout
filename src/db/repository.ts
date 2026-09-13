@@ -1178,6 +1178,32 @@ export async function setExerciseImageIfSourceUnchanged(
 }
 
 /**
+ * Stronger compare-and-set for an explicit image refresh: source alone is not
+ * enough because two user photos both have the `user` source. It is otherwise
+ * the same atomic writer as setExerciseImageIfSourceUnchanged, but preserves a
+ * competing user change when its path changed while a replacement downloaded.
+ */
+export async function setExerciseImageIfUnchanged(
+  database: Database,
+  exerciseId: string,
+  expected: { readonly imagePath: string | null; readonly imageSource: string | null },
+  next: ExerciseImageFields
+): Promise<boolean> {
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    if (
+      (exercise.imageSource ?? null) !== expected.imageSource ||
+      (exercise.imagePath ?? null) !== expected.imagePath
+    ) return false;
+    await exercise.update((record: Exercise) => {
+      record.imagePath = next.imagePath;
+      record.imageSource = next.imageSource;
+    });
+    return true;
+  });
+}
+
+/**
  * Unconditional image write for the user's own override (Phase 6). Returns the
  * image_path the row held BEFORE the write, so the caller can delete that file
  * strictly after the row no longer points at it.

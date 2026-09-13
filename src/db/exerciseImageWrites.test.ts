@@ -120,6 +120,7 @@ describe('exerciseImageWrites (AC4.5)', () => {
         imageSource: 'user',
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- red-first optional entry point.
       const setIfUnchanged = (require('./repository') as {
         setExerciseImageIfUnchanged?: (
           database: Database,

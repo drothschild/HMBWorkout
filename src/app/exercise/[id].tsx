@@ -16,7 +16,7 @@ import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
-import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
+import { requestExerciseImagePass, refreshExerciseImage } from '@/state/exerciseImageResolverRegistry';
 import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
 import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
@@ -272,6 +272,42 @@ export default function ExerciseDetailScreen() {
     }
   };
 
+  const refreshExerciseImageAction = () => {
+    if (!id || imagePickerInFlightRef.current) return;
+    imagePickerInFlightRef.current = true;
+    setSavingImage(true);
+    setImageMessage(null);
+    void refreshExerciseImage(id)
+      .then((outcome) => {
+        switch (outcome.kind) {
+          case 'updated':
+            setImageMessage({ text: 'Image refreshed.', isError: false });
+            return;
+          case 'no-match':
+            setImageMessage({ text: 'No new matching image found. Existing image kept.', isError: false });
+            return;
+          case 'unchanged':
+            setImageMessage({ text: 'Image changed elsewhere. Existing image kept.', isError: false });
+            return;
+          case 'busy':
+            setImageMessage({ text: 'An image refresh is already in progress.', isError: false });
+            return;
+          case 'unavailable':
+          case 'failed':
+            setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
+            return;
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to refresh exercise image:', error);
+        setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
+      })
+      .finally(() => {
+        imagePickerInFlightRef.current = false;
+        setSavingImage(false);
+      });
+  };
+
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
   // is called on an unmounted component, it's a no-op (React ignores it), so hasPendingRef
   // may remain true. This is a tiny race window and acceptable: the next session load
@@ -282,10 +318,13 @@ export default function ExerciseDetailScreen() {
   const placeholderColor = theme.textSecondary;
   const useGlassEffect = glassEffectAvailable && !reduceTransparency;
 
-  const photoAction = (kind: 'camera' | 'library') => {
-    const camera = kind === 'camera';
-    const label = camera ? 'Take exercise photo' : 'Choose exercise photo';
-    const hint = camera ? 'Opens the camera to replace this exercise image.' : 'Opens your photo library to replace this exercise image.';
+  const photoAction = (kind: 'camera' | 'library' | 'refresh') => {
+    const label = kind === 'camera' ? 'Take exercise photo' : kind === 'library' ? 'Choose exercise photo' : 'Refresh exercise image';
+    const hint = kind === 'camera'
+      ? 'Opens the camera to replace this exercise image.'
+      : kind === 'library'
+        ? 'Opens your photo library to replace this exercise image.'
+        : 'Finds the best matching exercise image without removing the current image first.';
     const control = (
       <Pressable
         accessibilityRole="button"
@@ -293,14 +332,20 @@ export default function ExerciseDetailScreen() {
         accessibilityHint={hint}
         accessibilityState={{ disabled: savingImage, busy: savingImage }}
         disabled={savingImage}
-        onPress={() => { if (camera) openExerciseCamera(); else void chooseExercisePhoto(); }}
+        onPress={() => {
+          if (kind === 'camera') openExerciseCamera();
+          else if (kind === 'library') void chooseExercisePhoto();
+          else refreshExerciseImageAction();
+        }}
         style={({ pressed }) => [styles.photoAction, pressed && !savingImage && styles.photoActionPressed]}
       >
         <SymbolView
           accessible={false}
-          name={camera
+          name={kind === 'camera'
             ? { ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }
-            : { ios: 'photo', android: 'photo', web: 'photo' }}
+            : kind === 'library'
+              ? { ios: 'photo', android: 'photo', web: 'photo' }
+              : { ios: 'arrow.clockwise', android: 'refresh', web: 'refresh' }}
           size={22}
           tintColor="#ffffff"
           weight="semibold"
@@ -372,6 +417,7 @@ export default function ExerciseDetailScreen() {
             <View style={styles.photoActions}>
               {photoAction('camera')}
               {photoAction('library')}
+              {photoAction('refresh')}
             </View>
           </View>
           {imageMessage && (

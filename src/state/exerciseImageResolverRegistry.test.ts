@@ -9,6 +9,7 @@ describe('exerciseImageResolverRegistry', () => {
         const { ensureExerciseImageResolver: ensureResolver } = require('./exerciseImageResolverRegistry');
         const mockResolver: ExerciseImageResolver = {
           request: jest.fn(),
+          refresh: jest.fn().mockResolvedValue({ kind: 'updated' }),
           stop: jest.fn(),
         };
         const start = jest.fn(() => mockResolver);
@@ -39,6 +40,7 @@ describe('exerciseImageResolverRegistry', () => {
         const { ensureExerciseImageResolver, requestExerciseImagePass } = require('./exerciseImageResolverRegistry');
         const mockResolver: ExerciseImageResolver = {
           request: jest.fn(),
+          refresh: jest.fn().mockResolvedValue({ kind: 'updated' }),
           stop: jest.fn(),
         };
         const start = jest.fn(() => mockResolver);
