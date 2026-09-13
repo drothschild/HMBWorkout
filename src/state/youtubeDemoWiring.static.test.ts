@@ -39,6 +39,8 @@ describe('exercise YouTube demonstrations (#390)', () => {
 
     expect(screen).toContain('showYouTubeDemo&&youtubeDemo&&(');
     expect(screen).toContain('onPress={()=>setShowYouTubeDemo(true)}');
+    expect(screen).toContain('cacheEnabled:false');
+    expect(screen).toContain('incognito:true');
   });
 
   it('uses a sandboxed, lazy, cookie-reduced inline iframe without local caching', () => {
