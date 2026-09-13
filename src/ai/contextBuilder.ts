@@ -240,6 +240,7 @@ Exercise schema (inside draft.exercises):
 - restSeconds: when present, must be an integer >= 0
 - sets: the ordered list of sets to perform, one object per set. Required, and must contain at least one set
 - description: optional detailed how-to text shown under the exercise on the routine screen; it takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current description
+- youtubeDemoUrl: optional HTTPS YouTube video URL for a best-effort demonstration. Only include a direct video URL when you are reasonably confident; do not claim that popularity, view count, availability, or quality has been independently verified. It takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current URL
 
 Set schema (inside draft.exercises[].sets), one object per set actually performed:
 - type: must be "warmup" or "normal". Warmup sets come first, in the order they are performed

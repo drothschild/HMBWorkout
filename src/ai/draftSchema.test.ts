@@ -1538,7 +1538,7 @@ describe('draftSchema', () => {
       // array-of-objects inside an array-of-objects. If a live call ever 400s
       // with a grammar-complexity error while this assertion is comfortably
       // green, the nesting — not the count — is the thing to look at.
-      expect(optionalCount).toBe(17);
+      expect(optionalCount).toBe(18);
       expect(optionalCount).toBeLessThan(20);
 
       // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded

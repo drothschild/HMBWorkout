@@ -1,4 +1,5 @@
 import { ExerciseKind } from '@/db/models/Exercise';
+import { parseYouTubeDemoUrl } from '@/domain/youtubeDemoUrl';
 import type { RoutineSetType } from '@/engine/types';
 
 export interface AiTurn {
@@ -90,6 +91,8 @@ export interface DraftExercise {
   sets: DraftSet[];
   notes?: string;
   description?: string; // applied only when the accept path creates the exercise
+  /** Best-effort model suggestion, applied only when the accept path creates the exercise. */
+  youtubeDemoUrl?: string;
 }
 
 export class DraftValidationError extends Error {
@@ -169,6 +172,7 @@ export const AI_TURN_SCHEMA = {
               },
               notes: { type: 'string' },
               description: { type: 'string' },
+              youtubeDemoUrl: { type: 'string' },
             },
             required: ['title', 'kind', 'sets'],
             additionalProperties: false,
@@ -266,6 +270,17 @@ export function validateRoutineDraft(value: unknown): RoutineDraft {
 
     if (exercise.description !== undefined && typeof exercise.description !== 'string') {
       throw new DraftValidationError('exercise description, when present, must be a string');
+    }
+
+    if (exercise.youtubeDemoUrl !== undefined) {
+      if (typeof exercise.youtubeDemoUrl !== 'string') {
+        throw new DraftValidationError('exercise youtubeDemoUrl, when present, must be a string');
+      }
+      const parsed = parseYouTubeDemoUrl(exercise.youtubeDemoUrl);
+      if (parsed === null) {
+        throw new DraftValidationError('exercise youtubeDemoUrl must be a valid YouTube video URL');
+      }
+      exercise.youtubeDemoUrl = parsed.canonicalUrl;
     }
 
     const validateInteger = (field: string, value: unknown, minValue: number = 0) => {

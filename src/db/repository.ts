@@ -1086,8 +1086,16 @@ export async function upsertExercise(
   exerciseId: string,
   title: string,
   kind: string,
-  description?: string
+  description?: string,
+  youtubeDemoUrl?: string
 ): Promise<any> {
+  const normalizedYouTubeDemoUrl = youtubeDemoUrl === undefined
+    ? undefined
+    : parseYouTubeDemoUrl(youtubeDemoUrl)?.canonicalUrl;
+  if (youtubeDemoUrl !== undefined && normalizedYouTubeDemoUrl === undefined) {
+    throw new YouTubeDemoUrlValidationError();
+  }
+
   return await database.write(async () => {
     const exercisesTable = database.get('exercises');
 
@@ -1108,6 +1116,7 @@ export async function upsertExercise(
         e.title = title;
         e.kind = kind;
         if (normalized !== null) e.description = normalized;
+        if (normalizedYouTubeDemoUrl !== undefined) e.youtubeDemoUrl = normalizedYouTubeDemoUrl;
         e._raw.created_at = Date.now();
       });
       return created;
