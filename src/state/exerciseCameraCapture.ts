@@ -11,6 +11,20 @@ export type ExerciseCameraCaptureOutcome =
   | { readonly kind: 'saved'; readonly outcome: LocalExerciseImageOverrideOutcome };
 
 /**
+ * Closing cannot cancel a photo once its local URI is being copied and saved.
+ * The UI disables Close too, while this synchronous guard protects the small
+ * interval before React applies that disabled state.
+ */
+export function closeExerciseCameraIfIdle(
+  inFlight: { current: boolean },
+  closeCamera: () => void
+): boolean {
+  if (inFlight.current) return false;
+  closeCamera();
+  return true;
+}
+
+/**
  * Capturing finishes asynchronously. A close increments `session`, so a photo
  * that returns after close is deliberately discarded before it can write an
  * exercise image. The synchronous ref makes rapid shutter taps single-flight.

@@ -268,7 +268,7 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('takePicture:()=>cameraRef.current!.takePictureAsync({quality:0.8,exif:false,base64:false})');
     expect(source).toContain('save:(uri)=>replaceExerciseImageFromLocalUri(');
     expect(source).toContain('accessibilityLabel="Closeexercisecamera"');
-    expect(source).toContain('accessibilityHint="Closeswithoutchangingtheexerciseimage."');
+    expect(source).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
     expect(source).toContain('accessibilityLabel="Takeexercisephoto"');
     expect(source).toContain('disabled={!cameraReady||savingImage}');
     expect(source).toContain('Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.');
@@ -282,21 +282,29 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('key={cameraPreviewAttempt}');
     expect(source).toContain('active={cameraOpen&&cameraError===null}');
     expect(source).toContain('onMountError={(error)=>{setCameraReady(false);setCameraError(error.message);}}');
-    expect(source).toContain("Camerapreviewcouldn'tstart.Tryagain.");
+    expect(source).toContain('Camerapreviewcouldnotstart.Tryagain.');
     expect(source).toContain('accessibilityLabel="Retrycamerapreview"');
     expect(source).toContain('accessibilityHint="Restartsthecamerapreview."');
     expect(source).toContain('constretryExerciseCameraPreview=()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraError(null);setCameraPreviewAttempt((attempt)=>attempt+1);};');
-    expect(source).not.toContain("Camerapreviewcouldn'tstart.EnablecameraaccessinSettings");
+    expect(source).not.toContain('Camerapreviewcouldnotstart.EnablecameraaccessinSettings');
   });
 
   it('makes Close unavailable throughout capture and save, rather than promising a cancellation it cannot perform', () => {
     const source = compact(FILES.exerciseDetail);
+    const label = 'accessibilityLabel="Closeexercisecamera"';
+    const labelAt = indexOfOrThrow(source, label, 'exercise/[id].tsx');
+    const closeStart = source.lastIndexOf('<Pressable', labelAt);
+    const closeEnd = source.indexOf('</Pressable>', labelAt);
+    if (closeStart === -1 || closeEnd === -1) {
+      throw new Error('exercise/[id].tsx Close control no longer has a complete Pressable; re-anchor this gate');
+    }
+    const closeControl = source.slice(closeStart, closeEnd);
 
     expect(source).toContain("import{captureExerciseCameraPhoto,closeExerciseCameraIfIdle}from'@/state/exerciseCameraCapture';");
     expect(source).toContain('closeExerciseCameraIfIdle(imagePickerInFlightRef,()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraOpen(false);});');
-    expect(source).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
-    expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
-    expect(source).toContain('disabled={savingImage}');
+    expect(closeControl).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
+    expect(closeControl).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
+    expect(closeControl).toContain('disabled={savingImage}');
   });
 
   it('configures Expo Camera for stills without microphone or audio recording permission', () => {

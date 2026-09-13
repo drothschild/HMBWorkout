@@ -20,7 +20,7 @@ import { requestExerciseImagePass, refreshExerciseImage } from '@/state/exercise
 import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
 import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
-import { captureExerciseCameraPhoto } from '@/state/exerciseCameraCapture';
+import { captureExerciseCameraPhoto, closeExerciseCameraIfIdle } from '@/state/exerciseCameraCapture';
 import {
   exerciseHistoryPresenter,
   type ExerciseHistoryWorkout,
@@ -46,6 +46,8 @@ export default function ExerciseDetailScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraPreviewAttempt, setCameraPreviewAttempt] = useState(0);
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [glassEffectAvailable] = useState(() => {
     const liquidGlassAvailable = isLiquidGlassAvailable();
@@ -223,14 +225,24 @@ export default function ExerciseDetailScreen() {
     if (imagePickerInFlightRef.current) return;
     cameraSessionRef.current += 1;
     setCameraReady(false);
+    setCameraError(null);
     setCameraOpen(true);
     setImageMessage(null);
   };
 
   const closeExerciseCamera = () => {
+    closeExerciseCameraIfIdle(imagePickerInFlightRef, () => {
+      cameraSessionRef.current += 1;
+      setCameraReady(false);
+      setCameraOpen(false);
+    });
+  };
+
+  const retryExerciseCameraPreview = () => {
     cameraSessionRef.current += 1;
     setCameraReady(false);
-    setCameraOpen(false);
+    setCameraError(null);
+    setCameraPreviewAttempt((attempt) => attempt + 1);
   };
 
   const takeExerciseCameraPhoto = async () => {
@@ -487,14 +499,36 @@ export default function ExerciseDetailScreen() {
       <Modal visible={cameraOpen} presentationStyle="fullScreen">
         <View style={styles.cameraModal}>
           {cameraPermission?.granted ? (
-            <CameraView
-              ref={cameraRef}
-              style={styles.cameraPreview}
-              facing="back"
-              mode="picture"
-              active={cameraOpen}
-              onCameraReady={() => setCameraReady(true)}
-            />
+            cameraError ? (
+              <View accessibilityRole="alert" style={styles.cameraPermissionPanel}>
+                <ThemedText type="subtitle">Camera preview could not start. Try again.</ThemedText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry camera preview"
+                  accessibilityHint="Restarts the camera preview."
+                  accessibilityState={{ disabled: savingImage, busy: savingImage }}
+                  disabled={savingImage}
+                  onPress={retryExerciseCameraPreview}
+                  style={styles.cameraGrantButton}
+                >
+                  <ThemedText type="default" style={styles.cameraButtonText}>Retry preview</ThemedText>
+                </Pressable>
+              </View>
+            ) : (
+              <CameraView
+                key={cameraPreviewAttempt}
+                ref={cameraRef}
+                style={styles.cameraPreview}
+                facing="back"
+                mode="picture"
+                active={cameraOpen && cameraError === null}
+                onCameraReady={() => setCameraReady(true)}
+                onMountError={(error) => {
+                  setCameraReady(false);
+                  setCameraError(error.message);
+                }}
+              />
+            )
           ) : (
             <View style={styles.cameraPermissionPanel}>
               <ThemedText type="subtitle">Camera access is needed to take an exercise photo.</ThemedText>
@@ -517,7 +551,9 @@ export default function ExerciseDetailScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close exercise camera"
-            accessibilityHint="Closes without changing the exercise image."
+            accessibilityHint={savingImage ? 'Available after the photo finishes saving.' : 'Closes without changing the exercise image.'}
+            accessibilityState={{ disabled: savingImage, busy: savingImage }}
+            disabled={savingImage}
             onPress={closeExerciseCamera}
             style={styles.cameraCloseButton}
           >
