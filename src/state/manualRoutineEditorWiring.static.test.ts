@@ -52,4 +52,14 @@ describe('manual routine editor wiring (#388)', () => {
     expect(source).toContain('key={`${exercise.id}-${index}`}');
     expect(source).toContain('Thisroutinehasnoexercisesandcannotbestartedyet.');
   });
+
+  it('closes the picker from the selection handler itself', () => {
+    const source = compact(EDITOR_SCREEN);
+    const start = source.indexOf('constselectExercise=');
+    const end = source.indexOf('if(picking)', start);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(source.slice(start, end)).toContain('setPicking(false)');
+  });
 });
