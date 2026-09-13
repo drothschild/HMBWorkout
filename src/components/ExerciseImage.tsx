@@ -13,6 +13,8 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
+import { bundledCatalogImageModule } from '@/state/bundledCatalogImages';
+import { isBundledCatalogImagePath } from '@/state/exerciseImageState';
 
 export type ExerciseImageSize = 'hero' | 'fit' | 'row' | 'strip';
 
@@ -31,10 +33,14 @@ export function ExerciseImage({ imagePath, size }: ExerciseImageProps) {
   if (imagePath === null || failedPath === imagePath) {
     return <View style={frame} accessibilityLabel="No exercise image" />;
   }
+  const bundledImage = bundledCatalogImageModule(imagePath);
+  if (bundledImage === null && isBundledCatalogImagePath(imagePath)) {
+    return <View style={frame} accessibilityLabel="No exercise image" />;
+  }
   return (
     <Image
       style={frame}
-      source={{ uri: new File(Paths.document, imagePath).uri }}
+      source={bundledImage ?? { uri: new File(Paths.document, imagePath).uri }}
       contentFit="cover"
       recyclingKey={imagePath}
       onError={() => setFailedPath(imagePath)}
