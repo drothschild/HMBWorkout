@@ -14,18 +14,29 @@ import { routineListPresenter, RoutineListItem } from '@/state/routineListPresen
 
 interface EntryPointButtonsProps {
   onAiCoach: () => void;
+  onNewRoutine: () => void;
 }
 
-function EntryPointButtons({ onAiCoach }: EntryPointButtonsProps) {
+function EntryPointButtons({ onAiCoach, onNewRoutine }: EntryPointButtonsProps) {
   return (
-    <>
+    <View style={styles.entryPoints}>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="New routine"
+        style={({ pressed }) => [styles.newRoutineButton, pressed && styles.newRoutineButtonPressed]}
+        onPress={onNewRoutine}
+      >
+        <ThemedText type="default" style={styles.newRoutineButtonText}>New routine</ThemedText>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Edit with AI Coach"
         style={({ pressed }) => [styles.importButton, pressed && styles.importButtonPressed]}
         onPress={onAiCoach}
       >
         <ThemedText type="default" style={styles.importButtonText}>AI Coach</ThemedText>
       </Pressable>
-    </>
+    </View>
   );
 }
 
@@ -97,12 +108,14 @@ export default function RoutinesScreen() {
               </ThemedText>
               <EntryPointButtons
                 onAiCoach={() => router.push('/ai-coach')}
+                onNewRoutine={() => router.push('/routine/new')}
               />
             </ThemedView>
           ) : (
             <>
               <EntryPointButtons
                 onAiCoach={() => router.push('/ai-coach')}
+                onNewRoutine={() => router.push('/routine/new')}
               />
               <FlatList
                 data={routines}
@@ -189,7 +202,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.three,
   },
+  entryPoints: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  newRoutineButton: {
+    flex: 1,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    backgroundColor: ActionButtonColor.primary,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  newRoutineButtonPressed: {
+    opacity: 0.7,
+  },
+  newRoutineButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   importButton: {
+    flex: 1,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     backgroundColor: ActionButtonColor.secondary,
