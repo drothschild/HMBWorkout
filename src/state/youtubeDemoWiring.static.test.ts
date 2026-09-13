@@ -37,13 +37,28 @@ describe('exercise YouTube demonstrations (#390)', () => {
   it('does not contact YouTube until the person explicitly opens the player', () => {
     const screen = compact(APP);
 
-    expect(screen).toContain('showYouTubeDemo&&youtubeDemo&&(');
-    expect(screen).toContain('onPress={()=>setShowYouTubeDemo(true)}');
-    expect(screen).toContain('cacheEnabled:false');
-    expect(screen).toContain('incognito:true');
+    expect(screen).toContain("typeYouTubeDemoPlayerState='idle'|'loading'|'ready'|'failed';");
+    expect(screen).toContain("const[youtubeDemoPlayerState,setYoutubeDemoPlayerState]=useState<YouTubeDemoPlayerState>('idle');");
+    expect(screen).toContain('youtubeDemoPlayerState===\'loading\'||youtubeDemoPlayerState===\'ready\'');
+    expect(screen).toContain('onPress={openYouTubeDemo}');
+    expect(screen).not.toMatch(/cacheEnabled|incognito/);
   });
 
-  it('uses a sandboxed, lazy, cookie-reduced inline iframe without local caching', () => {
+  it('shows compact loading and recoverable failure states using the supported DOM message path', () => {
+    const screen = compact(APP);
+    const player = source(PLAYER);
+
+    expect(screen).toContain('Loadingdemonstration…');
+    expect(screen).toContain("Couldn'tloadtheYouTubedemonstration.Checkyourconnection,thenretryorreplaceitsURL.");
+    expect(screen).toContain('Retrydemonstration');
+    expect(screen).toContain('onError:handleYouTubeDemoFailure');
+    expect(screen).toContain('onMessage:handleYouTubeDemoMessage');
+    expect(player).toContain("type:'youtube-demo-status'");
+    expect(player).toContain("postStatus('ready')");
+    expect(player).toContain("postStatus('failed')");
+  });
+
+  it('uses a sandboxed, lazy, cookie-reduced inline iframe without application download code', () => {
     const player = source(PLAYER);
 
     expect(player).toContain("'use dom';");
