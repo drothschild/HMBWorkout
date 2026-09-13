@@ -216,12 +216,10 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
   // The screen is jest-invisible, so pins prove it offers both picker routes,
   // stores the returned temporary URI in document-backed image storage, and
   // does not leave the replaced URL text field behind.
-  it('offers both image library and camera actions without the URL field', () => {
+  it('keeps the image-library action without the URL field', () => {
     const source = normalized(FILES.exerciseDetail);
 
     expect(source).toContain('ImagePicker.launchImageLibraryAsync(');
-    expect(source).toContain('ImagePicker.launchCameraAsync(');
-    expect(source).toContain('ImagePicker.requestCameraPermissionsAsync');
     expect(source).toContain('replaceExerciseImageFromLocalUri(');
     expect(source).toContain('copy: copyExerciseImage');
     expect(source).toContain('deleteFile: deleteExerciseImage');
@@ -243,16 +241,54 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('enable camera access in Settings.');
   });
 
-  it('presents only the camera picker full-screen, leaving the photo library options unchanged', () => {
+  it('uses an in-app full-screen back CameraView, never ImagePicker camera', () => {
     const source = compact(FILES.exerciseDetail);
-    const cameraLaunch = source.slice(
-      indexOfOrThrow(source, 'launchCamera:()=>ImagePicker.launchCameraAsync(', 'exercise/[id].tsx'),
-      indexOfOrThrow(source, 'launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)', 'exercise/[id].tsx')
+
+    expect(source).toContain("import{CameraView,useCameraPermissions}from'expo-camera';");
+    expect(source).toContain('const[cameraPermission,requestCameraPermission]=useCameraPermissions();');
+    expect(source).toContain('const[cameraOpen,setCameraOpen]=useState(false);');
+    expect(source).toContain('const[cameraReady,setCameraReady]=useState(false);');
+    expect(source).toContain('<Modalvisible={cameraOpen}presentationStyle="fullScreen">');
+    expect(source).toContain('<CameraView');
+    expect(source).toContain('facing="back"');
+    expect(source).toContain('mode="picture"');
+    expect(source).toContain('onCameraReady={()=>setCameraReady(true)}');
+    expect(source).not.toContain('ImagePicker.launchCameraAsync(');
+    expect(source).not.toContain('UIImagePickerPresentationStyle');
+    expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
+    expect(source).not.toContain('recordAsync');
+    expect(source).not.toContain('videoQuality');
+  });
+
+  it('gates a single capture on preview readiness, exposes close and shutter accessibility, and saves only its local URI', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain('constcameraRef=useRef<CameraView>(null);');
+    expect(source).toContain('if(!cameraReady||cameraRef.current===null)return;');
+    expect(source).toContain('captureExerciseCameraPhoto(');
+    expect(source).toContain('takePicture:()=>cameraRef.current!.takePictureAsync({quality:0.8,exif:false,base64:false})');
+    expect(source).toContain('save:(uri)=>replaceExerciseImageFromLocalUri(');
+    expect(source).toContain('accessibilityLabel="Closeexercisecamera"');
+    expect(source).toContain('accessibilityHint="Closeswithoutchangingtheexerciseimage."');
+    expect(source).toContain('accessibilityLabel="Takeexercisephoto"');
+    expect(source).toContain('disabled={!cameraReady||savingImage}');
+    expect(source).toContain('Camera access is off. Enable camera access in Settings, then return here.');
+  });
+
+  it('configures Expo Camera for stills without microphone or audio recording permission', () => {
+    const appConfig = JSON.parse(readFileSync(join(__dirname, '..', '..', 'app.json'), 'utf8')) as {
+      expo: { plugins: unknown[] };
+    };
+    const cameraPlugin = appConfig.expo.plugins.find(
+      (plugin): plugin is ['expo-camera', Record<string, unknown>] => Array.isArray(plugin) && plugin[0] === 'expo-camera'
     );
 
-    expect(cameraLaunch).toContain('presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN');
-    expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
-    expect(occurrences(source, 'presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN')).toBe(1);
+    expect(cameraPlugin).toEqual(['expo-camera', {
+      cameraPermission: 'Take an optional photo for an exercise or your workout diary.',
+      microphonePermission: false,
+      recordAudioAndroid: false,
+      barcodeScannerEnabled: false,
+    }]);
   });
 
   it('overlays accessible camera and library icon controls at the hero lower-right corner', () => {
