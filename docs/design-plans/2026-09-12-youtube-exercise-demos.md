@@ -45,6 +45,14 @@ validator, and persona instructions stay in lockstep. `acceptDraft` passes it
 only through the existing create-only exercise path. Re-accepting a draft for
 an existing global exercise must never overwrite a user-selected URL.
 
+“Most popular” is a best-effort prompt instruction, not a claim the app can
+independently verify. The installed providers make text-only requests with no
+YouTube search or browsing tool, so they may suggest a syntactically valid
+canonical URL but cannot establish a video's availability, audience, or view
+ranking. The URL field stays editable specifically so the athlete can correct
+that suggestion. This feature intentionally adds no YouTube Data API, API key,
+search service, ranking cache, or background validation request.
+
 ## Inline player and privacy
 
 The player derives a YouTube `videoId` from the stored canonical URL and renders
@@ -85,24 +93,13 @@ discovery and correction together while keeping all other screens unchanged.
    / Custom Tabs rather than rendering in the detail screen, so it fails the
    inline-only requirement.
 
-## Unresolved product decision
+## Settled source decision
 
-The installed Anthropic/OpenAI clients make text-only requests and have no
-YouTube search or browsing tool. They can produce a syntactically valid URL but
-cannot truthfully establish that it is the *most popular* real demonstration.
-
-Choose one before implementation:
-
-1. Treat “most popular” as **best effort**: the model proposes a canonical URL;
-   the app validates its shape and the user can correct unavailable/wrong videos.
-   This is the smallest implementation and needs no new secret or service.
-2. Require a **verified popularity result**: add a server-side YouTube Data API
-   search/ranking integration and credentials. This introduces an external API,
-   key custody, quota/error policy, terms review, and a distinct data-fetching
-   architecture.
-
-The recommendation proceeds only with option 1. Option 2 materially changes
-the implementation and should be its own design/review before code.
+The product uses **best-effort model-proposed canonical URLs**. It does not
+claim independently verified popularity and deliberately omits a YouTube Data
+API/search/ranking service. A future verified-popularity feature would be a
+separate design because it needs server-side credentials, quota/error policy,
+and terms review.
 
 ## Test plan (TDD order)
 
