@@ -9,6 +9,9 @@
 /** Directory under Paths.document that holds every downloaded exercise image. */
 export const EXERCISE_IMAGE_DIR = 'exercise-images';
 
+/** A bundled original catalog image, addressed by upstream catalog id rather than Documents path. */
+export const BUNDLED_CATALOG_IMAGE_PREFIX = 'bundle:' as const;
+
 export type ImageSource = `catalog:${string}` | `url:${string}` | `web:${string}` | 'user' | 'none' | 'none:nokey';
 
 /** No acceptable match. Final: never re-resolved by a pass. */
@@ -19,6 +22,14 @@ export const IMAGE_SOURCE_NONE_NOKEY = 'none:nokey';
 
 export function catalogImageSource(catalogId: string): ImageSource {
   return `catalog:${catalogId}`;
+}
+
+export function bundledCatalogImagePath(catalogId: string): string {
+  return `${BUNDLED_CATALOG_IMAGE_PREFIX}${catalogId}`;
+}
+
+export function isBundledCatalogImagePath(imagePath: string): boolean {
+  return imagePath.startsWith(BUNDLED_CATALOG_IMAGE_PREFIX);
 }
 
 export function urlImageSource(url: string): ImageSource {

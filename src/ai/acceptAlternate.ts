@@ -17,6 +17,7 @@
  */
 
 import { Database, Q } from '@nozbe/watermelondb';
+import type Exercise from '@/db/models/Exercise';
 import type { ExerciseKind } from '@/engine/types';
 import {
   findRoutineExerciseIdByOrder,
@@ -30,6 +31,12 @@ function normalizeWhitespace(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
 }
 
+/** The selected exercise record, including the kind its replacement must use. */
+export type ResolvedAlternateExercise = {
+  readonly exerciseId: string;
+  readonly kind: ExerciseKind;
+};
+
 /**
  * Resolve the chosen alternate to an exercise id, creating the exercise when
  * it does not exist yet.
@@ -37,22 +44,22 @@ function normalizeWhitespace(text: string): string {
  * Validates the alternate a second time first (the client already validated
  * the whole payload on receipt) — this is the last checkpoint before a write.
  *
- * @returns the exercise id: `slugifyTitle(alternate.title)`
+ * @returns the selected exercise record identity and authoritative persisted kind.
  */
 export async function ensureAlternateExercise(
   database: Database,
   alternate: ExerciseAlternate,
   kind: ExerciseKind
-): Promise<string> {
+): Promise<ResolvedAlternateExercise> {
   const validated = validateExerciseAlternate(alternate);
   const exerciseId = slugifyTitle(validated.title);
 
   const existing = await database
-    .get('exercises')
+    .get<Exercise>('exercises')
     .query(Q.where('id', exerciseId))
-    .fetchCount();
+    .fetch();
 
-  if (existing === 0) {
+  if (existing.length === 0) {
     await upsertExercise(
       database,
       exerciseId,
@@ -60,9 +67,10 @@ export async function ensureAlternateExercise(
       kind,
       validated.description
     );
+    return { exerciseId, kind };
   }
 
-  return exerciseId;
+  return { exerciseId, kind: existing[0].kind };
 }
 
 /**
@@ -78,7 +86,8 @@ export async function applyAlternateToRoutine(
   database: Database,
   routineId: string,
   order: number,
-  exerciseId: string
+  exerciseId: string,
+  replacementKind?: ExerciseKind
 ): Promise<void> {
   const rowId = await findRoutineExerciseIdByOrder(database, routineId, order);
 
@@ -86,5 +95,5 @@ export async function applyAlternateToRoutine(
     throw new Error(`Routine exercise not found for routine=${routineId}, order ${order}`);
   }
 
-  await updateRoutineExerciseExerciseId(database, rowId, exerciseId);
+  await updateRoutineExerciseExerciseId(database, rowId, exerciseId, replacementKind);
 }

@@ -3,6 +3,7 @@ import { join } from 'path';
 import { createTestDatabase } from '@/db/test-helpers';
 
 const PRESENTER = join(__dirname, 'exerciseLibraryPresenter.ts');
+const REPLACEMENT_FILTER = join(__dirname, 'replaceableExerciseLibrary.ts');
 
 describe('exerciseLibraryPresenter', () => {
   it('filters library items by a trimmed case-insensitive title substring', () => {
@@ -20,6 +21,20 @@ describe('exerciseLibraryPresenter', () => {
     expect(filterExerciseLibraryItems(items, '  PRESS ')).toEqual([items[0]]);
     expect(filterExerciseLibraryItems(items, 'stretch')).toEqual([items[1]]);
     expect(filterExerciseLibraryItems(items, 'press stretch')).toEqual([]);
+  });
+
+  it('offers every other local exercise, including cross-kind choices, before applying the picker search query', () => {
+    const { filterReplaceableExerciseLibraryItems } = require(REPLACEMENT_FILTER);
+    const items = [
+      { id: 'bench', title: 'Barbell Bench Press', kind: 'strength', imagePath: null },
+      { id: 'floor', title: 'Dumbbell Floor Press', kind: 'strength', imagePath: null },
+      { id: 'row', title: 'Barbell Row', kind: 'strength', imagePath: null },
+      { id: 'bike', title: 'Stationary Bike', kind: 'cardio', imagePath: null },
+    ];
+
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', '')).toEqual([items[1], items[2], items[3]]);
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', ' PRESS ')).toEqual([items[1]]);
+    expect(filterReplaceableExerciseLibraryItems(items, 'bench', 'barbell')).toEqual([items[2]]);
   });
 
   it('returns every local exercise in case-insensitive title order with its display fields', async () => {

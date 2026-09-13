@@ -34,7 +34,11 @@ import {
   ExerciseAlternates,
   validateExerciseAlternate,
 } from '@/ai/alternatesSchema';
-import { applyAlternateToRoutine, ensureAlternateExercise } from '@/ai/acceptAlternate';
+import {
+  applyAlternateToRoutine,
+  ensureAlternateExercise,
+  type ResolvedAlternateExercise,
+} from '@/ai/acceptAlternate';
 import { IMMUTABLE_DIRECTIVES } from '@/ai/coachDirectives';
 import { getSettings } from '@/state/settings';
 import { hasAiKey } from '@/state/hasAiKey';
@@ -70,10 +74,15 @@ export interface ExerciseReplaceDeps {
   createClient: (config: ProviderConfig) => AiClient;
   /** The active session store's dispatch; returns null when the engine rejected. */
   dispatch: (event: Event) => Promise<SessionState | null>;
-  /** Create-only exercise resolution; returns the exercise id. */
-  ensureExercise: (alternate: ExerciseAlternate, kind: ExerciseKind) => Promise<string>;
+  /** Create-only exercise resolution; returns the selected record's identity and kind. */
+  ensureExercise: (alternate: ExerciseAlternate, kind: ExerciseKind) => Promise<ResolvedAlternateExercise>;
   /** In-place routine_exercises row swap, keyed by (routineId, order). */
-  applyToRoutine: (routineId: string, order: number, exerciseId: string) => Promise<void>;
+  applyToRoutine: (
+    routineId: string,
+    order: number,
+    exerciseId: string,
+    replacementKind?: ExerciseKind
+  ) => Promise<void>;
   logError?: (message: string, error: unknown) => void;
 }
 
@@ -117,6 +126,8 @@ interface ExerciseReplaceState {
   open(target: ReplaceTarget): Promise<void>;
   /** Apply one. @returns true when the swap landed in both engine and routine. */
   choose(alternate: ExerciseAlternate): Promise<boolean>;
+  /** Apply an exercise already in the local library, using its selected-record kind. */
+  chooseExisting(exerciseId: string, kind: ExerciseKind): Promise<boolean>;
   /** Close the picker and invalidate any in-flight request. */
   cancel(): void;
 }
@@ -161,14 +172,13 @@ export function replaceExerciseTarget(
 /**
  * Whether the screen should render the Replace button at all.
  *
- * Hidden rather than disabled without a key: a disabled button advertises a
- * feature the athlete cannot reach and cannot fix from here.
+ * The local library path has no AI dependency, so a configured key only adds
+ * coach suggestions; it never gates the Replace affordance itself.
  */
 export function canOfferReplace(
   sessionState: SessionState | null | undefined,
-  settings: { anthropicKey?: string; openaiKey?: string }
+  _settings: { anthropicKey?: string; openaiKey?: string }
 ): boolean {
-  if (!hasAiKey(settings)) return false;
   return replaceExerciseTarget(sessionState) !== null;
 }
 
@@ -197,8 +207,8 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
       // rendered, but the guard is re-stated here so no caller can reach the
       // API without one.
       if (!hasAiKey(settings)) {
-        target = null;
-        set({ status: 'idle', alternates: [], error: null });
+        // The manual local-library picker remains useful without an AI key.
+        set({ status: 'choosing', alternates: [], error: null });
         return;
       }
 
@@ -266,16 +276,18 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
         // and this is the last checkpoint before anything is written.
         const validated = validateExerciseAlternate(alternate);
 
-        // Create-only, and the kind comes from the entry — a substitute
-        // changes identity, never the prescription or the exercise record.
-        const exerciseId = await deps.ensureExercise(validated, current.kind);
+        // Create-only: a new record receives the entry kind, but an existing
+        // selected record keeps its persisted kind. That one resolved kind is
+        // passed to both writers so cross-kind clearing stays atomic.
+        const selected = await deps.ensureExercise(validated, current.kind);
 
         // The engine is the authority on whether the swap is legal. A null
         // here is a rejection (the store surfaces the reason in lastError).
         const newState = await deps.dispatch({
           tag: 'ReplaceExercise',
           idx: current.idx,
-          exerciseId,
+          exerciseId: selected.exerciseId,
+          kind: selected.kind,
         });
 
         if (!newState) {
@@ -284,12 +296,55 @@ export function createExerciseReplaceStore(deps: ExerciseReplaceDeps) {
 
         // Only now the routine row, so a rejected swap can never leave the
         // routine pointing somewhere the running session isn't.
-        await deps.applyToRoutine(current.routineId, current.idx, exerciseId);
+        await deps.applyToRoutine(current.routineId, current.idx, selected.exerciseId, selected.kind);
 
         // Strictly after the row is re-pointed and its prescription cleared.
         // Placement is the whole contract: bumped before the await, this would
         // race the write it exists to sequence after; bumped in the catch, it
         // would announce a clear that never happened.
+        set((state) => ({ routineRevision: state.routineRevision + 1 }));
+
+        target = null;
+        swapping = false;
+        if (generation !== gen) return true;
+        set({ status: 'idle', alternates: [], error: null });
+        return true;
+      } catch (error) {
+        log('Exercise replacement failed:', error);
+        swapping = false;
+        if (generation !== gen) return false;
+        set({
+          status: 'error',
+          error: 'Couldn’t swap that exercise. Keep going with this one.',
+        });
+        return false;
+      }
+    },
+
+    async chooseExisting(exerciseId: string, kind: ExerciseKind) {
+      const current = target;
+      if (!current || swapping || !exerciseId.trim() || exerciseId === current.exerciseId) return false;
+
+      // Advance the request generation before dispatching: this action is
+      // available while coach alternatives are still loading, and a late AI
+      // answer must not re-open the sheet after the local pick succeeds.
+      const gen = ++generation;
+      swapping = true;
+      set({ status: 'swapping', error: null });
+
+      try {
+        const newState = await deps.dispatch({
+          tag: 'ReplaceExercise',
+          idx: current.idx,
+          exerciseId,
+          kind,
+        });
+
+        if (!newState) {
+          throw new Error('the engine rejected the replacement');
+        }
+
+        await deps.applyToRoutine(current.routineId, current.idx, exerciseId, kind);
         set((state) => ({ routineRevision: state.routineRevision + 1 }));
 
         target = null;
@@ -334,8 +389,8 @@ export const exerciseReplaceStore = createExerciseReplaceStore({
     const { database } = require('@/db');
     return ensureAlternateExercise(database, alternate, kind);
   },
-  applyToRoutine: (routineId, order, exerciseId) => {
+  applyToRoutine: (routineId, order, exerciseId, replacementKind) => {
     const { database } = require('@/db');
-    return applyAlternateToRoutine(database, routineId, order, exerciseId);
+    return applyAlternateToRoutine(database, routineId, order, exerciseId, replacementKind);
   },
 });

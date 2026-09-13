@@ -152,10 +152,10 @@ describe('replaceExerciseTarget', () => {
 });
 
 describe('canOfferReplace', () => {
-  it('is false without an API key (Anthropic or OpenAI) — the button is hidden, not disabled', () => {
-    expect(canOfferReplace(makeState(), { anthropicKey: '' })).toBe(false);
-    expect(canOfferReplace(makeState(), { anthropicKey: '   ' })).toBe(false);
-    expect(canOfferReplace(makeState(), { anthropicKey: '', openaiKey: '' })).toBe(false);
+  it('is true without an API key because the local exercise library remains available', () => {
+    expect(canOfferReplace(makeState(), { anthropicKey: '' })).toBe(true);
+    expect(canOfferReplace(makeState(), { anthropicKey: '   ' })).toBe(true);
+    expect(canOfferReplace(makeState(), { anthropicKey: '', openaiKey: '' })).toBe(true);
   });
 
   it('is true with an Anthropic key and an untouched current entry', () => {
@@ -237,7 +237,7 @@ describe('createExerciseReplaceStore', () => {
 
     mockFetch = jest.fn().mockResolvedValue(alternatesResponse(ALTERNATES));
     dispatch = jest.fn().mockResolvedValue(makeState());
-    ensureExercise = jest.fn().mockResolvedValue('dumbbell-floor-press');
+    ensureExercise = jest.fn().mockResolvedValue({ exerciseId: 'dumbbell-floor-press', kind: 'strength' });
     applyToRoutine = jest.fn().mockResolvedValue(undefined);
     logError = jest.fn();
   });
@@ -308,14 +308,14 @@ describe('createExerciseReplaceStore', () => {
       expect(content).not.toContain('no target recorded');
     });
 
-    it('makes no call and offers nothing without a key', async () => {
+    it('makes no AI call but keeps the local-library picker open without a key', async () => {
       setSettings({ anthropicKey: '' });
       const { store } = makeStore();
 
       await store.getState().open(makeTarget());
 
       expect(mockFetch).not.toHaveBeenCalled();
-      expect(store.getState().status).toBe('idle');
+      expect(store.getState().status).toBe('choosing');
       expect(store.getState().alternates).toEqual([]);
     });
 
@@ -397,7 +397,7 @@ describe('createExerciseReplaceStore', () => {
       });
     });
 
-    it('does nothing from a no-key settings blob', async () => {
+    it('opens the local-library path from a no-key settings blob', async () => {
       setSettings({
         anthropicKey: '',
         openaiKey: '',
@@ -408,7 +408,7 @@ describe('createExerciseReplaceStore', () => {
       await store.getState().open(makeTarget());
 
       expect(mockFetch).not.toHaveBeenCalled();
-      expect(store.getState().status).toBe('idle');
+      expect(store.getState().status).toBe('choosing');
       expect(store.getState().alternates).toEqual([]);
       expect(capturedConfigs).toHaveLength(0);
     });
@@ -534,17 +534,37 @@ describe('createExerciseReplaceStore', () => {
         tag: 'ReplaceExercise',
         idx: 0,
         exerciseId: 'dumbbell-floor-press',
+        kind: 'strength',
       });
-      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press');
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press', 'strength');
       expect(store.getState().status).toBe('idle');
       expect(store.getState().alternates).toEqual([]);
+    });
+
+    it('uses an existing selected record kind for both the engine event and routine write', async () => {
+      // The alternate payload has no kind. An existing exercise can legitimately
+      // be cardio even though the entry being replaced is strength, so only the
+      // resolver's selected-record result can make the two writers agree.
+      ensureExercise.mockResolvedValueOnce({ exerciseId: 'dumbbell-floor-press', kind: 'cardio' });
+      const store = await opened();
+
+      const ok = await store.getState().choose(ALTERNATES.alternates[0]);
+
+      expect(ok).toBe(true);
+      expect(dispatch).toHaveBeenCalledWith({
+        tag: 'ReplaceExercise',
+        idx: 0,
+        exerciseId: 'dumbbell-floor-press',
+        kind: 'cardio',
+      });
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'dumbbell-floor-press', 'cardio');
     });
 
     it('writes the routine row only after the engine accepted the swap', async () => {
       const order: string[] = [];
       ensureExercise.mockImplementation(async () => {
         order.push('ensureExercise');
-        return 'dumbbell-floor-press';
+        return { exerciseId: 'dumbbell-floor-press', kind: 'strength' };
       });
       dispatch.mockImplementation(async () => {
         order.push('dispatch');
@@ -612,6 +632,68 @@ describe('createExerciseReplaceStore', () => {
       expect([first, second]).toEqual([true, false]);
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(applyToRoutine).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes a chosen local exercise kind to both writers without asking the AI or creating a duplicate', async () => {
+      setSettings({ anthropicKey: '' });
+      const { store } = makeStore();
+      await store.getState().open(makeTarget());
+
+      const ok = await store.getState().chooseExisting('rowing-erg', 'cardio');
+
+      expect(ok).toBe(true);
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(ensureExercise).not.toHaveBeenCalled();
+      expect(dispatch).toHaveBeenCalledWith({
+        tag: 'ReplaceExercise',
+        idx: 0,
+        exerciseId: 'rowing-erg',
+        kind: 'cardio',
+      });
+      expect(applyToRoutine).toHaveBeenCalledWith('routine-1', 0, 'rowing-erg', 'cardio');
+      expect(store.getState().status).toBe('idle');
+    });
+
+    it('does not replace an exercise with itself, so the existing prescription is not cleared', async () => {
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('barbell-bench-press', 'strength')).resolves.toBe(false);
+
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(applyToRoutine).not.toHaveBeenCalled();
+    });
+
+    it('does not dispatch an empty local exercise id', async () => {
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('   ', 'strength')).resolves.toBe(false);
+
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(applyToRoutine).not.toHaveBeenCalled();
+    });
+
+    it('does not rewrite the routine when the engine rejects a local selection', async () => {
+      dispatch.mockResolvedValueOnce(null);
+      const store = await opened();
+
+      await expect(store.getState().chooseExisting('kettlebell-swing', 'strength')).resolves.toBe(false);
+
+      expect(applyToRoutine).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe('error');
+    });
+
+    it('bumps routineRevision for a local selection only after its routine write commits', async () => {
+      let release: (value: void) => void = () => {};
+      applyToRoutine.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
+      const store = await opened();
+      const before = store.getState().routineRevision;
+
+      const choose = store.getState().chooseExisting('kettlebell-swing', 'strength');
+      expect(store.getState().routineRevision).toBe(before);
+
+      release();
+      await expect(choose).resolves.toBe(true);
+      expect(store.getState().routineRevision).toBe(before + 1);
     });
   });
 

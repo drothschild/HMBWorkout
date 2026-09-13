@@ -132,16 +132,13 @@
   state's own list.** See engine convention 6 for why.
 
   `updateRoutineExerciseExerciseId` must also clear every attached set's
-  `target_weight_kg`,
-  because sets/reps/rest are near-dimensionless across substitutes while load is
-  not, and because a plan that asserts itself outranks history rather than deferring
-  to it, a stale one wins over the substitute's own correct numbers instead of
-  quietly losing to them — and a whole inherited ramp is worse than one inherited
-  number was. Only the loads go: `set_type`, reps and order are the plan's structure
-  and are near-dimensionless across movements, so a substitute keeps them — and that
-  now includes each set's own `rest_seconds` (#281): a substitute inherits the rest
-  pattern, because rest is dimensionless across the swap where load is not. Clearing
-  the loads is only half of it: the session screen's
+  `target_weight_kg`. On a **same-kind** replacement, only loads go: set type,
+  reps, distance, duration, order and rest remain the plan. On a **cross-kind**
+  replacement, preserve only order, `set_type` and per-set `rest_seconds`; clear
+  reps/range/load/duration/distance atomically in the engine and routine rows.
+  There is no safe reps-to-duration conversion, and retaining a duration-only
+  plan after choosing strength can override the selected kind's controls. The
+  session screen's
   prefill effect and `applyAlternateToRoutine`'s write are independent async paths
   off the same dispatch, with no ordering between them, so `exerciseReplaceStore.routineRevision`
   is bumped **after** the write and the prefill effect depends on it. The contract
