@@ -56,16 +56,28 @@ function waitForYouTubeIframeApi(onReady: () => void, onFailure: () => void) {
 
   const scriptId = 'youtube-iframe-api';
   let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+  if (script?.dataset.youtubeIframeApiFailed === 'true') {
+    script.remove();
+    script = null;
+  }
   if (!script) {
     script = document.createElement('script');
     script.id = scriptId;
     script.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(script);
   }
-  script.addEventListener('error', onFailure, { once: true });
+  const handleScriptFailure = () => {
+    if (script) script.dataset.youtubeIframeApiFailed = 'true';
+    onFailure();
+  };
+  script.addEventListener('error', handleScriptFailure, { once: true });
 
   return () => {
-    script?.removeEventListener('error', onFailure);
+    script?.removeEventListener('error', handleScriptFailure);
+    // An API script that loaded a captive/error page does not reliably emit an
+    // error. Removing it whenever YT is still absent makes the next explicit
+    // Retry request a fresh script instead of waiting on a dead element.
+    if (!window.YT?.Player) script?.remove();
     if (window.onYouTubeIframeAPIReady === handleReady) {
       window.onYouTubeIframeAPIReady = previousReady;
     }

@@ -68,7 +68,9 @@ after that mount (`enablejsapi=1`) and posts `ready` only from the Player API's
 `onReady` event, never from a generic iframe `load`. Player API `onError`, the
 API script error, and the host WebView error all post/produce `failed` through
 Expo DOM's supported `dom.onMessage` bridge. Neither path passes database data
-into the iframe.
+into the iframe. If the API never becomes available (including a script error
+or captive response), unmount cleanup removes that script so the next explicit
+Retry creates a fresh request rather than waiting on the old element.
 
 After a tap the detail screen shows “Loading demonstration…”. If the DOM iframe
 reports an error, the host WebView errors, or no ready status arrives within ten
