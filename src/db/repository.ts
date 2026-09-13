@@ -5,6 +5,7 @@ import Routine from './models/Routine';
 import RoutineExercise from './models/RoutineExercise';
 import RoutineSet, { type RoutineSetType } from './models/RoutineSet';
 import Exercise, { type ExerciseKind } from './models/Exercise';
+import { parseYouTubeDemoUrl } from '@/domain/youtubeDemoUrl';
 import { validateSet } from './validation';
 
 export type { RoutineSetType };
@@ -1145,6 +1146,42 @@ export async function updateExerciseDescription(
     });
 
     return exercise as Exercise;
+  });
+}
+
+export class YouTubeDemoUrlValidationError extends Error {
+  constructor() {
+    super('Enter a valid HTTPS YouTube video URL.');
+    this.name = 'YouTubeDemoUrlValidationError';
+  }
+}
+
+/**
+ * Update an exercise's user-selected YouTube demonstration URL. Video data is
+ * streamed only by the detail-screen player; this write stores the canonical
+ * URL string and never downloads or caches any remote media.
+ *
+ * Blank input clears the field. Any non-blank value must be one supported
+ * YouTube video URL, so a copied search page or another host can never reach
+ * the embedded player.
+ */
+export async function updateExerciseYouTubeDemoUrl(
+  database: Database,
+  exerciseId: string,
+  youtubeDemoUrl: string | null
+): Promise<Exercise> {
+  const trimmed = youtubeDemoUrl?.trim() ?? '';
+  const parsed = trimmed === '' ? null : parseYouTubeDemoUrl(trimmed);
+  if (trimmed !== '' && parsed === null) {
+    throw new YouTubeDemoUrlValidationError();
+  }
+
+  return database.write(async () => {
+    const exercise = (await database.get('exercises').find(exerciseId)) as Exercise;
+    await exercise.update((record: Exercise) => {
+      record.youtubeDemoUrl = parsed?.canonicalUrl ?? null;
+    });
+    return exercise;
   });
 }
 
