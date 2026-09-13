@@ -108,6 +108,43 @@ describe('exerciseImageWrites (AC4.5)', () => {
     });
   });
 
+  describe('setExerciseImageIfUnchanged (source-and-path CAS)', () => {
+    it('refuses a same-source write when a competing user path replaced the observed path', async () => {
+      await upsertExercise(db, 'test-exercise', 'Test Exercise', 'strength');
+      await setExerciseImage(db, 'test-exercise', {
+        imagePath: 'exercise-images/manual-old.jpg',
+        imageSource: 'user',
+      });
+      await setExerciseImage(db, 'test-exercise', {
+        imagePath: 'exercise-images/manual-new.jpg',
+        imageSource: 'user',
+      });
+
+      const setIfUnchanged = (require('./repository') as {
+        setExerciseImageIfUnchanged?: (
+          database: Database,
+          exerciseId: string,
+          expected: { imagePath: string | null; imageSource: string | null },
+          next: { imagePath: string | null; imageSource: string }
+        ) => Promise<boolean>;
+      }).setExerciseImageIfUnchanged;
+      const applied = await (setIfUnchanged
+        ? setIfUnchanged(db, 'test-exercise', {
+          imagePath: 'exercise-images/manual-old.jpg',
+          imageSource: 'user',
+        }, {
+          imagePath: 'exercise-images/catalog.jpg',
+          imageSource: 'catalog:Test_Exercise',
+        })
+        : Promise.resolve('not-implemented'));
+
+      expect(applied).toBe(false);
+      const row = (await db.get('exercises').find('test-exercise')) as any;
+      expect(row.imagePath).toBe('exercise-images/manual-new.jpg');
+      expect(row.imageSource).toBe('user');
+    });
+  });
+
   describe('setExerciseImage', () => {
     it('returns previous path (null first, then the earlier path on a second write)', async () => {
       // Seed an exercise with null image columns

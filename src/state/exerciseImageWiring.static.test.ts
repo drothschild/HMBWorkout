@@ -332,6 +332,7 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('voidrefreshExerciseImage(id)');
     expect(source).toContain('No new matching image found. Existing image kept.');
     expect(source).toContain('Image refreshed.');
+    expect(source).toContain("Couldn't refresh the image. Existing image kept.");
     expect(source).toContain("photoAction('refresh')");
     expect(source).toContain('minWidth:44');
     expect(source).toContain('minHeight:44');
