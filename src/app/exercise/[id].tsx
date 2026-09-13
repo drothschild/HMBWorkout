@@ -187,12 +187,12 @@ export default function ExerciseDetailScreen() {
     }
   };
 
-  const clearYouTubeDemoLoadTimer = () => {
+  const clearYouTubeDemoLoadTimer = useCallback(() => {
     if (youtubeDemoLoadTimerRef.current) {
       clearTimeout(youtubeDemoLoadTimerRef.current);
       youtubeDemoLoadTimerRef.current = null;
     }
-  };
+  }, []);
 
   const handleYouTubeDemoFailure = () => {
     clearYouTubeDemoLoadTimer();
@@ -221,6 +221,11 @@ export default function ExerciseDetailScreen() {
     youtubeDemoLoadTimerRef.current = setTimeout(() => {
       setYoutubeDemoPlayerState((state) => (state === 'loading' ? 'failed' : state));
     }, YOUTUBE_DEMO_LOAD_TIMEOUT_MS);
+  };
+
+  const dismissYouTubeDemo = () => {
+    clearYouTubeDemoLoadTimer();
+    setYoutubeDemoPlayerState('idle');
   };
 
   const applyYouTubeDemoUrl = async () => {
@@ -253,7 +258,7 @@ export default function ExerciseDetailScreen() {
   // may remain true. This is a tiny race window and acceptable: the next session load
   // will see the value in the component and can save again if needed.
   useEffect(() => () => flush(), [flush]);
-  useEffect(() => () => clearYouTubeDemoLoadTimer(), []);
+  useEffect(() => () => clearYouTubeDemoLoadTimer(), [clearYouTubeDemoLoadTimer]);
 
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
@@ -343,6 +348,14 @@ export default function ExerciseDetailScreen() {
                   >
                     <ThemedText type="default" style={styles.buttonText}>
                       Retry demonstration
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={dismissYouTubeDemo}
+                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                  >
+                    <ThemedText type="default" style={styles.secondaryButtonText}>
+                      Dismiss
                     </ThemedText>
                   </Pressable>
                 </>
@@ -623,6 +636,19 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    borderColor: ActionButtonColor.secondary,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    alignItems: 'center',
+    marginTop: Spacing.one,
+  },
+  secondaryButtonText: {
+    color: ActionButtonColor.secondary,
     fontWeight: '600',
   },
 });

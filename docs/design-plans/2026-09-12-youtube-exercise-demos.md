@@ -63,17 +63,22 @@ explicit tap. The iframe has a fixed 16:9 frame, `loading="lazy"`, no autoplay,
 and a restrictive sandbox (`allow-scripts allow-same-origin
 allow-presentation`) so it cannot navigate the app's top-level document or
 open pop-ups. The DOM component receives only the `videoId`, not the database
-model or settings. It posts only a small `ready`/`failed` status through Expo
-DOM's supported `dom.onMessage` bridge; the native host also handles its own
-WebView load error. Neither path passes database data into the iframe.
+model or settings. The DOM component loads YouTube's IFrame Player API only
+after that mount (`enablejsapi=1`) and posts `ready` only from the Player API's
+`onReady` event, never from a generic iframe `load`. Player API `onError`, the
+API script error, and the host WebView error all post/produce `failed` through
+Expo DOM's supported `dom.onMessage` bridge. Neither path passes database data
+into the iframe.
 
 After a tap the detail screen shows “Loading demonstration…”. If the DOM iframe
 reports an error, the host WebView errors, or no ready status arrives within ten
 seconds (including offline cases), it replaces the frame with concise recovery
-guidance and a “Retry demonstration” control. Retrying remounts the iframe only
-after that second explicit tap; changing the saved URL returns the player to its
-unopened state. The video must not appear in the session, routines, history,
-exports, engine state, or AI prompt context.
+guidance plus “Retry demonstration” and “Dismiss” controls. Retrying remounts
+the iframe only after that second explicit tap; Dismiss returns to the unopened
+control; changing the saved URL also returns the player to its unopened state.
+The DOM component destroys its Player API instance on unmount. The video must
+not appear in the session, routines, history, exports, engine state, or AI
+prompt context.
 
 ## UI direction
 
@@ -118,7 +123,8 @@ and terms review.
 4. Add failing draft-schema/prompt tests proving the optional field is validated
    and requested while malformed AI URLs are rejected.
 5. Add a structural detail-screen test for detail-only mounting, explicit tap,
-   `youtube-nocookie.com` embed construction, 16:9 bounds, load/error/retry
-   messaging, and no application video-download imports. Follow with device QA for portrait/landscape playback, unavailable
+   `youtube-nocookie.com` embed construction, 16:9 bounds, Player API
+   readiness/error messages, timeout cleanup, retry/dismiss recovery, and no
+   application video-download imports. Follow with device QA for portrait/landscape playback, unavailable
    videos, offline mode, keyboard field visibility, and iOS/Android back-stack
    behavior.

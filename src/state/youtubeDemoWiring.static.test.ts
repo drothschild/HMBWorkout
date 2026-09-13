@@ -64,6 +64,7 @@ describe('exercise YouTube demonstrations (#390)', () => {
 
     expect(screen).toContain('Dismiss');
     expect(screen).toContain('onPress={dismissYouTubeDemo}');
+    expect(screen).toContain('useEffect(()=>()=>clearYouTubeDemoLoadTimer(),[clearYouTubeDemoLoadTimer]);');
     expect(player).toContain('enablejsapi=1');
     expect(player).toContain('window.onYouTubeIframeAPIReady');
     expect(player).toContain('new window.YT.Player');
