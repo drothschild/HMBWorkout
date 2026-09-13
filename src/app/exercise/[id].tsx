@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 
 import { ThemedText } from '@/components/themed-text';
@@ -42,7 +42,11 @@ export default function ExerciseDetailScreen() {
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
   const [reduceTransparency, setReduceTransparency] = useState(false);
-  const [glassEffectAvailable, setGlassEffectAvailable] = useState(false);
+  const [glassEffectAvailable] = useState(() => {
+    const liquidGlassAvailable = isLiquidGlassAvailable();
+    const glassEffectAPIAvailable = isGlassEffectAPIAvailable();
+    return liquidGlassAvailable && glassEffectAPIAvailable;
+  });
   const imagePickerInFlightRef = useRef(false);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -109,7 +113,6 @@ export default function ExerciseDetailScreen() {
 
   useEffect(() => {
     let active = true;
-    setGlassEffectAvailable(isGlassEffectAPIAvailable());
     void AccessibilityInfo.isReduceTransparencyEnabled().then((enabled) => {
       if (active) setReduceTransparency(enabled);
     });
@@ -260,7 +263,12 @@ export default function ExerciseDetailScreen() {
     );
 
     return useGlassEffect ? (
-      <GlassView style={styles.photoActionGlass} glassEffectStyle="regular" tintColor="rgba(0, 0, 0, 0.24)">
+      <GlassView
+        style={styles.photoActionGlass}
+        glassEffectStyle="regular"
+        tintColor="rgba(0, 0, 0, 0.24)"
+        isInteractive
+      >
         {control}
       </GlassView>
     ) : (
