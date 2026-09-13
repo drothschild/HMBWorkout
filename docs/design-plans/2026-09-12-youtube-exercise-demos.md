@@ -9,7 +9,9 @@ render it only on the exercise-detail screen. The detail screen initially shows
 a native “Watch demonstration” control; tapping it mounts a small, inline
 YouTube `iframe` in an Expo DOM component. This is deliberately user initiated:
 merely opening an exercise does not contact YouTube. The app stores only the
-validated URL, never a thumbnail, player response, or video bytes.
+validated URL, never a thumbnail, player response, or video bytes. This means
+the app has no custom video cache; it does not claim to control platform or
+YouTube playback caching after a person starts playback.
 
 Use Expo SDK 57's built-in DOM component support rather than adding
 `react-native-webview`. The app already runs Expo 57 and DOM components use the
@@ -61,13 +63,17 @@ explicit tap. The iframe has a fixed 16:9 frame, `loading="lazy"`, no autoplay,
 and a restrictive sandbox (`allow-scripts allow-same-origin
 allow-presentation`) so it cannot navigate the app's top-level document or
 open pop-ups. The DOM component receives only the `videoId`, not the database
-model or settings. It has no native callback and no cache or download path.
+model or settings. It posts only a small `ready`/`failed` status through Expo
+DOM's supported `dom.onMessage` bridge; the native host also handles its own
+WebView load error. Neither path passes database data into the iframe.
 
-If loading/playback fails, the frame's compact message tells the user to update
-the URL; the saved field remains unchanged. With no network, the screen keeps
-the native control and displays a clear offline/error state after a tap. The
-video must not appear in the session, routines, history, exports, engine state,
-or AI prompt context.
+After a tap the detail screen shows “Loading demonstration…”. If the DOM iframe
+reports an error, the host WebView errors, or no ready status arrives within ten
+seconds (including offline cases), it replaces the frame with concise recovery
+guidance and a “Retry demonstration” control. Retrying remounts the iframe only
+after that second explicit tap; changing the saved URL returns the player to its
+unopened state. The video must not appear in the session, routines, history,
+exports, engine state, or AI prompt context.
 
 ## UI direction
 
@@ -112,7 +118,7 @@ and terms review.
 4. Add failing draft-schema/prompt tests proving the optional field is validated
    and requested while malformed AI URLs are rejected.
 5. Add a structural detail-screen test for detail-only mounting, explicit tap,
-   `youtube-nocookie.com` embed construction, 16:9 bounds, and no cache/file
-   imports. Follow with device QA for portrait/landscape playback, unavailable
+   `youtube-nocookie.com` embed construction, 16:9 bounds, load/error/retry
+   messaging, and no application video-download imports. Follow with device QA for portrait/landscape playback, unavailable
    videos, offline mode, keyboard field visibility, and iOS/Android back-stack
    behavior.

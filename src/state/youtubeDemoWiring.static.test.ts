@@ -53,7 +53,7 @@ describe('exercise YouTube demonstrations (#390)', () => {
     expect(screen).toContain('Retrydemonstration');
     expect(screen).toContain('onError:handleYouTubeDemoFailure');
     expect(screen).toContain('onMessage:handleYouTubeDemoMessage');
-    expect(player).toContain("type:'youtube-demo-status'");
+    expect(player).toContain("{ type: 'youtube-demo-status', data: status }");
     expect(player).toContain("postStatus('ready')");
     expect(player).toContain("postStatus('failed')");
   });
