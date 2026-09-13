@@ -29,6 +29,8 @@ describe('parseYouTubeDemoUrl', () => {
     `https://www.youtube.com/watch?v=${videoId}x`,
     `https://www.youtube.com.evil.example/watch?v=${videoId}`,
     `https://user:pass@www.youtube.com/watch?v=${videoId}`,
+    `https://user@www.youtube.com/watch?v=${videoId}`,
+    `https://:pass@www.youtube.com/watch?v=${videoId}`,
     `https://www.youtube.com:444/watch?v=${videoId}`,
     `https://vimeo.com/${videoId}`,
     `javascript:alert(1)`,
