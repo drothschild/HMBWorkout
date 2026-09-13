@@ -22,6 +22,22 @@ function compact(path: string): string {
   return source(path).replace(/\s+/g, '');
 }
 
+function parenthesizedBody(sourceText: string, marker: string): string {
+  const markerAt = sourceText.indexOf(marker);
+  if (markerAt === -1) throw new Error(`missing ${marker}`);
+  const start = markerAt + marker.length - 1;
+  let depth = 0;
+
+  for (let index = start; index < sourceText.length; index++) {
+    if (sourceText[index] === '(') depth++;
+    if (sourceText[index] === ')') {
+      depth--;
+      if (depth === 0) return sourceText.slice(start + 1, index);
+    }
+  }
+  throw new Error(`unterminated ${marker}`);
+}
+
 describe('exercise YouTube demonstrations (#390)', () => {
   it('keeps playback and editing on the exercise detail screen', () => {
     const screen = compact(APP);
@@ -42,6 +58,9 @@ describe('exercise YouTube demonstrations (#390)', () => {
     expect(screen).toContain('youtubeDemoPlayerState===\'loading\'||youtubeDemoPlayerState===\'ready\'');
     expect(screen).toContain('onPress={openYouTubeDemo}');
     expect(screen).not.toMatch(/cacheEnabled|incognito/);
+    expect(parenthesizedBody(screen, 'youtubeDemoPlayerVisible&&(')).toContain(
+      '<YouTubeDemovideoId={youtubeDemo.videoId}'
+    );
   });
 
   it('shows compact loading and recoverable failure states using the supported DOM message path', () => {
@@ -72,6 +91,14 @@ describe('exercise YouTube demonstrations (#390)', () => {
     expect(player).toContain("onError: () => postStatus('failed')");
     expect(player).toContain('player?.destroy()');
     expect(player).not.toContain("onLoad={() => postStatus('ready')}");
+  });
+
+  it('replaces a failed IFrame Player API script before a retry mounts another player', () => {
+    const player = source(PLAYER);
+
+    expect(player).toContain("script?.dataset.youtubeIframeApiFailed === 'true'");
+    expect(player).toContain('script.remove();');
+    expect(player).toContain("script.dataset.youtubeIframeApiFailed = 'true';");
   });
 
   it('uses a sandboxed, lazy, cookie-reduced inline iframe without application download code', () => {
