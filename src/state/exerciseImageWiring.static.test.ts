@@ -235,6 +235,13 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('if(!id||imagePickerInFlightRef.current)return;');
     expect(source).toContain('pickExercisePhoto(');
   });
+
+  it('guides a denied camera user to the photo library or Settings', () => {
+    const source = normalized(FILES.exerciseDetail);
+    expect(source).toContain('Camera access is off.');
+    expect(source).toContain('Choose a photo instead');
+    expect(source).toContain('enable camera access in Settings.');
+  });
 });
 
 describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)', () => {
