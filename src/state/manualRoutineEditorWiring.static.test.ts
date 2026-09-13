@@ -62,4 +62,13 @@ describe('manual routine editor wiring (#388)', () => {
     expect(end).toBeGreaterThan(start);
     expect(source.slice(start, end)).toContain('setPicking(false)');
   });
+
+  it('bounds the catalog list to the picker viewport so every catalog row remains scrollable', () => {
+    const source = compact(EDITOR_SCREEN);
+
+    expect(source).toContain('style={[styles.safeArea,styles.pickerContent]}');
+    expect(source).toContain('pickerContent:{flex:1}');
+    expect(source).toContain('style={styles.pickerList}');
+    expect(source).toContain('pickerList:{flex:1}');
+  });
 });
