@@ -653,6 +653,18 @@ describe('explicit exercise image refresh (#376)', () => {
     expect(deps.deleteFile).not.toHaveBeenCalledWith('exercise-images/manual-new.jpg');
   });
 
+  it('does not treat a replaced bundled catalog image as a Documents file', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'bundle:Romanian_Deadlift',
+      imageSource: 'catalog:Romanian_Deadlift',
+    });
+    const deps = makeDeps();
+
+    await expect(refreshEntryPoint(deps, 'romanian-deadlift')).resolves.toEqual({ kind: 'updated' });
+    expect(deps.deleteFile).not.toHaveBeenCalledWith('bundle:Romanian_Deadlift');
+  });
+
   it('returns busy while an explicit refresh for the same exercise is downloading', async () => {
     await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
     await setExerciseImage(db, 'romanian-deadlift', {
