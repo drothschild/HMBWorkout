@@ -240,6 +240,14 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('Enable camera access in Settings, then return here.');
   });
 
+  it('reserves Settings guidance for a permanently denied camera permission', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain('cameraPermission?.canAskAgain===false?(<ThemedTexttype="small"style={styles.cameraPermissionText}>Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.</ThemedText>):(');
+    expect(source).toContain('Cameraaccesshasnotbeengranted.Grantaccesstotakeanexercisephoto.');
+    expect(source).not.toContain('cameraPermission?.canAskAgain!==false&&');
+  });
+
   it('uses an in-app full-screen back CameraView, never ImagePicker camera', () => {
     const source = compact(FILES.exerciseDetail);
 
