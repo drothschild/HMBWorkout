@@ -23,8 +23,8 @@ jest.mock('./adapterMigrations', () => ({
 }));
 
 describe('Database schema migrations', () => {
-  it('has bumped the schema version to 10 for workout diary columns', () => {
-    expect(databaseSchema.version).toBe(10);
+  it('has bumped the schema version to 11 for the YouTube demo URL', () => {
+    expect(databaseSchema.version).toBe(11);
   });
 
   it('declares the routine_sets table with a per-set prescription on every column', () => {
@@ -129,7 +129,7 @@ describe('Database schema migrations', () => {
     });
   });
 
-  it('covers the schema exactly, so no install is reset on the way to v10', () => {
+  it('covers the schema exactly, so no install is reset on the way to v11', () => {
     // AC1.7, INVERTED at Phase 6 and rewritten rather than deleted.
     //
     // Through v6 the omission WAS the mechanism: the schema outran the
@@ -142,19 +142,19 @@ describe('Database schema migrations', () => {
     // withholding the migrations again at v7 would destroy whatever the user
     // rebuilt afterwards. Coverage and schema must agree from here on, and the
     // equality — not merely `>=` — is what `migrationsForAdapter` gates on.
-    expect(migrations.maxVersion).toBe(10);
+    expect(migrations.maxVersion).toBe(11);
     expect(migrations.maxVersion).toBe(databaseSchema.version);
     expect(migrations.minVersion).toBe(1);
   });
 
-  it('returns real steps for every upgrade path into v10, from every version an install can hold', () => {
+  it('returns real steps for every upgrade path into v11, from every version an install can hold', () => {
     // The mirror of the loop this replaces, over the same domain: null was the
     // signal both adapters branch on to RESET, so a null anywhere in this range
     // is a silent wipe of a real user's database. v6, v7 and v8 are the ones
     // that matter — every install in the field is on one of them — but a gap at
     // any starting version would show up here, and a gap is also what
     // `schemaMigrations` refuses at module init.
-    for (let fromVersion = 1; fromVersion <= 8; fromVersion += 1) {
+    for (let fromVersion = 1; fromVersion <= 10; fromVersion += 1) {
       expect(
         stepsForMigration({ migrations, fromVersion, toVersion: databaseSchema.version })
       ).not.toBeNull();
@@ -327,6 +327,30 @@ describe('Database schema migrations', () => {
     });
     expect(databaseSchema.tables['exercises'].columns['image_source']).toEqual({
       name: 'image_source',
+      type: 'string',
+      isOptional: true,
+    });
+  });
+
+  it('adds exercises.youtube_demo_url with a real addColumns step from v10 to v11', () => {
+    const steps = stepsForMigration({ migrations, fromVersion: 10, toVersion: 11 }) as {
+      type: string;
+      table?: string;
+      columns?: { name: string; type: string; isOptional?: boolean }[];
+    }[];
+
+    expect(steps).toEqual([
+      {
+        type: 'add_columns',
+        table: 'exercises',
+        columns: [{ name: 'youtube_demo_url', type: 'string', isOptional: true }],
+      },
+    ]);
+  });
+
+  it('declares exercises.youtube_demo_url as an optional string column', () => {
+    expect(databaseSchema.tables.exercises.columns.youtube_demo_url).toEqual({
+      name: 'youtube_demo_url',
       type: 'string',
       isOptional: true,
     });

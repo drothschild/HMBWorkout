@@ -854,6 +854,39 @@ describe('draftSchema', () => {
       );
     });
 
+    test('accepts and canonicalizes a YouTube demonstration URL', () => {
+      const draft = {
+        name: 'Press Day',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
+            youtubeDemoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=share-token',
+          },
+        ],
+      };
+
+      const result = validateRoutineDraft(draft);
+      expect(result.exercises[0].youtubeDemoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    });
+
+    test('rejects an unsafe YouTube demonstration URL', () => {
+      const draft = {
+        name: 'Press Day',
+        exercises: [
+          {
+            title: 'Bench Press',
+            kind: 'strength' as const,
+            sets: [{ type: 'normal' as const }],
+            youtubeDemoUrl: 'https://example.com/not-youtube',
+          },
+        ],
+      };
+
+      expect(() => validateRoutineDraft(draft)).toThrow('exercise youtubeDemoUrl must be a valid YouTube video URL');
+    });
+
     test('rejects a non-string exercise description', () => {
       const draft = {
         name: 'Cooldown',
@@ -1505,7 +1538,7 @@ describe('draftSchema', () => {
       // array-of-objects inside an array-of-objects. If a live call ever 400s
       // with a grammar-complexity error while this assertion is comfortably
       // green, the nesting — not the count — is the thing to look at.
-      expect(optionalCount).toBe(17);
+      expect(optionalCount).toBe(18);
       expect(optionalCount).toBeLessThan(20);
 
       // Self-check: proves countOptional actually descends the tree, not just relabels a hardcoded

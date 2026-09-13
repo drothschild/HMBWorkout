@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const databaseSchema = appSchema({
-  version: 10,
+  version: 11,
   tables: [
     tableSchema({
       name: 'routines',
@@ -25,6 +25,9 @@ export const databaseSchema = appSchema({
         // image_source is 'catalog:<id>' | 'url:<url>' | 'none' | 'none:nokey'.
         { name: 'image_path', type: 'string', isOptional: true },
         { name: 'image_source', type: 'string', isOptional: true },
+        // A canonical YouTube watch URL. The player streams it on demand; no
+        // video bytes, thumbnail, or response are stored locally.
+        { name: 'youtube_demo_url', type: 'string', isOptional: true },
         { name: 'created_at', type: 'number' },
       ],
     }),

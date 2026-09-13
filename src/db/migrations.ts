@@ -217,5 +217,15 @@ export const migrations = schemaMigrations({
         ],
       })],
     },
+    {
+      // #390: an optional, canonical YouTube demonstration URL. Existing
+      // exercises retain every field and read null until a model suggestion or
+      // a user edit supplies one; video data itself is never downloaded.
+      toVersion: 11,
+      steps: [addColumns({
+        table: 'exercises',
+        columns: [{ name: 'youtube_demo_url', type: 'string', isOptional: true }],
+      })],
+    },
   ],
 });

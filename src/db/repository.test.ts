@@ -1,6 +1,6 @@
 import { Database, Q } from '@nozbe/watermelondb';
 import { createTestDatabase, closeTestDatabase } from './test-helpers';
-import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getExerciseTitles, getExerciseSetHistory, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, getRoutineSets, upsertExercise, updateExerciseDescription, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getSessionExerciseLog, type RoutineSetEntry } from './repository';
+import { createSession, appendSet, getSession, getSessionSets, upsertRoutineExercise, getExerciseTitles, getExerciseSetHistory, getExerciseWorkingSetHistory, getRecentSessionSummaries, getRoutineDisplay, getRoutineSets, upsertExercise, updateExerciseDescription, updateExerciseYouTubeDemoUrl, upsertRoutine, deleteSession, deleteRoutine, updateRoutineExerciseExerciseId, getSessionExerciseLog, type RoutineSetEntry } from './repository';
 import { ValidationError } from './validation';
 
 /**
@@ -1586,6 +1586,56 @@ describe('Repository: session and set helpers', () => {
       const exercise = await database.get('exercises').find('exercise-create-trim');
       expect((exercise as any).description).toBe('keep your chest up');
     }, 10000);
+  });
+
+  describe('updateExerciseYouTubeDemoUrl', () => {
+    const videoId = 'dQw4w9WgXcQ';
+
+    it('canonicalizes a manual URL without touching the exercise identity or description', async () => {
+      await upsertExercise(database, 'exercise-demo', 'Overhead Press', 'strength', 'Start at shoulder height.');
+
+      await updateExerciseYouTubeDemoUrl(
+        database,
+        'exercise-demo',
+        `https://youtu.be/${videoId}?si=share-token`
+      );
+
+      const exercise = await database.get('exercises').find('exercise-demo');
+      expect((exercise as any).youtubeDemoUrl).toBe(`https://www.youtube.com/watch?v=${videoId}`);
+      expect((exercise as any).title).toBe('Overhead Press');
+      expect((exercise as any).kind).toBe('strength');
+      expect((exercise as any).description).toBe('Start at shoulder height.');
+    });
+
+    it('clears a manual URL when the field is blank', async () => {
+      await upsertExercise(database, 'exercise-clear-demo', 'Row', 'strength');
+      await updateExerciseYouTubeDemoUrl(
+        database,
+        'exercise-clear-demo',
+        `https://www.youtube.com/watch?v=${videoId}`
+      );
+
+      await updateExerciseYouTubeDemoUrl(database, 'exercise-clear-demo', '   ');
+
+      const exercise = await database.get('exercises').find('exercise-clear-demo');
+      expect((exercise as any).youtubeDemoUrl).toBeNull();
+    });
+
+    it('rejects an unsafe manual URL and leaves the previously selected URL unchanged', async () => {
+      await upsertExercise(database, 'exercise-invalid-demo', 'Deadlift', 'strength');
+      await updateExerciseYouTubeDemoUrl(
+        database,
+        'exercise-invalid-demo',
+        `https://www.youtube.com/watch?v=${videoId}`
+      );
+
+      await expect(
+        updateExerciseYouTubeDemoUrl(database, 'exercise-invalid-demo', 'https://example.com/not-youtube')
+      ).rejects.toThrow('YouTube video URL');
+
+      const exercise = await database.get('exercises').find('exercise-invalid-demo');
+      expect((exercise as any).youtubeDemoUrl).toBe(`https://www.youtube.com/watch?v=${videoId}`);
+    });
   });
 
   describe('upsertRoutine reconcile', () => {
