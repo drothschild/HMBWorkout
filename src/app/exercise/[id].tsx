@@ -1,9 +1,10 @@
-import { StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Host, Column, Button } from '@expo/ui';
 import * as ImagePicker from 'expo-image-picker';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -40,6 +41,8 @@ export default function ExerciseDetailScreen() {
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
+  const [reduceTransparency, setReduceTransparency] = useState(false);
+  const [glassEffectAvailable, setGlassEffectAvailable] = useState(false);
   const imagePickerInFlightRef = useRef(false);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -104,6 +107,20 @@ export default function ExerciseDetailScreen() {
     return () => subscription.unsubscribe();
   }, [exercise]);
 
+  useEffect(() => {
+    let active = true;
+    setGlassEffectAvailable(isGlassEffectAPIAvailable());
+    void AccessibilityInfo.isReduceTransparencyEnabled().then((enabled) => {
+      if (active) setReduceTransparency(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener('reduceTransparencyChanged', setReduceTransparency);
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
   const pendingValueRef = useRef('');
   const hasPendingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -162,7 +179,10 @@ export default function ExerciseDetailScreen() {
       const pickerOutcome = await pickExercisePhoto(
         {
           requestCameraPermission: ImagePicker.requestCameraPermissionsAsync,
-          launchCamera: () => ImagePicker.launchCameraAsync(options),
+          launchCamera: () => ImagePicker.launchCameraAsync({
+            ...options,
+            presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+          }),
           launchLibrary: () => ImagePicker.launchImageLibraryAsync(options),
           save: (uri) =>
             replaceExerciseImageFromLocalUri(
@@ -210,6 +230,43 @@ export default function ExerciseDetailScreen() {
 
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
+  const useGlassEffect = glassEffectAvailable && !reduceTransparency;
+
+  const photoAction = (camera: boolean) => {
+    const label = camera ? 'Take exercise photo' : 'Choose exercise photo';
+    const hint = camera
+      ? 'Opens the camera to replace this exercise image.'
+      : 'Opens your photo library to replace this exercise image.';
+    const control = (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        accessibilityState={{ disabled: savingImage, busy: savingImage }}
+        disabled={savingImage}
+        onPress={() => { void chooseExercisePhoto(camera); }}
+        style={({ pressed }) => [styles.photoAction, pressed && !savingImage && styles.photoActionPressed]}
+      >
+        <SymbolView
+          accessible={false}
+          name={camera
+            ? { ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }
+            : { ios: 'photo', android: 'photo', web: 'photo' }}
+          size={22}
+          tintColor="#ffffff"
+          weight="semibold"
+        />
+      </Pressable>
+    );
+
+    return useGlassEffect ? (
+      <GlassView style={styles.photoActionGlass} glassEffectStyle="regular" tintColor="rgba(0, 0, 0, 0.24)">
+        {control}
+      </GlassView>
+    ) : (
+      <View style={styles.photoActionFallback}>{control}</View>
+    );
+  };
 
   if (!id || loading) {
     return (
@@ -256,7 +313,18 @@ export default function ExerciseDetailScreen() {
           <ThemedText type="title" style={styles.title}>
             {exercise.title}
           </ThemedText>
-          <ExerciseImage imagePath={imagePath} size="hero" />
+          <View style={styles.heroWithPhotoActions}>
+            <ExerciseImage imagePath={imagePath} size="hero" />
+            <View style={styles.photoActions}>
+              {photoAction(true)}
+              {photoAction(false)}
+            </View>
+          </View>
+          {imageMessage && (
+            <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
+              {imageMessage.text}
+            </ThemedText>
+          )}
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
@@ -268,31 +336,6 @@ export default function ExerciseDetailScreen() {
               {saveError}
             </ThemedText>
           )}
-
-          <ThemedView style={styles.formGroup}>
-            <ThemedText type="default" style={styles.label}>
-              Exercise photo
-            </ThemedText>
-            <Host matchContents={{ vertical: true }} seedColor={ActionButtonColor.primary}>
-              <Column spacing={Spacing.two}>
-                <Button
-                  label={savingImage ? 'Saving…' : 'Use camera'}
-                  disabled={savingImage}
-                  onPress={() => { void chooseExercisePhoto(true); }}
-                />
-                <Button
-                  label="Choose photo"
-                  disabled={savingImage}
-                  onPress={() => { void chooseExercisePhoto(false); }}
-                />
-              </Column>
-            </Host>
-            {imageMessage && (
-              <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
-                {imageMessage.text}
-              </ThemedText>
-            )}
-          </ThemedView>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -387,6 +430,34 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 0,
+  },
+  heroWithPhotoActions: {
+    position: 'relative',
+  },
+  photoActions: {
+    position: 'absolute',
+    right: Spacing.two,
+    bottom: Spacing.two,
+    flexDirection: 'row',
+    gap: Spacing.one,
+  },
+  photoActionGlass: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+  },
+  photoActionFallback: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    backgroundColor: '#1c1c1e',
+  },
+  photoAction: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoActionPressed: {
+    transform: [{ scale: 0.94 }],
   },
   kind: {
     opacity: 0.6,

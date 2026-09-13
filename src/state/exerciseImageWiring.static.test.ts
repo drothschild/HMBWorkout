@@ -245,10 +245,12 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
 
   it('presents only the camera picker full-screen, leaving the photo library options unchanged', () => {
     const source = compact(FILES.exerciseDetail);
-
-    expect(source).toContain(
-      'launchCamera:()=>ImagePicker.launchCameraAsync({...options,presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN})'
+    const cameraLaunch = source.slice(
+      indexOfOrThrow(source, 'launchCamera:()=>ImagePicker.launchCameraAsync(', 'exercise/[id].tsx'),
+      indexOfOrThrow(source, 'launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)', 'exercise/[id].tsx')
     );
+
+    expect(cameraLaunch).toContain('presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN');
     expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
     expect(occurrences(source, 'presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN')).toBe(1);
   });
@@ -267,13 +269,13 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('minWidth:44');
     expect(source).toContain('minHeight:44');
     expect(source).toContain('accessibilityRole="button"');
-    expect(source).toContain('accessibilityLabel="Take exercise photo"');
-    expect(source).toContain('accessibilityLabel="Choose exercise photo"');
-    expect(source).toContain('accessibilityHint="Opens the camera to replace this exercise image."');
-    expect(source).toContain('accessibilityHint="Opens your photo library to replace this exercise image."');
+    expect(source).toContain("constlabel=camera?'Takeexercisephoto':'Chooseexercisephoto';");
+    expect(source).toContain("consthint=camera?'Opensthecameratoreplacethisexerciseimage.':'Opensyourphotolibrarytoreplacethisexerciseimage.';");
+    expect(source).toContain('accessibilityLabel={label}');
+    expect(source).toContain('accessibilityHint={hint}');
     expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
-    expect(source).toContain('name={{ios:\'camera.fill\',android:\'photo_camera\',web:\'photo_camera\'}}');
-    expect(source).toContain('name={{ios:\'photo\',android:\'photo\',web:\'photo\'}}');
+    expect(source).toContain("{ios:'camera.fill',android:'photo_camera',web:'photo_camera'}");
+    expect(source).toContain("{ios:'photo',android:'photo',web:'photo'}");
     expect(source).not.toContain('Exercise photo');
     expect(source).not.toContain('label={savingImage?\'Saving…\':\'Use camera\'}');
     expect(source).not.toContain('label="Choose photo"');

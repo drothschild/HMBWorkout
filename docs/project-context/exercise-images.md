@@ -169,8 +169,10 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   never masks the rejection. `exerciseImageFiles.ts` cannot be imported by a test, so
   `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
   Exercise details offer camera and photo-library controls; they do not expose a
-  paste-URL override. A selected local file is copied into document-backed storage
-  and written with the terminal `user` source.
+  paste-URL override. The controls are accessible 44pt icon buttons over the
+  hero's lower-right corner, with a solid fallback when Liquid Glass is unavailable
+  or Reduce Transparency is enabled. A selected local file is copied into
+  document-backed storage and written with the terminal `user` source.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
