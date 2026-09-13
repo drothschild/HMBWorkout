@@ -4,8 +4,8 @@
 
 ## Exercise images (#335)
 
-Every exercise can carry one photo, resolved in the background from a bundled
-catalog (or pasted by the user) and stored on-device so it renders offline. Like
+Every exercise can carry one photo. The pinned catalog's original upstream
+photos are bundled in the app; user URL/web choices are stored on-device. Like
 the AI slice, this is **data, never session flow**: the Rill `RoutineEntry` and
 engine state carry no image field, and `src/engine/exerciseImageEngineBoundary.test.ts`
 pins that no `.lv` rule mentions one. Every display site reads the path
@@ -56,14 +56,38 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   scripts/build-exercise-catalog.mjs --check` exits 1 if the committed file differs
   from a fresh build. The pin is what keeps an already-resolved row's source URL
   from moving under it. Never hand-edit the data file.
+- **Original catalog images are generated static assets (#374).**
+  `scripts/build-seeded-catalog-images.mjs` fetches the first image for every
+  image-bearing entry from that same pin, byte-for-byte: no resize or
+  recompression. The current upstream catalog has 876 entries, three of which
+  have no first image, so it produces 873 JPEGs under
+  `assets/seeded-exercise-images/`, a deterministic per-asset SHA-256
+  provenance file at `assets/seeded-exercise-images.sha256`, and
+  `src/state/bundledCatalogImages.ts`. The manifest has one literal `require()`
+  per asset, which Expo/Metro packages into the native app; these are app
+  resources, not JavaScript-bundle strings and not copies under Documents.
+  `node scripts/build-seeded-catalog-images.mjs --check` is offline and rejects
+  a pin mismatch, missing/extra/orphan asset, non-JPEG magic number, unexpected
+  size (the 1 MiB ceiling leaves headroom above the observed 912,417-byte
+  original), non-deterministic filename, missing/extra/stale provenance entry,
+  changed JPEG bytes (even if the substitute is a valid JPEG), or stale
+  manifest. Use the default command only for initial network generation; it
+  writes the provenance alongside the assets. `--refresh-manifest` verifies the
+  provenance before rebuilding the TypeScript manifest and therefore cannot
+  bless changed bytes. `--record-provenance --verified-originals` is an explicit
+  bootstrap/rekey operation after independently verifying the exact pinned
+  upstream originals; it is never a repair step for changed local assets.
 - **Every pinned catalog entry is present in the on-device exercise library (#360).**
   `seedExerciseCatalog` runs at boot before the image resolver starts. It creates
   all 876 `exercises` rows with the upstream name, mapped kind, first primary
   muscle, equipment and newline-separated instructions, while preserving every
-  field of an existing row. Seeded rows receive a terminal `catalog:<id>` source
-  but no local image path, so boot does not turn the import into model calls or
-  876 downloads. The existing resolver continues to handle unresolved
-  user-created exercises; catalog seeding itself performs no network access.
+  field of an existing row. Each image-bearing seeded row receives a terminal
+  `catalog:<id>` source and `bundle:<id>` image path; the three imageless rows
+  intentionally remain null placeholders. On an upgrade, only an existing row
+  with the same canonical `catalog:<id>` source and null path gets that bundled
+  path. A URL/web source or any non-null Documents file is never clobbered. Boot
+  therefore performs no model call, catalog network lookup, or 873-file copy;
+  the existing resolver continues to handle unresolved user-created exercises.
 - **Two nullable columns (schema v9) and `ImageSource` states.**
   `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
   `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
@@ -79,12 +103,17 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   misses with a known exact alias or an unambiguous catalog sibling, as described
   below. URL overrides, unrelated catalog selections and unrecognised source
   values are left alone.
-- **`image_path` is relative to `Paths.document`, never `file://` and never
-  absolute.** iOS moves the app container on reinstall and restore, so an absolute
-  path goes stale. `buildImageRelativePath` builds `exercise-images/<id>-<suffix>.jpg`;
-  the suffix makes every download a NEW file, so an override never overwrites a
-  file a render may be reading. `ExerciseImage` (`src/components/ExerciseImage.tsx`)
-  is the only place a path becomes a URI (`new File(Paths.document, imagePath).uri`).
+- **`image_path` has two explicit schemes.** `bundle:<catalog-id>` identifies a
+  pinned static module in `bundledCatalogImages.ts`; `ExerciseImage` passes that
+  module directly to `expo-image` and never converts it to a Documents URI.
+  Every other non-null value is relative to `Paths.document`, never `file://`
+  and never absolute. iOS moves the app container on reinstall and restore, so
+  an absolute path goes stale. `buildImageRelativePath` builds
+  `exercise-images/<id>-<suffix>.jpg`; the suffix makes every download a NEW
+  file, so an override never overwrites a file a render may be reading.
+  `ExerciseImage` is the only place a Documents path becomes a URI
+  (`new File(Paths.document, imagePath).uri`). An unknown `bundle:` id renders
+  the normal neutral placeholder instead of attempting a bogus Documents file.
 - **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
   `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
   shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question
