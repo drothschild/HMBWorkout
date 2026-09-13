@@ -50,6 +50,14 @@ describe('seeded catalog image packaging (#374)', () => {
       });
       expect(check.status).not.toBe(0);
       expect(check.stderr).toContain('SHA-256 mismatch for 3_4_Sit-Up.jpg');
+
+      const refresh = spawnSync('node', [GENERATOR, '--refresh-manifest'], {
+        cwd: ROOT,
+        env: { ...process.env, HMB_SEEDED_CATALOG_ASSET_DIR: copiedAssets },
+        encoding: 'utf8',
+      });
+      expect(refresh.status).not.toBe(0);
+      expect(refresh.stderr).toContain('SHA-256 mismatch for 3_4_Sit-Up.jpg');
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
     }
