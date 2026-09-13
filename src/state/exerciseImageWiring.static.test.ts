@@ -242,6 +242,42 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('Choose a photo instead');
     expect(source).toContain('enable camera access in Settings.');
   });
+
+  it('presents only the camera picker full-screen, leaving the photo library options unchanged', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain(
+      'launchCamera:()=>ImagePicker.launchCameraAsync({...options,presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN})'
+    );
+    expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
+    expect(occurrences(source, 'presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN')).toBe(1);
+  });
+
+  it('overlays accessible camera and library icon controls at the hero lower-right corner', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain("import{GlassView,isGlassEffectAPIAvailable}from'expo-glass-effect';");
+    expect(source).toContain("import{SymbolView}from'expo-symbols';");
+    expect(source).toContain('AccessibilityInfo.isReduceTransparencyEnabled()');
+    expect(source).toContain("AccessibilityInfo.addEventListener('reduceTransparencyChanged'");
+    expect(source).toContain('position:\'absolute\'');
+    expect(source).toContain('bottom:Spacing.two');
+    expect(source).toContain('right:Spacing.two');
+    expect(source).toContain('flexDirection:\'row\'');
+    expect(source).toContain('minWidth:44');
+    expect(source).toContain('minHeight:44');
+    expect(source).toContain('accessibilityRole="button"');
+    expect(source).toContain('accessibilityLabel="Take exercise photo"');
+    expect(source).toContain('accessibilityLabel="Choose exercise photo"');
+    expect(source).toContain('accessibilityHint="Opens the camera to replace this exercise image."');
+    expect(source).toContain('accessibilityHint="Opens your photo library to replace this exercise image."');
+    expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
+    expect(source).toContain('name={{ios:\'camera.fill\',android:\'photo_camera\',web:\'photo_camera\'}}');
+    expect(source).toContain('name={{ios:\'photo\',android:\'photo\',web:\'photo\'}}');
+    expect(source).not.toContain('Exercise photo');
+    expect(source).not.toContain('label={savingImage?\'Saving…\':\'Use camera\'}');
+    expect(source).not.toContain('label="Choose photo"');
+  });
 });
 
 describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)', () => {
