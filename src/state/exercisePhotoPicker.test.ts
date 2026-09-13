@@ -2,8 +2,6 @@ import { pickExercisePhoto, type ExercisePhotoPickerDeps } from './exercisePhoto
 
 function deps(overrides: Partial<ExercisePhotoPickerDeps> = {}): ExercisePhotoPickerDeps {
   return {
-    requestCameraPermission: jest.fn().mockResolvedValue({ granted: true }),
-    launchCamera: jest.fn().mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///camera.jpg' }] }),
     launchLibrary: jest.fn().mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///library.jpg' }] }),
     save: jest.fn().mockResolvedValue({ kind: 'saved', imagePath: 'exercise-images/squat.jpg' }),
     ...overrides,
@@ -19,23 +17,7 @@ describe('pickExercisePhoto', () => {
     });
     const lock = { current: false };
 
-    await expect(pickExercisePhoto(picker, false, lock)).resolves.toEqual({ kind: 'cancelled' });
-    expect(save).not.toHaveBeenCalled();
-    expect(lock.current).toBe(false);
-  });
-
-  it('does not launch or save when camera permission is denied', async () => {
-    const launchCamera = jest.fn();
-    const save = jest.fn();
-    const picker = deps({
-      requestCameraPermission: jest.fn().mockResolvedValue({ granted: false }),
-      launchCamera,
-      save,
-    });
-    const lock = { current: false };
-
-    await expect(pickExercisePhoto(picker, true, lock)).resolves.toEqual({ kind: 'camera-denied' });
-    expect(launchCamera).not.toHaveBeenCalled();
+    await expect(pickExercisePhoto(picker, lock)).resolves.toEqual({ kind: 'cancelled' });
     expect(save).not.toHaveBeenCalled();
     expect(lock.current).toBe(false);
   });
@@ -49,9 +31,9 @@ describe('pickExercisePhoto', () => {
     const picker = deps({ launchLibrary, save });
     const lock = { current: false };
 
-    const first = pickExercisePhoto(picker, false, lock);
+    const first = pickExercisePhoto(picker, lock);
     await Promise.resolve();
-    await expect(pickExercisePhoto(picker, false, lock)).resolves.toEqual({ kind: 'busy' });
+    await expect(pickExercisePhoto(picker, lock)).resolves.toEqual({ kind: 'busy' });
     expect(launchLibrary).toHaveBeenCalledTimes(1);
     expect(save).not.toHaveBeenCalled();
 

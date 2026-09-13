@@ -234,11 +234,10 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('pickExercisePhoto(');
   });
 
-  it('guides a denied camera user to the photo library or Settings', () => {
+  it('guides a denied camera user to Settings', () => {
     const source = normalized(FILES.exerciseDetail);
     expect(source).toContain('Camera access is off.');
-    expect(source).toContain('Choose a photo instead');
-    expect(source).toContain('enable camera access in Settings.');
+    expect(source).toContain('Enable camera access in Settings, then return here.');
   });
 
   it('uses an in-app full-screen back CameraView, never ImagePicker camera', () => {
@@ -264,7 +263,7 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     const source = compact(FILES.exerciseDetail);
 
     expect(source).toContain('constcameraRef=useRef<CameraView>(null);');
-    expect(source).toContain('if(!cameraReady||cameraRef.current===null)return;');
+    expect(source).toContain('!cameraReady||cameraRef.current===null');
     expect(source).toContain('captureExerciseCameraPhoto(');
     expect(source).toContain('takePicture:()=>cameraRef.current!.takePictureAsync({quality:0.8,exif:false,base64:false})');
     expect(source).toContain('save:(uri)=>replaceExerciseImageFromLocalUri(');
@@ -272,7 +271,7 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('accessibilityHint="Closeswithoutchangingtheexerciseimage."');
     expect(source).toContain('accessibilityLabel="Takeexercisephoto"');
     expect(source).toContain('disabled={!cameraReady||savingImage}');
-    expect(source).toContain('Camera access is off. Enable camera access in Settings, then return here.');
+    expect(source).toContain('Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.');
   });
 
   it('configures Expo Camera for stills without microphone or audio recording permission', () => {

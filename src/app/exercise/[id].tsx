@@ -1,8 +1,9 @@
-import { AccessibilityInfo, StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, Modal, StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 
@@ -19,6 +20,7 @@ import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry'
 import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
 import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
+import { captureExerciseCameraPhoto } from '@/state/exerciseCameraCapture';
 import {
   exerciseHistoryPresenter,
   type ExerciseHistoryWorkout,
@@ -41,6 +43,9 @@ export default function ExerciseDetailScreen() {
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [reduceTransparency, setReduceTransparency] = useState(false);
   const [glassEffectAvailable] = useState(() => {
     const liquidGlassAvailable = isLiquidGlassAvailable();
@@ -48,6 +53,8 @@ export default function ExerciseDetailScreen() {
     return liquidGlassAvailable && glassEffectAPIAvailable;
   });
   const imagePickerInFlightRef = useRef(false);
+  const cameraRef = useRef<CameraView>(null);
+  const cameraSessionRef = useRef(0);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -168,7 +175,7 @@ export default function ExerciseDetailScreen() {
 
   // Plain function, not a hook. The hero updates by itself: the
   // exercise.observe() effect above picks up the row write.
-  const chooseExercisePhoto = async (camera: boolean) => {
+  const chooseExercisePhoto = async () => {
     if (!id || imagePickerInFlightRef.current) return;
     setSavingImage(true);
     setImageMessage(null);
@@ -181,11 +188,6 @@ export default function ExerciseDetailScreen() {
       };
       const pickerOutcome = await pickExercisePhoto(
         {
-          requestCameraPermission: ImagePicker.requestCameraPermissionsAsync,
-          launchCamera: () => ImagePicker.launchCameraAsync({
-            ...options,
-            presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
-          }),
           launchLibrary: () => ImagePicker.launchImageLibraryAsync(options),
           save: (uri) =>
             replaceExerciseImageFromLocalUri(
@@ -200,16 +202,8 @@ export default function ExerciseDetailScreen() {
               uri
             ),
         },
-        camera,
         imagePickerInFlightRef
       );
-      if (pickerOutcome.kind === 'camera-denied') {
-        setImageMessage({
-          text: 'Camera access is off. Choose a photo instead or enable camera access in Settings.',
-          isError: true,
-        });
-        return;
-      }
       if (pickerOutcome.kind === 'cancelled' || pickerOutcome.kind === 'busy') return;
 
       const outcome = pickerOutcome.outcome;
@@ -225,6 +219,59 @@ export default function ExerciseDetailScreen() {
     }
   };
 
+  const openExerciseCamera = () => {
+    if (imagePickerInFlightRef.current) return;
+    cameraSessionRef.current += 1;
+    setCameraReady(false);
+    setCameraOpen(true);
+    setImageMessage(null);
+  };
+
+  const closeExerciseCamera = () => {
+    cameraSessionRef.current += 1;
+    setCameraReady(false);
+    setCameraOpen(false);
+  };
+
+  const takeExerciseCameraPhoto = async () => {
+    if (!id || !cameraReady || cameraRef.current === null) return;
+    setSavingImage(true);
+    setImageMessage(null);
+    const session = cameraSessionRef.current;
+    try {
+      const captureOutcome = await captureExerciseCameraPhoto(
+        {
+          takePicture: () => cameraRef.current!.takePictureAsync({ quality: 0.8, exif: false, base64: false }),
+          save: (uri) => replaceExerciseImageFromLocalUri(
+            {
+              database,
+              copy: copyExerciseImage,
+              deleteFile: deleteExerciseImage,
+              makeImageSuffix: makeExerciseImageSuffix,
+              log: (message, error) => console.warn(message, error),
+            },
+            id,
+            uri
+          ),
+        },
+        imagePickerInFlightRef,
+        cameraSessionRef,
+        session
+      );
+      if (captureOutcome.kind === 'cancelled' || captureOutcome.kind === 'busy') return;
+      setImageMessage({
+        text: captureOutcome.outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
+        isError: captureOutcome.outcome.kind !== 'saved',
+      });
+      if (captureOutcome.outcome.kind === 'saved') closeExerciseCamera();
+    } catch (error) {
+      console.error('Failed to capture exercise image:', error);
+      setImageMessage({ text: "Couldn't capture or save that photo. Try again.", isError: true });
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
   // is called on an unmounted component, it's a no-op (React ignores it), so hasPendingRef
   // may remain true. This is a tiny race window and acceptable: the next session load
@@ -235,11 +282,10 @@ export default function ExerciseDetailScreen() {
   const placeholderColor = theme.textSecondary;
   const useGlassEffect = glassEffectAvailable && !reduceTransparency;
 
-  const photoAction = (camera: boolean) => {
+  const photoAction = (kind: 'camera' | 'library') => {
+    const camera = kind === 'camera';
     const label = camera ? 'Take exercise photo' : 'Choose exercise photo';
-    const hint = camera
-      ? 'Opens the camera to replace this exercise image.'
-      : 'Opens your photo library to replace this exercise image.';
+    const hint = camera ? 'Opens the camera to replace this exercise image.' : 'Opens your photo library to replace this exercise image.';
     const control = (
       <Pressable
         accessibilityRole="button"
@@ -247,7 +293,7 @@ export default function ExerciseDetailScreen() {
         accessibilityHint={hint}
         accessibilityState={{ disabled: savingImage, busy: savingImage }}
         disabled={savingImage}
-        onPress={() => { void chooseExercisePhoto(camera); }}
+        onPress={() => { if (camera) openExerciseCamera(); else void chooseExercisePhoto(); }}
         style={({ pressed }) => [styles.photoAction, pressed && !savingImage && styles.photoActionPressed]}
       >
         <SymbolView
@@ -324,8 +370,8 @@ export default function ExerciseDetailScreen() {
           <View style={styles.heroWithPhotoActions}>
             <ExerciseImage imagePath={imagePath} size="hero" />
             <View style={styles.photoActions}>
-              {photoAction(true)}
-              {photoAction(false)}
+              {photoAction('camera')}
+              {photoAction('library')}
             </View>
           </View>
           {imageMessage && (
@@ -392,6 +438,60 @@ export default function ExerciseDetailScreen() {
           </ThemedView>
         </ScrollView>
       </SafeAreaView>
+      <Modal visible={cameraOpen} presentationStyle="fullScreen">
+        <View style={styles.cameraModal}>
+          {cameraPermission?.granted ? (
+            <CameraView
+              ref={cameraRef}
+              style={styles.cameraPreview}
+              facing="back"
+              mode="picture"
+              active={cameraOpen}
+              onCameraReady={() => setCameraReady(true)}
+            />
+          ) : (
+            <View style={styles.cameraPermissionPanel}>
+              <ThemedText type="subtitle">Camera access is needed to take an exercise photo.</ThemedText>
+              <ThemedText type="small" style={styles.cameraPermissionText}>
+                Camera access is off. Enable camera access in Settings, then return here.
+              </ThemedText>
+              {cameraPermission?.canAskAgain !== false && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Grant camera access"
+                  accessibilityHint="Requests access to take an exercise photo."
+                  onPress={() => { void requestCameraPermission(); }}
+                  style={styles.cameraGrantButton}
+                >
+                  <ThemedText type="default" style={styles.cameraButtonText}>Grant access</ThemedText>
+                </Pressable>
+              )}
+            </View>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close exercise camera"
+            accessibilityHint="Closes without changing the exercise image."
+            onPress={closeExerciseCamera}
+            style={styles.cameraCloseButton}
+          >
+            <SymbolView accessible={false} name={{ ios: 'xmark', android: 'close', web: 'close' }} size={22} tintColor="#ffffff" weight="semibold" />
+          </Pressable>
+          {cameraPermission?.granted && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Take exercise photo"
+              accessibilityHint="Captures and saves this camera photo as the exercise image."
+              accessibilityState={{ disabled: !cameraReady || savingImage, busy: savingImage }}
+              disabled={!cameraReady || savingImage}
+              onPress={() => { void takeExerciseCameraPhoto(); }}
+              style={({ pressed }) => [styles.cameraShutter, pressed && cameraReady && !savingImage && styles.cameraShutterPressed]}
+            >
+              <View style={styles.cameraShutterInner} />
+            </Pressable>
+          )}
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -466,6 +566,72 @@ const styles = StyleSheet.create({
   },
   photoActionPressed: {
     transform: [{ scale: 0.94 }],
+  },
+  cameraModal: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  cameraPreview: {
+    flex: 1,
+  },
+  cameraPermissionPanel: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    padding: Spacing.four,
+  },
+  cameraPermissionText: {
+    textAlign: 'center',
+  },
+  cameraCloseButton: {
+    position: 'absolute',
+    top: Spacing.four,
+    right: Spacing.three,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    backgroundColor: 'rgba(0, 0, 0, 0.46)',
+  },
+  cameraGrantButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    backgroundColor: ActionButtonColor.primary,
+    paddingHorizontal: Spacing.three,
+  },
+  cameraButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  cameraShutter: {
+    position: 'absolute',
+    bottom: Spacing.four,
+    alignSelf: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderCurve: 'continuous',
+    borderWidth: 4,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraShutterInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderCurve: 'continuous',
+    backgroundColor: '#ffffff',
+  },
+  cameraShutterPressed: {
+    opacity: 0.72,
   },
   kind: {
     opacity: 0.6,
