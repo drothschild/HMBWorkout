@@ -258,10 +258,17 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
   it('overlays accessible camera and library icon controls at the hero lower-right corner', () => {
     const source = compact(FILES.exerciseDetail);
 
-    expect(source).toContain("import{GlassView,isGlassEffectAPIAvailable}from'expo-glass-effect';");
+    expect(source).toContain("import{GlassView,isGlassEffectAPIAvailable,isLiquidGlassAvailable}from'expo-glass-effect';");
     expect(source).toContain("import{SymbolView}from'expo-symbols';");
+    expect(source).toContain('const[glassEffectAvailable]=useState(()=>{');
+    expect(source).toContain('constliquidGlassAvailable=isLiquidGlassAvailable();');
+    expect(source).toContain('constglassEffectAPIAvailable=isGlassEffectAPIAvailable();');
+    expect(source).toContain('returnliquidGlassAvailable&&glassEffectAPIAvailable;');
+    expect(source).not.toContain('setGlassEffectAvailable');
     expect(source).toContain('AccessibilityInfo.isReduceTransparencyEnabled()');
     expect(source).toContain("AccessibilityInfo.addEventListener('reduceTransparencyChanged'");
+    expect(source).toContain('constuseGlassEffect=glassEffectAvailable&&!reduceTransparency;');
+    expect(source).toContain('isInteractive');
     expect(source).toContain('position:\'absolute\'');
     expect(source).toContain('bottom:Spacing.two');
     expect(source).toContain('right:Spacing.two');
