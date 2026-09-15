@@ -16,11 +16,16 @@ describe('exercise creation wiring (#379)', () => {
 
     expect(source).toContain('const[isCreateFormVisible,setIsCreateFormVisible]=useState(false);');
     expect(source).toContain('accessibilityLabel="Newexercise"');
+    expect(source).toContain('name="plus.circle.fill"');
+    expect(source).toContain('fallback={<ThemedTextstyle={styles.newExerciseFallback}>+</ThemedText>}');
+    expect(source).toContain('minWidth:44');
+    expect(source).toContain('minHeight:44');
     expect(source).toContain('setIsCreateFormVisible(true)');
     expect(source).toContain('isCreateFormVisible&&(');
     expect(source).not.toContain('!isCreateFormVisible&&(');
     expect(source).toContain('label="Cancel"');
-    expect(source).toContain('setIsCreateFormVisible(false)');
+    expect(source).toContain('onPress={closeCreateForm}');
+    expect(source).toContain("setNewTitle('');setNewKind('strength');setCreateMessage(null);setIsCreateFormVisible(false);");
   });
 
   it('collects a required title and explicit kind, then opens the created exercise detail', () => {
