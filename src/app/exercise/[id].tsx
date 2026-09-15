@@ -54,7 +54,6 @@ export default function ExerciseDetailScreen() {
   const [historyError, setHistoryError] = useState<string | null>(null);
 
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
-  const [canSearchImages, setCanSearchImages] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -220,7 +219,6 @@ export default function ExerciseDetailScreen() {
       if (pickerOutcome.kind === 'cancelled' || pickerOutcome.kind === 'busy') return;
 
       const outcome = pickerOutcome.outcome;
-      if (outcome.kind === 'saved') setCanSearchImages(false);
       setImageMessage({
         text: outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
         isError: outcome.kind !== 'saved',
@@ -250,7 +248,6 @@ export default function ExerciseDetailScreen() {
         log: (message, error) => console.warn(message, error),
       }, id, url);
       const saved = outcome.kind === 'saved';
-      if (saved) setCanSearchImages(false);
       setImageMessage({
         text: saved ? 'Image updated.' : "Couldn't save that image. Existing image kept.",
         isError: !saved,
@@ -271,7 +268,6 @@ export default function ExerciseDetailScreen() {
     imagePickerInFlightRef.current = true;
     setSavingImage(true);
     setImageMessage(null);
-    setCanSearchImages(false);
     void refreshExerciseImage(id)
       .then((outcome) => {
         switch (outcome.kind) {
@@ -279,7 +275,6 @@ export default function ExerciseDetailScreen() {
             setImageMessage({ text: 'Image refreshed.', isError: false });
             return;
           case 'no-match':
-            setCanSearchImages(true);
             setImageMessage({ text: 'No new matching image found. Existing image kept.', isError: false });
             return;
           case 'unchanged':
@@ -290,14 +285,12 @@ export default function ExerciseDetailScreen() {
             return;
           case 'unavailable':
           case 'failed':
-            setCanSearchImages(true);
             setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
             return;
         }
       })
       .catch((error) => {
         console.error('Failed to refresh exercise image:', error);
-        setCanSearchImages(true);
         setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
       })
       .finally(() => {
@@ -422,20 +415,18 @@ export default function ExerciseDetailScreen() {
               {imageMessage.text}
             </ThemedText>
           )}
-          {canSearchImages && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Search exercise images"
-              accessibilityState={{ disabled: savingImage }}
-              disabled={savingImage}
-              style={styles.searchImagesButton}
-              onPress={() => {
-                if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
-              }}
-            >
-              <ThemedText style={styles.backButtonText}>Search images</ThemedText>
-            </Pressable>
-          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Search exercise images"
+            accessibilityState={{ disabled: savingImage }}
+            disabled={savingImage}
+            style={styles.searchImagesButton}
+            onPress={() => {
+              if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
+            }}
+          >
+            <ThemedText style={styles.backButtonText}>Search images</ThemedText>
+          </Pressable>
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>

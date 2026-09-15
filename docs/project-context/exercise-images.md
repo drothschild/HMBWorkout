@@ -122,8 +122,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   wins; failed/no-match refreshes retain the current row, and old Documents
   files are removed only after a successful replacement (bundled `bundle:`
   assets are never deleted).
-- **Manual image search after a refresh miss (#376).** A no-match or failed
-  refresh offers Search images. The full-screen picker starts with the exercise
+- **Manual image search (#376).** Exercise details always offer Search images,
+  including before refresh and after a successful match. The action remains
+  visible but disabled during another photo operation. The full-screen picker starts with the exercise
   name plus "exercise"; users can edit the exact query (up to 200 characters),
   browse up to 24 distinct HTTPS results, and explicitly select an original image.
   Manual choices share Bing metadata parsing but omit automatic title filtering.
