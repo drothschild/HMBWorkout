@@ -6,8 +6,9 @@ import {
   exerciseImageOverrideMessage,
   overrideExerciseImage,
   parseImageUrl,
+  replaceExerciseImageFromLocalUri,
 } from './exerciseImageOverride';
-import type { ExerciseImageOverrideDeps } from './exerciseImageOverride';
+import type { ExerciseImageOverrideDeps, LocalExerciseImageOverrideDeps } from './exerciseImageOverride';
 import { NotAnImageError } from './imageSignature';
 
 const EXERCISE_ID = 'bench-press';
@@ -19,6 +20,13 @@ const NEW_PATH = 'exercise-images/bench-press-n1.jpg';
 type Recorder = {
   readonly deps: ExerciseImageOverrideDeps;
   readonly downloadCalls: { url: string; relativePath: string }[];
+  readonly deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[];
+  readonly logCalls: { message: string; error: unknown }[];
+};
+
+type LocalRecorder = {
+  readonly deps: LocalExerciseImageOverrideDeps;
+  readonly copyCalls: { uri: string; relativePath: string }[];
   readonly deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[];
   readonly logCalls: { message: string; error: unknown }[];
 };
@@ -57,6 +65,36 @@ function makeRecorder(
     },
   };
   return { deps, downloadCalls, deleteCalls, logCalls };
+}
+
+function makeLocalRecorder(
+  db: Database,
+  options: { readonly copyError?: Error; readonly deleteError?: Error } = {}
+): LocalRecorder {
+  const copyCalls: { uri: string; relativePath: string }[] = [];
+  const deleteCalls: { path: string; rowPathAtDeleteTime: string | null }[] = [];
+  const logCalls: { message: string; error: unknown }[] = [];
+  return {
+    deps: {
+      database: db,
+      copy: async (uri, relativePath) => {
+        copyCalls.push({ uri, relativePath });
+        if (options.copyError) throw options.copyError;
+      },
+      deleteFile: async (path) => {
+        const row = await readRow(db, EXERCISE_ID);
+        deleteCalls.push({ path, rowPathAtDeleteTime: row.imagePath });
+        if (options.deleteError) throw options.deleteError;
+      },
+      makeImageSuffix: () => 'n1',
+      log: (message, error) => {
+        logCalls.push({ message, error });
+      },
+    },
+    copyCalls,
+    deleteCalls,
+    logCalls,
+  };
 }
 
 describe('exercise image override — #335', () => {
@@ -150,6 +188,62 @@ describe('exercise image override — #335', () => {
       imageSource: 'url:https://example.com/p.jpg',
     });
     expect(rec.deleteCalls).toStrictEqual([]);
+  });
+
+  it('copies a selected local photo to a new owned file, records the user choice, then deletes the previous image', async () => {
+    await seedPreviousImage();
+    const rec = makeLocalRecorder(db);
+
+    const outcome = await replaceExerciseImageFromLocalUri(rec.deps, EXERCISE_ID, 'file:///cache/chosen-photo.jpg');
+
+    expect(outcome).toStrictEqual({ kind: 'saved', imagePath: NEW_PATH });
+    expect(rec.copyCalls).toStrictEqual([{ uri: 'file:///cache/chosen-photo.jpg', relativePath: NEW_PATH }]);
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: NEW_PATH, imageSource: 'user' });
+    expect(rec.deleteCalls).toStrictEqual([{ path: OLD_PATH, rowPathAtDeleteTime: NEW_PATH }]);
+  });
+
+  it('leaves the row and previous image untouched when copying the selected local photo fails', async () => {
+    await seedPreviousImage();
+    const copyError = new Error('disk full');
+    const rec = makeLocalRecorder(db, { copyError });
+
+    const outcome = await replaceExerciseImageFromLocalUri(rec.deps, EXERCISE_ID, 'file:///cache/chosen-photo.jpg');
+
+    expect(outcome).toStrictEqual({ kind: 'copy-failed' });
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: OLD_PATH, imageSource: OLD_SOURCE });
+    expect(rec.deleteCalls).toStrictEqual([]);
+    expect(rec.logCalls).toStrictEqual([
+      { message: 'exercise image override: copy failed for bench-press', error: copyError },
+    ]);
+  });
+
+  it('deletes only the new copied photo when its row write fails', async () => {
+    await seedPreviousImage();
+    const rec = makeLocalRecorder(db);
+    const missingId = 'no-such-exercise';
+    const missingPath = 'exercise-images/no-such-exercise-n1.jpg';
+
+    await expect(
+      replaceExerciseImageFromLocalUri(rec.deps, missingId, 'file:///cache/chosen-photo.jpg')
+    ).rejects.toThrow(missingId);
+
+    expect(rec.copyCalls).toStrictEqual([{ uri: 'file:///cache/chosen-photo.jpg', relativePath: missingPath }]);
+    expect(rec.deleteCalls).toStrictEqual([{ path: missingPath, rowPathAtDeleteTime: OLD_PATH }]);
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: OLD_PATH, imageSource: OLD_SOURCE });
+  });
+
+  it('keeps the saved local photo when deleting the previous image fails, and logs the cleanup failure', async () => {
+    await seedPreviousImage();
+    const deleteError = new Error('EACCES');
+    const rec = makeLocalRecorder(db, { deleteError });
+
+    const outcome = await replaceExerciseImageFromLocalUri(rec.deps, EXERCISE_ID, 'file:///cache/chosen-photo.jpg');
+
+    expect(outcome).toStrictEqual({ kind: 'saved', imagePath: NEW_PATH });
+    expect(await readRow(db, EXERCISE_ID)).toStrictEqual({ imagePath: NEW_PATH, imageSource: 'user' });
+    expect(rec.logCalls).toStrictEqual([
+      { message: `exercise image override: deleting previous ${OLD_PATH} failed`, error: deleteError },
+    ]);
   });
 
   it('AC4.2 edge: never deletes the file the row now points at when the suffix repeats the previous path', async () => {

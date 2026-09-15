@@ -7,7 +7,15 @@ const MAX_CANDIDATES = 5;
 const SEARCH_TIMEOUT_MS = 15_000;
 const TITLE_STOP_WORDS = new Set(['a', 'an', 'and', 'at', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'with', 'without']);
 
+export type ExerciseImageChoice = {
+  readonly url: string;
+  readonly thumbnailUrl: string;
+  readonly title: string;
+  readonly sourceUrl?: string;
+};
+
 type WebImageCandidate = {
+  readonly choice: ExerciseImageChoice;
   readonly url: string;
   readonly evidence: string;
 };
@@ -21,6 +29,16 @@ function decodeAttribute(value: string): string {
     const point = parseInt(lower.slice(hex ? 3 : 2, -1), hex ? 16 : 10);
     return point <= 0x10ffff ? String.fromCodePoint(point) : entity;
   });
+}
+
+function httpsUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseCandidates(html: string): WebImageCandidate[] {
@@ -42,7 +60,17 @@ function parseCandidates(html: string): WebImageCandidate[] {
       const evidence = ['murl', 'purl', 't', 'desc']
         .map(field => typeof fields[field] === 'string' ? fields[field] as string : '')
         .join(' ');
-      candidates.push({ url: url.href, evidence });
+      const sourceUrl = httpsUrl(fields.purl);
+      candidates.push({
+        url: url.href,
+        evidence,
+        choice: {
+          url: url.href,
+          thumbnailUrl: httpsUrl(fields.turl) ?? url.href,
+          title: typeof fields.t === 'string' && fields.t.trim() ? fields.t.trim() : url.hostname,
+          ...(sourceUrl ? { sourceUrl } : {}),
+        },
+      });
     } catch {
       // One malformed result must not hide later valid results.
     }
@@ -86,5 +114,36 @@ export async function searchExerciseWebImages(
       .map(candidate => candidate.url);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+
+/** Manual choices deliberately omit automatic title relevance filtering. A user
+ * chooses the result; unexpected provider markup remains an explicit error. */
+export async function searchExerciseImageChoices(
+  query: string,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch
+): Promise<readonly ExerciseImageChoice[]> {
+  if (!query.trim()) return [];
+  if (query.length > 200) throw new Error('Image search query must be 200 characters or fewer');
+  const aborted = () => Object.assign(new Error('Image search aborted'), { name: 'AbortError' });
+  if (signal?.aborted) throw aborted();
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  try {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&first=1`;
+    const response = await fetcher(url, { signal: controller.signal });
+    if (controller.signal.aborted) throw aborted();
+    if (!response.ok) throw new Error(`Image search HTTP ${response.status}`);
+    const html = await response.text();
+    if (controller.signal.aborted) throw aborted();
+    if (html.length > 5_000_000) throw new Error('Image search response too large');
+    return parseCandidates(html).slice(0, 24).map(candidate => candidate.choice);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }

@@ -53,8 +53,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Take an optional selfie to save with your workout diary.",
-          "photosPermission": "Choose an optional photo to save with your workout diary.",
+          "cameraPermission": "Take an optional photo for an exercise or your workout diary.",
+          "photosPermission": "Choose an optional photo for an exercise or your workout diary.",
           "microphonePermission": false
         }
       ]

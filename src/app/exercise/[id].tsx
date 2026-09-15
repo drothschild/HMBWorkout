@@ -1,20 +1,25 @@
-import { StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, TextInput, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ExerciseImage } from '@/components/ExerciseImage';
+import { ExerciseImageSearch } from '@/components/ExerciseImageSearch';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
-import { requestExerciseImagePass } from '@/state/exerciseImageResolverRegistry';
-import { exerciseImageOverrideMessage, overrideExerciseImage } from '@/state/exerciseImageOverride';
-import { deleteExerciseImage, downloadExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import { requestExerciseImagePass, refreshExerciseImage } from '@/state/exerciseImageResolverRegistry';
+import { overrideExerciseImage, replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
+import { copyExerciseImage, downloadExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
 import {
   exerciseHistoryPresenter,
   type ExerciseHistoryWorkout,
@@ -35,13 +40,20 @@ export default function ExerciseDetailScreen() {
   // during the previous render"), and no test can render this screen.
   // exerciseImageWiring.static.test.ts gates the placement.
   const [imagePath, setImagePath] = useState<string | null>(null);
-  // The paste-URL override (#335 Phase 6).
-  const [imageUrl, setImageUrl] = useState('');
   const [imageMessage, setImageMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [savingImage, setSavingImage] = useState(false);
+  const [reduceTransparency, setReduceTransparency] = useState(false);
+  const [glassEffectAvailable] = useState(() => {
+    const liquidGlassAvailable = isLiquidGlassAvailable();
+    const glassEffectAPIAvailable = isGlassEffectAPIAvailable();
+    return liquidGlassAvailable && glassEffectAPIAvailable;
+  });
+  const imagePickerInFlightRef = useRef(false);
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const [imageSearchOpen, setImageSearchOpen] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,6 +114,19 @@ export default function ExerciseDetailScreen() {
     return () => subscription.unsubscribe();
   }, [exercise]);
 
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceTransparencyEnabled().then((enabled) => {
+      if (active) setReduceTransparency(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener('reduceTransparencyChanged', setReduceTransparency);
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
   const pendingValueRef = useRef('');
   const hasPendingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -145,32 +170,133 @@ export default function ExerciseDetailScreen() {
   };
 
   // Plain function, not a hook. The hero updates by itself: the
-  // exercise.observe() effect above picks up the row write. Message copy comes
-  // only from exerciseImageOverrideMessage, except a thrown row write (e.g. the
-  // exercise was deleted), which overrideExerciseImage deliberately propagates.
-  const applyImageUrl = async () => {
-    if (!id || savingImage || imageUrl.trim() === '') return;
+  // exercise.observe() effect above picks up the row write.
+  const chooseExercisePhoto = async (camera: boolean) => {
+    if (!id || imagePickerInFlightRef.current) return;
     setSavingImage(true);
+    setImageMessage(null);
     try {
-      const outcome = await overrideExerciseImage(
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        quality: 0.8,
+        exif: false,
+        base64: false,
+      };
+      const pickerOutcome = await pickExercisePhoto(
         {
-          database,
-          download: downloadExerciseImage,
-          deleteFile: deleteExerciseImage,
-          makeImageSuffix: makeExerciseImageSuffix,
-          log: (message, error) => console.warn(message, error),
+          camera: camera ? {
+            requestPermission: ImagePicker.requestCameraPermissionsAsync,
+            launch: () => ImagePicker.launchCameraAsync({
+              ...options,
+              presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+            }),
+          } : undefined,
+          launchLibrary: () => ImagePicker.launchImageLibraryAsync(options),
+          save: (uri) =>
+            replaceExerciseImageFromLocalUri(
+              {
+                database,
+                copy: copyExerciseImage,
+                deleteFile: deleteExerciseImage,
+                makeImageSuffix: makeExerciseImageSuffix,
+                log: (message, error) => console.warn(message, error),
+              },
+              id,
+              uri
+            ),
         },
-        id,
-        imageUrl
+        imagePickerInFlightRef
       );
-      setImageMessage({ text: exerciseImageOverrideMessage(outcome), isError: outcome.kind !== 'saved' });
-      if (outcome.kind === 'saved') setImageUrl('');
+      if (pickerOutcome.kind === 'camera-denied') {
+        setImageMessage({
+          text: pickerOutcome.canAskAgain
+            ? 'Camera access has not been granted. Tap the camera button to request access again.'
+            : 'Camera access is off. Enable camera access in Settings, then return here.',
+          isError: true,
+        });
+        return;
+      }
+      if (pickerOutcome.kind === 'cancelled' || pickerOutcome.kind === 'busy') return;
+
+      const outcome = pickerOutcome.outcome;
+      setImageMessage({
+        text: outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
+        isError: outcome.kind !== 'saved',
+      });
     } catch (error) {
       console.error('Failed to save exercise image:', error);
-      setImageMessage({ text: "Couldn't save that image. Try again.", isError: true });
+      setImageMessage({ text: "Couldn't open or save that photo. Try again.", isError: true });
     } finally {
       setSavingImage(false);
     }
+  };
+
+  const closeImageSearch = () => {
+    if (!imagePickerInFlightRef.current) setImageSearchOpen(false);
+  };
+
+  const selectSearchImage = async (url: string): Promise<boolean> => {
+    if (!id || imagePickerInFlightRef.current) return false;
+    imagePickerInFlightRef.current = true;
+    setSavingImage(true);
+    try {
+      const outcome = await overrideExerciseImage({
+        database,
+        download: downloadExerciseImage,
+        deleteFile: deleteExerciseImage,
+        makeImageSuffix: makeExerciseImageSuffix,
+        log: (message, error) => console.warn(message, error),
+      }, id, url);
+      const saved = outcome.kind === 'saved';
+      setImageMessage({
+        text: saved ? 'Image updated.' : "Couldn't save that image. Existing image kept.",
+        isError: !saved,
+      });
+      return saved;
+    } catch (error) {
+      console.error('Failed to save selected exercise image:', error);
+      setImageMessage({ text: "Couldn't save that image. Existing image kept.", isError: true });
+      return false;
+    } finally {
+      imagePickerInFlightRef.current = false;
+      setSavingImage(false);
+    }
+  };
+
+  const refreshExerciseImageAction = () => {
+    if (!id || imagePickerInFlightRef.current) return;
+    imagePickerInFlightRef.current = true;
+    setSavingImage(true);
+    setImageMessage(null);
+    void refreshExerciseImage(id)
+      .then((outcome) => {
+        switch (outcome.kind) {
+          case 'updated':
+            setImageMessage({ text: 'Image refreshed.', isError: false });
+            return;
+          case 'no-match':
+            setImageMessage({ text: 'No new matching image found. Existing image kept.', isError: false });
+            return;
+          case 'unchanged':
+            setImageMessage({ text: 'Image changed elsewhere. Existing image kept.', isError: false });
+            return;
+          case 'busy':
+            setImageMessage({ text: 'An image refresh is already in progress.', isError: false });
+            return;
+          case 'unavailable':
+          case 'failed':
+            setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
+            return;
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to refresh exercise image:', error);
+        setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
+      })
+      .finally(() => {
+        imagePickerInFlightRef.current = false;
+        setSavingImage(false);
+      });
   };
 
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
@@ -181,6 +307,55 @@ export default function ExerciseDetailScreen() {
 
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
+  const useGlassEffect = glassEffectAvailable && !reduceTransparency;
+
+  const photoAction = (kind: 'camera' | 'library' | 'refresh') => {
+    const label = kind === 'camera' ? 'Take exercise photo' : kind === 'library' ? 'Choose exercise photo' : 'Refresh exercise image';
+    const hint = kind === 'camera'
+      ? 'Opens the camera to replace this exercise image.'
+      : kind === 'library'
+        ? 'Opens your photo library to replace this exercise image.'
+        : 'Finds the best matching exercise image without removing the current image first.';
+    const control = (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        accessibilityState={{ disabled: savingImage, busy: savingImage }}
+        disabled={savingImage}
+        onPress={() => {
+          if (kind === 'refresh') refreshExerciseImageAction();
+          else void chooseExercisePhoto(kind === 'camera');
+        }}
+        style={({ pressed }) => [styles.photoAction, pressed && !savingImage && styles.photoActionPressed]}
+      >
+        <SymbolView
+          accessible={false}
+          name={kind === 'camera'
+            ? { ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }
+            : kind === 'library'
+              ? { ios: 'photo', android: 'photo', web: 'photo' }
+              : { ios: 'arrow.clockwise', android: 'refresh', web: 'refresh' }}
+          size={22}
+          tintColor="#ffffff"
+          weight="semibold"
+        />
+      </Pressable>
+    );
+
+    return useGlassEffect ? (
+      <GlassView
+        style={styles.photoActionGlass}
+        glassEffectStyle="regular"
+        tintColor="rgba(0, 0, 0, 0.24)"
+        isInteractive
+      >
+        {control}
+      </GlassView>
+    ) : (
+      <View style={styles.photoActionFallback}>{control}</View>
+    );
+  };
 
   if (!id || loading) {
     return (
@@ -215,12 +390,8 @@ export default function ExerciseDetailScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        {/* automaticallyAdjustKeyboardInsets insets the content by the keyboard
-            and scrolls the focused field into view. The #335 hero and Image URL
-            field push both inputs to the bottom, where the keyboard covered
-            them on a device; this fix was verified on an iPhone 15 Pro
-            (2026-09-10). Same fix as Settings → AI / AI Provider;
-            gated by exerciseImageWiring.static.test.ts. */}
+        {/* automaticallyAdjustKeyboardInsets keeps the description input visible
+            above the keyboard; gated by exerciseImageWiring.static.test.ts. */}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -231,7 +402,31 @@ export default function ExerciseDetailScreen() {
           <ThemedText type="title" style={styles.title}>
             {exercise.title}
           </ThemedText>
-          <ExerciseImage imagePath={imagePath} size="hero" />
+          <View style={styles.heroWithPhotoActions}>
+            <ExerciseImage imagePath={imagePath} size="hero" />
+            <View style={styles.photoActions}>
+              {photoAction('camera')}
+              {photoAction('library')}
+              {photoAction('refresh')}
+            </View>
+          </View>
+          {imageMessage && (
+            <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
+              {imageMessage.text}
+            </ThemedText>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Search exercise images"
+            accessibilityState={{ disabled: savingImage }}
+            disabled={savingImage}
+            style={styles.searchImagesButton}
+            onPress={() => {
+              if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
+            }}
+          >
+            <ThemedText style={styles.backButtonText}>Search images</ThemedText>
+          </Pressable>
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
@@ -243,42 +438,6 @@ export default function ExerciseDetailScreen() {
               {saveError}
             </ThemedText>
           )}
-
-          <ThemedView style={styles.formGroup}>
-            <ThemedText type="default" style={styles.label}>
-              Image URL
-            </ThemedText>
-            <TextInput
-              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
-              placeholder="https://… (paste an image link to replace the picture)"
-              placeholderTextColor={placeholderColor}
-              value={imageUrl}
-              onChangeText={setImageUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              returnKeyType="done"
-              onSubmitEditing={applyImageUrl}
-            />
-            <Pressable
-              disabled={savingImage || imageUrl.trim() === ''}
-              onPress={applyImageUrl}
-              style={({ pressed }) => [
-                styles.button,
-                pressed && styles.buttonPressed,
-                (savingImage || imageUrl.trim() === '') && styles.buttonDisabled,
-              ]}
-            >
-              <ThemedText type="default" style={styles.buttonText}>
-                {savingImage ? 'Saving…' : 'Use this image'}
-              </ThemedText>
-            </Pressable>
-            {imageMessage && (
-              <ThemedText type="small" style={imageMessage.isError ? styles.errorMessage : styles.caption}>
-                {imageMessage.text}
-              </ThemedText>
-            )}
-          </ThemedView>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -327,6 +486,13 @@ export default function ExerciseDetailScreen() {
           </ThemedView>
         </ScrollView>
       </SafeAreaView>
+      {imageSearchOpen && (
+        <ExerciseImageSearch
+          initialQuery={`${exercise.title} exercise`.slice(0, 200)}
+          onClose={closeImageSearch}
+          onSelect={selectSearchImage}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -373,6 +539,40 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 0,
+  },
+  heroWithPhotoActions: {
+    position: 'relative',
+  },
+  photoActions: {
+    position: 'absolute',
+    right: Spacing.two,
+    bottom: Spacing.two,
+    flexDirection: 'row',
+    gap: Spacing.one,
+  },
+  photoActionGlass: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+  },
+  photoActionFallback: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    backgroundColor: '#1c1c1e',
+  },
+  photoAction: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoActionPressed: {
+    transform: [{ scale: 0.94 }],
+  },
+  searchImagesButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
   },
   kind: {
     opacity: 0.6,
@@ -425,24 +625,5 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 120,
     textAlignVertical: 'top',
-  },
-  // Same shape as the Settings → Data screen's primary buttons.
-  button: {
-    backgroundColor: ActionButtonColor.primary,
-    borderRadius: 10,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    alignItems: 'center',
-    marginTop: Spacing.one,
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
 });

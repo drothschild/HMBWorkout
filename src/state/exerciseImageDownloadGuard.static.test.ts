@@ -133,12 +133,32 @@ describe('downloadExerciseImage rejects non-image bytes (#335)', () => {
       return mutated;
     };
 
+    // `discardDownloadedFile` is intentionally also used by local-picker copy
+    // cleanup. The read-failure invariant belongs specifically to the download
+    // body, so mutate that body rather than demanding a globally unique catch.
+    const mutateDownloadBody = (from: string, to: string): string => {
+      const text = strip(source());
+      const at = text.indexOf(DOWNLOAD_HEADER);
+      const body = bodyOf(text, DOWNLOAD_HEADER);
+      if (at === -1 || body === null) throw new Error(`re-anchor this gate: ${DOWNLOAD_HEADER} not found`);
+      if (count(body, from) !== 1) throw new Error(`re-anchor this gate: download mutant anchor ${from} is not unique`);
+      const mutatedBody = body.replace(from, to);
+      if (mutatedBody === body) throw new Error(`download mutant ${from} -> ${to} left the source unchanged`);
+      return text.slice(0, at) + mutatedBody + text.slice(at + body.length);
+    };
+
     it.each([
       ['the looksLikeImageBytes call removed', CHECK, 'if(false)'],
       ['the delete-on-failure removed', `${CHECK}{${DISCARD}`, `${CHECK}{`],
       ['the throw removed', THROW, ''],
       ['the download call removed', 'awaitFile.downloadFileAsync(url,destination);', ''],
       ['discardDownloadedFile no longer deleting', 'destination.delete();', ''],
+      ['handle.close() removed from readImageHeader (handle leak)', 'finally{handle.close();}', 'finally{}'],
+    ])('%s', (_name, from, to) => {
+      expect(guardViolations(mutate(from, to))).not.toStrictEqual([]);
+    });
+
+    it.each([
       [
         'a read failure swallowed (the catch returns instead of rethrowing)',
         '}catch(error){discardDownloadedFile(destination);throwerror;}',
@@ -149,9 +169,8 @@ describe('downloadExerciseImage rejects non-image bytes (#335)', () => {
         '}catch(error){discardDownloadedFile(destination);throwerror;}',
         '}catch(error){throwerror;}',
       ],
-      ['handle.close() removed from readImageHeader (handle leak)', 'finally{handle.close();}', 'finally{}'],
     ])('%s', (_name, from, to) => {
-      expect(guardViolations(mutate(from, to))).not.toStrictEqual([]);
+      expect(guardViolations(mutateDownloadBody(from, to))).not.toStrictEqual([]);
     });
   });
 });

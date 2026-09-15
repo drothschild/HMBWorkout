@@ -90,7 +90,8 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the existing resolver continues to handle unresolved user-created exercises.
 - **Two nullable columns (schema v9) and `ImageSource` states.**
   `exercises.image_path` and `exercises.image_source`. The vocabulary lives in
-  `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `none` (no
+  `src/state/exerciseImageState.ts`: `catalog:<id>`, `url:<url>`, `user` (an
+  explicit camera or photo-library choice — terminal), `none` (no
   acceptable match — terminal) and `web:<url>` (downloaded web result), `web:none`/`web:none:nokey` (web misses),
   and `none:nokey` (the no-key name match missed;
   re-resolved once a key exists). `null` means never decided, or every attempt so
@@ -114,6 +115,27 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `ExerciseImage` is the only place a Documents path becomes a URI
   (`new File(Paths.document, imagePath).uri`). An unknown `bundle:` id renders
   the normal neutral placeholder instead of attempting a bogus Documents file.
+- **An explicit refresh never clears first.** The exercise-detail refresh
+  control runs the existing catalog/AI/web decision path for that one row even
+  when its source is `user`, downloads a fresh candidate, then compares both
+  the observed source and path before writing. A competing photo selection
+  wins; failed/no-match refreshes retain the current row, and old Documents
+  files are removed only after a successful replacement (bundled `bundle:`
+  assets are never deleted).
+- **Manual image search (#376).** Exercise details always offer Search images,
+  including before refresh and after a successful match. The action remains
+  visible but disabled during another photo operation. The full-screen picker starts with the exercise
+  name plus "exercise"; users can edit the exact query (up to 200 characters),
+  browse up to 24 distinct HTTPS results, and explicitly select an original image.
+  Manual choices share Bing metadata parsing but omit automatic title filtering.
+  Searches have a 15-second deadline, cancel on close or a newer search, and
+  ignore stale responses. Search errors keep existing results for another attempt.
+  Opening, browsing and cancelling never write the exercise. Selection uses
+  `overrideExerciseImage` and the validated download path, writing terminal
+  `url:<url>` only after success; failure keeps the previous image and search open.
+  A synchronous lock blocks repeated selection and dismissal during the save.
+  Tests: `exerciseImageChoices.test.ts`, `exerciseImageSearch.test.ts`, and
+  `exerciseImageSearchWiring.test.ts`.
 - **The AI pick reuses `AiClient.ask`; it is not a new AI surface.**
   `buildCatalogPickPrompt` asks the model to copy ONE candidate id from a fixed
   shortlist, or `NONE` — it never supplies a URL — and it rides the exercise-question
@@ -137,9 +159,9 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   `none` in both modes, with no `ask`.
 - **Two writers, two write shapes.** The resolver writes through
   `setExerciseImageIfSourceUnchanged`, a compare-and-set against the
-  `image_source` read when the pass *began*, inside one `database.write` — so a URL
-  the user pastes while a pass is downloading wins, and the pass deletes its now
-  orphaned file. The user's override (`overrideExerciseImage`,
+  `image_source` read when the pass *began*, inside one `database.write` — so an explicit user choice
+  while a pass is downloading wins, and the pass deletes its now orphaned file. The user's override
+  (`replaceExerciseImageFromLocalUri`,
   `src/state/exerciseImageOverride.ts`) writes through `setExerciseImage`,
   **unconditionally**, because it is the user's explicit choice. Its order is
   load-bearing: download to a NEW file → write the row → delete the previous file
@@ -167,11 +189,19 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   deleted, the read's own error rethrown — and the delete is best-effort, so it
   never masks the rejection. `exerciseImageFiles.ts` cannot be imported by a test, so
   `exerciseImageDownloadGuard.static.test.ts` pins the call shape structurally.
-  One input-side guard sits in front of all this: the exercise detail screen's
-  `applyImageUrl` returns early on a blank field, because `onSubmitEditing`
-  reaches the handler directly and the Apply button's `disabled` does not cover
-  it. Without that, Return on an empty field ran the override and showed the red
-  `invalid-url` error. `exerciseImageWiring.static.test.ts` pins the guard.
+  Exercise details offer camera and photo-library controls; they do not expose a
+  paste-URL override. The controls are accessible 44pt icon buttons over the
+  hero's lower-right corner, with a solid fallback when Liquid Glass is unavailable
+  or Reduce Transparency is enabled. A selected local file is copied into
+  document-backed storage and written with the terminal `user` source.
+  Camera capture uses `expo-image-picker` with full-screen system presentation,
+  not an embedded camera session. The shared synchronous picker lock covers
+  camera permission, presentation and saving, including cancellation and failure.
+  Permission denial preserves `canAskAgain`: retryable denial invites another
+  camera press; permanent denial points to Settings. Camera and library cancel
+  leave the existing image untouched. Explicit refresh keeps its separate
+  resolver path and shares the same lock. Native-camera changes require renewed
+  device QA; a passing helper test does not establish camera-service health.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
@@ -193,7 +223,8 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   Fuse. An alias candidate is inserted at score 0, deduplicated and kept within
   the eight-entry shortlist; `NO_KEY_ACCEPT_SCORE` stays 0.15. The remaining
   `BB Row` ambiguity still reaches Fuse; it is not one of these aliases. The
-  AI pick and paste-URL override remain available. **Do not loosen the margin
+  AI pick remains available for catalog matching; manual exercise-detail selection
+  supports the camera, photo library and Search images. **Do not loosen the margin
   fixture to chase further cases** — the threshold protects the other misses.
 - **Repair prior wrong catalog selections only for those three title/source
   pairs (#341).** `runImageResolutionPass` checks `catalogImageCorrection` before
@@ -395,7 +426,7 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the detail screen's inset, and the session footer, Replace and notes) was
   device-verified on 2026-09-10** by the user, on an iPhone 15 Pro Release build
   (commit c168604), using the two failing screens above (Stationary Bike, Forearm
-  Plank) and the exercise detail screen's Image URL and Description fields. The
+  Plank) and the exercise detail screen's Description field. The
   device is the only place these can be checked: the Xcode-beta simulator used
   here cannot raise a keyboard, so a simulator pass says nothing about them.
 - **Accepted cost: a failing row is retried on every `exercises` write.** A row

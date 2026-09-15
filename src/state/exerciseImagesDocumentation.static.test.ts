@@ -1,0 +1,31 @@
+/**
+ * Documentation gate for the exercise-detail local-photo controls (#376).
+ *
+ * URL-shaped sources remain meaningful to the resolver for catalog/web and
+ * legacy rows, but the detail screen no longer offers an interactive URL
+ * override. Keep the project reference aligned with the camera/library UI so
+ * a later edit does not promise a control that users cannot reach.
+ */
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const EXERCISE_IMAGES_DOC = join(__dirname, '..', '..', 'docs', 'project-context', 'exercise-images.md');
+
+describe('exercise-images project context (#376)', () => {
+  it('documents every manual selection route without limiting users to local photos', () => {
+    const normalized = readFileSync(EXERCISE_IMAGES_DOC, 'utf8').replace(/\s+/g, ' ');
+
+    expect(normalized).toContain('manual exercise-detail selection supports the camera, photo library and Search images.');
+    expect(normalized).not.toContain('manual exercise-detail selection is limited to the camera and photo library.');
+  });
+
+  it('documents local photo selection instead of a paste-URL control', () => {
+    const source = readFileSync(EXERCISE_IMAGES_DOC, 'utf8');
+    const normalized = source.replace(/\s+/g, ' ');
+
+    expect(normalized).toContain('Exercise details offer camera and photo-library controls; they do not expose a paste-URL override.');
+    expect(normalized).toContain('The controls are accessible 44pt icon buttons over the hero\'s lower-right corner, with a solid fallback when Liquid Glass is unavailable or Reduce Transparency is enabled.');
+    expect(source).not.toContain('`applyImageUrl`');
+    expect(source).not.toContain('AI pick and paste-URL override remain available.');
+  });
+});

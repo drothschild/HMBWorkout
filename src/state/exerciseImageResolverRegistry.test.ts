@@ -9,6 +9,7 @@ describe('exerciseImageResolverRegistry', () => {
         const { ensureExerciseImageResolver: ensureResolver } = require('./exerciseImageResolverRegistry');
         const mockResolver: ExerciseImageResolver = {
           request: jest.fn(),
+          refresh: jest.fn().mockResolvedValue({ kind: 'updated' }),
           stop: jest.fn(),
         };
         const start = jest.fn(() => mockResolver);
@@ -39,6 +40,7 @@ describe('exerciseImageResolverRegistry', () => {
         const { ensureExerciseImageResolver, requestExerciseImagePass } = require('./exerciseImageResolverRegistry');
         const mockResolver: ExerciseImageResolver = {
           request: jest.fn(),
+          refresh: jest.fn().mockResolvedValue({ kind: 'updated' }),
           stop: jest.fn(),
         };
         const start = jest.fn(() => mockResolver);
@@ -47,6 +49,51 @@ describe('exerciseImageResolverRegistry', () => {
         requestExerciseImagePass();
 
         expect(mockResolver.request).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('refreshExerciseImage', () => {
+    it('returns unavailable before the resolver has started', async () => {
+      await new Promise<void>((resolve, reject) => {
+        jest.isolateModules(() => {
+          const registry = require('./exerciseImageResolverRegistry') as {
+            refreshExerciseImage?: (exerciseId: string) => Promise<unknown>;
+          };
+          const refresh = registry.refreshExerciseImage;
+          (refresh ? refresh('bench-press') : Promise.resolve({ kind: 'not-implemented' }))
+            .then((result) => {
+              expect(result).toEqual({ kind: 'unavailable' });
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+    });
+
+    it('forwards an explicit refresh to the one active resolver', async () => {
+      await new Promise<void>((resolve, reject) => {
+        jest.isolateModules(() => {
+          const { ensureExerciseImageResolver, refreshExerciseImage } = require('./exerciseImageResolverRegistry') as {
+            ensureExerciseImageResolver: (start: () => ExerciseImageResolver) => ExerciseImageResolver;
+            refreshExerciseImage?: (exerciseId: string) => Promise<unknown>;
+          };
+          const refresh = jest.fn().mockResolvedValue({ kind: 'updated' });
+          const mockResolver = {
+            request: jest.fn(),
+            refresh,
+            stop: jest.fn(),
+          } as unknown as ExerciseImageResolver;
+
+          ensureExerciseImageResolver(() => mockResolver);
+          (refreshExerciseImage ? refreshExerciseImage('bench-press') : Promise.resolve({ kind: 'not-implemented' }))
+            .then((result) => {
+              expect(result).toEqual({ kind: 'updated' });
+              expect(refresh).toHaveBeenCalledWith('bench-press');
+              resolve();
+            })
+            .catch(reject);
+        });
       });
     });
   });

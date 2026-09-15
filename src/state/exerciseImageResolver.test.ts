@@ -1,7 +1,7 @@
 import { closeTestDatabase, createTestDatabase, flush } from '@/db/test-helpers';
-import { upsertExercise } from '@/db/repository';
+import { upsertExercise, setExerciseImage } from '@/db/repository';
 import { runImageResolutionPass, startExerciseImageResolver } from './exerciseImageResolver';
-import { createCatalogMatcher } from './exerciseImageMatch';
+import { createCatalogMatcher, type CatalogMatcher } from './exerciseImageMatch';
 import { EXERCISE_CATALOG } from './exerciseCatalog';
 import type { ExerciseImageResolverDeps } from './exerciseImageResolver';
 import type { Database } from '@nozbe/watermelondb';
@@ -538,6 +538,162 @@ describe('exerciseImageResolver (Task 2)', () => {
       const exercise = (await db.get('exercises').find('romanian-deadlift')) as any;
       expect(exercise.imageSource).toBeNull();
     });
+  });
+});
+
+describe('explicit exercise image refresh (#376)', () => {
+  let db: Database;
+  const matcher = createCatalogMatcher(EXERCISE_CATALOG);
+
+  beforeEach(() => {
+    db = createTestDatabase();
+  });
+
+  afterEach(async () => {
+    await closeTestDatabase(db);
+  });
+
+  function makeDeps(overrides: Partial<ExerciseImageResolverDeps> = {}): ExerciseImageResolverDeps {
+    return {
+      database: db,
+      catalog: EXERCISE_CATALOG,
+      getAiKeyConfigured: jest.fn(() => true),
+      ask: jest.fn().mockResolvedValue('Romanian_Deadlift'),
+      download: jest.fn().mockResolvedValue(undefined),
+      deleteFile: jest.fn().mockResolvedValue(undefined),
+      makeImageSuffix: jest.fn(() => 'refresh'),
+      log: jest.fn(),
+      ...overrides,
+    };
+  }
+
+  function refreshEntryPoint(deps: ExerciseImageResolverDeps, exerciseId: string): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- red-first optional entry point.
+    const implementation = (require('./exerciseImageResolver') as {
+      refreshExerciseImage?: (refreshDeps: ExerciseImageResolverDeps, refreshMatcher: CatalogMatcher, id: string) => Promise<unknown>;
+    }).refreshExerciseImage;
+    return implementation ? implementation(deps, matcher, exerciseId) : Promise.resolve({ kind: 'not-implemented' });
+  }
+
+  it('refreshes an explicit user image through the normal decision path only after the replacement downloads', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'exercise-images/manual-old.jpg',
+      imageSource: 'user',
+    });
+    const deps = makeDeps({
+      download: jest.fn(async () => {
+        const before = (await db.get('exercises').find('romanian-deadlift')) as any;
+        expect(before.imagePath).toBe('exercise-images/manual-old.jpg');
+        expect(before.imageSource).toBe('user');
+      }),
+    });
+
+    await expect(refreshEntryPoint(deps, 'romanian-deadlift')).resolves.toEqual({ kind: 'updated' });
+    const row = (await db.get('exercises').find('romanian-deadlift')) as any;
+    expect(deps.ask).toHaveBeenCalledTimes(1);
+    expect(row.imageSource).toBe('catalog:Romanian_Deadlift');
+    expect(row.imagePath).toBe('exercise-images/romanian-deadlift-refresh.jpg');
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/manual-old.jpg');
+  });
+
+  it('keeps an existing user image when no new match is found', async () => {
+    await upsertExercise(db, 'no-match', '!!!', 'strength');
+    await setExerciseImage(db, 'no-match', {
+      imagePath: 'exercise-images/manual-old.jpg',
+      imageSource: 'user',
+    });
+    const deps = makeDeps();
+
+    await expect(refreshEntryPoint(deps, 'no-match')).resolves.toEqual({ kind: 'no-match' });
+    const row = (await db.get('exercises').find('no-match')) as any;
+    expect(row.imageSource).toBe('user');
+    expect(row.imagePath).toBe('exercise-images/manual-old.jpg');
+    expect(deps.download).not.toHaveBeenCalled();
+    expect(deps.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing image when downloading a new match fails', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'exercise-images/manual-old.jpg',
+      imageSource: 'user',
+    });
+    const deps = makeDeps({
+      download: jest.fn().mockRejectedValue(new Error('offline')),
+    });
+
+    await expect(refreshEntryPoint(deps, 'romanian-deadlift')).resolves.toEqual({ kind: 'failed' });
+    const row = (await db.get('exercises').find('romanian-deadlift')) as any;
+    expect(row.imageSource).toBe('user');
+    expect(row.imagePath).toBe('exercise-images/manual-old.jpg');
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/romanian-deadlift-refresh.jpg');
+  });
+
+  it('preserves a competing user replacement with the same source and cleans the refresh orphan', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'exercise-images/manual-old.jpg',
+      imageSource: 'user',
+    });
+    const deps = makeDeps({
+      download: jest.fn(async () => {
+        await setExerciseImage(db, 'romanian-deadlift', {
+          imagePath: 'exercise-images/manual-new.jpg',
+          imageSource: 'user',
+        });
+      }),
+    });
+
+    await expect(refreshEntryPoint(deps, 'romanian-deadlift')).resolves.toEqual({ kind: 'unchanged' });
+    const row = (await db.get('exercises').find('romanian-deadlift')) as any;
+    expect(row.imageSource).toBe('user');
+    expect(row.imagePath).toBe('exercise-images/manual-new.jpg');
+    expect(deps.deleteFile).toHaveBeenCalledWith('exercise-images/romanian-deadlift-refresh.jpg');
+    expect(deps.deleteFile).not.toHaveBeenCalledWith('exercise-images/manual-new.jpg');
+  });
+
+  it('does not treat a replaced bundled catalog image as a Documents file', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'bundle:Romanian_Deadlift',
+      imageSource: 'catalog:Romanian_Deadlift',
+    });
+    const deps = makeDeps();
+
+    await expect(refreshEntryPoint(deps, 'romanian-deadlift')).resolves.toEqual({ kind: 'updated' });
+    expect(deps.deleteFile).not.toHaveBeenCalledWith('bundle:Romanian_Deadlift');
+  });
+
+  it('returns busy while an explicit refresh for the same exercise is downloading', async () => {
+    await upsertExercise(db, 'romanian-deadlift', 'Romanian Deadlift', 'strength');
+    await setExerciseImage(db, 'romanian-deadlift', {
+      imagePath: 'exercise-images/manual-old.jpg',
+      imageSource: 'user',
+    });
+
+    let releaseDownload: (() => void) | undefined;
+    const downloadGate = new Promise<void>((resolve) => { releaseDownload = resolve; });
+    const deps = makeDeps({ download: jest.fn(() => downloadGate) });
+    const resolver = startExerciseImageResolver(deps) as unknown as {
+      refresh?: (exerciseId: string) => Promise<unknown>;
+      stop(): void;
+    };
+    const refresh = resolver.refresh;
+    if (!refresh) {
+      await expect(Promise.resolve({ kind: 'not-implemented' })).resolves.toEqual({ kind: 'busy' });
+      resolver.stop();
+      return;
+    }
+
+    const first = refresh('romanian-deadlift');
+    for (let attempt = 0; attempt < 20 && !(deps.download as jest.Mock).mock.calls.length; attempt++) {
+      await flush();
+    }
+    await expect(refresh('romanian-deadlift')).resolves.toEqual({ kind: 'busy' });
+    releaseDownload!();
+    await expect(first).resolves.toEqual({ kind: 'updated' });
+    resolver.stop();
   });
 });
 

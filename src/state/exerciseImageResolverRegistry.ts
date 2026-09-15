@@ -4,7 +4,7 @@
  * pass (first-view retry, Phase 5) and so a re-run boot effect (Fast Refresh)
  * cannot start a second observer.
  */
-import type { ExerciseImageResolver } from './exerciseImageResolver';
+import type { ExerciseImageRefreshOutcome, ExerciseImageResolver } from './exerciseImageResolver';
 
 let active: ExerciseImageResolver | null = null;
 
@@ -16,4 +16,11 @@ export function ensureExerciseImageResolver(start: () => ExerciseImageResolver):
 /** No-op until the resolver has started. Never throws. */
 export function requestExerciseImagePass(): void {
   active?.request();
+}
+
+/** Refresh one exercise through the active resolver without clearing its image first. */
+export function refreshExerciseImage(
+  exerciseId: string
+): Promise<ExerciseImageRefreshOutcome | { readonly kind: 'unavailable' }> {
+  return active?.refresh(exerciseId) ?? Promise.resolve({ kind: 'unavailable' });
 }

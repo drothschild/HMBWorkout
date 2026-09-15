@@ -198,8 +198,7 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
   const HOOKS = [
     'const[imagePath,setImagePath]=useState',
     'exercise.observe()',
-    // #335 Phase 6 — the paste-URL override's three hooks.
-    'const[imageUrl,setImageUrl]=useState',
+    // #376 — the local photo controls' two hooks.
     'const[imageMessage,setImageMessage]=useState',
     'const[savingImage,setSavingImage]=useState',
   ];
@@ -213,31 +212,108 @@ describe('exercise/[id].tsx hook placement (Rules of Hooks stand-in)', () => {
   });
 });
 
-describe('exercise/[id].tsx paste-URL override wiring (#335 AC4.2, AC4.4)', () => {
-  // The screen is the only caller of overrideExerciseImage, and nothing can
-  // render it. These pins stop it silently dropping the delete-after-write
-  // path or showing a hand-written message instead of the pinned copy.
-  it('calls overrideExerciseImage with the real delete dep', () => {
+describe('exercise/[id].tsx local photo controls (#376)', () => {
+  // The screen is jest-invisible, so pins prove it offers both picker routes,
+  // stores the returned temporary URI in document-backed image storage, and
+  // does not leave the replaced URL text field behind.
+  it('keeps the image-library action without the URL field', () => {
     const source = normalized(FILES.exerciseDetail);
 
-    expect(source).toContain('overrideExerciseImage(');
+    expect(source).toContain('ImagePicker.launchImageLibraryAsync(');
+    expect(source).toContain('replaceExerciseImageFromLocalUri(');
+    expect(source).toContain('copy: copyExerciseImage');
     expect(source).toContain('deleteFile: deleteExerciseImage');
+    expect(source).not.toContain('Image URL');
+    expect(source).not.toContain('onChangeText={setImageUrl}');
   });
 
-  it('words the outcome with exerciseImageOverrideMessage', () => {
-    expect(normalized(FILES.exerciseDetail)).toContain('text: exerciseImageOverrideMessage(outcome)');
+  it('refuses a second picker/save operation while one is in flight', () => {
+    const source = compact(FILES.exerciseDetail);
+    expect(source).toContain('constimagePickerInFlightRef=useRef(false);');
+    expect(source).toContain('if(!id||imagePickerInFlightRef.current)return;');
+    expect(source).toContain('pickExercisePhoto(');
   });
 
-  it('refuses a second save while one is in flight, and a blank field', () => {
-    // The button's `disabled` covers taps, but onSubmitEditing reaches the
-    // handler directly, so the handler must carry both of the button's
-    // conditions itself. `savingImage` stops two overrides racing to download
-    // and delete each other's files; the blank check stops a return on an
-    // empty field from running the override and showing the red "Enter an
-    // image URL that starts with http:// or https://." error.
-    expect(compact(FILES.exerciseDetail)).toContain(
-      "if(!id||savingImage||imageUrl.trim()==='')return;",
-    );
+  it('guides a denied camera user to Settings', () => {
+    const source = normalized(FILES.exerciseDetail);
+    expect(source).toContain('Camera access is off.');
+    expect(source).toContain('Enable camera access in Settings, then return here.');
+  });
+
+  it('uses the full-screen system camera with permission checked under the shared picker lock', () => {
+    const source = compact(FILES.exerciseDetail);
+    expect(source).toContain('camera:camera?{');
+    expect(source).toContain('requestPermission:ImagePicker.requestCameraPermissionsAsync');
+    expect(source).toContain('launch:()=>ImagePicker.launchCameraAsync({...options,presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,})');
+    expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
+    expect(source).toContain("pickerOutcome.kind==='camera-denied'");
+    expect(source).toContain('pickerOutcome.canAskAgain');
+    expect(source).toContain('Tapthecamerabuttontorequestaccessagain.');
+    expect(source).not.toContain('expo-camera');
+    expect(source).not.toContain('<CameraView');
+    expect(source).not.toContain('captureExerciseCameraPhoto');
+    expect(source).toContain("if(kind==='refresh')refreshExerciseImageAction();");
+    expect(source).toContain("elsevoidchooseExercisePhoto(kind==='camera');");
+  });
+
+  it('keeps only the image-picker native plugin and no microphone permission', () => {
+    const appConfig = JSON.parse(readFileSync(join(__dirname, '..', '..', 'app.json'), 'utf8'));
+    const dependencies = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).dependencies;
+    expect(dependencies['expo-camera']).toBeUndefined();
+    expect(appConfig.expo.plugins.some((plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-camera')).toBe(false);
+    expect(appConfig.expo.plugins.find((plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-image-picker')).toEqual(['expo-image-picker', {
+      cameraPermission: 'Take an optional photo for an exercise or your workout diary.',
+      photosPermission: 'Choose an optional photo for an exercise or your workout diary.',
+      microphonePermission: false,
+    }]);
+  });
+
+  it('overlays accessible camera and library icon controls at the hero lower-right corner', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain("import{GlassView,isGlassEffectAPIAvailable,isLiquidGlassAvailable}from'expo-glass-effect';");
+    expect(source).toContain("import{SymbolView}from'expo-symbols';");
+    expect(source).toContain('const[glassEffectAvailable]=useState(()=>{');
+    expect(source).toContain('constliquidGlassAvailable=isLiquidGlassAvailable();');
+    expect(source).toContain('constglassEffectAPIAvailable=isGlassEffectAPIAvailable();');
+    expect(source).toContain('returnliquidGlassAvailable&&glassEffectAPIAvailable;');
+    expect(source).not.toContain('setGlassEffectAvailable');
+    expect(source).toContain('AccessibilityInfo.isReduceTransparencyEnabled()');
+    expect(source).toContain("AccessibilityInfo.addEventListener('reduceTransparencyChanged'");
+    expect(source).toContain('constuseGlassEffect=glassEffectAvailable&&!reduceTransparency;');
+    expect(source).toContain('isInteractive');
+    expect(source).toContain('position:\'absolute\'');
+    expect(source).toContain('bottom:Spacing.two');
+    expect(source).toContain('right:Spacing.two');
+    expect(source).toContain('flexDirection:\'row\'');
+    expect(source).toContain('minWidth:44');
+    expect(source).toContain('minHeight:44');
+    expect(source).toContain('accessibilityRole="button"');
+    expect(source).toContain("constlabel=kind==='camera'?'Takeexercisephoto':kind==='library'?'Chooseexercisephoto':'Refreshexerciseimage';");
+    expect(source).toContain("consthint=kind==='camera'?'Opensthecameratoreplacethisexerciseimage.':kind==='library'?'Opensyourphotolibrarytoreplacethisexerciseimage.':'Findsthebestmatchingexerciseimagewithoutremovingthecurrentimagefirst.';");
+    expect(source).toContain('accessibilityLabel={label}');
+    expect(source).toContain('accessibilityHint={hint}');
+    expect(source).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
+    expect(source).toContain("{ios:'camera.fill',android:'photo_camera',web:'photo_camera'}");
+    expect(source).toContain("{ios:'photo',android:'photo',web:'photo'}");
+    expect(source).not.toContain('Exercise photo');
+    expect(source).not.toContain('label={savingImage?\'Saving…\':\'Use camera\'}');
+    expect(source).not.toContain('label="Choose photo"');
+  });
+
+  it('adds a lower-right refresh icon that asks the active resolver for a non-destructive replacement', () => {
+    const source = compact(FILES.exerciseDetail);
+
+    expect(source).toContain("import{requestExerciseImagePass,refreshExerciseImage}from'@/state/exerciseImageResolverRegistry';");
+    expect(source).toContain("constlabel=kind==='camera'?'Takeexercisephoto':kind==='library'?'Chooseexercisephoto':'Refreshexerciseimage';");
+    expect(source).toContain("{ios:'arrow.clockwise',android:'refresh',web:'refresh'}");
+    expect(source).toContain('voidrefreshExerciseImage(id)');
+    expect(source).toContain('Nonewmatchingimagefound.Existingimagekept.');
+    expect(source).toContain('Imagerefreshed.');
+    expect(source).toContain("Couldn'trefreshtheimage.Existingimagekept.");
+    expect(source).toContain("photoAction('refresh')");
+    expect(source).toContain('minWidth:44');
+    expect(source).toContain('minHeight:44');
   });
 });
 
@@ -265,17 +341,14 @@ describe('exercise/[id].tsx keeps its inputs above the keyboard (#335 Phase 7)',
     expect(tags[0]).toMatch(/\sautomaticallyAdjustKeyboardInsets(?:=\{true\})?[\s/>]/);
   });
 
-  it('both text inputs are inside that ScrollView', () => {
+  it('the description input is inside that ScrollView', () => {
     const source = normalized(FILES.exerciseDetail);
     const open = indexOfOrThrow(source, '<ScrollView', 'exercise/[id].tsx');
     const close = indexOfOrThrow(source, '</ScrollView>', 'exercise/[id].tsx');
-    const imageUrlInput = indexOfOrThrow(source, 'onChangeText={setImageUrl}', 'exercise/[id].tsx');
     const descriptionInput = indexOfOrThrow(source, 'queueSave(value);', 'exercise/[id].tsx');
 
-    for (const at of [imageUrlInput, descriptionInput]) {
-      expect(at).toBeGreaterThan(open);
-      expect(at).toBeLessThan(close);
-    }
+    expect(descriptionInput).toBeGreaterThan(open);
+    expect(descriptionInput).toBeLessThan(close);
   });
 });
 
