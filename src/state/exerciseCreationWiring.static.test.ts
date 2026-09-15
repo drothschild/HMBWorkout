@@ -11,6 +11,18 @@ function compact(source: string): string {
 }
 
 describe('exercise creation wiring (#379)', () => {
+  it('keeps creation controls hidden until the accessible plus action opens them, and lets cancel return to the library', () => {
+    const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
+
+    expect(source).toContain('const[isCreateFormVisible,setIsCreateFormVisible]=useState(false);');
+    expect(source).toContain('accessibilityLabel="Newexercise"');
+    expect(source).toContain('setIsCreateFormVisible(true)');
+    expect(source).toContain('isCreateFormVisible&&(');
+    expect(source).not.toContain('!isCreateFormVisible&&(');
+    expect(source).toContain('label="Cancel"');
+    expect(source).toContain('setIsCreateFormVisible(false)');
+  });
+
   it('collects a required title and explicit kind, then opens the created exercise detail', () => {
     const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
 
