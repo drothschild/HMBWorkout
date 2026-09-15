@@ -12,6 +12,13 @@ import { join } from 'path';
 const EXERCISE_IMAGES_DOC = join(__dirname, '..', '..', 'docs', 'project-context', 'exercise-images.md');
 
 describe('exercise-images project context (#376)', () => {
+  it('documents every manual selection route without limiting users to local photos', () => {
+    const normalized = readFileSync(EXERCISE_IMAGES_DOC, 'utf8').replace(/\s+/g, ' ');
+
+    expect(normalized).toContain('manual exercise-detail selection supports the camera, photo library and Search images.');
+    expect(normalized).not.toContain('manual exercise-detail selection is limited to the camera and photo library.');
+  });
+
   it('documents local photo selection instead of a paste-URL control', () => {
     const source = readFileSync(EXERCISE_IMAGES_DOC, 'utf8');
     const normalized = source.replace(/\s+/g, ' ');
