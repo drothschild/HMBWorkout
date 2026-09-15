@@ -240,94 +240,31 @@ describe('exercise/[id].tsx local photo controls (#376)', () => {
     expect(source).toContain('Enable camera access in Settings, then return here.');
   });
 
-  it('reserves Settings guidance for a permanently denied camera permission', () => {
+  it('uses the full-screen system camera with permission checked under the shared picker lock', () => {
     const source = compact(FILES.exerciseDetail);
-
-    expect(source).toContain('cameraPermission?.canAskAgain===false?(<ThemedTexttype="small"style={styles.cameraPermissionText}>Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.</ThemedText>):(');
-    expect(source).toContain('Cameraaccesshasnotbeengranted.Grantaccesstotakeanexercisephoto.');
-    expect(source).not.toContain('cameraPermission?.canAskAgain!==false&&');
-  });
-
-  it('uses an in-app full-screen back CameraView, never ImagePicker camera', () => {
-    const source = compact(FILES.exerciseDetail);
-
-    expect(source).toContain("import{CameraView,useCameraPermissions}from'expo-camera';");
-    expect(source).toContain('const[cameraPermission,requestCameraPermission]=useCameraPermissions();');
-    expect(source).toContain('const[cameraOpen,setCameraOpen]=useState(false);');
-    expect(source).toContain('const[cameraReady,setCameraReady]=useState(false);');
-    expect(source).toContain('<Modalvisible={cameraOpen}presentationStyle="fullScreen">');
-    expect(source).toContain('<CameraView');
-    expect(source).toContain('facing="back"');
-    expect(source).toContain('mode="picture"');
-    expect(source).toContain('onCameraReady={()=>setCameraReady(true)}');
-    expect(source).not.toContain('ImagePicker.launchCameraAsync(');
-    expect(source).not.toContain('UIImagePickerPresentationStyle');
+    expect(source).toContain('camera:camera?{');
+    expect(source).toContain('requestPermission:ImagePicker.requestCameraPermissionsAsync');
+    expect(source).toContain('launch:()=>ImagePicker.launchCameraAsync({...options,presentationStyle:ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,})');
     expect(source).toContain('launchLibrary:()=>ImagePicker.launchImageLibraryAsync(options)');
-    expect(source).not.toContain('recordAsync');
-    expect(source).not.toContain('videoQuality');
+    expect(source).toContain("pickerOutcome.kind==='camera-denied'");
+    expect(source).toContain('pickerOutcome.canAskAgain');
+    expect(source).toContain('Tapthecamerabuttontorequestaccessagain.');
+    expect(source).not.toContain('expo-camera');
+    expect(source).not.toContain('<CameraView');
+    expect(source).not.toContain('captureExerciseCameraPhoto');
+    expect(source).toContain("if(kind==='refresh')refreshExerciseImageAction();");
+    expect(source).toContain("elsevoidchooseExercisePhoto(kind==='camera');");
   });
 
-  it('gates a single capture on preview readiness, exposes close and shutter accessibility, and saves only its local URI', () => {
-    const source = compact(FILES.exerciseDetail);
-
-    expect(source).toContain('constcameraRef=useRef<CameraView>(null);');
-    expect(source).toContain('!cameraReady||cameraRef.current===null');
-    expect(source).toContain('captureExerciseCameraPhoto(');
-    expect(source).toContain('takePicture:()=>cameraRef.current!.takePictureAsync({quality:0.8,exif:false,base64:false})');
-    expect(source).toContain('save:(uri)=>replaceExerciseImageFromLocalUri(');
-    expect(source).toContain('accessibilityLabel="Closeexercisecamera"');
-    expect(source).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
-    expect(source).toContain('accessibilityLabel="Takeexercisephoto"');
-    expect(source).toContain('disabled={!cameraReady||savingImage}');
-    expect(source).toContain('Cameraaccessisoff.EnablecameraaccessinSettings,thenreturnhere.');
-  });
-
-  it('recovers a native camera preview mount failure without misleading permission guidance', () => {
-    const source = compact(FILES.exerciseDetail);
-
-    expect(source).toContain('const[cameraError,setCameraError]=useState<string|null>(null);');
-    expect(source).toContain('const[cameraPreviewAttempt,setCameraPreviewAttempt]=useState(0);');
-    expect(source).toContain('key={cameraPreviewAttempt}');
-    expect(source).toContain('active={cameraOpen&&cameraError===null}');
-    expect(source).toContain('onMountError={(error)=>{setCameraReady(false);setCameraError(error.message);}}');
-    expect(source).toContain('Camerapreviewcouldnotstart.Tryagain.');
-    expect(source).toContain('accessibilityLabel="Retrycamerapreview"');
-    expect(source).toContain('accessibilityHint="Restartsthecamerapreview."');
-    expect(source).toContain('constretryExerciseCameraPreview=()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraError(null);setCameraPreviewAttempt((attempt)=>attempt+1);};');
-    expect(source).not.toContain('Camerapreviewcouldnotstart.EnablecameraaccessinSettings');
-  });
-
-  it('makes Close unavailable throughout capture and save, rather than promising a cancellation it cannot perform', () => {
-    const source = compact(FILES.exerciseDetail);
-    const label = 'accessibilityLabel="Closeexercisecamera"';
-    const labelAt = indexOfOrThrow(source, label, 'exercise/[id].tsx');
-    const closeStart = source.lastIndexOf('<Pressable', labelAt);
-    const closeEnd = source.indexOf('</Pressable>', labelAt);
-    if (closeStart === -1 || closeEnd === -1) {
-      throw new Error('exercise/[id].tsx Close control no longer has a complete Pressable; re-anchor this gate');
-    }
-    const closeControl = source.slice(closeStart, closeEnd);
-
-    expect(source).toContain("import{captureExerciseCameraPhoto,closeExerciseCameraIfIdle}from'@/state/exerciseCameraCapture';");
-    expect(source).toContain('closeExerciseCameraIfIdle(imagePickerInFlightRef,()=>{cameraSessionRef.current+=1;setCameraReady(false);setCameraOpen(false);});');
-    expect(closeControl).toContain('accessibilityHint={savingImage?\'Availableafterthephotofinishessaving.\':\'Closeswithoutchangingtheexerciseimage.\'}');
-    expect(closeControl).toContain('accessibilityState={{disabled:savingImage,busy:savingImage}}');
-    expect(closeControl).toContain('disabled={savingImage}');
-  });
-
-  it('configures Expo Camera for stills without microphone or audio recording permission', () => {
-    const appConfig = JSON.parse(readFileSync(join(__dirname, '..', '..', 'app.json'), 'utf8')) as {
-      expo: { plugins: unknown[] };
-    };
-    const cameraPlugin = appConfig.expo.plugins.find(
-      (plugin): plugin is ['expo-camera', Record<string, unknown>] => Array.isArray(plugin) && plugin[0] === 'expo-camera'
-    );
-
-    expect(cameraPlugin).toEqual(['expo-camera', {
+  it('keeps only the image-picker native plugin and no microphone permission', () => {
+    const appConfig = JSON.parse(readFileSync(join(__dirname, '..', '..', 'app.json'), 'utf8'));
+    const dependencies = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')).dependencies;
+    expect(dependencies['expo-camera']).toBeUndefined();
+    expect(appConfig.expo.plugins.some((plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-camera')).toBe(false);
+    expect(appConfig.expo.plugins.find((plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-image-picker')).toEqual(['expo-image-picker', {
       cameraPermission: 'Take an optional photo for an exercise or your workout diary.',
+      photosPermission: 'Choose an optional photo for an exercise or your workout diary.',
       microphonePermission: false,
-      recordAudioAndroid: false,
-      barcodeScannerEnabled: false,
     }]);
   });
 
