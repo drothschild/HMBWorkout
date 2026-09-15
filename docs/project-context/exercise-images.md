@@ -224,7 +224,7 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   the eight-entry shortlist; `NO_KEY_ACCEPT_SCORE` stays 0.15. The remaining
   `BB Row` ambiguity still reaches Fuse; it is not one of these aliases. The
   AI pick remains available for catalog matching; manual exercise-detail selection
-  is limited to the camera and photo library. **Do not loosen the margin
+  supports the camera, photo library and Search images. **Do not loosen the margin
   fixture to chase further cases** — the threshold protects the other misses.
 - **Repair prior wrong catalog selections only for those three title/source
   pairs (#341).** `runImageResolutionPass` checks `catalogImageCorrection` before
