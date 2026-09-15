@@ -9,6 +9,7 @@ import { SymbolView } from 'expo-symbols';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ExerciseImage } from '@/components/ExerciseImage';
+import { ExerciseImageSearch } from '@/components/ExerciseImageSearch';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
@@ -16,8 +17,8 @@ import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
 import { updateExerciseDescription } from '@/db/repository';
 import { requestExerciseImagePass, refreshExerciseImage } from '@/state/exerciseImageResolverRegistry';
-import { replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
-import { copyExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
+import { overrideExerciseImage, replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
+import { copyExerciseImage, downloadExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
 import { pickExercisePhoto } from '@/state/exercisePhotoPicker';
 import {
   exerciseHistoryPresenter,
@@ -51,6 +52,9 @@ export default function ExerciseDetailScreen() {
   const [history, setHistory] = useState<ExerciseHistoryWorkout[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const [imageSearchOpen, setImageSearchOpen] = useState(false);
+  const [canSearchImages, setCanSearchImages] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -216,6 +220,7 @@ export default function ExerciseDetailScreen() {
       if (pickerOutcome.kind === 'cancelled' || pickerOutcome.kind === 'busy') return;
 
       const outcome = pickerOutcome.outcome;
+      if (outcome.kind === 'saved') setCanSearchImages(false);
       setImageMessage({
         text: outcome.kind === 'saved' ? 'Image updated.' : "Couldn't save that photo. Try again.",
         isError: outcome.kind !== 'saved',
@@ -228,11 +233,45 @@ export default function ExerciseDetailScreen() {
     }
   };
 
+  const closeImageSearch = () => {
+    if (!imagePickerInFlightRef.current) setImageSearchOpen(false);
+  };
+
+  const selectSearchImage = async (url: string): Promise<boolean> => {
+    if (!id || imagePickerInFlightRef.current) return false;
+    imagePickerInFlightRef.current = true;
+    setSavingImage(true);
+    try {
+      const outcome = await overrideExerciseImage({
+        database,
+        download: downloadExerciseImage,
+        deleteFile: deleteExerciseImage,
+        makeImageSuffix: makeExerciseImageSuffix,
+        log: (message, error) => console.warn(message, error),
+      }, id, url);
+      const saved = outcome.kind === 'saved';
+      if (saved) setCanSearchImages(false);
+      setImageMessage({
+        text: saved ? 'Image updated.' : "Couldn't save that image. Existing image kept.",
+        isError: !saved,
+      });
+      return saved;
+    } catch (error) {
+      console.error('Failed to save selected exercise image:', error);
+      setImageMessage({ text: "Couldn't save that image. Existing image kept.", isError: true });
+      return false;
+    } finally {
+      imagePickerInFlightRef.current = false;
+      setSavingImage(false);
+    }
+  };
+
   const refreshExerciseImageAction = () => {
     if (!id || imagePickerInFlightRef.current) return;
     imagePickerInFlightRef.current = true;
     setSavingImage(true);
     setImageMessage(null);
+    setCanSearchImages(false);
     void refreshExerciseImage(id)
       .then((outcome) => {
         switch (outcome.kind) {
@@ -240,6 +279,7 @@ export default function ExerciseDetailScreen() {
             setImageMessage({ text: 'Image refreshed.', isError: false });
             return;
           case 'no-match':
+            setCanSearchImages(true);
             setImageMessage({ text: 'No new matching image found. Existing image kept.', isError: false });
             return;
           case 'unchanged':
@@ -250,12 +290,14 @@ export default function ExerciseDetailScreen() {
             return;
           case 'unavailable':
           case 'failed':
+            setCanSearchImages(true);
             setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
             return;
         }
       })
       .catch((error) => {
         console.error('Failed to refresh exercise image:', error);
+        setCanSearchImages(true);
         setImageMessage({ text: "Couldn't refresh the image. Existing image kept.", isError: true });
       })
       .finally(() => {
@@ -380,6 +422,20 @@ export default function ExerciseDetailScreen() {
               {imageMessage.text}
             </ThemedText>
           )}
+          {canSearchImages && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Search exercise images"
+              accessibilityState={{ disabled: savingImage }}
+              disabled={savingImage}
+              style={styles.searchImagesButton}
+              onPress={() => {
+                if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
+              }}
+            >
+              <ThemedText style={styles.backButtonText}>Search images</ThemedText>
+            </Pressable>
+          )}
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
@@ -439,6 +495,13 @@ export default function ExerciseDetailScreen() {
           </ThemedView>
         </ScrollView>
       </SafeAreaView>
+      {imageSearchOpen && (
+        <ExerciseImageSearch
+          initialQuery={`${exercise.title} exercise`.slice(0, 200)}
+          onClose={closeImageSearch}
+          onSelect={selectSearchImage}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -513,6 +576,12 @@ const styles = StyleSheet.create({
   },
   photoActionPressed: {
     transform: [{ scale: 0.94 }],
+  },
+  searchImagesButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
   },
   kind: {
     opacity: 0.6,
