@@ -180,6 +180,14 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   hero's lower-right corner, with a solid fallback when Liquid Glass is unavailable
   or Reduce Transparency is enabled. A selected local file is copied into
   document-backed storage and written with the terminal `user` source.
+  Camera capture uses `expo-image-picker` with full-screen system presentation,
+  not an embedded camera session. The shared synchronous picker lock covers
+  camera permission, presentation and saving, including cancellation and failure.
+  Permission denial preserves `canAskAgain`: retryable denial invites another
+  camera press; permanent denial points to Settings. Camera and library cancel
+  leave the existing image untouched. Explicit refresh keeps its separate
+  resolver path and shares the same lock. Native-camera changes require renewed
+  device QA; a passing helper test does not establish camera-service health.
 - **fuse.js token-search tuning is corpus-relative.** `createCatalogMatcher`
   (`src/state/exerciseImageMatch.ts`) uses `useTokenSearch`, whose scores are
   TF-IDF-weighted over the catalog — a catalog rebuild can move every score.
