@@ -1,4 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Button, Column, Host, Picker } from '@expo/ui';
@@ -28,6 +29,7 @@ export default function ExercisesScreen() {
   const [newKind, setNewKind] = useState<ExerciseKind>('strength');
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [isCreateFormVisible, setIsCreateFormVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
   const creationInFlightRef = useRef(false);
@@ -81,6 +83,7 @@ export default function ExercisesScreen() {
               return;
             }
             setNewTitle('');
+            setIsCreateFormVisible(false);
             router.push(`/exercise/${outcome.exerciseId}`);
           },
           onFailure: (error) => {
@@ -95,46 +98,69 @@ export default function ExercisesScreen() {
     }
   };
 
+  const closeCreateForm = () => {
+    if (creating) return;
+    setNewTitle('');
+    setNewKind('strength');
+    setCreateMessage(null);
+    setIsCreateFormVisible(false);
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
-        <ThemedView style={[styles.createForm, { borderColor: theme.backgroundSelected }]}>
-          <ThemedText type="subtitle">New exercise</ThemedText>
-          <TextInput
-            accessibilityLabel="New exercise title"
-            value={newTitle}
-            onChangeText={setNewTitle}
-            placeholder="Exercise name"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="words"
-            autoCorrect
-            returnKeyType="done"
-            onSubmitEditing={() => { void submitNewExercise(); }}
-            style={[
-              styles.searchInput,
-              styles.newTitleInput,
-              { color: theme.text, borderColor: theme.backgroundSelected },
-            ]}
-          />
-          <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
-          <Host matchContents={{ vertical: true }}>
-            <Column spacing={Spacing.two}>
-              <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
-                <Picker.Item label="Strength" value="strength" />
-                <Picker.Item label="Cardio" value="cardio" />
-                <Picker.Item label="Stretch" value="stretch" />
-              </Picker>
-              <Button
-                label={creating ? 'Creating…' : 'Create exercise'}
-                disabled={creating}
-                onPress={() => { void submitNewExercise(); }}
-              />
-            </Column>
-          </Host>
-          {createMessage && (
-            <ThemedText type="small" style={styles.createMessage}>{createMessage}</ThemedText>
-          )}
-        </ThemedView>
+        <View style={styles.actionsRow}>
+          <ThemedText type="subtitle">Exercises</ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New exercise"
+            hitSlop={Spacing.two}
+            onPress={() => setIsCreateFormVisible(true)}
+            style={({ pressed }) => [styles.newExerciseButton, pressed && styles.newExerciseButtonPressed]}
+          >
+            <SymbolView name="plus.circle.fill" size={32} tintColor={theme.tint} />
+          </Pressable>
+        </View>
+        {isCreateFormVisible && (
+          <ThemedView style={[styles.createForm, { borderColor: theme.backgroundSelected }]}>
+            <ThemedText type="subtitle">New exercise</ThemedText>
+            <TextInput
+              accessibilityLabel="New exercise title"
+              value={newTitle}
+              onChangeText={setNewTitle}
+              placeholder="Exercise name"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="words"
+              autoCorrect
+              returnKeyType="done"
+              onSubmitEditing={() => { void submitNewExercise(); }}
+              style={[
+                styles.searchInput,
+                styles.newTitleInput,
+                { color: theme.text, borderColor: theme.backgroundSelected },
+              ]}
+            />
+            <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
+            <Host matchContents={{ vertical: true }}>
+              <Column spacing={Spacing.two}>
+                <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
+                  <Picker.Item label="Strength" value="strength" />
+                  <Picker.Item label="Cardio" value="cardio" />
+                  <Picker.Item label="Stretch" value="stretch" />
+                </Picker>
+                <Button
+                  label={creating ? 'Creating…' : 'Create exercise'}
+                  disabled={creating}
+                  onPress={() => { void submitNewExercise(); }}
+                />
+                <Button label="Cancel" disabled={creating} onPress={closeCreateForm} />
+              </Column>
+            </Host>
+            {createMessage && (
+              <ThemedText type="small" style={styles.createMessage}>{createMessage}</ThemedText>
+            )}
+          </ThemedView>
+        )}
         <TextInput
           accessibilityLabel="Search exercises"
           value={searchQuery}
@@ -224,6 +250,21 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
     width: '100%',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.three,
+  },
+  newExerciseButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newExerciseButtonPressed: {
+    opacity: 0.6,
   },
   searchInput: {
     minHeight: 44,
