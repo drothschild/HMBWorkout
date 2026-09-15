@@ -39,7 +39,7 @@ function render(source?: string) {
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     'expo-image': { Image: 'Image' },
     '@/hooks/use-theme': { useTheme: () => ({ text: '#111111', textSecondary: '#444444', background: '#ffffff', backgroundElement: '#eeeeee' }) },
-    '@/constants/theme': { Spacing: { one: 8, two: 16, three: 24, four: 32 } },
+    '@/constants/theme': { Spacing: { one: 4, two: 8, three: 16, four: 24 } },
     '@/theme/actionButtonColors': { ActionButtonColor: { primary: '#0071EB' }, StatusColor: { danger: '#EA0C00' } },
     '@/state/exerciseWebImages': { searchExerciseImageChoices: search },
   };
