@@ -118,7 +118,12 @@ export default function ExercisesScreen() {
             onPress={() => setIsCreateFormVisible(true)}
             style={({ pressed }) => [styles.newExerciseButton, pressed && styles.newExerciseButtonPressed]}
           >
-            <SymbolView name="plus.circle.fill" size={32} tintColor={theme.tint} />
+            <SymbolView
+              name="plus.circle.fill"
+              size={32}
+              tintColor={theme.tint}
+              fallback={<ThemedText style={styles.newExerciseFallback}>+</ThemedText>}
+            />
           </Pressable>
         </View>
         {isCreateFormVisible && (
@@ -265,6 +270,10 @@ const styles = StyleSheet.create({
   },
   newExerciseButtonPressed: {
     opacity: 0.6,
+  },
+  newExerciseFallback: {
+    fontSize: 32,
+    lineHeight: 32,
   },
   searchInput: {
     minHeight: 44,
