@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const EXERCISES_SCREEN = join(__dirname, '..', 'app', '(tabs)', 'exercises.tsx');
+const EXERCISES_SCREEN = process.env.EXERCISES_SCREEN ?? join(__dirname, '..', 'app', '(tabs)', 'exercises.tsx');
 
 function compact(source: string): string {
   return source

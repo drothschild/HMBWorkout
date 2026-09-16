@@ -1,8 +1,8 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { Button, Column, Host, Picker } from '@expo/ui';
+import { BottomSheet, Button, Column, Host, Picker } from '@expo/ui';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ThemedText } from '@/components/themed-text';
@@ -99,35 +99,105 @@ export default function ExercisesScreen() {
   };
 
   const closeCreateForm = () => {
-    if (creating) return;
     setNewTitle('');
     setNewKind('strength');
     setCreateMessage(null);
     setIsCreateFormVisible(false);
   };
 
+  const openCreateForm = () => {
+    setCreateMessage(null);
+    setIsCreateFormVisible(true);
+  };
+
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.safeArea}>
-        <View style={styles.actionsRow}>
-          <ThemedText type="subtitle">Exercises</ThemedText>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New exercise"
-            hitSlop={Spacing.two}
-            onPress={() => setIsCreateFormVisible(true)}
-            style={({ pressed }) => [styles.newExerciseButton, pressed && styles.newExerciseButtonPressed]}
-          >
-            <SymbolView
-              name="plus.circle.fill"
-              size={32}
-              tintColor={theme.tint}
-              fallback={<ThemedText style={styles.newExerciseFallback}>+</ThemedText>}
+    <>
+      <Tabs.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="New exercise"
+              accessibilityHint="Opens the form to create a new exercise."
+              hitSlop={Spacing.two}
+              onPress={openCreateForm}
+              style={({ pressed }) => [styles.newExerciseButton, pressed && styles.newExerciseButtonPressed]}
+            >
+              <SymbolView
+                name="plus"
+                size={24}
+                tintColor={theme.text}
+                fallback={<ThemedText style={styles.newExerciseFallback}>+</ThemedText>}
+              />
+            </Pressable>
+          ),
+        }}
+      />
+      <ThemedView style={styles.container}>
+        <View style={styles.safeArea}>
+          <TextInput
+            accessibilityLabel="Search exercises"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search exercises"
+            placeholderTextColor={theme.textSecondary}
+            clearButtonMode="while-editing"
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[
+              styles.searchInput,
+              { color: theme.text, borderColor: theme.backgroundSelected },
+            ]}
+          />
+          {loading ? (
+            <ThemedText type="default">Loading exercises...</ThemedText>
+          ) : exercises.length === 0 ? (
+            <ThemedView style={styles.emptyState}>
+              <ThemedText type="default" style={styles.placeholder}>
+                No exercises loaded yet.
+              </ThemedText>
+            </ThemedView>
+          ) : filteredExercises.length === 0 ? (
+            <ThemedView style={styles.emptyState}>
+              <ThemedText type="default" style={styles.placeholder}>
+                No exercises match your search.
+              </ThemedText>
+            </ThemedView>
+          ) : (
+            <FlatList
+              data={filteredExercises}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              style={styles.list}
+              renderItem={({ item }) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${item.title}, ${item.kind}`}
+                  onPress={() => router.push(`/exercise/${item.id}`)}
+                  style={({ pressed }) => [
+                    styles.exerciseItem,
+                    { borderBottomColor: theme.backgroundSelected },
+                    pressed && styles.exerciseItemPressed,
+                  ]}
+                >
+                  <ExerciseImage imagePath={item.imagePath} size="row" />
+                  <View style={styles.exerciseInfo}>
+                    <ThemedText type="subtitle">{item.title}</ThemedText>
+                    <ThemedText type="default" style={styles.exerciseKind}>
+                      {item.kind}
+                    </ThemedText>
+                  </View>
+                </Pressable>
+              )}
             />
-          </Pressable>
+          )}
         </View>
-        {isCreateFormVisible && (
-          <ThemedView style={[styles.createForm, { borderColor: theme.backgroundSelected }]}>
+      </ThemedView>
+      <Host matchContents={{ vertical: true }}>
+        <BottomSheet isPresented={isCreateFormVisible} onDismiss={closeCreateForm} contentPadding={Spacing.four}>
+          <Column spacing={Spacing.three}>
             <ThemedText type="subtitle">New exercise</ThemedText>
             <TextInput
               accessibilityLabel="New exercise title"
@@ -146,86 +216,24 @@ export default function ExercisesScreen() {
               ]}
             />
             <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
-            <Host matchContents={{ vertical: true }}>
-              <Column spacing={Spacing.two}>
-                <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
-                  <Picker.Item label="Strength" value="strength" />
-                  <Picker.Item label="Cardio" value="cardio" />
-                  <Picker.Item label="Stretch" value="stretch" />
-                </Picker>
-                <Button
-                  label={creating ? 'Creating…' : 'Create exercise'}
-                  disabled={creating}
-                  onPress={() => { void submitNewExercise(); }}
-                />
-                <Button label="Cancel" disabled={creating} onPress={closeCreateForm} />
-              </Column>
-            </Host>
+            <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
+              <Picker.Item label="Strength" value="strength" />
+              <Picker.Item label="Cardio" value="cardio" />
+              <Picker.Item label="Stretch" value="stretch" />
+            </Picker>
+            <Button
+              label={creating ? 'Creating…' : 'Create exercise'}
+              disabled={creating}
+              onPress={() => { void submitNewExercise(); }}
+            />
+            <Button label="Cancel" disabled={creating} onPress={closeCreateForm} />
             {createMessage && (
               <ThemedText type="small" style={styles.createMessage}>{createMessage}</ThemedText>
             )}
-          </ThemedView>
-        )}
-        <TextInput
-          accessibilityLabel="Search exercises"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search exercises"
-          placeholderTextColor={theme.textSecondary}
-          clearButtonMode="while-editing"
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[
-            styles.searchInput,
-            { color: theme.text, borderColor: theme.backgroundSelected },
-          ]}
-        />
-        {loading ? (
-          <ThemedText type="default">Loading exercises...</ThemedText>
-        ) : exercises.length === 0 ? (
-          <ThemedView style={styles.emptyState}>
-            <ThemedText type="default" style={styles.placeholder}>
-              No exercises loaded yet.
-            </ThemedText>
-          </ThemedView>
-        ) : filteredExercises.length === 0 ? (
-          <ThemedView style={styles.emptyState}>
-            <ThemedText type="default" style={styles.placeholder}>
-              No exercises match your search.
-            </ThemedText>
-          </ThemedView>
-        ) : (
-          <FlatList
-            data={filteredExercises}
-            keyExtractor={(item) => item.id}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            style={styles.list}
-            renderItem={({ item }) => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View ${item.title}, ${item.kind}`}
-                onPress={() => router.push(`/exercise/${item.id}`)}
-                style={({ pressed }) => [
-                  styles.exerciseItem,
-                  { borderBottomColor: theme.backgroundSelected },
-                  pressed && styles.exerciseItemPressed,
-                ]}
-              >
-                <ExerciseImage imagePath={item.imagePath} size="row" />
-                <View style={styles.exerciseInfo}>
-                  <ThemedText type="subtitle">{item.title}</ThemedText>
-                  <ThemedText type="default" style={styles.exerciseKind}>
-                    {item.kind}
-                  </ThemedText>
-                </View>
-              </Pressable>
-            )}
-          />
-        )}
-      </View>
-    </ThemedView>
+          </Column>
+        </BottomSheet>
+      </Host>
+    </>
   );
 }
 
@@ -256,12 +264,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.three,
-  },
   newExerciseButton: {
     minWidth: 44,
     minHeight: 44,
@@ -272,8 +274,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   newExerciseFallback: {
-    fontSize: 32,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 24,
   },
   searchInput: {
     minHeight: 44,
@@ -281,13 +283,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: Spacing.three,
-    marginBottom: Spacing.three,
-  },
-  createForm: {
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: Spacing.three,
     marginBottom: Spacing.three,
   },
   newTitleInput: {
