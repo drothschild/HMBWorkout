@@ -27,6 +27,7 @@ describe('exercise creation wiring (#379)', () => {
     expect(source).not.toContain('styles.createForm');
     expect(source).toContain('label="Cancel"');
     expect(source).toContain('onPress={closeCreateForm}');
+    expect(source).toContain('constcloseCreateForm=()=>{if(creating)return;');
     expect(source).toContain("setNewTitle('');setNewKind('strength');setCreateMessage(null);setIsCreateFormVisible(false);");
   });
 
