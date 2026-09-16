@@ -28,6 +28,10 @@ describe('exercise creation wiring (#379)', () => {
     expect(source).toContain('label="Cancel"');
     expect(source).toContain('onPress={closeCreateForm}');
     expect(source).toContain('constcloseCreateForm=()=>{if(creating)return;');
+    expect(source).toContain("constsheetModifiers=Platform.OS==='ios'?[interactiveDismissDisabled(creating)]:undefined;");
+    expect(source).toContain('modifiers={sheetModifiers}');
+    expect(source).toContain('shouldDismissOnBackPress={!creating}');
+    expect(source).toContain('shouldDismissOnClickOutside={!creating}');
     expect(source).toContain("setNewTitle('');setNewKind('strength');setCreateMessage(null);setIsCreateFormVisible(false);");
   });
 
