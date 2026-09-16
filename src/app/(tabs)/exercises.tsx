@@ -2,7 +2,7 @@ import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { BottomSheet, Button, Column, Host, Picker } from '@expo/ui';
+import { BottomSheet, Button, Column, Host, Picker, TextInput as NativeTextInput } from '@expo/ui';
 import { interactiveDismissDisabled } from '@expo/ui/swift-ui/modifiers';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
@@ -209,21 +209,26 @@ export default function ExercisesScreen() {
         >
           <Column spacing={Spacing.three}>
             <ThemedText type="subtitle">New exercise</ThemedText>
-            <TextInput
-              accessibilityLabel="New exercise title"
-              value={newTitle}
+            <NativeTextInput
+              testID="New exercise title"
+              defaultValue={newTitle}
               onChangeText={setNewTitle}
               placeholder="Exercise name"
               placeholderTextColor={theme.textSecondary}
+              autoFocus
               autoCapitalize="words"
               autoCorrect
               returnKeyType="done"
               onSubmitEditing={() => { void submitNewExercise(); }}
-              style={[
-                styles.searchInput,
-                styles.newTitleInput,
-                { color: theme.text, borderColor: theme.backgroundSelected },
-              ]}
+              style={{
+                width: '100%',
+                height: 44,
+                paddingHorizontal: Spacing.three,
+                borderWidth: 1,
+                borderColor: theme.backgroundSelected,
+                borderRadius: 10,
+              }}
+              textStyle={{ color: theme.text }}
             />
             <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
             <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
@@ -294,9 +299,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: Spacing.three,
     marginBottom: Spacing.three,
-  },
-  newTitleInput: {
-    marginBottom: 0,
   },
   kindLabel: {
     opacity: 0.7,
