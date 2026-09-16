@@ -11,18 +11,20 @@ function compact(source: string): string {
 }
 
 describe('exercise creation wiring (#379)', () => {
-  it('keeps creation controls hidden until the accessible plus action opens them, and lets cancel return to the library', () => {
+  it('keeps the library focused until the header plus opens a native creation sheet', () => {
     const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
 
     expect(source).toContain('const[isCreateFormVisible,setIsCreateFormVisible]=useState(false);');
+    expect(source).toContain('<Tabs.Screenoptions={{headerRight:()=>(');
     expect(source).toContain('accessibilityLabel="Newexercise"');
-    expect(source).toContain('name="plus.circle.fill"');
+    expect(source).toContain('name="plus"');
     expect(source).toContain('fallback={<ThemedTextstyle={styles.newExerciseFallback}>+</ThemedText>}');
     expect(source).toContain('minWidth:44');
     expect(source).toContain('minHeight:44');
     expect(source).toContain('setIsCreateFormVisible(true)');
-    expect(source).toContain('isCreateFormVisible&&(');
-    expect(source).not.toContain('!isCreateFormVisible&&(');
+    expect(source).toContain('<BottomSheetisPresented={isCreateFormVisible}onDismiss={closeCreateForm}');
+    expect(source).not.toContain('styles.actionsRow');
+    expect(source).not.toContain('styles.createForm');
     expect(source).toContain('label="Cancel"');
     expect(source).toContain('onPress={closeCreateForm}');
     expect(source).toContain("setNewTitle('');setNewKind('strength');setCreateMessage(null);setIsCreateFormVisible(false);");
