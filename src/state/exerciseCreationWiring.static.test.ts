@@ -39,9 +39,11 @@ describe('exercise creation wiring (#379)', () => {
     const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
 
     expect(source).toContain("useState<ExerciseKind>('strength')");
-    expect(source).toContain('accessibilityLabel="Newexercisetitle"');
-    expect(source).toContain('value={newTitle}');
+    expect(source).toContain('<NativeTextInput');
+    expect(source).toContain('testID="Newexercisetitle"');
+    expect(source).toContain('defaultValue={newTitle}');
     expect(source).toContain('onChangeText={setNewTitle}');
+    expect(source).toContain('autoFocus');
     expect(source).toContain('<PickerselectedValue={newKind}');
     expect(source).toContain('<Picker.Itemlabel="Strength"value="strength"/>');
     expect(source).toContain('<Picker.Itemlabel="Cardio"value="cardio"/>');
