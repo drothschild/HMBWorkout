@@ -99,6 +99,7 @@ export default function ExercisesScreen() {
   };
 
   const closeCreateForm = () => {
+    if (creating) return;
     setNewTitle('');
     setNewKind('strength');
     setCreateMessage(null);
