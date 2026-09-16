@@ -1,8 +1,9 @@
 import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { BottomSheet, Button, Column, Host, Picker } from '@expo/ui';
+import { interactiveDismissDisabled } from '@expo/ui/swift-ui/modifiers';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ThemedText } from '@/components/themed-text';
@@ -33,6 +34,7 @@ export default function ExercisesScreen() {
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
   const creationInFlightRef = useRef(false);
+  const sheetModifiers = Platform.OS === 'ios' ? [interactiveDismissDisabled(creating)] : undefined;
   const filteredExercises = useMemo(
     () => filterExerciseLibraryItems(exercises, searchQuery),
     [exercises, searchQuery]
@@ -197,7 +199,14 @@ export default function ExercisesScreen() {
         </View>
       </ThemedView>
       <Host matchContents={{ vertical: true }}>
-        <BottomSheet isPresented={isCreateFormVisible} onDismiss={closeCreateForm} contentPadding={Spacing.four}>
+        <BottomSheet
+          isPresented={isCreateFormVisible}
+          onDismiss={closeCreateForm}
+          modifiers={sheetModifiers}
+          shouldDismissOnBackPress={!creating}
+          shouldDismissOnClickOutside={!creating}
+          contentPadding={Spacing.four}
+        >
           <Column spacing={Spacing.three}>
             <ThemedText type="subtitle">New exercise</ThemedText>
             <TextInput
