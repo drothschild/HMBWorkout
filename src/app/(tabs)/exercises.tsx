@@ -2,7 +2,18 @@ import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { BottomSheet, Button, Column, Host, Picker, TextInput as NativeTextInput } from '@expo/ui';
+import {
+  BottomSheet,
+  Button,
+  Column,
+  FieldGroup,
+  Host,
+  Picker,
+  Row,
+  Spacer,
+  Text as NativeText,
+  TextInput as NativeTextInput,
+} from '@expo/ui';
 import { interactiveDismissDisabled } from '@expo/ui/swift-ui/modifiers';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
@@ -20,6 +31,8 @@ import {
   filterExerciseLibraryItems,
 } from '@/state/exerciseLibraryPresenter';
 import { useTheme } from '@/hooks/use-theme';
+
+const CreateFormWidth = 320;
 
 export default function ExercisesScreen() {
   const router = useRouter();
@@ -207,43 +220,54 @@ export default function ExercisesScreen() {
           shouldDismissOnClickOutside={!creating}
           contentPadding={Spacing.four}
         >
-          <Column spacing={Spacing.three}>
-            <ThemedText type="subtitle">New exercise</ThemedText>
-            <NativeTextInput
-              testID="New exercise title"
-              defaultValue={newTitle}
-              onChangeText={setNewTitle}
-              placeholder="Exercise name"
-              placeholderTextColor={theme.textSecondary}
-              autoFocus
-              autoCapitalize="words"
-              autoCorrect
-              returnKeyType="done"
-              onSubmitEditing={() => { void submitNewExercise(); }}
-              style={{
-                width: '100%',
-                height: 44,
-                paddingHorizontal: Spacing.three,
-                borderWidth: 1,
-                borderColor: theme.backgroundSelected,
-                borderRadius: 10,
-              }}
-              textStyle={{ color: theme.text }}
-            />
-            <ThemedText type="small" style={styles.kindLabel}>Type</ThemedText>
-            <Picker selectedValue={newKind} onValueChange={(value) => setNewKind(value as ExerciseKind)}>
-              <Picker.Item label="Strength" value="strength" />
-              <Picker.Item label="Cardio" value="cardio" />
-              <Picker.Item label="Stretch" value="stretch" />
-            </Picker>
+          <Column spacing={Spacing.three} style={{ width: CreateFormWidth }}>
+            <NativeText textStyle={styles.createFormTitle}>New exercise</NativeText>
+            <FieldGroup style={{ width: CreateFormWidth }}>
+              <FieldGroup.Section>
+                <NativeTextInput
+                  testID="New exercise title"
+                  defaultValue={newTitle}
+                  onChangeText={setNewTitle}
+                  placeholder="Exercise name"
+                  placeholderTextColor={theme.textSecondary}
+                  autoFocus
+                  autoCapitalize="words"
+                  autoCorrect
+                  returnKeyType="done"
+                  onSubmitEditing={() => { void submitNewExercise(); }}
+                  style={{ width: CreateFormWidth, height: 44 }}
+                  textStyle={{ color: theme.text }}
+                />
+                <Row style={{ width: CreateFormWidth, height: 44 }} alignment="center">
+                  <NativeText>Type</NativeText>
+                  <Spacer />
+                  <Picker
+                    appearance="menu"
+                    selectedValue={newKind}
+                    onValueChange={(value) => setNewKind(value as ExerciseKind)}
+                  >
+                    <Picker.Item label="Strength" value="strength" />
+                    <Picker.Item label="Cardio" value="cardio" />
+                    <Picker.Item label="Stretch" value="stretch" />
+                  </Picker>
+                </Row>
+              </FieldGroup.Section>
+            </FieldGroup>
             <Button
               label={creating ? 'Creating…' : 'Create exercise'}
               disabled={creating}
               onPress={() => { void submitNewExercise(); }}
+              style={{ width: CreateFormWidth, height: 44 }}
             />
-            <Button label="Cancel" disabled={creating} onPress={closeCreateForm} />
+            <Button
+              label="Cancel"
+              variant="outlined"
+              disabled={creating}
+              onPress={closeCreateForm}
+              style={{ width: CreateFormWidth, height: 44 }}
+            />
             {createMessage && (
-              <ThemedText type="small" style={styles.createMessage}>{createMessage}</ThemedText>
+              <NativeText textStyle={styles.createMessage}>{createMessage}</NativeText>
             )}
           </Column>
         </BottomSheet>
@@ -300,8 +324,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     marginBottom: Spacing.three,
   },
-  kindLabel: {
-    opacity: 0.7,
+  createFormTitle: {
+    fontSize: 20,
+    fontWeight: '600',
   },
   createMessage: {
     color: StatusColor.danger,

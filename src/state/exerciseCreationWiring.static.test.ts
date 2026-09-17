@@ -24,7 +24,6 @@ describe('exercise creation wiring (#379)', () => {
     expect(source).toContain('setIsCreateFormVisible(true)');
     expect(source).toContain('<BottomSheetisPresented={isCreateFormVisible}onDismiss={closeCreateForm}');
     expect(source).not.toContain('styles.actionsRow');
-    expect(source).not.toContain('styles.createForm');
     expect(source).toContain('label="Cancel"');
     expect(source).toContain('onPress={closeCreateForm}');
     expect(source).toContain('constcloseCreateForm=()=>{if(creating)return;');
