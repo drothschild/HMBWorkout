@@ -39,15 +39,25 @@ describe('exercise creation wiring (#379)', () => {
     const source = compact(readFileSync(EXERCISES_SCREEN, 'utf8'));
 
     expect(source).toContain("useState<ExerciseKind>('strength')");
+    expect(source).toContain('constCreateFormWidth=320;');
+    expect(source).toContain('<NativeTexttextStyle={styles.createFormTitle}>Newexercise</NativeText>');
+    expect(source).toContain('<FieldGroupstyle={{width:CreateFormWidth}}>');
+    expect(source).toContain('<FieldGroup.Section>');
     expect(source).toContain('<NativeTextInput');
     expect(source).toContain('testID="Newexercisetitle"');
     expect(source).toContain('defaultValue={newTitle}');
     expect(source).toContain('onChangeText={setNewTitle}');
     expect(source).toContain('autoFocus');
-    expect(source).toContain('<PickerselectedValue={newKind}');
+    expect(source).toContain('style={{width:CreateFormWidth,height:44');
+    expect(source).toContain('<Rowstyle={{width:CreateFormWidth,height:44}}alignment="center">');
+    expect(source).toContain('<Spacer/>');
+    expect(source).toContain('<Pickerappearance="menu"selectedValue={newKind}');
     expect(source).toContain('<Picker.Itemlabel="Strength"value="strength"/>');
     expect(source).toContain('<Picker.Itemlabel="Cardio"value="cardio"/>');
     expect(source).toContain('<Picker.Itemlabel="Stretch"value="stretch"/>');
+    expect(source).toContain('label={creating?\'Creating…\':\'Createexercise\'}');
+    expect(source).toContain('style={{width:CreateFormWidth,height:44}}');
+    expect(source).toContain('label="Cancel"variant="outlined"');
     expect(source).toContain('createExercise(database,{title:newTitle,kind:newKind})');
     expect(source).toContain('router.push(`/exercise/${outcome.exerciseId}`)');
   });
