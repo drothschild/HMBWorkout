@@ -12,6 +12,8 @@ export function ExerciseAlphabetIndex({ onSelect }: { onSelect: (letter: string)
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+  // Refs are read only inside touch callbacks, never during render.
+  // eslint-disable-next-line react-hooks/refs
   const [touch] = useState(() =>
     createIndexTouchHandlers(
       () => heightRef.current,
