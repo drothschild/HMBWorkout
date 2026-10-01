@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { ExerciseAlphabetIndex } from '@/components/ExerciseAlphabetIndex';
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -12,6 +13,7 @@ import {
   exerciseLibraryPresenter,
   filterExerciseLibraryItems,
 } from '@/state/exerciseLibraryPresenter';
+import { targetIndexForLetter } from '@/state/exerciseAlphabetIndex';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function ExercisesScreen() {
@@ -21,9 +23,19 @@ export default function ExercisesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const generationRef = useRef(0);
+  const listRef = useRef<FlatList<ExerciseLibraryItem>>(null);
   const filteredExercises = useMemo(
     () => filterExerciseLibraryItems(exercises, searchQuery),
     [exercises, searchQuery]
+  );
+
+  const showIndex = searchQuery.trim() === '';
+  const scrollToLetter = useCallback(
+    (letter: string) => {
+      const index = targetIndexForLetter(filteredExercises, letter);
+      if (index >= 0) listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false });
+    },
+    [filteredExercises]
   );
 
   const loadExercises = useCallback(async () => {
@@ -82,7 +94,13 @@ export default function ExercisesScreen() {
             </ThemedText>
           </ThemedView>
         ) : (
+          <View style={styles.listRow}>
           <FlatList
+            ref={listRef}
+            showsVerticalScrollIndicator={false}
+            onScrollToIndexFailed={({ index }) =>
+              listRef.current?.scrollToOffset({ offset: index * 100, animated: false })
+            }
             data={filteredExercises}
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
@@ -109,6 +127,8 @@ export default function ExercisesScreen() {
               </Pressable>
             )}
           />
+          {showIndex ? <ExerciseAlphabetIndex onSelect={scrollToLetter} /> : null}
+          </View>
         )}
       </View>
     </ThemedView>
@@ -137,6 +157,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  listRow: {
+    flex: 1,
+    flexDirection: 'row',
   },
   list: {
     flex: 1,
