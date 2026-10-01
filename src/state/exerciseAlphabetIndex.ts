@@ -32,3 +32,31 @@ export function letterAtPosition(y: number, height: number): string {
   const i = Math.floor((y / height) * count);
   return ALPHABET_INDEX_LETTERS[Math.min(count - 1, Math.max(0, i))];
 }
+
+/**
+ * Touch handlers for the index strip: grant/move select the letter under the finger
+ * (only when it changes), release resets so the next touch re-selects.
+ */
+export function createIndexTouchHandlers(
+  getHeight: () => number,
+  onSelect: (letter: string) => void
+) {
+  let last: string | null = null;
+  const handle = (y: number) => {
+    const letter = letterAtPosition(y, getHeight());
+    if (letter !== last) {
+      last = letter;
+      onSelect(letter);
+    }
+  };
+  return {
+    grant: (y: number) => {
+      last = null;
+      handle(y);
+    },
+    move: handle,
+    release: () => {
+      last = null;
+    },
+  };
+}
