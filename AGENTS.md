@@ -6,43 +6,24 @@ Local-first iOS workout logger: Expo SDK 57, React Native 0.86, React 19,
 expo-router, WatermelonDB 0.28, Zustand 5 and a pure rill-lang 1.1.1 session engine.
 The [dependency notes](docs/project-context/overview.md) explain exact pins and platform boundaries.
 
-## Mandatory review and release gates
+## Board, human QA and test builds
 
-Apply these gates on every review round, including follow-up reviews after fixes.
+Board workflow, review, and merge gates are run by the fleet-board plugin; see .fleet-board.yml.
 
-Process the board continuously until every ticket is complete or requires human
-interaction/QA. An open PR or an In review card is intermediate work, not a stop
-condition. Continue independent tickets while a human gate is pending. Finish
-approved merges and verify merged main. Independent review approval plus passing
-required automated checks authorizes merging without a separate user permission
-prompt. After those gates pass, merge the exact reviewed head automatically; do
-not ask the user to approve the merge again. Respect repository branch protections
-and required GitHub approvals. A human-interaction/QA gate still requires release
-by the human before merging; review approval does not release that gate.
-
-- Use independent subagents and the applicable review skills. Mutation-test each
-  round: deliberately break the implementation and run the relevant individual
-  tests. Record killed, surviving and invalid mutants separately; restore the
-  source and verify green afterward. For documentation, corrupt the content or
-  links in a copy and prove the preservation/link checks reject it.
-- Execute at least one load-bearing claim from each agent report independently.
-  Prefer a measured number and record the command, commit and result. A prior
-  report or static inspection does not verify an execution claim.
-- For claims shaped like “X only reads A, B and C,” execute X with a distinct
-  marker in every field and inspect the reads and output. Do not infer exclusivity
-  from reading the source or testing only the named fields.
-- Any change touching layout, sound or native-module behavior stays a **draft PR**
-  with its card in the existing **Require Human Inteteraction** column (the board
-  spelling of Require Human Interaction). This is the human-QA gate; do not
-  create a separate Needs Human QA column. Include concrete actions and expected
-  results on the card, such as “four beeps on rest complete; music keeps playing.”
-  Tests with injected native operations do not replace on-device verification.
-  **No agent may move a card out of Require Human Inteteraction; only the human may do so.**
-- Automatically prepare a runnable test build for every branch requiring human
-  interaction/QA. Build the latest reviewed commit and put the artifact location,
-  branch/commit, build date, install/run instructions and concrete checks on its
-  card. Refresh the build after branch changes; identify failures explicitly.
-  For iPhone QA, default to signed standalone Release builds with embedded JS
+- Changes to layout, sound, or native-module behavior need human QA. They are
+  covered by `human_qa_paths` in `.fleet-board.yml` or the `needs-human-qa`
+  label. The board's human-QA column is **Require Human Inteteraction** (the board
+  spelling of Require Human Interaction); there is no separate Needs Human QA column.
+- Human-QA cards list concrete actions and expected results, such as “four beeps
+  on rest complete; music keeps playing.” Tests with injected native operations
+  do not replace on-device verification.
+- Human-QA cards need a runnable test build. fleet-board has no `qa_build` for
+  this project, so prepare builds by hand per
+  [native iOS notes](docs/project-context/native-ios.md): build the latest
+  reviewed commit and put the artifact location, branch/commit, build date,
+  install/run instructions and concrete checks on its card. Refresh the build
+  after branch changes; identify failures explicitly.
+- For iPhone QA, default to signed standalone Release builds with embedded JS
   (no Metro). Keep PR-labelled artifacts separate. Use a supported signing
   identity: provisioned separate test app IDs may coexist with production;
   otherwise use the existing app ID for one-at-a-time testing. Creating builds
@@ -50,9 +31,6 @@ by the human before merging; review approval does not release that gate.
   when config or native dependencies change; verify the bundle and native links.
   Preparing a build does not release the human gate. Preserve production data
   before any explicitly requested replacement install.
-- After each merge, fetch the actual merged `main` commit and run the
-  relevant individual checks there. Record that commit and results before calling
-  the work complete. A green branch does not establish that merged main is green.
 
 ## Working here
 
