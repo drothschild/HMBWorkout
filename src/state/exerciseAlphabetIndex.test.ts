@@ -49,7 +49,8 @@ describe('exercise alphabet index', () => {
     expect(letterAtPosition(-50, 270)).toBe('A');
     expect(letterAtPosition(900, 270)).toBe('#');
     expect(letterAtPosition(135, 270)).toBe('N');
-    expect(screen).toContain('onResponderMove');
+    const component = readFileSync(join(__dirname, '../components/ExerciseAlphabetIndex.tsx'), 'utf8');
+    expect(component).toContain('onResponderMove');
   });
 
   test('the index is hidden while the search box has text and reappears when cleared', () => {
