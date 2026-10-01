@@ -45,8 +45,8 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "We use HealthKit to write your workout data to Apple Health",
-          "NSHealthUpdateUsageDescription": "We use HealthKit to write your workout data to Apple Health"
+          "NSHealthShareUsageDescription": "HMB Workout does not read your Health data.",
+          "NSHealthUpdateUsageDescription": "HMB Workout saves your completed workouts to Apple Health."
         }
       ],
       "./plugins/withSceneLifecycle",
