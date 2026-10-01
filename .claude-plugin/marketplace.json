@@ -1,0 +1,44 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "hmb-workbench",
+  "owner": {
+    "name": "David Rothschild",
+    "email": "drothschild@gmail.com"
+  },
+  "metadata": {
+    "description": "Practices distilled from building a local-first Expo/React Native iOS app: native build and simulator workflow, WatermelonDB safety, and verification discipline.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "expo-ios-native",
+      "source": "./claude-plugins/expo-ios-native",
+      "description": "Expo/React Native iOS native workflow: when a prebuild is mandatory, Debug vs Release device builds, proving a native module actually linked, driving the simulator headlessly, and reading an on-device SQLite database without losing the WAL.",
+      "version": "0.1.0",
+      "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+      "license": "MIT",
+      "keywords": ["expo", "react-native", "ios", "xcode", "simulator"],
+      "category": "development"
+    },
+    {
+      "name": "watermelondb-safety",
+      "source": "./claude-plugins/watermelondb-safety",
+      "description": "WatermelonDB schema migrations that do not silently wipe the user's database, plus the test idioms its fire-and-forget write queue and decorator models require.",
+      "version": "0.1.0",
+      "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+      "license": "MIT",
+      "keywords": ["watermelondb", "sqlite", "migrations", "react-native", "testing"],
+      "category": "development"
+    },
+    {
+      "name": "verification-discipline",
+      "source": "./claude-plugins/verification-discipline",
+      "description": "Stop shipping confident, unverified claims: execute assertions instead of asserting them, write fixtures that can actually discriminate the condition they name, run mutants that really applied, and use structural criteria where no test can reach.",
+      "version": "0.1.0",
+      "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+      "license": "MIT",
+      "keywords": ["testing", "mutation-testing", "code-review", "verification"],
+      "category": "development"
+    }
+  ]
+}

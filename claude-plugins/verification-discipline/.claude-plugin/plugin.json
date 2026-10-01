@@ -1,0 +1,8 @@
+{
+  "name": "verification-discipline",
+  "version": "0.1.0",
+  "description": "Stop shipping confident, unverified claims: execute assertions instead of asserting them, write fixtures that can actually discriminate the condition they name, run mutants that really applied, and use structural criteria where no test can reach.",
+  "author": { "name": "David Rothschild", "email": "drothschild@gmail.com" },
+  "license": "MIT",
+  "homepage": "https://github.com/drothschild/HMBWorkout/tree/main/claude-plugins/verification-discipline"
+}
