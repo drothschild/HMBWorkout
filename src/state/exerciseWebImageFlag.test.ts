@@ -82,3 +82,12 @@ describe('searchExerciseImageChoices', () => {
     expect(fetcher).toHaveBeenCalledTimes(0);
   });
 });
+
+describe('createExerciseImageResolverDeps wiring uses the build-time default env', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, 'exerciseImageFiles.ts'), 'utf-8');
+
+  it('calls resolveWebImageSearch() with no argument so a forced-on env cannot be injected', () => {
+    expect(source).toContain('searchWebImages: resolveWebImageSearch(),');
+    expect(source).not.toMatch(/resolveWebImageSearch\(\s*\{/);
+  });
+});
