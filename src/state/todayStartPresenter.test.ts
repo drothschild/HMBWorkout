@@ -1,5 +1,6 @@
 import { Database } from '@nozbe/watermelondb';
-import { createTestDatabase, closeTestDatabase } from '@/db/test-helpers';
+import { createTestDatabase, closeTestDatabase, flush } from '@/db/test-helpers';
+import { setExerciseImage, upsertExercise } from '@/db/repository';
 import { todayStartPresenter } from './todayStartPresenter';
 
 interface SeedRoutine {
@@ -64,6 +65,13 @@ describe('todayStartPresenter', () => {
 
   it('offers every saved routine as a choice, in creation order', async () => {
     const now = Date.now();
+    // Push's first exercise has a catalog image, so its card carries a thumbnail.
+    await upsertExercise(db, 'routine-push-ex-0', 'Bench Press', 'strength');
+    await setExerciseImage(db, 'routine-push-ex-0', {
+      imagePath: 'push.png',
+      imageSource: 'catalog:routine-push-ex-0',
+    });
+    await flush();
     // Seed out of insertion order to verify sort is actually load-bearing
     await seedRoutine(db, {
       id: 'routine-pull',
@@ -78,8 +86,8 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'choose-routine',
       routines: [
-        { id: 'routine-push', name: 'Push Day', exerciseCount: 1, hasActiveExercise: true, startable: true },
-        { id: 'routine-pull', name: 'Pull Day', exerciseCount: 2, hasActiveExercise: true, startable: true },
+        { id: 'routine-push', name: 'Push Day', exerciseCount: 1, hasActiveExercise: true, startable: true, thumbnailPaths: ['push.png'] },
+        { id: 'routine-pull', name: 'Pull Day', exerciseCount: 2, hasActiveExercise: true, startable: true, thumbnailPaths: [] },
       ],
     });
   });
@@ -94,8 +102,8 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'routines-need-exercises',
       routines: [
-        { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, hasActiveExercise: false, startable: false },
-        { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, hasActiveExercise: false, startable: false },
+        { id: 'routine-empty-1', name: 'Empty Day 1', exerciseCount: 0, hasActiveExercise: false, startable: false, thumbnailPaths: [] },
+        { id: 'routine-empty-2', name: 'Empty Day 2', exerciseCount: 0, hasActiveExercise: false, startable: false, thumbnailPaths: [] },
       ],
     });
   });
@@ -110,8 +118,8 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'choose-routine',
       routines: [
-        { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, hasActiveExercise: false, startable: false },
-        { id: 'routine-full', name: 'Full Day', exerciseCount: 3, hasActiveExercise: true, startable: true },
+        { id: 'routine-empty', name: 'Empty Day', exerciseCount: 0, hasActiveExercise: false, startable: false, thumbnailPaths: [] },
+        { id: 'routine-full', name: 'Full Day', exerciseCount: 3, hasActiveExercise: true, startable: true, thumbnailPaths: [] },
       ],
     });
   });
@@ -131,7 +139,7 @@ describe('todayStartPresenter', () => {
     expect(options).toEqual({
       kind: 'routines-need-exercises',
       routines: [
-        { id: 'routine-all-zero', name: 'Recovery Day', exerciseCount: 2, hasActiveExercise: false, startable: false },
+        { id: 'routine-all-zero', name: 'Recovery Day', exerciseCount: 2, hasActiveExercise: false, startable: false, thumbnailPaths: [] },
       ],
     });
   });
