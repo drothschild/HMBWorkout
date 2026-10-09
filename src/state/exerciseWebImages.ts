@@ -2,6 +2,7 @@
 /** Public search HTML is not an API. Unexpected markup rejects so it cannot
  * permanently mark an exercise missing; callers retain their existing images. */
 import { normalizeExerciseTitle } from './exerciseImageMatch';
+import { webImageFallbackEnabled, type BuildFlagEnv } from './buildFlags';
 
 const MAX_CANDIDATES = 5;
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -123,8 +124,11 @@ export async function searchExerciseWebImages(
 export async function searchExerciseImageChoices(
   query: string,
   signal?: AbortSignal,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  env?: BuildFlagEnv
 ): Promise<readonly ExerciseImageChoice[]> {
+  // #397: store builds ship without web search; no request is made.
+  if (!webImageFallbackEnabled(env)) return [];
   if (!query.trim()) return [];
   if (query.length > 200) throw new Error('Image search query must be 200 characters or fewer');
   const aborted = () => Object.assign(new Error('Image search aborted'), { name: 'AbortError' });
@@ -146,4 +150,11 @@ export async function searchExerciseImageChoices(
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
+}
+
+/** The resolver's `searchWebImages` dependency: undefined (catalog-only) unless the build opts in. */
+export function resolveWebImageSearch(
+  env?: BuildFlagEnv
+): typeof searchExerciseWebImages | undefined {
+  return webImageFallbackEnabled(env) ? searchExerciseWebImages : undefined;
 }

@@ -11,6 +11,13 @@ const response = (html: string, status = 200) => ({ ok: status === 200, status, 
 const fetchHtml = (html: string) => jest.fn().mockResolvedValue(response(html)) as jest.MockedFunction<typeof fetch>;
 
 describe('manual exercise image choices', () => {
+  // #397: web search is opt-in; these tests cover the flag-on behavior.
+  const originalFlag = process.env.EXPO_PUBLIC_WEB_IMAGE_FALLBACK;
+  beforeAll(() => { process.env.EXPO_PUBLIC_WEB_IMAGE_FALLBACK = '1'; });
+  afterAll(() => {
+    if (originalFlag === undefined) delete process.env.EXPO_PUBLIC_WEB_IMAGE_FALLBACK;
+    else process.env.EXPO_PUBLIC_WEB_IMAGE_FALLBACK = originalFlag;
+  });
   afterEach(() => jest.useRealTimers());
 
   it('uses exact search terms and returns metadata without automatic relevance filtering', async () => {

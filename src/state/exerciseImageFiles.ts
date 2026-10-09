@@ -20,7 +20,7 @@ import { EXERCISE_IMAGE_DIR } from './exerciseImageState';
 import type { ExerciseImageResolverDeps } from './exerciseImageResolver';
 import { IMAGE_SIGNATURE_BYTES, looksLikeImageBytes, NotAnImageError } from './imageSignature';
 import { getSettings } from './settings';
-import { searchExerciseWebImages } from './exerciseWebImages';
+import { resolveWebImageSearch } from './exerciseWebImages';
 import { hasAiKey } from './hasAiKey';
 
 /**
@@ -101,7 +101,8 @@ export function createExerciseImageResolverDeps(database: Database): ExerciseIma
     // Built per call, from settings at that moment: a key saved after boot is
     // used by the next pass with no restart.
     ask: (request) => createAiClient(getSettings()).ask(request),
-    searchWebImages: searchExerciseWebImages,
+    // #397: undefined (catalog-only) unless EXPO_PUBLIC_WEB_IMAGE_FALLBACK=1.
+    searchWebImages: resolveWebImageSearch(),
     download: downloadExerciseImage,
     deleteFile: deleteExerciseImage,
     makeImageSuffix: makeExerciseImageSuffix,
