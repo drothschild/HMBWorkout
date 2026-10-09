@@ -20,7 +20,7 @@ function harness(source?: string) {
     'expo-image-picker': {}, 'expo-glass-effect': { isGlassEffectAPIAvailable: () => false, isLiquidGlassAvailable: () => false, GlassView: 'GlassView' }, 'expo-symbols': { SymbolView: 'SymbolView' },
     '@/components/themed-text': { ThemedText: 'ThemedText' }, '@/components/themed-view': { ThemedView: 'ThemedView' }, '@/components/ExerciseImage': { ExerciseImage: 'ExerciseImage' }, '@/components/ExerciseImageSearch': { ExerciseImageSearch: 'ExerciseImageSearch' },
     '@/constants/theme': { Spacing: {}, MaxContentWidth: 600 }, '@/hooks/use-theme': { useTheme: () => ({}) }, '@/theme/actionButtonColors': { ActionButtonColor: {}, StatusColor: {} }, '@/db': { database: {} }, '@/db/repository': {},
-    '@/state/exerciseImageResolverRegistry': { refreshExerciseImage: refresh }, '@/state/exerciseImageOverride': { overrideExerciseImage: override }, '@/state/exerciseImageFiles': { downloadExerciseImage: download }, '@/state/exercisePhotoPicker': {}, '@/state/exerciseHistoryPresenter': {},
+    '@/state/buildFlags': { webImageFallbackEnabled: () => true }, '@/state/exerciseImageResolverRegistry': { refreshExerciseImage: refresh }, '@/state/exerciseImageOverride': { overrideExerciseImage: override }, '@/state/exerciseImageFiles': { downloadExerciseImage: download }, '@/state/exercisePhotoPicker': {}, '@/state/exerciseHistoryPresenter': {},
   };
   const output = ts.transpileModule(source ?? fs.readFileSync(path.join(__dirname, '../app/exercise/[id].tsx'), 'utf8'), { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS } }).outputText;
   const exports: any = {};
