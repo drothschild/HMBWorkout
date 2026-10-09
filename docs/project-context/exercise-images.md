@@ -445,4 +445,25 @@ with or without images (`src/export/exerciseImageExportBoundary.test.ts`).
   invariant (AI Coach, "One key per install") makes that state unreachable through
   the UI; it is documented in `exerciseImageFiles.ts` rather than special-cased.
 
+## Web image fallback build flag (#397)
+
+Both Bing callers in `src/state/exerciseWebImages.ts` — the automatic fallback
+(`searchExerciseWebImages`, wired through `resolveWebImageSearch` in
+`createExerciseImageResolverDeps`) and the manual picker
+(`searchExerciseImageChoices`, behind the "Search exercise images" control on the
+exercise screen) — are gated by `webImageFallbackEnabled` in
+`src/state/buildFlags.ts`.
+
+- Variable: `EXPO_PUBLIC_WEB_IMAGE_FALLBACK`, read at build time (Metro inlines
+  `EXPO_PUBLIC_*`). Only the exact value `1` enables web images.
+- Default: unset means off, so an App Store build needs no extra configuration
+  and ships only the bundled free-exercise-db images, user photos and
+  user-entered URLs.
+- Build profile: personal and dev builds set `EXPO_PUBLIC_WEB_IMAGE_FALLBACK=1`
+  (for example `EXPO_PUBLIC_WEB_IMAGE_FALLBACK=1 npx expo start`); the store/release
+  profile leaves it unset.
+- Off means: the resolver gets no `searchWebImages` (a catalog miss writes
+  `none` or `none:nokey`, never `web:none`), `searchExerciseImageChoices` returns
+  `[]` without fetching, and the exercise screen hides the control.
+
 [Back to reference index](README.md)

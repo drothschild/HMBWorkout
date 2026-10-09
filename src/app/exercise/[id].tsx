@@ -10,6 +10,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ExerciseImageSearch } from '@/components/ExerciseImageSearch';
+import { webImageFallbackEnabled } from '@/state/buildFlags';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
@@ -26,6 +27,8 @@ import {
 } from '@/state/exerciseHistoryPresenter';
 
 const AUTOSAVE_DELAY_MS = 500;
+/** #397: web image search is a dev/personal-build opt-in (EXPO_PUBLIC_WEB_IMAGE_FALLBACK=1). */
+const webImageSearchEnabled = webImageFallbackEnabled();
 
 export default function ExerciseDetailScreen() {
   const router = useRouter();
@@ -415,18 +418,20 @@ export default function ExerciseDetailScreen() {
               {imageMessage.text}
             </ThemedText>
           )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Search exercise images"
-            accessibilityState={{ disabled: savingImage }}
-            disabled={savingImage}
-            style={styles.searchImagesButton}
-            onPress={() => {
-              if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
-            }}
-          >
-            <ThemedText style={styles.backButtonText}>Search images</ThemedText>
-          </Pressable>
+          {webImageSearchEnabled && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Search exercise images"
+              accessibilityState={{ disabled: savingImage }}
+              disabled={savingImage}
+              style={styles.searchImagesButton}
+              onPress={() => {
+                if (!imagePickerInFlightRef.current) setImageSearchOpen(true);
+              }}
+            >
+              <ThemedText style={styles.backButtonText}>Search images</ThemedText>
+            </Pressable>
+          )}
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
