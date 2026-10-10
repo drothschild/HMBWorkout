@@ -78,7 +78,7 @@ describe('manual routine editor wiring (#388)', () => {
     expect(source).toContain("from'react-native-safe-area-context'");
     expect(source).toContain('constinsets=useSafeAreaInsets();');
     const start = source.indexOf('if(picking)');
-    const end = source.indexOf('return(<ThemedViewstyle={styles.container}><ScrollView', start);
+    const end = source.indexOf('<ScrollView', start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const pickerBranch = source.slice(start, end);
