@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { Spacing } from '@/constants/theme';
+import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 
 const SHEET = process.env.NEW_EXERCISE_SHEET ?? join(__dirname, '..', 'components', 'NewExerciseSheet.tsx');
 const SCREEN = process.env.EXERCISES_SCREEN ?? join(__dirname, '..', 'app', '(tabs)', 'exercises.tsx');
@@ -27,7 +28,11 @@ function parseStyles(source: string): Record<string, Style> {
     }
   }
   // eslint-disable-next-line no-new-func
-  return new Function('Spacing', `return (${source.slice(open, end + 1)});`)(Spacing);
+  return new Function('Spacing', 'ActionButtonColor', 'StatusColor', `return (${source.slice(open, end + 1)});`)(
+    Spacing,
+    ActionButtonColor,
+    StatusColor
+  );
 }
 
 const CONTROLS = ['nameInput', 'typeRow', 'createButton', 'cancelButton'] as const;
