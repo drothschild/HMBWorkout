@@ -205,6 +205,14 @@ describe('buildSystem: AI Coach context builder', () => {
       );
     }, 30000);
 
+    it('asks for a best-effort YouTube URL without claiming popularity is verified', async () => {
+      const prompt = await buildSystem(database, { kind: 'create' });
+
+      expect(prompt).toContain(
+        'youtubeDemoUrl: optional HTTPS YouTube video URL for a best-effort demonstration. Only include a direct video URL when you are reasonably confident; do not claim that popularity, view count, availability, or quality has been independently verified. It takes effect only when the draft creates a brand-new exercise — an existing exercise keeps its current URL'
+      );
+    }, 30000);
+
     // coach-prescribed-weights.AC2.8, restated per set for #276 AC4.7. The
     // bound (positive, 0.5 grid) is unchanged; what moved is the level it
     // applies at — validateRoutineDraft now enforces it once per set.
