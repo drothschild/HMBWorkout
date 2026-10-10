@@ -24,6 +24,8 @@ const KINDS: { value: ExerciseKind; label: string }[] = [
   { value: 'stretch', label: 'Stretch' },
 ];
 
+const INITIAL_KIND: ExerciseKind = 'strength';
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -33,14 +35,14 @@ type Props = {
 export function NewExerciseSheet({ visible, onClose, onCreated }: Props) {
   const theme = useTheme();
   const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<ExerciseKind>('strength');
+  const [kind, setKind] = useState<ExerciseKind>(INITIAL_KIND);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const inFlightRef = useRef(false);
 
   const reset = () => {
     setTitle('');
-    setKind('strength');
+    setKind(INITIAL_KIND);
     setMessage(null);
   };
 
