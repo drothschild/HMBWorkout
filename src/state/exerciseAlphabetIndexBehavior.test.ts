@@ -20,8 +20,10 @@ describe('alphabet index behavior', () => {
 
   test('the component wires move/grant/release to the touch handlers', () => {
     const src = readFileSync(join(__dirname, '../components/ExerciseAlphabetIndex.tsx'), 'utf8');
-    expect(src).toContain('onResponderMove={(e) => touch.move(e.nativeEvent.locationY)}');
-    expect(src).toContain('onResponderGrant={(e) => touch.grant(e.nativeEvent.locationY)}');
+    // Positions come from pageY (see exerciseAlphabetIndexPageY.test.ts): locationY is
+    // relative to the touched child and broke tap and drag on device.
+    expect(src).toContain('onResponderMove={(e) => touch.move(e.nativeEvent.pageY)}');
+    expect(src).toContain('touch.grant(pageY)');
     expect(src).toContain('onResponderRelease={touch.release}');
   });
 
