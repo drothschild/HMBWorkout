@@ -1,8 +1,9 @@
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ExerciseImage } from '@/components/ExerciseImage';
+import { NewExerciseSheet } from '@/components/NewExerciseSheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -20,6 +21,7 @@ export default function ExercisesScreen() {
   const [exercises, setExercises] = useState<ExerciseLibraryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const generationRef = useRef(0);
   const filteredExercises = useMemo(
     () => filterExerciseLibraryItems(exercises, searchQuery),
@@ -50,6 +52,27 @@ export default function ExercisesScreen() {
   );
 
   return (
+    <>
+    <Tabs.Screen
+      options={{
+        headerRight: () => (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New exercise"
+            hitSlop={Spacing.two}
+            onPress={() => setIsCreateOpen(true)}
+            style={styles.newExerciseButton}
+          >
+            <ThemedText style={styles.newExercisePlus}>+</ThemedText>
+          </Pressable>
+        ),
+      }}
+    />
+    <NewExerciseSheet
+      visible={isCreateOpen}
+      onClose={() => setIsCreateOpen(false)}
+      onCreated={(exerciseId) => router.push(`/exercise/${exerciseId}`)}
+    />
     <ThemedView style={styles.container}>
       <View style={styles.safeArea}>
         <TextInput
@@ -112,6 +135,7 @@ export default function ExercisesScreen() {
         )}
       </View>
     </ThemedView>
+    </>
   );
 }
 
@@ -141,6 +165,17 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
     width: '100%',
+  },
+  newExerciseButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.two,
+  },
+  newExercisePlus: {
+    fontSize: 28,
+    lineHeight: 32,
   },
   searchInput: {
     minHeight: 44,
