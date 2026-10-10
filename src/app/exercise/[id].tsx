@@ -10,12 +10,15 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ExerciseImage } from '@/components/ExerciseImage';
 import { ExerciseImageSearch } from '@/components/ExerciseImageSearch';
+import YouTubeDemo from '@/components/YouTubeDemo';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ActionButtonColor, StatusColor } from '@/theme/actionButtonColors';
 import { database } from '@/db';
 import Exercise from '@/db/models/Exercise';
-import { updateExerciseDescription } from '@/db/repository';
+import { updateExerciseDescription, updateExerciseYouTubeDemoUrl } from '@/db/repository';
+import { parseYouTubeDemoUrl } from '@/domain/youtubeDemoUrl';
+import { describeYouTubePlayerFailure, type YouTubePlayerFailure } from '@/domain/youtubePlayer';
 import { requestExerciseImagePass, refreshExerciseImage } from '@/state/exerciseImageResolverRegistry';
 import { overrideExerciseImage, replaceExerciseImageFromLocalUri } from '@/state/exerciseImageOverride';
 import { copyExerciseImage, downloadExerciseImage, deleteExerciseImage, makeExerciseImageSuffix } from '@/state/exerciseImageFiles';
@@ -26,6 +29,9 @@ import {
 } from '@/state/exerciseHistoryPresenter';
 
 const AUTOSAVE_DELAY_MS = 500;
+const YOUTUBE_DEMO_LOAD_TIMEOUT_MS = 10_000;
+
+type YouTubeDemoPlayerState = 'idle' | 'loading' | 'ready' | 'failed';
 
 export default function ExerciseDetailScreen() {
   const router = useRouter();
@@ -54,6 +60,16 @@ export default function ExerciseDetailScreen() {
   const [historyError, setHistoryError] = useState<string | null>(null);
 
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
+
+  // YouTube demonstration (#390). Hooks stay above the early return below.
+  const [youtubeDemoUrl, setYouTubeDemoUrl] = useState('');
+  const [savedYouTubeDemoUrl, setSavedYouTubeDemoUrl] = useState<string | null>(null);
+  const [youtubeDemoMessage, setYouTubeDemoMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [savingYouTubeDemo, setSavingYouTubeDemo] = useState(false);
+  const [youtubeDemoPlayerState, setYoutubeDemoPlayerState] = useState<YouTubeDemoPlayerState>('idle');
+  const [youtubeDemoFailure, setYouTubeDemoFailure] = useState<YouTubePlayerFailure | null>(null);
+  const [youtubeDemoAttempt, setYoutubeDemoAttempt] = useState(0);
+  const youtubeDemoLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -96,6 +112,8 @@ export default function ExerciseDetailScreen() {
         // asks the background resolver for a pass. No-op until it has started.
         if (!found.imagePath) requestExerciseImagePass();
         setDescription(found.description ?? '');
+        setYouTubeDemoUrl(found.youtubeDemoUrl ?? '');
+        setSavedYouTubeDemoUrl(found.youtubeDemoUrl ?? null);
       } catch (error) {
         console.error('Failed to load exercise:', error);
       } finally {
@@ -299,15 +317,83 @@ export default function ExerciseDetailScreen() {
       });
   };
 
+  const clearYouTubeDemoLoadTimer = useCallback(() => {
+    if (youtubeDemoLoadTimerRef.current) {
+      clearTimeout(youtubeDemoLoadTimerRef.current);
+      youtubeDemoLoadTimerRef.current = null;
+    }
+  }, []);
+
+  const failYouTubeDemo = (failure: YouTubePlayerFailure) => {
+    clearYouTubeDemoLoadTimer();
+    console.warn('YouTube demonstration failed:', failure, describeYouTubePlayerFailure(failure));
+    setYouTubeDemoFailure(failure);
+    setYoutubeDemoPlayerState('failed');
+  };
+
+  const readyYouTubeDemo = () => {
+    clearYouTubeDemoLoadTimer();
+    setYoutubeDemoPlayerState((state) => (state === 'loading' ? 'ready' : state));
+  };
+
+  const openYouTubeDemo = () => {
+    clearYouTubeDemoLoadTimer();
+    setYouTubeDemoFailure(null);
+    setYoutubeDemoPlayerState('loading');
+    setYoutubeDemoAttempt((attempt) => attempt + 1);
+    youtubeDemoLoadTimerRef.current = setTimeout(() => {
+      youtubeDemoLoadTimerRef.current = null;
+      failYouTubeDemo({ cause: 'timeout' });
+    }, YOUTUBE_DEMO_LOAD_TIMEOUT_MS);
+  };
+
+  const dismissYouTubeDemo = () => {
+    clearYouTubeDemoLoadTimer();
+    setYouTubeDemoFailure(null);
+    setYoutubeDemoPlayerState('idle');
+  };
+
+  const applyYouTubeDemoUrl = async () => {
+    if (!id || savingYouTubeDemo) return;
+
+    const blank = youtubeDemoUrl.trim() === '';
+    const parsed = blank ? null : parseYouTubeDemoUrl(youtubeDemoUrl);
+    if (!blank && !parsed) {
+      setYouTubeDemoMessage({ text: 'Enter a valid HTTPS YouTube video URL.', isError: true });
+      return;
+    }
+
+    setSavingYouTubeDemo(true);
+    try {
+      await updateExerciseYouTubeDemoUrl(database, id, youtubeDemoUrl);
+      const canonicalUrl = parsed?.canonicalUrl ?? null;
+      clearYouTubeDemoLoadTimer();
+      setYouTubeDemoUrl(canonicalUrl ?? '');
+      setSavedYouTubeDemoUrl(canonicalUrl);
+      setYouTubeDemoFailure(null);
+      setYoutubeDemoPlayerState('idle');
+      setYouTubeDemoMessage({ text: canonicalUrl ? 'Video saved.' : 'Video cleared.', isError: false });
+    } catch (error) {
+      console.error('Failed to save YouTube demonstration:', error);
+      setYouTubeDemoMessage({ text: "Couldn't save that video. Try again.", isError: true });
+    } finally {
+      setSavingYouTubeDemo(false);
+    }
+  };
+
   // Flush any pending changes on unmount. If the flush fails mid-flight and setState
   // is called on an unmounted component, it's a no-op (React ignores it), so hasPendingRef
   // may remain true. This is a tiny race window and acceptable: the next session load
   // will see the value in the component and can save again if needed.
   useEffect(() => () => flush(), [flush]);
+  useEffect(() => () => clearYouTubeDemoLoadTimer(), [clearYouTubeDemoLoadTimer]);
 
   const textInputColor = theme.text;
   const placeholderColor = theme.textSecondary;
   const useGlassEffect = glassEffectAvailable && !reduceTransparency;
+  const youtubeDemo = savedYouTubeDemoUrl ? parseYouTubeDemoUrl(savedYouTubeDemoUrl) : null;
+  const youtubeDemoPlayerVisible =
+    youtubeDemoPlayerState === 'loading' || youtubeDemoPlayerState === 'ready';
 
   const photoAction = (kind: 'camera' | 'library' | 'refresh') => {
     const label = kind === 'camera' ? 'Take exercise photo' : kind === 'library' ? 'Choose exercise photo' : 'Refresh exercise image';
@@ -427,6 +513,57 @@ export default function ExerciseDetailScreen() {
           >
             <ThemedText style={styles.backButtonText}>Search images</ThemedText>
           </Pressable>
+          {youtubeDemo && (
+            <ThemedView style={styles.videoSection}>
+              {youtubeDemoPlayerVisible && (
+                <View style={styles.videoFrame}>
+                  <YouTubeDemo
+                    videoId={youtubeDemo.videoId}
+                    key={youtubeDemoAttempt}
+                    onReady={readyYouTubeDemo}
+                    onFailure={failYouTubeDemo}
+                  />
+                </View>
+              )}
+              {youtubeDemoPlayerState === 'loading' && (
+                <ThemedText type="small" style={styles.caption}>
+                  Loading demonstration…
+                </ThemedText>
+              )}
+              {youtubeDemoPlayerState === 'failed' && (
+                <>
+                  <ThemedText type="small" style={styles.errorMessage}>
+                    {"Couldn't load the YouTube demonstration."}{' '}
+                    {youtubeDemoFailure ? describeYouTubePlayerFailure(youtubeDemoFailure) : ''} Check your
+                    connection, then retry or replace its URL.
+                  </ThemedText>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={openYouTubeDemo}
+                    style={({ pressed }) => [styles.videoButton, pressed && styles.backButtonPressed]}
+                  >
+                    <ThemedText style={styles.backButtonText}>Retry demonstration</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={dismissYouTubeDemo}
+                    style={({ pressed }) => [styles.videoButton, pressed && styles.backButtonPressed]}
+                  >
+                    <ThemedText style={styles.backButtonText}>Dismiss</ThemedText>
+                  </Pressable>
+                </>
+              )}
+              {youtubeDemoPlayerState === 'idle' && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={openYouTubeDemo}
+                  style={({ pressed }) => [styles.videoButton, pressed && styles.backButtonPressed]}
+                >
+                  <ThemedText style={styles.backButtonText}>Watch demonstration</ThemedText>
+                </Pressable>
+              )}
+            </ThemedView>
+          )}
           <ThemedText type="small" style={styles.kind}>
             {exercise.kind}
           </ThemedText>
@@ -438,6 +575,42 @@ export default function ExerciseDetailScreen() {
               {saveError}
             </ThemedText>
           )}
+
+          <ThemedView style={styles.formGroup}>
+            <ThemedText type="default" style={styles.label}>
+              YouTube demonstration URL
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { color: textInputColor, borderColor: theme.backgroundSelected }]}
+              placeholder="https://www.youtube.com/watch?v=…"
+              placeholderTextColor={placeholderColor}
+              value={youtubeDemoUrl}
+              onChangeText={(value) => {
+                setYouTubeDemoUrl(value);
+                setYouTubeDemoMessage(null);
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="done"
+              onSubmitEditing={applyYouTubeDemoUrl}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={savingYouTubeDemo}
+              onPress={applyYouTubeDemoUrl}
+              style={({ pressed }) => [styles.videoButton, pressed && styles.backButtonPressed]}
+            >
+              <ThemedText style={styles.backButtonText}>
+                {savingYouTubeDemo ? 'Saving…' : 'Use this video'}
+              </ThemedText>
+            </Pressable>
+            {youtubeDemoMessage && (
+              <ThemedText type="small" style={youtubeDemoMessage.isError ? styles.errorMessage : styles.caption}>
+                {youtubeDemoMessage.text}
+              </ThemedText>
+            )}
+          </ThemedView>
 
           <ThemedView style={styles.formGroup}>
             <ThemedText type="default" style={styles.label}>
@@ -569,6 +742,21 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
   searchImagesButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
+  },
+  videoSection: {
+    gap: Spacing.one,
+  },
+  videoFrame: {
+    aspectRatio: 16 / 9,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+  },
+  videoButton: {
     minHeight: 44,
     justifyContent: 'center',
     alignSelf: 'flex-start',

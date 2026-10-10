@@ -13,5 +13,6 @@ export default class Exercise extends Model {
   @text('description') description?: string | null;
   @text('image_path') imagePath!: string | null;
   @text('image_source') imageSource!: string | null;
+  @text('youtube_demo_url') youtubeDemoUrl!: string | null;
   @readonly @date('created_at') createdAt!: Date;
 }
