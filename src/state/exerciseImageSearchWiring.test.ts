@@ -16,6 +16,8 @@ function harness(source?: string) {
     'react/jsx-runtime': { jsx: (type: string, props: any) => ({ type, props }), jsxs: (type: string, props: any) => ({ type, props }) },
     'react-native': { ...Object.fromEntries(['TextInput', 'Pressable', 'ScrollView', 'View'].map(n => [n, n])), StyleSheet: { create: (s: any) => s }, AccessibilityInfo: {} },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
+    '@/components/YouTubeDemo': { default: 'YouTubeDemo' }, '@/domain/youtubeDemoUrl': { parseYouTubeDemoUrl: () => null },
+    '@/domain/youtubePlayer': { describeYouTubePlayerFailure: () => '' },
     'expo-router': { useRouter: () => ({}), useLocalSearchParams: () => ({ id: 'row-id' }), useFocusEffect: () => {} },
     'expo-image-picker': {}, 'expo-glass-effect': { isGlassEffectAPIAvailable: () => false, isLiquidGlassAvailable: () => false, GlassView: 'GlassView' }, 'expo-symbols': { SymbolView: 'SymbolView' },
     '@/components/themed-text': { ThemedText: 'ThemedText' }, '@/components/themed-view': { ThemedView: 'ThemedView' }, '@/components/ExerciseImage': { ExerciseImage: 'ExerciseImage' }, '@/components/ExerciseImageSearch': { ExerciseImageSearch: 'ExerciseImageSearch' },

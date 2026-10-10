@@ -34,7 +34,7 @@ export async function acceptDraft(db: Database, draft: RoutineDraft, mode: AiCoa
       const existing = await exercisesTable.query(Q.where('id', slug)).fetchCount();
       if (existing === 0) {
         const normalizedTitle = normalizeWhitespace(ex.title);
-        await upsertExercise(db, slug, normalizedTitle, ex.kind, ex.description);
+        await upsertExercise(db, slug, normalizedTitle, ex.kind, ex.description, ex.youtubeDemoUrl);
       }
     }
   }
