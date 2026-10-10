@@ -60,3 +60,34 @@ export function createIndexTouchHandlers(
     },
   };
 }
+
+/** Letter under a touch at screen position `pageY`, for a strip whose top is at `top` (page coords). */
+export function letterAtPageY(pageY: number, top: number, height: number): string {
+  return letterAtPosition(pageY - top, height);
+}
+
+/**
+ * Like createIndexTouchHandlers but driven by page coordinates, so the result does not depend
+ * on which child view of the strip the touch event targets.
+ */
+export function createPageYTouchHandlers(
+  getTop: () => number,
+  getHeight: () => number,
+  onSelect: (letter: string) => void
+) {
+  const inner = createIndexTouchHandlers(getHeight, onSelect);
+  return {
+    grant: (pageY: number) => inner.grant(pageY - getTop()),
+    move: (pageY: number) => inner.move(pageY - getTop()),
+    release: inner.release,
+  };
+}
+
+/** Offset to jump to when scrollToIndex fails on unmeasured rows (average row height * index). */
+export function scrollOffsetForFailedIndex(info: {
+  index: number;
+  averageItemLength: number;
+}): number {
+  const rowHeight = info.averageItemLength > 0 ? info.averageItemLength : 100;
+  return info.index * rowHeight;
+}

@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { ALPHABET_INDEX_LETTERS, createIndexTouchHandlers } from '@/state/exerciseAlphabetIndex';
+import { ALPHABET_INDEX_LETTERS, createPageYTouchHandlers } from '@/state/exerciseAlphabetIndex';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Vertical A-Z strip; tap or drag selects a letter. */
 export function ExerciseAlphabetIndex({ onSelect }: { onSelect: (letter: string) => void }) {
   const theme = useTheme();
   const heightRef = useRef(0);
+  const topRef = useRef(0);
+  const containerRef = useRef<View>(null);
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -15,7 +17,8 @@ export function ExerciseAlphabetIndex({ onSelect }: { onSelect: (letter: string)
   // Refs are read only inside touch callbacks, never during render.
   // eslint-disable-next-line react-hooks/refs
   const [touch] = useState(() =>
-    createIndexTouchHandlers(
+    createPageYTouchHandlers(
+      () => topRef.current,
       () => heightRef.current,
       (letter) => onSelectRef.current(letter)
     )
@@ -23,6 +26,7 @@ export function ExerciseAlphabetIndex({ onSelect }: { onSelect: (letter: string)
 
   return (
     <View
+      ref={containerRef}
       accessibilityLabel="Alphabet index"
       style={styles.container}
       onLayout={(e) => {
@@ -30,8 +34,17 @@ export function ExerciseAlphabetIndex({ onSelect }: { onSelect: (letter: string)
       }}
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
-      onResponderGrant={(e) => touch.grant(e.nativeEvent.locationY)}
-      onResponderMove={(e) => touch.move(e.nativeEvent.locationY)}
+      onResponderTerminationRequest={() => false}
+      onResponderGrant={(e) => {
+        // pageY and the strip's measured page position do not depend on which child was hit.
+        const pageY = e.nativeEvent.pageY;
+        containerRef.current?.measure((_x, _y, _w, height, _px, py) => {
+          topRef.current = py;
+          heightRef.current = height;
+          touch.grant(pageY);
+        });
+      }}
+      onResponderMove={(e) => touch.move(e.nativeEvent.pageY)}
       onResponderRelease={touch.release}
     >
       {ALPHABET_INDEX_LETTERS.map((letter) => (

@@ -13,7 +13,7 @@ import {
   exerciseLibraryPresenter,
   filterExerciseLibraryItems,
 } from '@/state/exerciseLibraryPresenter';
-import { targetIndexForLetter } from '@/state/exerciseAlphabetIndex';
+import { scrollOffsetForFailedIndex, targetIndexForLetter } from '@/state/exerciseAlphabetIndex';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function ExercisesScreen() {
@@ -98,9 +98,20 @@ export default function ExercisesScreen() {
           <FlatList
             ref={listRef}
             showsVerticalScrollIndicator={false}
-            onScrollToIndexFailed={({ index }) =>
-              listRef.current?.scrollToOffset({ offset: index * 100, animated: false })
-            }
+            onScrollToIndexFailed={(info) => {
+              // Rows vary in height: jump near the target so it renders, then retry exactly.
+              listRef.current?.scrollToOffset({
+                offset: scrollOffsetForFailedIndex(info),
+                animated: false,
+              });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  viewPosition: 0,
+                  animated: false,
+                });
+              }, 50);
+            }}
             data={filteredExercises}
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
